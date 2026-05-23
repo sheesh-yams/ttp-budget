@@ -5,12 +5,13 @@ import { recordInvoiceView } from '@/server/actions/invoices'
 import { headers } from 'next/headers'
 
 interface Props {
-  params: { token: string }
+  params: Promise<{ token: string }>
 }
 
 export async function generateMetadata({ params }: Props) {
+  const { token } = await params
   const invoice = await db.invoice.findUnique({
-    where: { publicToken: params.token },
+    where: { publicToken: token },
     include: { client: true },
   })
   if (!invoice) return { title: 'Invoice not found' }
@@ -21,8 +22,9 @@ export async function generateMetadata({ params }: Props) {
 }
 
 export default async function PublicInvoicePage({ params }: Props) {
+  const { token } = await params
   const invoice = await db.invoice.findUnique({
-    where: { publicToken: params.token },
+    where: { publicToken: token },
     include: {
       client: true,
       project: true,
@@ -46,7 +48,7 @@ export default async function PublicInvoicePage({ params }: Props) {
     notFound()
   }
 
-  const headersList = headers()
+  const headersList = await headers()
   const ip = headersList.get('x-forwarded-for') ?? 'unknown'
   const ua = headersList.get('user-agent') ?? ''
   void recordInvoiceView(invoice.id, ip, ua)

@@ -3,10 +3,11 @@ import { db } from '@/lib/db'
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   const invoice = await db.invoice.findUnique({
-    where: { publicToken: params.id },
+    where: { publicToken: id },
     include: { client: true, project: true, workspace: true },
   })
 

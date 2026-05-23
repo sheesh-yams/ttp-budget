@@ -11,8 +11,9 @@ const schema = z.object({
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   const body = await req.json().catch(() => null)
   const parsed = schema.safeParse(body)
 
@@ -23,7 +24,7 @@ export async function POST(
   const { signatureName, proposalToken } = parsed.data
 
   const proposal = await db.proposal.findUnique({
-    where: { id: params.id, publicToken: proposalToken },
+    where: { id, publicToken: proposalToken },
     include: {
       project: { include: { client: true } },
       workspace: { select: { contactEmail: true } },
@@ -42,7 +43,7 @@ export async function POST(
     return NextResponse.json({ error: 'Cannot approve this proposal' }, { status: 400 })
   }
 
-  const headersList = headers()
+  const headersList = await headers()
   const ip = headersList.get('x-forwarded-for') ?? 'unknown'
 
   const now = new Date()

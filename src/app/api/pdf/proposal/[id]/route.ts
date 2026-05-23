@@ -6,11 +6,12 @@ import React from 'react'
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   // id here is the publicToken — no auth needed, but token must be valid
+  const { id } = await params
   const proposal = await db.proposal.findUnique({
-    where: { publicToken: params.id },
+    where: { publicToken: id },
     include: {
       project: { include: { client: true } },
       budget: true,
