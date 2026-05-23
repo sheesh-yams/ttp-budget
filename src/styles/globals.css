@@ -1,0 +1,104 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* shadcn/ui mapping to brand */
+    --background: 270 50% 98%;       /* #F7F4FA */
+    --foreground: 267 60% 5%;        /* #0A0612 */
+    --card: 0 0% 100%;
+    --card-foreground: 267 60% 5%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 267 60% 5%;
+    --primary: 275 100% 32%;         /* #5D00A4 violet-600 */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 270 50% 95%;        /* #F5EDFA violet-50 */
+    --secondary-foreground: 275 100% 15%;
+    --muted: 270 20% 96%;
+    --muted-foreground: 0 0% 54%;    /* #888780 */
+    --accent: 165 100% 51%;          /* #04FFCC mint-300 */
+    --accent-foreground: 165 100% 10%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 270 30% 90%;           /* #E8E0F0 */
+    --input: 270 30% 90%;
+    --ring: 275 100% 32%;
+    --radius: 0.625rem;
+
+    /* Brand tokens direct */
+    --color-violet: #5D00A4;
+    --color-mint: #04FFCC;
+    --color-ink: #0A0612;
+    --color-ink-soft: #1A1025;
+
+    /* Proposal/invoice gradient */
+    --gradient-cover:
+      radial-gradient(ellipse 70% 60% at 85% 30%, #5D00A4 0%, rgba(93,0,164,0.55) 35%, rgba(93,0,164,0) 70%),
+      radial-gradient(ellipse 50% 50% at 15% 80%, #04FFCC 0%, rgba(4,255,204,0.3) 35%, rgba(4,255,204,0) 70%),
+      radial-gradient(ellipse 60% 50% at 50% 45%, #7B1FBF 0%, rgba(123,31,191,0.2) 40%, rgba(10,6,18,0) 80%),
+      #0A0612;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+    box-sizing: border-box;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Budget grid row transitions */
+  .budget-row {
+    @apply transition-colors duration-100;
+  }
+
+  /* Proposal cover gradient (shared web + used as fallback in PDF) */
+  .proposal-cover {
+    background: var(--gradient-cover);
+    position: relative;
+    isolation: isolate;
+  }
+
+  /* Noise overlay — layered over gradient covers */
+  .noise-overlay::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    mix-blend-mode: overlay;
+    opacity: 0.6;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Custom scrollbar for budget editor */
+  .budget-scroll::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .budget-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .budget-scroll::-webkit-scrollbar-thumb {
+    background: #E8E0F0;
+    border-radius: 3px;
+  }
+  .budget-scroll::-webkit-scrollbar-thumb:hover {
+    background: #C99AEC;
+  }
+}
+
+/* Utility: money amounts always monospaced */
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+  }
+}

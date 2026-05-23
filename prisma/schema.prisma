@@ -1,0 +1,543 @@
+// The Third Place Creative — Budgeting & Invoicing
+// Prisma schema. Postgres on Neon.
+//
+// Design notes:
+// - Single workspace (single-tenant), but Workspace table exists so settings live somewhere coherent.
+// - Money stored as Int cents (avoid float drift). Convert at the edges.
+// - Soft delete via `archived_at` on the things you'd want to recover (projects, clients, rate cards).
+//   Hard delete is allowed on line items, accounts, phases — those churn too much for soft delete.
+// - Snapshots: line items reference a RateCard but copy `description`, `unit`, `rate` at insert time.
+//   Updating a rate card never mutates historical budgets.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================
+// WORKSPACE & USERS
+// =============================================================
+
+model Workspace {
+  id                String   @id @default(cuid())
+  name              String   // "The Third Place Creative"
+  legalName         String?  // for invoices: "The Third Place Creative LLC"
+  ein               String?  // tax ID for invoices
+  addressLine1      String?
+  addressLine2      String?
+  city              String?
+  region            String?  // state/province
+  postalCode        String?
+  country           String?  @default("US")
+  contactEmail      String?
+  contactPhone      String?
+  website           String?
+
+  // Branding (used by proposal/invoice templates)
+  logoUrl           String?  // light bg version
+  logoDarkUrl       String?  // dark bg version
+  primaryColor      String   @default("#000000")
+  accentColor       String   @default("#FFD400") // placeholder — yr brand acid yellow
+  bodyFont          String   @default("Inter")
+  displayFont       String   @default("Inter")
+
+  // Defaults that flow into new budgets/invoices
+  defaultMarkupPct  Decimal  @default(0)        @db.Decimal(6, 4) // e.g. 0.20 = 20%
+  defaultTaxPct     Decimal  @default(0)        @db.Decimal(6, 4)
+  defaultPaymentTermsDays Int @default(30)
+  invoiceNumberPrefix String @default("TTP")    // TTP-2026-001
+  invoiceNumberSeq  Int      @default(0)        // last issued seq for current year
+  invoiceNumberYear Int?
+
+  // Payment instructions shown on invoice public page
+  wireInstructions  String?  @db.Text
+  achInstructions   String?  @db.Text
+  checkPayableTo    String?
+  checkMailingAddress String? @db.Text
+
+  // Default proposal/invoice terms text
+  defaultProposalTerms String? @db.Text
+  defaultInvoiceTerms  String? @db.Text
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  users             User[]
+  clients           Client[]
+  projects          Project[]
+  rateCards         RateCard[]
+  templates         BudgetTemplate[]
+  budgets           Budget[]
+  proposals         Proposal[]
+  invoices          Invoice[]
+}
+
+enum UserRole {
+  OWNER
+  PRODUCER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  clerkId      String   @unique // mapped from Clerk
+  email        String   @unique
+  name         String?
+  avatarUrl    String?
+  role         UserRole @default(PRODUCER)
+
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  createdProjects  Project[]   @relation("ProjectCreatedBy")
+  createdBudgets   Budget[]    @relation("BudgetCreatedBy")
+  createdProposals Proposal[]  @relation("ProposalCreatedBy")
+  createdInvoices  Invoice[]   @relation("InvoiceCreatedBy")
+
+  @@index([workspaceId])
+}
+
+// =============================================================
+// CLIENTS & PROJECTS
+// =============================================================
+
+model Client {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  name           String   // "Hulu", "Tiffany & Co."
+  contactName    String?
+  contactEmail   String?
+  contactPhone   String?
+  billingAddress String?  @db.Text
+  logoUrl        String?  // optional, for co-branded proposals
+  notes          String?  @db.Text
+
+  archivedAt     DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  projects       Project[]
+  invoices       Invoice[]
+
+  @@index([workspaceId])
+  @@index([workspaceId, archivedAt])
+}
+
+enum ShootType {
+  MUSIC_VIDEO
+  BRAND_CAMPAIGN
+  PRODUCT_SHOOT
+  EVENT_RECAP
+  SOCIAL_CONTENT
+  INFLUENCER
+  DOCUMENTARY
+  OTHER
+}
+
+enum ProjectStatus {
+  LEAD
+  ACTIVE
+  WRAPPED
+  ARCHIVED
+}
+
+model Project {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  clientId       String
+  client         Client   @relation(fields: [clientId], references: [id], onDelete: Restrict)
+
+  name           String   // "Hulu — Summer 2026 Sizzle"
+  code           String?  // optional internal code, e.g. "HUL-26-SUM"
+  shootType      ShootType @default(OTHER)
+  status         ProjectStatus @default(LEAD)
+  shootStartDate DateTime?
+  shootEndDate   DateTime?
+  coverImageUrl  String?
+  description    String?  @db.Text
+  notes          String?  @db.Text
+
+  createdById    String?
+  createdBy      User?    @relation("ProjectCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  archivedAt     DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  budgets        Budget[]
+  proposals      Proposal[]
+  invoices       Invoice[]
+
+  @@index([workspaceId])
+  @@index([clientId])
+  @@index([workspaceId, status])
+}
+
+// =============================================================
+// RATE CARDS — the master list
+// =============================================================
+
+enum RateCategory {
+  CREW
+  EQUIPMENT
+  POST
+  LOCATION
+  TALENT
+  TRAVEL
+  CATERING
+  INSURANCE
+  PRODUCTION_FEE
+  MISC
+}
+
+enum RateUnit {
+  HOUR
+  HALF_DAY
+  DAY
+  WEEK
+  FLAT
+  EACH
+  MILE
+}
+
+model RateCard {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  role          String   // "Videographer", "Gaffer", "1st AC", "RED Komodo Package"
+  category      RateCategory
+  defaultUnit   RateUnit @default(DAY)
+  defaultRateCents Int   // money in cents
+  notes         String?  @db.Text
+
+  // For autocomplete ranking + filtering
+  searchTokens  String?  // pre-computed lowercase tokens; updated on save
+  isFavorite    Boolean  @default(false)
+  usageCount    Int      @default(0) // incremented when added to a budget line; powers "frequently used" sort
+
+  archivedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  lineItems     LineItem[]
+
+  @@index([workspaceId])
+  @@index([workspaceId, category])
+  @@index([workspaceId, archivedAt])
+}
+
+// =============================================================
+// BUDGET TEMPLATES — saved skeletons
+// =============================================================
+
+model BudgetTemplate {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  name          String   // "Music Video — Standard Crew"
+  description   String?  @db.Text
+  shootType     ShootType @default(OTHER)
+
+  // Stored as a JSON tree of accounts + line items.
+  // Materialized into real rows when a Budget is created from this template.
+  // Shape: { accounts: [{ name, code, items: [{ description, rateCardId?, qty, unit, rateCents, markupPct, notes, tags[] }], children: [...] }] }
+  structure     Json
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([workspaceId])
+}
+
+// =============================================================
+// BUDGETS — Phases, Accounts, Line Items
+// =============================================================
+
+model Budget {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name          String   // "Main Budget" — usually just one per project, but you can have more
+  notes         String?  @db.Text
+
+  // Globals: { shoot_days: 2, prep_days: 1, post_days: 5, ... } — referenced in formulas
+  globals       Json     @default("{}")
+
+  // Default markup/tax applied at budget level (overrides workspace default)
+  markupPct     Decimal? @db.Decimal(6, 4)
+  taxPct        Decimal? @db.Decimal(6, 4)
+
+  createdById   String?
+  createdBy     User?    @relation("BudgetCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  phases        Phase[]
+  proposals     Proposal[]
+  invoices      Invoice[]
+
+  @@index([projectId])
+  @@index([workspaceId])
+}
+
+model Phase {
+  id            String   @id @default(cuid())
+  budgetId      String
+  budget        Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+
+  name          String   // "v1 Client Send", "v2 With Notes", "Approved"
+  order         Int      @default(0)
+  isLocked      Boolean  @default(false) // approved phases get locked
+  isPrimary     Boolean  @default(false) // the one used by default for proposals/invoices
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  accounts      Account[]
+
+  @@index([budgetId])
+  @@unique([budgetId, name])
+}
+
+model Account {
+  id            String   @id @default(cuid())
+  phaseId       String
+  phase         Phase    @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+
+  // Self-referencing tree
+  parentId      String?
+  parent        Account? @relation("AccountTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children      Account[] @relation("AccountTree")
+
+  name          String   // "Pre-Production", "Crew", "Camera Package"
+  code          String?  // optional account code, "1000", "1100"
+  order         Int      @default(0)
+  notes         String?  @db.Text
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  lineItems     LineItem[]
+
+  @@index([phaseId])
+  @@index([parentId])
+}
+
+model LineItem {
+  id            String   @id @default(cuid())
+  accountId     String
+  account       Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  // Snapshot from RateCard at insert time. rateCardId is nullable for ad-hoc lines.
+  rateCardId    String?
+  rateCard      RateCard? @relation(fields: [rateCardId], references: [id], onDelete: SetNull)
+
+  description   String   // editable; defaults to rateCard.role
+  quantity      Decimal  @db.Decimal(12, 4) @default(1)
+  unit          RateUnit @default(DAY)
+  rateCents     Int      // money in cents; snapshot from rate card, manually adjustable
+  markupPct     Decimal? @db.Decimal(6, 4) // optional per-line markup override
+  notes         String?  @db.Text
+
+  // Optional formula string for quantity, e.g. "shoot_days + 1". If set, qty is computed.
+  quantityFormula String?
+
+  // Tags for filtering — array of strings
+  tags          String[]
+
+  order         Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([accountId])
+  @@index([rateCardId])
+}
+
+// =============================================================
+// PROPOSALS — client-facing presentations
+// =============================================================
+
+enum ProposalStatus {
+  DRAFT
+  SENT
+  VIEWED
+  APPROVED
+  DECLINED
+  EXPIRED
+}
+
+enum ProposalDetailLevel {
+  SUMMARY      // totals by account only
+  ITEMIZED     // every line item visible
+  HYBRID       // top accounts itemized, the rest summarized
+}
+
+model Proposal {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  budgetId      String
+  budget        Budget   @relation(fields: [budgetId], references: [id], onDelete: Restrict)
+  phaseId       String?  // which phase to render; defaults to primary
+
+  // Identity & sharing
+  title         String   // "Hulu — Summer 2026 Sizzle Proposal"
+  publicToken   String   @unique @default(cuid()) // /p/[publicToken]
+  version       Int      @default(1)
+
+  // Content — JSON so we can iterate on shape without migrations
+  // { cover: {...}, sections: [{ type: 'about'|'scope'|'budget'|'terms'|'custom', ... }] }
+  content       Json     @default("{}")
+  detailLevel   ProposalDetailLevel @default(SUMMARY)
+
+  // Brand overrides — null = inherit from workspace
+  brandOverrides Json?   // { primaryColor?, accentColor?, logoUrl?, useClientLogo?, ... }
+
+  // Status & lifecycle
+  status        ProposalStatus @default(DRAFT)
+  sentAt        DateTime?
+  expiresAt     DateTime?
+  firstViewedAt DateTime?
+  lastViewedAt  DateTime?
+  viewCount     Int      @default(0)
+
+  // Approval (typed signature)
+  approvedAt    DateTime?
+  signatureName String?  // typed name
+  signatureIp   String?
+  declinedAt    DateTime?
+  declineReason String?  @db.Text
+
+  // Snapshot of the totals at time of approval — preserves the number the client agreed to
+  approvedTotalCents Int?
+
+  createdById   String?
+  createdBy     User?    @relation("ProposalCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  views         ProposalView[]
+
+  @@index([projectId])
+  @@index([workspaceId])
+  @@index([status])
+}
+
+// Track every public page view (for "client just opened your proposal" notifications)
+model ProposalView {
+  id           String   @id @default(cuid())
+  proposalId   String
+  proposal     Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  viewedAt     DateTime @default(now())
+  ip           String?
+  userAgent    String?  @db.Text
+  referer      String?
+
+  @@index([proposalId])
+}
+
+// =============================================================
+// INVOICES
+// =============================================================
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  VIEWED
+  PAID
+  OVERDUE
+  VOID
+}
+
+enum InvoiceKind {
+  DEPOSIT       // e.g. 50% upfront
+  PROGRESS      // milestone
+  FINAL         // remainder
+  STANDALONE    // not tied to a specific budget structure
+}
+
+model Invoice {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  clientId      String
+  client        Client   @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  budgetId      String?
+  budget        Budget?  @relation(fields: [budgetId], references: [id], onDelete: SetNull)
+
+  // Identity & sharing
+  number        String   // "TTP-2026-001" — unique per workspace
+  publicToken   String   @unique @default(cuid()) // /i/[publicToken]
+  kind          InvoiceKind @default(STANDALONE)
+
+  title         String?  // "50% Deposit — Hulu Summer Sizzle"
+  issueDate     DateTime @default(now())
+  dueDate       DateTime
+  poNumber      String?  // client's PO
+
+  // Embedded line items — invoices don't share the budget tree
+  // [{ description, quantity, unit, rateCents, lineTotalCents, notes }]
+  lineItems     Json     @default("[]")
+
+  subtotalCents Int      @default(0)
+  taxPct        Decimal  @default(0) @db.Decimal(6, 4)
+  taxCents      Int      @default(0)
+  discountCents Int      @default(0)
+  totalCents    Int      @default(0)
+  amountPaidCents Int    @default(0)
+
+  // Notes / terms shown to client
+  notes         String?  @db.Text
+  terms         String?  @db.Text
+
+  status        InvoiceStatus @default(DRAFT)
+  sentAt        DateTime?
+  firstViewedAt DateTime?
+  lastViewedAt  DateTime?
+  viewCount     Int      @default(0)
+  paidAt        DateTime?
+  paymentMethod String?  // freeform v1; enum later when Stripe lands
+  paymentRef    String?  // wire confirmation #, check #, etc.
+
+  createdById   String?
+  createdBy     User?    @relation("InvoiceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  views         InvoiceView[]
+
+  @@unique([workspaceId, number])
+  @@index([projectId])
+  @@index([clientId])
+  @@index([workspaceId, status])
+  @@index([dueDate])
+}
+
+model InvoiceView {
+  id           String   @id @default(cuid())
+  invoiceId    String
+  invoice      Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  viewedAt     DateTime @default(now())
+  ip           String?
+  userAgent    String?  @db.Text
+  referer      String?
+
+  @@index([invoiceId])
+}
