@@ -31,7 +31,7 @@ export async function GET(
 
     const filename = `TTP-Proposal-${proposal.project.name.replace(/[^a-z0-9]/gi, '-')}.pdf`
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
