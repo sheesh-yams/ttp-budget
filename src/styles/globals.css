@@ -1,3 +1,6 @@
+/* DEBUG */
+html { outline: 4px solid red !important; }
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
