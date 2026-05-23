@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { renderToBuffer } from '@react-pdf/renderer'
+import type { DocumentProps } from '@react-pdf/renderer'
 import { db } from '@/lib/db'
 import { ProposalPDF } from '@/components/proposal/ProposalPDF'
 import React from 'react'
@@ -25,7 +26,7 @@ export async function GET(
 
   try {
     const buffer = await renderToBuffer(
-      React.createElement(ProposalPDF, { proposal })
+      React.createElement(ProposalPDF, { proposal }) as React.ReactElement<DocumentProps>
     )
 
     const filename = `TTP-Proposal-${proposal.project.name.replace(/[^a-z0-9]/gi, '-')}.pdf`
