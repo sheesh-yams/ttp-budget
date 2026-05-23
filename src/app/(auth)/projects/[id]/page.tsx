@@ -4,6 +4,7 @@ import { ChevronLeft, Calendar, User } from 'lucide-react'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
 import { BudgetEditor } from '@/components/projects/BudgetEditor'
+import { ProjectProposals } from '@/components/projects/ProjectProposals'
 import { createBudget } from '@/server/actions/budgets'
 import { Button } from '@/components/ui/button'
 import { formatMoney } from '@/lib/money'
@@ -72,6 +73,20 @@ export default async function ProjectDetailPage({
           },
         },
       },
+      proposals: {
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          publicToken: true,
+          version: true,
+          createdAt: true,
+          expiresAt: true,
+          signatureName: true,
+          approvedAt: true,
+        },
+      },
     },
   })
 
@@ -79,7 +94,7 @@ export default async function ProjectDetailPage({
 
   const budget = project.budgets[0] ?? null
 
-  // Calculate grand total from primary phase
+  // Grand total from primary phase
   let grandTotalCents = 0
   if (budget) {
     const primaryPhase = budget.phases.find(p => p.isPrimary) ?? budget.phases[0]
@@ -141,10 +156,20 @@ export default async function ProjectDetailPage({
         )}
       </div>
 
+      {/* Proposals section */}
+      <section className="mb-8">
+        <ProjectProposals
+          proposals={project.proposals}
+          projectId={project.id}
+          projectName={project.name}
+          budgetId={budget?.id ?? null}
+          totalCents={grandTotalCents}
+        />
+      </section>
+
       {/* Budget section */}
       <section>
         <h2 className="mb-3 text-base font-semibold text-foreground">Budget</h2>
-
         {!budget ? (
           <NoBudget projectId={project.id} />
         ) : (

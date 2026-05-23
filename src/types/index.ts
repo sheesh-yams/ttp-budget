@@ -70,6 +70,19 @@ export type ProposalWithProject = Proposal & {
   budget: Budget
 }
 
+export type ProposalFull = Proposal & {
+  project: Project & { client: Client }
+  budget: Budget & {
+    phases: (Phase & {
+      accounts: AccountWithItems[]
+    })[]
+  }
+  workspace: Pick<
+    Workspace,
+    'name' | 'legalName' | 'contactEmail' | 'website' | 'contactPhone' | 'logoUrl'
+  >
+}
+
 export type InvoiceWithRelations = Invoice & {
   client: Client
   project: Project

@@ -3,8 +3,9 @@
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
 import { getWorkspaceId, getCurrentUser } from '@/lib/auth'
-import { nanoid } from 'nanoid'
 import type { ActionResult } from '@/types'
+
+function uid() { return crypto.randomUUID().slice(0, 8) }
 
 // ─── Create proposal from a budget ───────────────────────────────────────────
 
@@ -26,8 +27,8 @@ export async function createProposal(
           title: 'Payment terms',
           body: '',
           milestones: [
-            { id: nanoid(8), name: 'Deposit — on signing', percentPct: 50, trigger: 'on_signing' },
-            { id: nanoid(8), name: 'Final — on delivery', percentPct: 50, trigger: 'on_delivery' },
+            { id: uid(), name: 'Deposit — on signing', percentPct: 50, trigger: 'on_signing' },
+            { id: uid(), name: 'Final — on delivery', percentPct: 50, trigger: 'on_delivery' },
           ],
         },
       ],
@@ -110,6 +111,84 @@ export async function recordProposalView(
     })
   } catch (err) {
     console.error('Failed to record proposal view:', err)
+  }
+}
+
+// ─── Create + populate + send in one call (from NewProposalModal) ─────────────
+
+export async function createSentProposal(input: {
+  projectId: string
+  budgetId: string
+  title: string
+  about: string
+  deliverables: { title: string; description: string }[]
+  depositPct: number      // 0-100, remainder becomes final payment
+  expiresAt: string       // ISO date string
+  totalCents: number      // pre-computed from budget; stored for approval snapshot
+}): Promise<ActionResult<{ id: string; publicToken: string; publicUrl: string }>> {
+  try {
+    const user = await getCurrentUser()
+
+    const content = {
+      totalCents: input.totalCents,
+      sections: [
+        {
+          type: 'about',
+          title: 'The project',
+          body: input.about,
+        },
+        {
+          type: 'scope',
+          title: 'Deliverables',
+          items: input.deliverables.map((d, i) => ({
+            number: String(i + 1).padStart(2, '0'),
+            title: d.title,
+            description: d.description,
+          })),
+        },
+        { type: 'budget', detailLevel: 'SUMMARY' },
+        {
+          type: 'terms',
+          title: 'Payment terms',
+          body: '',
+          milestones: [
+            {
+              id: uid(),
+              name: 'Deposit — on signing',
+              percentPct: input.depositPct,
+              trigger: 'on_signing',
+            },
+            {
+              id: uid(),
+              name: 'Final — on delivery',
+              percentPct: 100 - input.depositPct,
+              trigger: 'on_delivery',
+            },
+          ],
+        },
+      ],
+    }
+
+    const proposal = await db.proposal.create({
+      data: {
+        workspaceId: user.workspaceId,
+        projectId: input.projectId,
+        budgetId: input.budgetId,
+        title: input.title,
+        content: content as object,
+        status: 'SENT',
+        sentAt: new Date(),
+        expiresAt: new Date(input.expiresAt),
+        createdById: user.id,
+      },
+    })
+
+    revalidatePath(`/projects/${input.projectId}`)
+    const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/p/${proposal.publicToken}`
+    return { success: true, data: { id: proposal.id, publicToken: proposal.publicToken, publicUrl } }
+  } catch (err) {
+    console.error(err)
+    return { success: false, error: 'Failed to create proposal' }
   }
 }
 
