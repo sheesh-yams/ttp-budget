@@ -1,9 +1,12 @@
 import { lineTotal } from '@/lib/money'
 
+// Accept both plain numbers and Prisma Decimal objects (which have valueOf/toNumber)
+type Numeric = number | { toNumber(): number } | { valueOf(): number }
+
 export interface LineItemInput {
-  quantity: number   // stored as Decimal, use Number() before passing
+  quantity: Numeric
   rateCents: number
-  markupPct?: number | null
+  markupPct?: Numeric | null
 }
 
 export interface AccountInput {
@@ -21,7 +24,7 @@ export interface BudgetTotals {
 /** Recursively sum all line items in an account tree */
 export function sumAccount(account: AccountInput): number {
   const ownItems = account.lineItems.reduce(
-    (acc, item) => acc + lineTotal(item.quantity, item.rateCents, item.markupPct),
+    (acc, item) => acc + lineTotal(Number(item.quantity), item.rateCents, item.markupPct ? Number(item.markupPct) : null),
     0
   )
   const childItems = (account.children ?? []).reduce(

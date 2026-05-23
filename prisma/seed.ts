@@ -148,6 +148,245 @@ async function main() {
   })
   console.log('✓  Sample project: Hulu Summer Sizzle')
 
+  // ─── Budget templates ──────────────────────────────────────────────────────
+  const templates = [
+    {
+      id: 'tmpl-music-video-standard',
+      name: 'Music Video — Standard',
+      shootType: 'MUSIC_VIDEO',
+      description: '1-day shoot with full crew, RED camera, and post package.',
+      structure: {
+        accounts: [
+          {
+            name: 'Above the Line',
+            code: '100',
+            items: [
+              { description: 'Director', rateCardId: 'seed-director', qty: 1, unit: 'DAY', rateCents: 240000 },
+              { description: 'Producer', rateCardId: 'seed-producer', qty: 1, unit: 'DAY', rateCents: 120000 },
+            ],
+          },
+          {
+            name: 'Camera',
+            code: '200',
+            items: [
+              { description: 'DP / Cinematographer', rateCardId: 'seed-dp---cinematographer', qty: 1, unit: 'DAY', rateCents: 180000 },
+              { description: '1st AC', rateCardId: 'seed-1st-ac', qty: 1, unit: 'DAY', rateCents: 90000 },
+              { description: 'RED Komodo Package', rateCardId: 'seed-red-komodo-package', qty: 1, unit: 'DAY', rateCents: 185000 },
+              { description: 'Lens Package (Primes)', rateCardId: 'seed-lens-package--primes-', qty: 1, unit: 'DAY', rateCents: 75000 },
+            ],
+          },
+          {
+            name: 'Lighting & Grip',
+            code: '300',
+            items: [
+              { description: 'Gaffer', rateCardId: 'seed-gaffer', qty: 1, unit: 'DAY', rateCents: 120000 },
+              { description: 'Key Grip', rateCardId: 'seed-key-grip', qty: 1, unit: 'DAY', rateCents: 110000 },
+              { description: 'Lighting Package (HMI)', rateCardId: 'seed-lighting-package--hmi-', qty: 1, unit: 'DAY', rateCents: 120000 },
+              { description: 'Grip Package', rateCardId: 'seed-grip-package', qty: 1, unit: 'DAY', rateCents: 80000 },
+            ],
+          },
+          {
+            name: 'Location',
+            code: '400',
+            items: [
+              { description: 'Location Fee', rateCardId: 'seed-location-fee', qty: 1, unit: 'DAY', rateCents: 150000 },
+              { description: 'Permits & Insurance', rateCardId: 'seed-permits---insurance', qty: 1, unit: 'FLAT', rateCents: 120000 },
+            ],
+          },
+          {
+            name: 'Art & Styling',
+            code: '500',
+            items: [
+              { description: 'Stylist', rateCardId: 'seed-stylist', qty: 1, unit: 'DAY', rateCents: 95000 },
+              { description: 'Hair & Makeup Artist', rateCardId: 'seed-hair---makeup-artist', qty: 1, unit: 'DAY', rateCents: 80000 },
+            ],
+          },
+          {
+            name: 'Production Support',
+            code: '600',
+            items: [
+              { description: 'Production Assistant', rateCardId: 'seed-production-assistant', qty: 2, unit: 'DAY', rateCents: 45000 },
+              { description: 'Catering & Craft Services', rateCardId: 'seed-catering---craft-services', qty: 1, unit: 'DAY', rateCents: 90000 },
+            ],
+          },
+          {
+            name: 'Post Production',
+            code: '700',
+            items: [
+              { description: 'Video Editor', rateCardId: 'seed-video-editor', qty: 3, unit: 'DAY', rateCents: 75000 },
+              { description: 'Color Grade', rateCardId: 'seed-color-grade', qty: 1, unit: 'DAY', rateCents: 140000 },
+              { description: 'Sound Mix & Master', rateCardId: 'seed-sound-mix---master', qty: 1, unit: 'FLAT', rateCents: 150000 },
+            ],
+          },
+          {
+            name: 'Production Fee',
+            code: '900',
+            items: [
+              { description: 'Production Fee (20%)', rateCardId: 'seed-production-fee--20--', qty: 1, unit: 'FLAT', rateCents: 0 },
+            ],
+          },
+        ],
+      },
+    },
+    {
+      id: 'tmpl-brand-campaign-1day',
+      name: 'Brand Campaign — 1-Day',
+      shootType: 'BRAND_CAMPAIGN',
+      description: 'Corporate/brand shoot with studio, talent, and deliverables.',
+      structure: {
+        accounts: [
+          {
+            name: 'Above the Line',
+            code: '100',
+            items: [
+              { description: 'Director', rateCardId: 'seed-director', qty: 1, unit: 'DAY', rateCents: 240000 },
+              { description: 'Executive Producer', rateCardId: 'seed-executive-producer', qty: 1, unit: 'DAY', rateCents: 180000 },
+            ],
+          },
+          {
+            name: 'Camera',
+            code: '200',
+            items: [
+              { description: 'DP / Cinematographer', rateCardId: 'seed-dp---cinematographer', qty: 1, unit: 'DAY', rateCents: 180000 },
+              { description: '1st AC', rateCardId: 'seed-1st-ac', qty: 1, unit: 'DAY', rateCents: 90000 },
+              { description: '2nd AC', rateCardId: 'seed-2nd-ac', qty: 1, unit: 'DAY', rateCents: 65000 },
+              { description: 'ARRI Alexa Mini Package', rateCardId: 'seed-arri-alexa-mini-package', qty: 1, unit: 'DAY', rateCents: 280000 },
+              { description: 'Lens Package (Primes)', rateCardId: 'seed-lens-package--primes-', qty: 1, unit: 'DAY', rateCents: 75000 },
+            ],
+          },
+          {
+            name: 'Lighting & Grip',
+            code: '300',
+            items: [
+              { description: 'Gaffer', rateCardId: 'seed-gaffer', qty: 1, unit: 'DAY', rateCents: 120000 },
+              { description: 'Best Boy', rateCardId: 'seed-best-boy', qty: 1, unit: 'DAY', rateCents: 80000 },
+              { description: 'Key Grip', rateCardId: 'seed-key-grip', qty: 1, unit: 'DAY', rateCents: 110000 },
+              { description: 'Lighting Package (HMI)', rateCardId: 'seed-lighting-package--hmi-', qty: 1, unit: 'DAY', rateCents: 120000 },
+              { description: 'Grip Package', rateCardId: 'seed-grip-package', qty: 1, unit: 'DAY', rateCents: 80000 },
+            ],
+          },
+          {
+            name: 'Location',
+            code: '400',
+            items: [
+              { description: 'Studio Rental', rateCardId: 'seed-studio-rental', qty: 1, unit: 'DAY', rateCents: 200000 },
+              { description: 'Permits & Insurance', rateCardId: 'seed-permits---insurance', qty: 1, unit: 'FLAT', rateCents: 120000 },
+            ],
+          },
+          {
+            name: 'Talent',
+            code: '500',
+            items: [
+              { description: 'Principal Talent', rateCardId: 'seed-principal-talent', qty: 2, unit: 'DAY', rateCents: 200000 },
+            ],
+          },
+          {
+            name: 'Art & Styling',
+            code: '600',
+            items: [
+              { description: 'Art Director', rateCardId: 'seed-art-director', qty: 1, unit: 'DAY', rateCents: 150000 },
+              { description: 'Stylist', rateCardId: 'seed-stylist', qty: 1, unit: 'DAY', rateCents: 95000 },
+              { description: 'Hair & Makeup Artist', rateCardId: 'seed-hair---makeup-artist', qty: 1, unit: 'DAY', rateCents: 80000 },
+            ],
+          },
+          {
+            name: 'Production Support',
+            code: '700',
+            items: [
+              { description: 'Production Assistant', rateCardId: 'seed-production-assistant', qty: 2, unit: 'DAY', rateCents: 45000 },
+              { description: 'Catering & Craft Services', rateCardId: 'seed-catering---craft-services', qty: 1, unit: 'DAY', rateCents: 90000 },
+              { description: 'BTS Photographer', rateCardId: 'seed-bts-photographer', qty: 1, unit: 'DAY', rateCents: 75000 },
+            ],
+          },
+          {
+            name: 'Post Production',
+            code: '800',
+            items: [
+              { description: 'Video Editor', rateCardId: 'seed-video-editor', qty: 5, unit: 'DAY', rateCents: 75000 },
+              { description: 'Motion Graphics', rateCardId: 'seed-motion-graphics', qty: 2, unit: 'DAY', rateCents: 85000 },
+              { description: 'Color Grade', rateCardId: 'seed-color-grade', qty: 1, unit: 'DAY', rateCents: 140000 },
+              { description: 'Sound Mix & Master', rateCardId: 'seed-sound-mix---master', qty: 1, unit: 'FLAT', rateCents: 150000 },
+              { description: 'Subtitles / Captions', rateCardId: 'seed-subtitles---captions', qty: 1, unit: 'FLAT', rateCents: 35000 },
+            ],
+          },
+          {
+            name: 'Production Fee',
+            code: '900',
+            items: [
+              { description: 'Production Fee (20%)', rateCardId: 'seed-production-fee--20--', qty: 1, unit: 'FLAT', rateCents: 0 },
+            ],
+          },
+        ],
+      },
+    },
+    {
+      id: 'tmpl-social-content-quick',
+      name: 'Social Content — Quick Turn',
+      shootType: 'SOCIAL_CONTENT',
+      description: 'Lean half-day shoot for social deliverables. Videographer-led.',
+      structure: {
+        accounts: [
+          {
+            name: 'Crew',
+            code: '100',
+            items: [
+              { description: 'Videographer', rateCardId: 'seed-videographer', qty: 1, unit: 'DAY', rateCents: 85000 },
+              { description: 'Production Assistant', rateCardId: 'seed-production-assistant', qty: 1, unit: 'DAY', rateCents: 45000 },
+            ],
+          },
+          {
+            name: 'Equipment',
+            code: '200',
+            items: [
+              { description: 'Sony FX9 Package', rateCardId: 'seed-sony-fx9-package', qty: 1, unit: 'DAY', rateCents: 95000 },
+              { description: 'DJI Ronin Gimbal', rateCardId: 'seed-dji-ronin-gimbal', qty: 1, unit: 'DAY', rateCents: 40000 },
+            ],
+          },
+          {
+            name: 'Location',
+            code: '300',
+            items: [
+              { description: 'Location Fee', rateCardId: 'seed-location-fee', qty: 1, unit: 'DAY', rateCents: 150000 },
+              { description: 'Permits & Insurance', rateCardId: 'seed-permits---insurance', qty: 1, unit: 'FLAT', rateCents: 120000 },
+            ],
+          },
+          {
+            name: 'Post Production',
+            code: '400',
+            items: [
+              { description: 'Video Editor', rateCardId: 'seed-video-editor', qty: 2, unit: 'DAY', rateCents: 75000 },
+              { description: 'Sound Mix & Master', rateCardId: 'seed-sound-mix---master', qty: 1, unit: 'FLAT', rateCents: 150000 },
+              { description: 'Subtitles / Captions', rateCardId: 'seed-subtitles---captions', qty: 1, unit: 'FLAT', rateCents: 35000 },
+            ],
+          },
+          {
+            name: 'Production Fee',
+            code: '900',
+            items: [
+              { description: 'Production Fee (20%)', rateCardId: 'seed-production-fee--20--', qty: 1, unit: 'FLAT', rateCents: 0 },
+            ],
+          },
+        ],
+      },
+    },
+  ]
+
+  for (const t of templates) {
+    await db.budgetTemplate.upsert({
+      where: { id: t.id },
+      update: {},
+      create: {
+        id: t.id,
+        workspaceId: workspace.id,
+        name: t.name,
+        shootType: t.shootType as never,
+        description: t.description,
+        structure: t.structure as never,
+      },
+    })
+    console.log(`✓  Template: ${t.name}`)
+  }
+
   console.log('\n🎉  Seed complete.')
   console.log('\nNext steps:')
   console.log('  1. Run `npx prisma studio` to inspect your data')
