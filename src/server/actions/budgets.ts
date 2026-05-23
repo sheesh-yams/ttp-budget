@@ -5,7 +5,7 @@ import { db } from '@/lib/db'
 import { getWorkspaceId, getCurrentUser } from '@/lib/auth'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
-import type { RateUnit } from '@prisma/client'
+import { Prisma, type RateUnit } from '@prisma/client'
 
 // ─── Create budget ────────────────────────────────────────────────────────────
 
@@ -57,7 +57,7 @@ export async function addAccount(input: z.infer<typeof addAccountSchema>): Promi
   try {
     await getWorkspaceId()
     const data = addAccountSchema.parse(input)
-    const account = await db.account.create({ data })
+    const account = await db.account.create({ data: data as Prisma.AccountUncheckedCreateInput })
     return { success: true, data: { id: account.id } }
   } catch {
     return { success: false, error: 'Failed to add account' }
@@ -89,7 +89,7 @@ export async function upsertLineItem(
     const data = lineItemSchema.parse(input)
     const item = id
       ? await db.lineItem.update({ where: { id }, data })
-      : await db.lineItem.create({ data })
+      : await db.lineItem.create({ data: data as Prisma.LineItemUncheckedCreateInput })
 
     if (!id && data.rateCardId) {
       void db.rateCard.update({

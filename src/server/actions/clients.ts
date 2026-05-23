@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
+import { Prisma } from '@prisma/client'
 
 const clientSchema = z.object({
   name: z.string().min(1).max(200),
@@ -24,7 +25,7 @@ export async function upsertClient(
     const data = clientSchema.parse(input)
     const client = id
       ? await db.client.update({ where: { id }, data })
-      : await db.client.create({ data: { ...data, workspaceId: user.workspaceId } })
+      : await db.client.create({ data: { ...data, workspaceId: user.workspaceId } as Prisma.ClientUncheckedCreateInput })
     revalidatePath('/clients')
     return { success: true, data: { id: client.id } }
   } catch {
@@ -67,7 +68,7 @@ export async function upsertProject(
     }
     const project = id
       ? await db.project.update({ where: { id }, data: payload })
-      : await db.project.create({ data: { ...payload, workspaceId: user.workspaceId, createdById: user.id } })
+      : await db.project.create({ data: { ...payload, workspaceId: user.workspaceId, createdById: user.id } as Prisma.ProjectUncheckedCreateInput })
     revalidatePath('/projects')
     revalidatePath('/dashboard')
     return { success: true, data: { id: project.id } }

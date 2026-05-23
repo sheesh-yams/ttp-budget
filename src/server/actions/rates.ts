@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
+import { Prisma } from '@prisma/client'
 
 const rateCardSchema = z.object({
   role: z.string().min(1).max(200),
@@ -26,7 +27,7 @@ export async function upsertRateCard(
     const payload = { ...data, searchTokens }
     const card = id
       ? await db.rateCard.update({ where: { id }, data: payload })
-      : await db.rateCard.create({ data: { ...payload, workspaceId: user.workspaceId } })
+      : await db.rateCard.create({ data: { ...payload, workspaceId: user.workspaceId } as Prisma.RateCardUncheckedCreateInput })
     revalidatePath('/rates')
     return { success: true, data: { id: card.id } }
   } catch {
