@@ -37,7 +37,9 @@ export function NewProjectModal({ open, onOpenChange, clients, templates }: Prop
   const [clientName, setClientName] = useState('') // for "new client" mode
   const [newClient, setNewClient] = useState(false)
   const [shootType, setShootType] = useState<ShootType>('MUSIC_VIDEO')
-  const [templateId, setTemplateId] = useState<string>('')
+  const [templateId, setTemplateId] = useState<string>(
+    () => templates.find(t => t.shootType === 'MUSIC_VIDEO')?.id ?? ''
+  )
   const [error, setError]         = useState('')
 
   // Filter templates to match selected shoot type
