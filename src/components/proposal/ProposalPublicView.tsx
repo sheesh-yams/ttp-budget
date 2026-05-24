@@ -210,14 +210,8 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
       >
         {/* Top bar */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative', zIndex: 1, marginBottom: 'clamp(28px,4vw,48px)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ width: 22, height: 22, borderRadius: 4, background: MINT, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ color: MINT_DK, fontSize: 11, fontWeight: 900 }}>T</span>
-            </div>
-            <span style={{ color: '#fff', fontSize: 12, fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase' }}>
-              The Third Place <span style={{ color: MINT }}>Creative</span>
-            </span>
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="The Third Place Creative" style={{ height: 28, width: 'auto', display: 'block' }} />
           <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase' }}>
             PROPOSAL · {proposalNumber}
           </span>
@@ -238,26 +232,26 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
           )}
 
           {/* Metadata strip with total on the right */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 20, borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 20, marginTop: 4 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 20, borderTop: '1px solid rgba(0,0,0,0.15)', paddingTop: 20, marginTop: 4 }}>
             <div style={{ display: 'flex', gap: 'clamp(20px,4vw,48px)', flexWrap: 'wrap' }}>
               {shootDates && (
                 <div>
-                  <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Shoot Dates</p>
-                  <p style={{ color: '#fff', fontSize: 13, fontWeight: 600, margin: 0 }}>{shootDates}</p>
+                  <p style={{ color: 'rgba(0,0,0,0.45)', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Shoot Dates</p>
+                  <p style={{ color: '#0A0612', fontSize: 13, fontWeight: 700, margin: 0 }}>{shootDates}</p>
                 </div>
               )}
               <div>
-                <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Client</p>
-                <p style={{ color: '#fff', fontSize: 13, fontWeight: 600, margin: 0 }}>{clientName}</p>
+                <p style={{ color: 'rgba(0,0,0,0.45)', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Client</p>
+                <p style={{ color: '#0A0612', fontSize: 13, fontWeight: 700, margin: 0 }}>{clientName}</p>
               </div>
               <div>
-                <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Type</p>
-                <p style={{ color: '#fff', fontSize: 13, fontWeight: 600, margin: 0 }}>{SHOOT_LABELS[project.shootType] ?? project.shootType}</p>
+                <p style={{ color: 'rgba(0,0,0,0.45)', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Type</p>
+                <p style={{ color: '#0A0612', fontSize: 13, fontWeight: 700, margin: 0 }}>{SHOOT_LABELS[project.shootType] ?? project.shootType}</p>
               </div>
               {validThrough && (
                 <div>
-                  <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Valid Through</p>
-                  <p style={{ color: '#fff', fontSize: 13, fontWeight: 600, margin: 0 }}>{validThrough}</p>
+                  <p style={{ color: 'rgba(0,0,0,0.45)', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Valid Through</p>
+                  <p style={{ color: '#0A0612', fontSize: 13, fontWeight: 700, margin: 0 }}>{validThrough}</p>
                 </div>
               )}
             </div>
@@ -265,8 +259,8 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
             {/* Total — right-aligned in metadata strip */}
             {totalCents > 0 && (
               <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                <p style={{ color: MINT, fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 4px' }}>Total</p>
-                <p style={{ color: '#fff', fontSize: 'clamp(26px,3vw,38px)', fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1, letterSpacing: '-0.02em', margin: 0 }}>
+                <p style={{ color: 'rgba(0,0,0,0.45)', fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 4px' }}>Total</p>
+                <p style={{ color: '#0A0612', fontSize: 'clamp(26px,3vw,38px)', fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1, letterSpacing: '-0.02em', margin: 0 }}>
                   {formatMoney(totalCents)}
                 </p>
               </div>
