@@ -125,6 +125,37 @@ export async function recordInvoiceView(invoiceId: string, ip: string, userAgent
   }
 }
 
+export async function recordPayment(
+  invoiceId: string,
+  amountCents: number,
+  method?: string,
+  ref?: string
+): Promise<ActionResult> {
+  try {
+    await getWorkspaceId()
+    const invoice = await db.invoice.findUniqueOrThrow({
+      where: { id: invoiceId },
+      select: { totalCents: true, amountPaidCents: true, projectId: true },
+    })
+    const newPaid = invoice.amountPaidCents + amountCents
+    const fullyPaid = newPaid >= invoice.totalCents
+    await db.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        amountPaidCents: newPaid,
+        ...(fullyPaid
+          ? { status: 'PAID', paidAt: new Date(), paymentMethod: method ?? null, paymentRef: ref ?? null }
+          : { paymentMethod: method ?? null, paymentRef: ref ?? null }),
+      },
+    })
+    revalidatePath(`/projects/${invoice.projectId}`)
+    revalidatePath('/dashboard')
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to record payment' }
+  }
+}
+
 export async function updateOverdueInvoices(): Promise<void> {
   await db.invoice.updateMany({
     where: { status: { in: ['SENT', 'VIEWED'] }, dueDate: { lt: new Date() } },

@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
 import { BudgetEditor } from '@/components/projects/BudgetEditor'
 import { ProjectProposals } from '@/components/projects/ProjectProposals'
+import { ProjectInvoices } from '@/components/projects/ProjectInvoices'
 import { ProjectHeaderActions } from '@/components/projects/ProjectHeaderActions'
 import { createBudget } from '@/server/actions/budgets'
 import { Button } from '@/components/ui/button'
@@ -87,6 +88,21 @@ export default async function ProjectDetailPage({
           signatureName: true,
           approvedAt: true,
           content: true,
+        },
+      },
+      invoices: {
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          number: true,
+          title: true,
+          status: true,
+          kind: true,
+          totalCents: true,
+          amountPaidCents: true,
+          dueDate: true,
+          publicToken: true,
+          sentAt: true,
         },
       },
     },
@@ -178,10 +194,18 @@ export default async function ProjectDetailPage({
           proposals={project.proposals as never}
           projectId={project.id}
           projectName={project.name}
+          clientId={project.clientId}
           budgetId={budget?.id ?? null}
           totalCents={grandTotalCents}
         />
       </section>
+
+      {/* Invoices section */}
+      {project.invoices.length > 0 && (
+        <section className="mb-8">
+          <ProjectInvoices invoices={project.invoices as never} />
+        </section>
+      )}
 
       {/* Budget section */}
       <section>

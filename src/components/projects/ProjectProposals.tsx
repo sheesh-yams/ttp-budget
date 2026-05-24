@@ -2,9 +2,10 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, ExternalLink, CheckCircle, Clock, Send, FileText, Pencil, RotateCcw } from 'lucide-react'
+import { Plus, ExternalLink, Clock, Send, FileText, Pencil, RotateCcw, Receipt, CheckCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ProposalModal, type ProposalModalMode } from './ProposalModal'
+import { NewInvoiceModal } from './NewInvoiceModal'
 import { createProposalRevision } from '@/server/actions/proposals'
 import type { ProposalStatus } from '@/types'
 import type { ProposalContent } from '@/types'
@@ -26,6 +27,7 @@ interface Props {
   proposals: ProposalRow[]
   projectId: string
   projectName: string
+  clientId: string
   budgetId: string | null
   totalCents: number
 }
@@ -65,14 +67,18 @@ function extractFromContent(content: unknown): {
   }
 }
 
-export function ProjectProposals({ proposals, projectId, projectName, budgetId, totalCents }: Props) {
+export function ProjectProposals({ proposals, projectId, projectName, clientId, budgetId, totalCents }: Props) {
   const router = useRouter()
 
-  // Modal state
+  // Proposal modal state
   const [modalOpen, setModalOpen] = useState(false)
   const [modalMode, setModalMode] = useState<ProposalModalMode>('create')
   const [editingProposal, setEditingProposal] = useState<Props['proposals'][0] | null>(null)
   const [revisionPending, setRevisionPending] = useState<string | null>(null)
+
+  // Invoice modal state
+  const [invoiceModalOpen, setInvoiceModalOpen] = useState(false)
+  const [invoiceProposal, setInvoiceProposal] = useState<Props['proposals'][0] | null>(null)
 
   const canCreateProposal = !!budgetId
 
@@ -86,6 +92,11 @@ export function ProjectProposals({ proposals, projectId, projectName, budgetId, 
     setEditingProposal(p)
     setModalMode(p.status === 'DRAFT' ? 'edit-draft' : 'revision')
     setModalOpen(true)
+  }
+
+  function openInvoiceModal(p: Props['proposals'][0]) {
+    setInvoiceProposal(p)
+    setInvoiceModalOpen(true)
   }
 
   async function handleCreateRevision(p: Props['proposals'][0]) {
@@ -162,8 +173,9 @@ export function ProjectProposals({ proposals, projectId, projectName, budgetId, 
               {proposals.map(p => {
                 const cfg = STATUS_CONFIG[p.status] ?? STATUS_CONFIG.DRAFT
                 const isExpired = !!p.expiresAt && new Date(p.expiresAt) < new Date() && p.status !== 'APPROVED'
-                const canEdit   = p.status === 'DRAFT'
-                const canRevise = ['SENT', 'VIEWED', 'APPROVED'].includes(p.status)
+                const canEdit     = p.status === 'DRAFT'
+                const canRevise   = ['SENT', 'VIEWED', 'APPROVED'].includes(p.status)
+                const canInvoice  = ['SENT', 'VIEWED', 'APPROVED'].includes(p.status) && !!budgetId
 
                 return (
                   <tr key={p.id} className="border-b last:border-0 hover:bg-muted/30">
@@ -213,6 +225,17 @@ export function ProjectProposals({ proposals, projectId, projectName, budgetId, 
                             <RotateCcw className="h-3.5 w-3.5" />
                           </button>
                         )}
+                        {/* Create invoice */}
+                        {canInvoice && (
+                          <button
+                            type="button"
+                            onClick={() => openInvoiceModal(p)}
+                            className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground inline-flex"
+                            title="Create invoice"
+                          >
+                            <Receipt className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                         {/* Open public URL */}
                         {p.status !== 'DRAFT' && (
                           <a
@@ -246,6 +269,23 @@ export function ProjectProposals({ proposals, projectId, projectName, budgetId, 
           totalCents={totalCents}
           existing={existing}
           onDone={() => router.refresh()}
+        />
+      )}
+
+      {invoiceProposal && budgetId && (
+        <NewInvoiceModal
+          open={invoiceModalOpen}
+          onOpenChange={setInvoiceModalOpen}
+          projectId={projectId}
+          projectName={projectName}
+          clientId={clientId}
+          proposal={{
+            id: invoiceProposal.id,
+            title: invoiceProposal.title,
+            budgetId,
+            content: invoiceProposal.content,
+          }}
+          liveTotalCents={totalCents}
         />
       )}
     </div>
