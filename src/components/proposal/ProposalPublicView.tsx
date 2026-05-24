@@ -200,74 +200,78 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
 
   return (
     <div style={{ fontFamily: 'var(--font-sans, system-ui, sans-serif)', color: BODY, background: '#fff', minHeight: '100vh' }}>
+      {/* Load script font for signature preview */}
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@600&display=swap');`}</style>
 
-      {/* ════════════════════ COVER ════════════════════ */}
+      {/* ════════════════════ COVER (compact) ════════════════════ */}
       <section
         className="proposal-cover noise-overlay"
-        style={{ minHeight: '100vh', padding: 'clamp(32px,5vw,64px)', display: 'flex', flexDirection: 'column', position: 'relative', boxSizing: 'border-box' }}
+        style={{ padding: 'clamp(24px,4vw,48px) clamp(24px,5vw,64px)', display: 'flex', flexDirection: 'column', position: 'relative', boxSizing: 'border-box' }}
       >
         {/* Top bar */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
-          <div>
-            <span style={{ color: '#fff', fontSize: 13, fontWeight: 800, letterSpacing: '0.16em', textTransform: 'uppercase' }}>
-              The Third Place
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative', zIndex: 1, marginBottom: 'clamp(28px,4vw,48px)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 22, height: 22, borderRadius: 4, background: MINT, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span style={{ color: MINT_DK, fontSize: 11, fontWeight: 900 }}>T</span>
+            </div>
+            <span style={{ color: '#fff', fontSize: 12, fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase' }}>
+              The Third Place <span style={{ color: MINT }}>Creative</span>
             </span>
-            <span style={{ color: MINT, fontSize: 13, fontWeight: 800, marginLeft: 4 }}>Creative</span>
           </div>
-          <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', paddingTop: 2 }}>
-            {proposalNumber}
+          <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase' }}>
+            PROPOSAL · {proposalNumber}
           </span>
         </div>
 
-        {/* Main content */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', position: 'relative', zIndex: 1, paddingTop: 80, paddingBottom: 40 }}>
-          <p style={{ color: MINT, fontSize: 12, fontWeight: 700, letterSpacing: '0.22em', textTransform: 'uppercase', marginBottom: 18, marginTop: 0 }}>
+        {/* Main content — compact */}
+        <div style={{ position: 'relative', zIndex: 1 }}>
+          <p style={{ color: MINT, fontSize: 11, fontWeight: 700, letterSpacing: '0.22em', textTransform: 'uppercase', margin: '0 0 12px' }}>
             Prepared for {clientName}
           </p>
-          <h1 style={{ color: '#fff', fontSize: 'clamp(28px, 4.5vw, 58px)', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.02em', margin: '0 0 20px', maxWidth: '72%' }}>
+          <h1 style={{ color: '#fff', fontSize: 'clamp(24px, 3.5vw, 46px)', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.02em', margin: '0 0 14px', maxWidth: '75%' }}>
             {proposal.title}
           </h1>
           {aboutBody && (
-            <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 16, lineHeight: 1.7, maxWidth: 540, margin: '0 0 52px' }}>
-              {aboutBody.length > 220 ? aboutBody.slice(0, 220) + '…' : aboutBody}
+            <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 14, lineHeight: 1.6, maxWidth: 560, margin: '0 0 28px' }}>
+              {aboutBody.length > 160 ? aboutBody.slice(0, 160) + '…' : aboutBody}
             </p>
           )}
 
-          {/* Metadata strip */}
-          <div style={{ display: 'flex', gap: 'clamp(24px,4vw,56px)', flexWrap: 'wrap', marginBottom: 64 }}>
-            {shootDates && (
+          {/* Metadata strip with total on the right */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 20, borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 20, marginTop: 4 }}>
+            <div style={{ display: 'flex', gap: 'clamp(20px,4vw,48px)', flexWrap: 'wrap' }}>
+              {shootDates && (
+                <div>
+                  <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Shoot Dates</p>
+                  <p style={{ color: '#fff', fontSize: 13, fontWeight: 600, margin: 0 }}>{shootDates}</p>
+                </div>
+              )}
               <div>
-                <p style={{ color: 'rgba(255,255,255,0.38)', fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 5px' }}>Shoot Dates</p>
-                <p style={{ color: '#fff', fontSize: 14, fontWeight: 500, margin: 0 }}>{shootDates}</p>
+                <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Client</p>
+                <p style={{ color: '#fff', fontSize: 13, fontWeight: 600, margin: 0 }}>{clientName}</p>
               </div>
-            )}
-            <div>
-              <p style={{ color: 'rgba(255,255,255,0.38)', fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 5px' }}>Client</p>
-              <p style={{ color: '#fff', fontSize: 14, fontWeight: 500, margin: 0 }}>{clientName}</p>
-            </div>
-            <div>
-              <p style={{ color: 'rgba(255,255,255,0.38)', fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 5px' }}>Type</p>
-              <p style={{ color: '#fff', fontSize: 14, fontWeight: 500, margin: 0 }}>{SHOOT_LABELS[project.shootType] ?? project.shootType}</p>
-            </div>
-            {validThrough && (
               <div>
-                <p style={{ color: 'rgba(255,255,255,0.38)', fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 5px' }}>Valid Through</p>
-                <p style={{ color: '#fff', fontSize: 14, fontWeight: 500, margin: 0 }}>{validThrough}</p>
+                <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Type</p>
+                <p style={{ color: '#fff', fontSize: 13, fontWeight: 600, margin: 0 }}>{SHOOT_LABELS[project.shootType] ?? project.shootType}</p>
+              </div>
+              {validThrough && (
+                <div>
+                  <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Valid Through</p>
+                  <p style={{ color: '#fff', fontSize: 13, fontWeight: 600, margin: 0 }}>{validThrough}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Total — right-aligned in metadata strip */}
+            {totalCents > 0 && (
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <p style={{ color: MINT, fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 4px' }}>Total</p>
+                <p style={{ color: '#fff', fontSize: 'clamp(26px,3vw,38px)', fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1, letterSpacing: '-0.02em', margin: 0 }}>
+                  {formatMoney(totalCents)}
+                </p>
               </div>
             )}
           </div>
-
-          {/* Total */}
-          {totalCents > 0 && (
-            <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 32 }}>
-              <p style={{ color: MINT, fontSize: 11, fontWeight: 700, letterSpacing: '0.2em', textTransform: 'uppercase', margin: '0 0 10px' }}>
-                Total Investment
-              </p>
-              <p style={{ color: '#fff', fontSize: 'clamp(36px,5.5vw,68px)', fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1, letterSpacing: '-0.02em', margin: 0 }}>
-                {formatMoney(totalCents)}
-              </p>
-            </div>
-          )}
         </div>
       </section>
 
@@ -504,6 +508,28 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
                 By typing your name and clicking <em>Approve</em>, you agree to the scope, budget, and payment terms outlined in this proposal.
               </p>
 
+              {/* Cursive signature preview */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ minHeight: 52, display: 'flex', alignItems: 'flex-end', paddingBottom: 8, borderBottom: `1.5px solid ${BODY}` }}>
+                  {sigName.trim() ? (
+                    <span style={{
+                      fontFamily: '"Dancing Script", "Brush Script MT", cursive',
+                      fontSize: 38, fontWeight: 600, color: INK,
+                      lineHeight: 1, letterSpacing: '-0.01em',
+                    }}>
+                      {sigName}
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: 13, color: 'rgba(0,0,0,0.2)', fontStyle: 'italic' }}>
+                      Your signature will appear here
+                    </span>
+                  )}
+                </div>
+                <p style={{ fontSize: 10, color: MUTED, letterSpacing: '0.06em', textTransform: 'uppercase', margin: '4px 0 0' }}>
+                  Signature
+                </p>
+              </div>
+
               <input
                 type="text"
                 placeholder="Type your full name to sign"
@@ -511,8 +537,8 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
                 onChange={e => setSigName(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleApprove()}
                 style={{
-                  display: 'block', width: '100%', padding: '13px 16px',
-                  fontSize: 16, fontFamily: 'Georgia, "Times New Roman", serif',
+                  display: 'block', width: '100%', padding: '12px 16px',
+                  fontSize: 15,
                   border: `1.5px solid ${sigError ? '#ef4444' : BORDER}`,
                   borderRadius: 8, outline: 'none', color: BODY, background: '#fff',
                   boxSizing: 'border-box', marginBottom: sigError ? 6 : 14,
@@ -551,7 +577,7 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
               </a>
 
               <a
-                href={`/api/pdf/proposal/${proposal.id}`}
+                href={`/api/pdf/proposal/${proposal.publicToken}`}
                 style={{ color: MUTED, fontSize: 13, textDecoration: 'underline' }}
               >
                 Download PDF
