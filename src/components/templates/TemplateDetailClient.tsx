@@ -3,12 +3,13 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Save } from 'lucide-react'
+import { ArrowLeft, Save, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { TemplateStructureEditor } from './TemplateStructureEditor'
+import { BulkImportModal } from '@/components/budget/BulkImportModal'
 import { updateTemplateMeta } from '@/server/actions/templates'
 import type { TemplateStructure, TemplateKind, BudgetTemplateExtended } from '@/types'
 import type { BudgetTemplate, ShootType } from '@prisma/client'
@@ -86,8 +87,9 @@ interface Props {
 export function TemplateDetailClient({ template: rawTemplate }: Props) {
   const template = rawTemplate as unknown as BudgetTemplateExtended
   const router   = useRouter()
-  const [saving, startSave] = useTransition()
-  const [saved,  setSaved]  = useState(false)
+  const [saving, startSave]   = useTransition()
+  const [saved,  setSaved]    = useState(false)
+  const [showImport, setShowImport] = useState(false)
 
   // Metadata state
   const [name,      setName]      = useState(template.name)
@@ -148,6 +150,10 @@ export function TemplateDetailClient({ template: rawTemplate }: Props) {
           <div className="flex items-center gap-2">
             {saved && <span className="text-[12px] text-green-600 font-medium">Saved ✓</span>}
             {metaError && <span className="text-[12px] text-red-600">{metaError}</span>}
+            <Button size="sm" variant="outline" onClick={() => setShowImport(true)}>
+              <Upload className="mr-1.5 h-3.5 w-3.5" />
+              Import
+            </Button>
             <Button size="sm" onClick={handleSaveMeta} disabled={saving}>
               <Save className="mr-1.5 h-3.5 w-3.5" />
               {saving ? 'Saving…' : 'Save info'}
@@ -236,6 +242,14 @@ export function TemplateDetailClient({ template: rawTemplate }: Props) {
           initialStructure={structure}
         />
       </div>
+
+      {/* ── Bulk import modal ── */}
+      <BulkImportModal
+        open={showImport}
+        onOpenChange={setShowImport}
+        target={{ type: 'template', templateId: template.id }}
+        onImported={() => router.refresh()}
+      />
     </div>
   )
 }

@@ -1,12 +1,13 @@
 'use client'
 
 import { useState, useTransition, useOptimistic } from 'react'
-import { Plus, Trash2, ChevronRight, ChevronDown, Package } from 'lucide-react'
+import { Plus, Trash2, ChevronRight, ChevronDown, Package, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AddLineItemModal } from './AddLineItemModal'
 import { InsertPackageModal } from './InsertPackageModal'
 import { BudgetSummaryBar } from './BudgetSummaryBar'
+import { BulkImportModal } from '@/components/budget/BulkImportModal'
 import { deleteLineItem, addAccount } from '@/server/actions/budgets'
 import { formatMoney, lineTotal } from '@/lib/money'
 import { sumAccount, type AccountInput } from '@/lib/totals'
@@ -63,6 +64,7 @@ export function BudgetEditor({ budget, projectId }: Props) {
           <TabsContent key={phase.id} value={phase.id}>
             <PhaseView
               phase={phase as typeof currentPhase & NonNullable<unknown>}
+              budgetId={budget.id}
               projectId={projectId}
               onMutated={() => router.refresh()}
             />
@@ -84,15 +86,18 @@ export function BudgetEditor({ budget, projectId }: Props) {
 
 function PhaseView({
   phase,
+  budgetId,
   projectId,
   onMutated,
 }: {
   phase: BudgetWithPhases['phases'][number]
+  budgetId: string
   projectId: string
   onMutated: () => void
 }) {
   const [addingToAccount, setAddingToAccount] = useState<string | null>(null)
   const [showPackages, setShowPackages] = useState(false)
+  const [showImport, setShowImport]     = useState(false)
   const [, startTransition] = useTransition()
 
   function handleAddAccount() {
@@ -108,8 +113,8 @@ function PhaseView({
     return (
       <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-16 text-center">
         <p className="text-sm font-medium text-foreground">No budget accounts yet</p>
-        <p className="mt-1 text-xs text-muted-foreground">Add an account manually, or insert an add-on package.</p>
-        <div className="mt-4 flex items-center gap-2">
+        <p className="mt-1 text-xs text-muted-foreground">Add an account manually, insert a package, or bulk import from a file.</p>
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
           <Button size="sm" onClick={handleAddAccount}>
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             Add account
@@ -117,6 +122,10 @@ function PhaseView({
           <Button size="sm" variant="outline" onClick={() => setShowPackages(true)}>
             <Package className="mr-1.5 h-3.5 w-3.5" />
             Insert package
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setShowImport(true)}>
+            <Upload className="mr-1.5 h-3.5 w-3.5" />
+            Import file
           </Button>
         </div>
         {showPackages && (
@@ -127,6 +136,12 @@ function PhaseView({
             onInserted={onMutated}
           />
         )}
+        <BulkImportModal
+          open={showImport}
+          onOpenChange={setShowImport}
+          target={{ type: 'budget', budgetId, projectId }}
+          onImported={onMutated}
+        />
       </div>
     )
   }
@@ -170,6 +185,10 @@ function PhaseView({
           <Package className="mr-1.5 h-3.5 w-3.5" />
           Insert package
         </Button>
+        <Button variant="outline" size="sm" onClick={() => setShowImport(true)}>
+          <Upload className="mr-1.5 h-3.5 w-3.5" />
+          Import
+        </Button>
       </div>
 
       {/* Modals */}
@@ -186,6 +205,12 @@ function PhaseView({
         onOpenChange={setShowPackages}
         phaseId={phase.id}
         onInserted={onMutated}
+      />
+      <BulkImportModal
+        open={showImport}
+        onOpenChange={setShowImport}
+        target={{ type: 'budget', budgetId, projectId }}
+        onImported={onMutated}
       />
     </div>
   )
