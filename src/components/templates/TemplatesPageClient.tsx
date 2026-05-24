@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Plus, Trash2, LayoutGrid, Package, ArrowRight } from 'lucide-react'
+import { Plus, Trash2, LayoutGrid, Package, ArrowRight, Upload, FileUp, CheckCircle2 } from 'lucide-react'
 import { format } from 'date-fns'
 import type { BudgetTemplate, ShootType } from '@prisma/client'
 import { Button } from '@/components/ui/button'
@@ -11,7 +11,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { createTemplate, deleteTemplate } from '@/server/actions/templates'
+import { importToTemplate } from '@/server/actions/import'
+import { parseFileText, importPayloadSchema, CSV_TEMPLATE, type ImportRow } from '@/lib/importSchema'
 import type { TemplateStructure, TemplateKind, BudgetTemplateExtended } from '@/types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -156,6 +159,262 @@ function CreateModal({ open, onOpenChange, defaultKind = 'FULL' }: CreateModalPr
   )
 }
 
+// ─── Import template modal ────────────────────────────────────────────────────
+//
+// One-shot flow: fill out metadata + drop a file → preview → Create & import.
+// Creates the template first, then calls importToTemplate, then navigates.
+
+type ImportStep = 'form' | 'preview' | 'importing' | 'success'
+
+interface PreviewGroup { name: string; count: number }
+
+interface ImportTemplateModalProps {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  defaultKind?: TemplateKind
+}
+
+function ImportTemplateModal({ open, onOpenChange, defaultKind = 'FULL' }: ImportTemplateModalProps) {
+  const router    = useRouter()
+  const fileRef   = useRef<HTMLInputElement>(null)
+  const [, start] = useTransition()
+
+  const [step,       setStep]       = useState<ImportStep>('form')
+  const [name,       setName]       = useState('')
+  const [desc,       setDesc]       = useState('')
+  const [kind,       setKind]       = useState<TemplateKind>(defaultKind)
+  const [shootType,  setShootType]  = useState<ShootType>('OTHER')
+  const [isDragOver, setIsDragOver] = useState(false)
+  const [fileName,   setFileName]   = useState('')
+  const [rows,       setRows]       = useState<ImportRow[]>([])
+  const [preview,    setPreview]    = useState<PreviewGroup[]>([])
+  const [fileError,  setFileError]  = useState('')
+  const [formError,  setFormError]  = useState('')
+
+  function reset() {
+    setStep('form'); setName(''); setDesc(''); setKind(defaultKind); setShootType('OTHER')
+    setIsDragOver(false); setFileName(''); setRows([]); setPreview([])
+    setFileError(''); setFormError('')
+  }
+  function handleClose(v: boolean) { if (!v) reset(); onOpenChange(v) }
+
+  function processFile(file: File) {
+    setFileError('')
+    file.text().then(text => {
+      try {
+        const raw    = parseFileText(text, file.name)
+        const result = importPayloadSchema.safeParse(raw)
+        if (!result.success) {
+          setFileError(result.error.errors[0]?.message ?? 'Invalid file')
+          return
+        }
+        const parsed = result.data
+        // Build preview groups
+        const groups = new Map<string, number>()
+        for (const r of parsed) groups.set(r.accountName, (groups.get(r.accountName) ?? 0) + 1)
+        setRows(parsed)
+        setPreview(Array.from(groups.entries()).map(([n, c]) => ({ name: n, count: c })))
+        setFileName(file.name)
+        setStep('preview')
+      } catch (err) {
+        setFileError(err instanceof Error ? err.message : 'Failed to parse file')
+      }
+    })
+  }
+
+  const onDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault(); setIsDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (file) processFile(file)
+  }, [])
+
+  function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (file) processFile(file)
+    e.target.value = ''
+  }
+
+  function downloadTemplate() {
+    const blob = new Blob([CSV_TEMPLATE], { type: 'text/csv' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href = url; a.download = 'ttp-template-import.csv'
+    a.click(); URL.revokeObjectURL(url)
+  }
+
+  function handleImport() {
+    if (!name.trim()) { setFormError('Name is required'); setStep('form'); return }
+    setFormError('')
+    setStep('importing')
+    start(async () => {
+      // 1. Create the template
+      const created = await createTemplate({
+        name: name.trim(),
+        description: desc.trim() || null,
+        kind,
+        shootType,
+        tags: [],
+      })
+      if (!created.success) {
+        setFileError((created as { success: false; error: string }).error)
+        setStep('preview')
+        return
+      }
+      // 2. Import rows into it
+      const imported = await importToTemplate(created.data.id, rows)
+      if (!imported.success) {
+        setFileError((imported as { success: false; error: string }).error)
+        setStep('preview')
+        return
+      }
+      setStep('success')
+      setTimeout(() => {
+        onOpenChange(false)
+        router.push(`/templates/${created.data.id}`)
+      }, 1200)
+    })
+  }
+
+  const totalItems = rows.length
+
+  return (
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            {step === 'success' ? 'Template imported!' : 'Import template from file'}
+          </DialogTitle>
+        </DialogHeader>
+
+        {/* ── Success ── */}
+        {step === 'success' && (
+          <div className="flex flex-col items-center gap-3 py-6 text-center">
+            <CheckCircle2 className="h-10 w-10 text-green-500" />
+            <p className="text-sm text-muted-foreground">Redirecting to your new template…</p>
+          </div>
+        )}
+
+        {/* ── Form + drop zone ── */}
+        {(step === 'form' || step === 'preview') && (
+          <div className="space-y-4 py-1">
+            {/* Metadata */}
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label>Template name</Label>
+                <Input
+                  autoFocus
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  placeholder="e.g. Music Video — Standard Crew"
+                />
+                {formError && <p className="text-[12px] text-red-600">{formError}</p>}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Kind</Label>
+                  <Select value={kind} onValueChange={v => setKind(v as TemplateKind)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="FULL">Full Template</SelectItem>
+                      <SelectItem value="PACKAGE">Add-on Package</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Primary type</Label>
+                  <Select value={shootType} onValueChange={v => setShootType(v as ShootType)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {SHOOT_TYPES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+
+            {/* File drop / preview toggle */}
+            {step === 'form' ? (
+              <div
+                onDragOver={e => { e.preventDefault(); setIsDragOver(true) }}
+                onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false) }}
+                onDrop={onDrop}
+                onClick={() => fileRef.current?.click()}
+                className={`flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed py-8 transition-colors ${
+                  isDragOver
+                    ? 'border-violet-400 bg-violet-50'
+                    : 'border-border hover:border-violet-300 hover:bg-muted/50'
+                }`}
+              >
+                <FileUp className={`h-7 w-7 ${isDragOver ? 'text-violet-500' : 'text-muted-foreground'}`} />
+                <div className="text-center">
+                  <p className="text-[13px] font-medium text-foreground">Drop a .csv or .json file</p>
+                  <p className="text-[12px] text-muted-foreground">or click to browse</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={e => { e.stopPropagation(); downloadTemplate() }}
+                  className="text-[11px] text-violet-600 underline underline-offset-2 hover:text-violet-800"
+                >
+                  Download CSV template
+                </button>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-border bg-muted/30 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-[12px] font-medium text-foreground">
+                    {fileName} — {totalItems} line {totalItems === 1 ? 'item' : 'items'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => { setStep('form'); setRows([]); setPreview([]); setFileName('') }}
+                    className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                  >
+                    Change file
+                  </button>
+                </div>
+                <ScrollArea className="max-h-44">
+                  <div className="space-y-1">
+                    {preview.map(g => (
+                      <div key={g.name} className="flex items-center justify-between rounded-md bg-white px-2.5 py-1.5 text-[12px]">
+                        <span className="font-medium text-foreground">{g.name}</span>
+                        <span className="text-muted-foreground">{g.count} {g.count === 1 ? 'item' : 'items'}</span>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </div>
+            )}
+
+            {fileError && <p className="text-[12px] text-red-600">{fileError}</p>}
+            <input ref={fileRef} type="file" accept=".csv,.json" className="hidden" onChange={handleFileInput} />
+          </div>
+        )}
+
+        {/* ── Importing spinner ── */}
+        {step === 'importing' && (
+          <div className="flex flex-col items-center gap-3 py-8 text-center">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-violet-600 border-t-transparent" />
+            <p className="text-sm text-muted-foreground">Creating template and importing…</p>
+          </div>
+        )}
+
+        {/* ── Footer ── */}
+        {(step === 'form' || step === 'preview') && (
+          <DialogFooter>
+            <Button variant="outline" onClick={() => handleClose(false)}>Cancel</Button>
+            {step === 'preview' && (
+              <Button onClick={handleImport} disabled={!name.trim()}>
+                <Upload className="mr-1.5 h-3.5 w-3.5" />
+                Create &amp; import
+              </Button>
+            )}
+          </DialogFooter>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ─── Delete confirm ───────────────────────────────────────────────────────────
 
 function DeleteModal({
@@ -271,9 +530,10 @@ type Tab = 'FULL' | 'PACKAGE'
 
 export function TemplatesPageClient({ templates: rawTemplates }: { templates: BudgetTemplate[] }) {
   const templates = rawTemplates as unknown as BudgetTemplateExtended[]
-  const [activeTab, setActiveTab]   = useState<Tab>('FULL')
-  const [showCreate, setShowCreate] = useState(false)
-  const [deleting, setDeleting]     = useState<BudgetTemplateExtended | null>(null)
+  const [activeTab,   setActiveTab]   = useState<Tab>('FULL')
+  const [showCreate,  setShowCreate]  = useState(false)
+  const [showImport,  setShowImport]  = useState(false)
+  const [deleting,    setDeleting]    = useState<BudgetTemplateExtended | null>(null)
 
   const full     = templates.filter(t => (t.kind ?? 'FULL') === 'FULL')
   const packages = templates.filter(t => t.kind === 'PACKAGE')
@@ -284,15 +544,21 @@ export function TemplatesPageClient({ templates: rawTemplates }: { templates: Bu
       {/* ── Header ── */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-medium text-ink">Templates</h1>
+          <h1 className="text-2xl font-semibold text-foreground">Templates</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Full templates seed a new project&apos;s budget. Add-on packages are building blocks you can insert into any budget.
           </p>
         </div>
-        <Button onClick={() => setShowCreate(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          New template
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setShowImport(true)}>
+            <Upload className="mr-2 h-4 w-4" />
+            Import
+          </Button>
+          <Button onClick={() => setShowCreate(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            New template
+          </Button>
+        </div>
       </div>
 
       {/* ── Tabs ── */}
@@ -349,10 +615,16 @@ export function TemplatesPageClient({ templates: rawTemplates }: { templates: Bu
               ? 'Create a full template to speed up budgeting when you start a new project.'
               : 'Create add-on packages for recurring crew setups, equipment bundles, or service packages.'}
           </p>
-          <Button size="sm" onClick={() => setShowCreate(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Create {activeTab === 'FULL' ? 'template' : 'package'}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={() => setShowCreate(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Create {activeTab === 'FULL' ? 'template' : 'package'}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowImport(true)}>
+              <Upload className="mr-2 h-4 w-4" />
+              Import from file
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -373,6 +645,14 @@ export function TemplatesPageClient({ templates: rawTemplates }: { templates: Bu
               New {activeTab === 'FULL' ? 'template' : 'package'}
             </span>
           </button>
+          {/* "Import" card */}
+          <button
+            onClick={() => setShowImport(true)}
+            className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border py-8 text-muted-foreground hover:border-violet-300 hover:text-violet-600 transition-colors"
+          >
+            <Upload className="h-5 w-5" />
+            <span className="text-[13px] font-medium">Import from file</span>
+          </button>
         </div>
       )}
 
@@ -380,6 +660,11 @@ export function TemplatesPageClient({ templates: rawTemplates }: { templates: Bu
       <CreateModal
         open={showCreate}
         onOpenChange={setShowCreate}
+        defaultKind={activeTab}
+      />
+      <ImportTemplateModal
+        open={showImport}
+        onOpenChange={setShowImport}
         defaultKind={activeTab}
       />
       <DeleteModal
