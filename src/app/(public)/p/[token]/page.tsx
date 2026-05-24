@@ -114,7 +114,7 @@ export default async function PublicProposalPage({ params }: Props) {
       })),
     }))
 
-    totalCents = serialisedAccounts.reduce(
+    totalCents = (serialisedAccounts as unknown[]).reduce<number>(
       (sum, acc) => sum + sumAccount(acc as unknown as AccountInput),
       0
     )
