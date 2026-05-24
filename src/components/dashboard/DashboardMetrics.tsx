@@ -1,60 +1,91 @@
-import type { Project, Invoice, Proposal } from '@prisma/client'
+import type { Project, Proposal } from '@prisma/client'
 import { formatMoney } from '@/lib/money'
+
+// ── Lightweight invoice shape (no relations needed for metrics) ───────────────
+interface InvoiceLite {
+  status:          string
+  totalCents:      number
+  amountPaidCents: number
+  dueDate:         Date | string
+  paidAt:          Date | string | null
+  updatedAt:       Date | string
+}
 
 interface Props {
   projects:  Project[]
-  invoices:  Invoice[]
+  invoices:  InvoiceLite[]
   proposals: Proposal[]
 }
 
 export function DashboardMetrics({ projects, invoices, proposals }: Props) {
-  const activeProjects = projects.filter(p => p.status === 'ACTIVE').length
+  const now = new Date()
 
-  const outstanding = invoices
+  // ── Proposals sent (active with client, not yet closed) ───────────────────
+  const proposalsSent = proposals.filter(p =>
+    ['SENT', 'VIEWED'].includes(p.status)
+  ).length
+
+  // ── Active projects (LEAD + ACTIVE = everything in the pipeline) ──────────
+  const pipelineProjects  = projects.filter(p => ['LEAD', 'ACTIVE'].includes(p.status))
+  const inProductionCount = projects.filter(p => p.status === 'ACTIVE').length
+
+  // ── Outstanding invoices ──────────────────────────────────────────────────
+  const activeInvoices = invoices.filter(i => i.status !== 'VOID')
+  const outstanding = activeInvoices
     .filter(i => ['SENT', 'VIEWED', 'OVERDUE'].includes(i.status))
-    .reduce((sum, i) => sum + i.totalCents - i.amountPaidCents, 0)
+    .reduce((sum, i) => sum + Math.max(0, i.totalCents - i.amountPaidCents), 0)
+  const overdueCount = activeInvoices.filter(
+    i => i.status !== 'PAID' && i.status !== 'VOID' && new Date(i.dueDate) < now
+  ).length
 
-  const overdueCount = invoices.filter(i => i.status === 'OVERDUE').length
+  // ── Collected this month ──────────────────────────────────────────────────
+  // Uses paidAt when set, falls back to updatedAt so partially-paid invoices
+  // where paidAt wasn't explicitly recorded still show up.
+  const collectedThisMonth = invoices.reduce((sum, i) => {
+    if (i.amountPaidCents <= 0) return sum
+    const dateStr = i.paidAt ?? i.updatedAt
+    const d = new Date(dateStr)
+    if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()) {
+      return sum + i.amountPaidCents
+    }
+    return sum
+  }, 0)
 
-  const proposalsSent = proposals.filter(p => ['SENT', 'VIEWED'].includes(p.status)).length
-
-  const collectedThisMonth = invoices
-    .filter(i => {
-      if (i.status !== 'PAID' || !i.paidAt) return false
-      const now  = new Date()
-      const paid = new Date(i.paidAt)
-      return paid.getMonth() === now.getMonth() && paid.getFullYear() === now.getFullYear()
-    })
-    .reduce((sum, i) => sum + i.totalCents, 0)
-
+  // ── Metric definitions — funnel order ─────────────────────────────────────
   const metrics = [
     {
-      label:    'Active projects',
-      value:    activeProjects.toString(),
-      sub:      `${projects.length} total`,
+      label:      'Proposals sent',
+      value:      String(proposalsSent),
+      valueColor: proposalsSent > 0 ? '#5D00A4' : '#2C2C2A',
+      sub:        proposalsSent === 0
+        ? 'None out right now'
+        : `${proposalsSent} awaiting approval`,
+      subColor:   proposalsSent > 0 ? '#7C3AED' : '#888780',
+    },
+    {
+      label:      'Active projects',
+      value:      String(pipelineProjects.length),
+      valueColor: pipelineProjects.length > 0 ? '#2C2C2A' : '#BBBBBB',
+      sub:        inProductionCount > 0
+        ? `${inProductionCount} in production`
+        : pipelineProjects.length > 0
+        ? `${pipelineProjects.length} in pipeline`
+        : 'No active projects',
       subColor: '#888780',
-      accent:   '#5D00A4',
     },
     {
-      label:    'Outstanding invoices',
-      value:    formatMoney(outstanding),
-      sub:      overdueCount > 0 ? `${overdueCount} overdue` : 'All on track',
-      subColor: overdueCount > 0 ? '#dc2626' : '#888780',
-      accent:   overdueCount > 0 ? '#dc2626' : '#5D00A4',
+      label:      'Outstanding invoices',
+      value:      formatMoney(outstanding),
+      valueColor: '#2C2C2A',
+      sub:        overdueCount > 0 ? `${overdueCount} overdue` : 'All on track',
+      subColor:   overdueCount > 0 ? '#dc2626' : '#888780',
     },
     {
-      label:    'Proposals sent',
-      value:    proposalsSent.toString(),
-      sub:      'Awaiting approval',
-      subColor: '#888780',
-      accent:   '#5D00A4',
-    },
-    {
-      label:    'Collected this month',
-      value:    formatMoney(collectedThisMonth),
-      sub:      'Cash received',
-      subColor: '#059669',
-      accent:   '#04FFCC',
+      label:      'Collected this month',
+      value:      formatMoney(collectedThisMonth),
+      valueColor: collectedThisMonth > 0 ? '#059669' : '#2C2C2A',
+      sub:        'Cash received',
+      subColor:   '#888780',
     },
   ]
 
@@ -70,8 +101,8 @@ export function DashboardMetrics({ projects, invoices, proposals }: Props) {
             {m.label}
           </p>
           <p
-            className="mt-2 text-[26px] font-semibold leading-none"
-            style={{ fontVariantNumeric: 'tabular-nums', color: '#2C2C2A' }}
+            className="mt-2 text-[26px] font-semibold leading-none tabular-nums"
+            style={{ color: m.valueColor }}
           >
             {m.value}
           </p>

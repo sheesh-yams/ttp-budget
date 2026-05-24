@@ -406,6 +406,26 @@ function buildContent(input: {
   }
 }
 
+// ─── Update proposal status (for Kanban stage changes) ───────────────────────
+
+export async function updateProposalStatus(
+  proposalId: string,
+  status: string
+): Promise<ActionResult> {
+  try {
+    await getWorkspaceId()
+    await db.proposal.update({
+      where: { id: proposalId },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      data:  { status: status as any },
+    })
+    revalidatePath('/proposals')
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to update status' }
+  }
+}
+
 // ─── Delete a proposal ───────────────────────────────────────────────────────
 
 export async function deleteProposal(proposalId: string): Promise<ActionResult> {
