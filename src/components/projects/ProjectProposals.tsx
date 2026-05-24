@@ -34,12 +34,13 @@ interface Props {
 }
 
 const STATUS_CONFIG: Record<ProposalStatus, { label: string; color: string; icon: React.ReactNode }> = {
-  DRAFT:    { label: 'Draft',    color: 'bg-gray-100 text-gray-600',       icon: <FileText    className="h-3 w-3" /> },
-  SENT:     { label: 'Sent',     color: 'bg-blue-100 text-blue-700',       icon: <Send        className="h-3 w-3" /> },
-  VIEWED:   { label: 'Viewed',   color: 'bg-violet-100 text-violet-700',   icon: <Clock       className="h-3 w-3" /> },
-  APPROVED: { label: 'Approved', color: 'bg-green-100 text-green-700',     icon: <CheckCircle className="h-3 w-3" /> },
-  DECLINED: { label: 'Declined', color: 'bg-red-100 text-red-700',         icon: <Clock       className="h-3 w-3" /> },
-  EXPIRED:  { label: 'Expired',  color: 'bg-amber-100 text-amber-700',     icon: <Clock       className="h-3 w-3" /> },
+  DRAFT:           { label: 'Draft',           color: 'bg-gray-100 text-gray-600',       icon: <FileText    className="h-3 w-3" /> },
+  SENT:            { label: 'Sent',            color: 'bg-blue-100 text-blue-700',       icon: <Send        className="h-3 w-3" /> },
+  VIEWED:          { label: 'Viewed',          color: 'bg-violet-100 text-violet-700',   icon: <Clock       className="h-3 w-3" /> },
+  CHANGES_NEEDED:  { label: 'Changes Needed',  color: 'bg-amber-100 text-amber-700',     icon: <Clock       className="h-3 w-3" /> },
+  APPROVED:        { label: 'Approved',        color: 'bg-green-100 text-green-700',     icon: <CheckCircle className="h-3 w-3" /> },
+  DECLINED:        { label: 'Declined',        color: 'bg-red-100 text-red-700',         icon: <Clock       className="h-3 w-3" /> },
+  EXPIRED:         { label: 'Expired',         color: 'bg-amber-100 text-amber-700',     icon: <Clock       className="h-3 w-3" /> },
 }
 
 function extractFromContent(content: unknown): {

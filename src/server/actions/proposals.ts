@@ -416,8 +416,7 @@ export async function updateProposalStatus(
     await getWorkspaceId()
     await db.proposal.update({
       where: { id: proposalId },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      data:  { status: status as any },
+      data:  { status: status as Parameters<typeof db.proposal.update>[0]['data']['status'] },
     })
     revalidatePath('/proposals')
     return { success: true, data: undefined }
