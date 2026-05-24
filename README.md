@@ -124,25 +124,40 @@ Templates are tagged by shoot type (Music Video, Brand Campaign, Product Shoot, 
 
 ## Bulk Import Format
 
-Both budgets and templates accept `.csv` or `.json` import files.
+Both budgets and templates accept `.csv` or `.json` import files. A pre-formatted Google Sheets-compatible template lives at `ttp-budget-import-template.xlsx` in the repo root — open it in Google Sheets, fill it in, then export as CSV.
 
-**CSV columns** (download a template from the Import modal):
+**Entry points:**
+- Budget editor → Import button (bottom toolbar or empty state)
+- Templates list → Import button (header or empty state) — creates a new template and populates it in one shot
+- Template detail → Import button (info card header) — merges into an existing template
+
+**CSV columns:**
 
 | Column | Required | Description |
 |--------|----------|-------------|
-| `accountName` | ✓ | Account group (created if it doesn't exist) |
-| `description` | ✓ | Line item description |
-| `qty` | — | Quantity (default: 1) |
-| `unit` | ✓ | Hour / Half Day / Day / Week / Flat / Each / Mile |
-| `rateCents` | ✓ | Rate as whole cents — $1,500 → `150000` |
+| `accountName` | ✓ | Account group — created if it doesn't exist, extended if it does |
+| `description` | — | Line item label. Falls back to `accountName` if blank |
+| `qty` | — | Quantity, decimals allowed (default: 1) |
+| `unit` | — | Hour / Half Day / Day / Week / Flat / Each / Mile (default: Flat) |
+| `rate` | ✓* | Rate in **dollars** — `1500` for $1,500/day. Auto-converted to cents |
+| `rateCents` | ✓* | Rate in cents (legacy) — `150000` for $1,500/day |
 | `markupPct` | — | Per-item markup as decimal — 10% → `0.10` |
 | `hasMarkup` | — | `true`/`false` — whether agency fee applies (default: true) |
 | `taxRate` | — | Per-item tax as decimal — 8.75% → `0.0875` |
-| `notes` | — | Internal note shown next to description |
+| `notes` | — | Internal note shown next to the description |
+
+*Provide either `rate` (dollars, preferred) or `rateCents` (cents, legacy) — not both.
 
 **JSON format:** array of objects using the same field names.
 
-The import modal shows a grouped preview of all accounts and line items before writing anything to the database. Existing accounts are extended (not duplicated); new accounts are created in order.
+**Parser behaviour:**
+- Scans the first 5 rows to find the actual header row — safely ignores title rows, subtitle rows, and instruction rows exported from Google Sheets
+- Strips `*`, `($)`, spaces and other decoration from column names (`accountName *` → `accountName`)
+- Skips description/hint rows that follow the header (detected by checking whether the rate column contains a non-numeric string)
+- Filters out blank trailing rows
+- Trims all cell values before validation
+
+The import modal shows a grouped preview of all accounts and line items before writing anything to the database. Existing accounts are extended (not duplicated); new accounts are appended in order.
 
 ## File Structure
 
