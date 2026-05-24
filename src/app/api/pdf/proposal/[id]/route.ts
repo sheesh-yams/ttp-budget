@@ -29,58 +29,72 @@ export async function GET(
     return new NextResponse('Not found', { status: 404 })
   }
 
-  // Fetch line items from primary phase
-  const primaryPhase = await db.phase.findFirst({
-    where: { budgetId: proposal.budgetId, isPrimary: true },
-    include: {
-      accounts: {
-        where: { parentId: null },
-        orderBy: { order: 'asc' },
-        include: {
-          lineItems: { orderBy: { order: 'asc' } },
-          children: {
-            orderBy: { order: 'asc' },
-            include: { lineItems: { orderBy: { order: 'asc' } } },
-          },
-        },
-      },
-    },
-  }) ?? await db.phase.findFirst({
-    where: { budgetId: proposal.budgetId },
-    orderBy: { order: 'asc' },
-    include: {
-      accounts: {
-        where: { parentId: null },
-        orderBy: { order: 'asc' },
-        include: {
-          lineItems: { orderBy: { order: 'asc' } },
-          children: {
-            orderBy: { order: 'asc' },
-            include: { lineItems: { orderBy: { order: 'asc' } } },
-          },
-        },
-      },
-    },
-  })
+  // Use frozen budget snapshot if present, fall back to live query for legacy proposals
+  const proposalContent = proposal.content as Record<string, unknown>
+  const snapshot = proposalContent?.budgetSnapshot as {
+    accounts: unknown[]
+    totalCents: number
+  } | undefined
 
-  const rawAccounts = primaryPhase?.accounts ?? []
-  const accounts = rawAccounts.map(acc => ({
-    ...acc,
-    lineItems: acc.lineItems.map(i => ({
-      ...i, quantity: Number(i.quantity), markupPct: i.markupPct != null ? Number(i.markupPct) : null,
-    })),
-    children: acc.children.map(child => ({
-      ...child,
-      lineItems: child.lineItems.map(i => ({
+  let accounts: unknown[]
+  let totalCents: number
+
+  if (snapshot?.accounts) {
+    accounts = snapshot.accounts
+    totalCents = snapshot.totalCents
+  } else {
+    const primaryPhase = await db.phase.findFirst({
+      where: { budgetId: proposal.budgetId, isPrimary: true },
+      include: {
+        accounts: {
+          where: { parentId: null },
+          orderBy: { order: 'asc' },
+          include: {
+            lineItems: { orderBy: { order: 'asc' } },
+            children: {
+              orderBy: { order: 'asc' },
+              include: { lineItems: { orderBy: { order: 'asc' } } },
+            },
+          },
+        },
+      },
+    }) ?? await db.phase.findFirst({
+      where: { budgetId: proposal.budgetId },
+      orderBy: { order: 'asc' },
+      include: {
+        accounts: {
+          where: { parentId: null },
+          orderBy: { order: 'asc' },
+          include: {
+            lineItems: { orderBy: { order: 'asc' } },
+            children: {
+              orderBy: { order: 'asc' },
+              include: { lineItems: { orderBy: { order: 'asc' } } },
+            },
+          },
+        },
+      },
+    })
+
+    const rawAccounts = primaryPhase?.accounts ?? []
+    accounts = rawAccounts.map(acc => ({
+      ...acc,
+      lineItems: acc.lineItems.map(i => ({
         ...i, quantity: Number(i.quantity), markupPct: i.markupPct != null ? Number(i.markupPct) : null,
       })),
-    })),
-  }))
+      children: acc.children.map(child => ({
+        ...child,
+        lineItems: child.lineItems.map(i => ({
+          ...i, quantity: Number(i.quantity), markupPct: i.markupPct != null ? Number(i.markupPct) : null,
+        })),
+      })),
+    }))
 
-  const totalCents = accounts.reduce(
-    (sum, acc) => sum + sumAccount(acc as unknown as AccountInput),
-    0
-  )
+    totalCents = (accounts as unknown[]).reduce(
+      (sum, acc) => sum + sumAccount(acc as unknown as AccountInput),
+      0
+    )
+  }
 
   try {
     const serialisedProposal = {

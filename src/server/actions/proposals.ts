@@ -3,9 +3,87 @@
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
 import { getWorkspaceId, getCurrentUser } from '@/lib/auth'
+import { sumAccount, type AccountInput } from '@/lib/totals'
 import type { ActionResult } from '@/types'
 
 function uid() { return crypto.randomUUID().slice(0, 8) }
+
+// ─── Capture a frozen snapshot of budget line items ───────────────────────────
+// Stored in content.budgetSnapshot so the public page never reads live budget data.
+
+async function captureBudgetSnapshot(budgetId: string) {
+  const primaryPhase = await db.phase.findFirst({
+    where: { budgetId, isPrimary: true },
+    include: {
+      accounts: {
+        where: { parentId: null },
+        orderBy: { order: 'asc' },
+        include: {
+          lineItems: { orderBy: { order: 'asc' } },
+          children: {
+            orderBy: { order: 'asc' },
+            include: { lineItems: { orderBy: { order: 'asc' } } },
+          },
+        },
+      },
+    },
+  }) ?? await db.phase.findFirst({
+    where: { budgetId },
+    orderBy: { order: 'asc' },
+    include: {
+      accounts: {
+        where: { parentId: null },
+        orderBy: { order: 'asc' },
+        include: {
+          lineItems: { orderBy: { order: 'asc' } },
+          children: {
+            orderBy: { order: 'asc' },
+            include: { lineItems: { orderBy: { order: 'asc' } } },
+          },
+        },
+      },
+    },
+  })
+
+  const accounts = (primaryPhase?.accounts ?? []).map(acc => ({
+    id:       acc.id,
+    name:     acc.name,
+    code:     acc.code,
+    order:    acc.order,
+    lineItems: acc.lineItems.map(i => ({
+      id:          i.id,
+      description: i.description,
+      quantity:    Number(i.quantity),
+      unit:        i.unit,
+      rateCents:   i.rateCents,
+      markupPct:   i.markupPct != null ? Number(i.markupPct) : null,
+      notes:       i.notes,
+      order:       i.order,
+    })),
+    children: acc.children.map(child => ({
+      id:       child.id,
+      name:     child.name,
+      order:    child.order,
+      lineItems: child.lineItems.map(i => ({
+        id:          i.id,
+        description: i.description,
+        quantity:    Number(i.quantity),
+        unit:        i.unit,
+        rateCents:   i.rateCents,
+        markupPct:   i.markupPct != null ? Number(i.markupPct) : null,
+        notes:       i.notes,
+        order:       i.order,
+      })),
+    })),
+  }))
+
+  const totalCents = accounts.reduce(
+    (sum, acc) => sum + sumAccount(acc as unknown as AccountInput),
+    0
+  )
+
+  return { accounts, totalCents }
+}
 
 // ─── Create proposal from a budget ───────────────────────────────────────────
 
@@ -77,9 +155,16 @@ export async function updateProposalContent(
 export async function sendProposal(proposalId: string): Promise<ActionResult<{ publicUrl: string }>> {
   try {
     await getWorkspaceId()
+    const existing = await db.proposal.findUniqueOrThrow({
+      where: { id: proposalId },
+      select: { budgetId: true, content: true },
+    })
+    const snapshot = await captureBudgetSnapshot(existing.budgetId)
+    const mergedContent = { ...(existing.content as object), budgetSnapshot: snapshot }
+
     const proposal = await db.proposal.update({
       where: { id: proposalId },
-      data: { status: 'SENT', sentAt: new Date() },
+      data: { status: 'SENT', sentAt: new Date(), content: mergedContent as object },
     })
     const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL}/p/${proposal.publicToken}`
     revalidatePath(`/proposals/${proposalId}/edit`)
@@ -130,6 +215,7 @@ export async function createSentProposal(input: {
     const user = await getCurrentUser()
 
     const content = buildContent(input)
+    const snapshot = await captureBudgetSnapshot(input.budgetId)
 
     const proposal = await db.proposal.create({
       data: {
@@ -137,7 +223,7 @@ export async function createSentProposal(input: {
         projectId: input.projectId,
         budgetId: input.budgetId,
         title: input.title,
-        content: content as object,
+        content: { ...content, budgetSnapshot: snapshot } as object,
         status: 'SENT',
         sentAt: new Date(),
         expiresAt: new Date(input.expiresAt),
@@ -229,9 +315,17 @@ export async function sendDraftProposal(
 ): Promise<ActionResult<{ publicToken: string }>> {
   try {
     await getWorkspaceId()
+    // Fetch current content so we can merge the snapshot in
+    const existing = await db.proposal.findUniqueOrThrow({
+      where: { id: proposalId },
+      select: { budgetId: true, projectId: true, content: true },
+    })
+    const snapshot = await captureBudgetSnapshot(existing.budgetId)
+    const mergedContent = { ...(existing.content as object), budgetSnapshot: snapshot }
+
     const proposal = await db.proposal.update({
       where: { id: proposalId },
-      data: { status: 'SENT', sentAt: new Date() },
+      data: { status: 'SENT', sentAt: new Date(), content: mergedContent as object },
     })
     revalidatePath(`/projects/${proposal.projectId}`)
     return { success: true, data: { publicToken: proposal.publicToken } }

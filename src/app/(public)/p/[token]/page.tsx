@@ -47,64 +47,78 @@ export default async function PublicProposalPage({ params }: Props) {
     notFound()
   }
 
-  // ── Fetch accounts from the primary phase separately ──────────────────────
-  const primaryPhase = await db.phase.findFirst({
-    where: { budgetId: proposal.budgetId, isPrimary: true },
-    include: {
-      accounts: {
-        where: { parentId: null },
-        orderBy: { order: 'asc' },
-        include: {
-          lineItems: { orderBy: { order: 'asc' } },
-          children: {
-            orderBy: { order: 'asc' },
-            include: { lineItems: { orderBy: { order: 'asc' } } },
+  // ── Budget data: use frozen snapshot if present, otherwise fall back to live ─
+  const content = proposal.content as Record<string, unknown>
+  const snapshot = content?.budgetSnapshot as {
+    accounts: unknown[]
+    totalCents: number
+  } | undefined
+
+  let serialisedAccounts: unknown[]
+  let totalCents: number
+
+  if (snapshot?.accounts) {
+    // Proposal was sent with a frozen snapshot — use it
+    serialisedAccounts = snapshot.accounts
+    totalCents = snapshot.totalCents
+  } else {
+    // Legacy / draft: fall back to live budget query
+    const primaryPhase = await db.phase.findFirst({
+      where: { budgetId: proposal.budgetId, isPrimary: true },
+      include: {
+        accounts: {
+          where: { parentId: null },
+          orderBy: { order: 'asc' },
+          include: {
+            lineItems: { orderBy: { order: 'asc' } },
+            children: {
+              orderBy: { order: 'asc' },
+              include: { lineItems: { orderBy: { order: 'asc' } } },
+            },
           },
         },
       },
-    },
-  }) ?? await db.phase.findFirst({
-    where: { budgetId: proposal.budgetId },
-    orderBy: { order: 'asc' },
-    include: {
-      accounts: {
-        where: { parentId: null },
-        orderBy: { order: 'asc' },
-        include: {
-          lineItems: { orderBy: { order: 'asc' } },
-          children: {
-            orderBy: { order: 'asc' },
-            include: { lineItems: { orderBy: { order: 'asc' } } },
+    }) ?? await db.phase.findFirst({
+      where: { budgetId: proposal.budgetId },
+      orderBy: { order: 'asc' },
+      include: {
+        accounts: {
+          where: { parentId: null },
+          orderBy: { order: 'asc' },
+          include: {
+            lineItems: { orderBy: { order: 'asc' } },
+            children: {
+              orderBy: { order: 'asc' },
+              include: { lineItems: { orderBy: { order: 'asc' } } },
+            },
           },
         },
       },
-    },
-  })
+    })
 
-  const accounts = primaryPhase?.accounts ?? []
-
-  // Convert Decimal → number so the client component receives plain JSON
-  const serialisedAccounts = accounts.map(acc => ({
-    ...acc,
-    lineItems: acc.lineItems.map(item => ({
-      ...item,
-      quantity:  Number(item.quantity),
-      markupPct: item.markupPct != null ? Number(item.markupPct) : null,
-    })),
-    children: acc.children.map(child => ({
-      ...child,
-      lineItems: child.lineItems.map(item => ({
+    const accounts = primaryPhase?.accounts ?? []
+    serialisedAccounts = accounts.map(acc => ({
+      ...acc,
+      lineItems: acc.lineItems.map(item => ({
         ...item,
         quantity:  Number(item.quantity),
         markupPct: item.markupPct != null ? Number(item.markupPct) : null,
       })),
-    })),
-  }))
+      children: acc.children.map(child => ({
+        ...child,
+        lineItems: child.lineItems.map(item => ({
+          ...item,
+          quantity:  Number(item.quantity),
+          markupPct: item.markupPct != null ? Number(item.markupPct) : null,
+        })),
+      })),
+    }))
 
-  const totalCents = serialisedAccounts.reduce(
-    (sum, acc) => sum + sumAccount(acc as unknown as AccountInput),
-    0
-  )
+    totalCents = serialisedAccounts.reduce(
+      (sum, acc) => sum + sumAccount(acc as unknown as AccountInput),
+      0
+    )
+  }
 
   // Serialise the proposal too (strip Decimal / Date edge cases)
   const serialisedProposal = {

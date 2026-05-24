@@ -8,13 +8,16 @@ async function main() {
   // ─── Workspace ─────────────────────────────────────────────────────────────
   const workspace = await db.workspace.upsert({
     where: { id: 'ttp-workspace' },
-    update: {},
+    update: {
+      contactEmail: 'ashish@thethirdplacecreative.co',
+      website: 'https://www.thethirdplacecreative.co',
+    },
     create: {
       id: 'ttp-workspace',
       name: 'The Third Place Creative',
       legalName: 'The Third Place Creative LLC',
-      contactEmail: 'hello@thethirdplace.co',
-      website: 'https://thethirdplace.co',
+      contactEmail: 'ashish@thethirdplacecreative.co',
+      website: 'https://www.thethirdplacecreative.co',
       primaryColor: '#5D00A4',
       accentColor: '#04FFCC',
       invoiceNumberPrefix: 'TTP',

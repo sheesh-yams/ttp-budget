@@ -1,5 +1,5 @@
 import {
-  Document, Page, Text, View, StyleSheet, Font,
+  Document, Page, Text, View, StyleSheet, Font, Link,
 } from '@react-pdf/renderer'
 import { lineTotal, formatMoney } from '@/lib/money'
 import { sumAccount, type AccountInput } from '@/lib/totals'
@@ -390,7 +390,9 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
               <Text style={s.footerLbl}>{proposal.workspace.contactEmail}</Text>
             )}
             {proposal.workspace.website && (
-              <Text style={s.footerLbl}>{proposal.workspace.website}</Text>
+              <Link src={proposal.workspace.website} style={[s.footerLbl, { color: MUT, textDecoration: 'none' }]}>
+                {proposal.workspace.website.replace(/^https?:\/\//, '')}
+              </Link>
             )}
           </View>
           <View style={{ textAlign: 'right' }}>

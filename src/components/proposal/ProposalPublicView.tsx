@@ -594,9 +594,14 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
               </p>
             )}
             {workspace.website && (
-              <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, margin: 0 }}>
-                {workspace.website}
-              </p>
+              <a
+                href={workspace.website}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, margin: 0, textDecoration: 'none', display: 'block' }}
+              >
+                {workspace.website.replace(/^https?:\/\//, '')}
+              </a>
             )}
           </div>
           {validThrough && (
