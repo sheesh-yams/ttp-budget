@@ -26,7 +26,7 @@ export default function PublicError({
         Something went wrong
       </p>
       <p style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>
-        This page couldn't be loaded
+        This page could not be loaded
       </p>
       <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, marginBottom: 32, maxWidth: 400 }}>
         {error.message || 'An unexpected error occurred.'}

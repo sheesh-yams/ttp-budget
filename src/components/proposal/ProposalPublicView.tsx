@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight, Check } from 'lucide-react'
 import { formatMoney, lineTotal } from '@/lib/money'
-import { sumAccount, type AccountInput } from '@/lib/totals'
+import { sumAccount } from '@/lib/totals'
 import type { ProposalContent, PaymentMilestone } from '@/types'
 
 // ─── Brand tokens ─────────────────────────────────────────────────────────────
@@ -54,22 +54,68 @@ function SectionHeader({ label }: { label: string }) {
   )
 }
 
-// ─── Props ────────────────────────────────────────────────────────────────────
-// Dates arrive as ISO strings (serialised from the server component)
+// ─── Serialised shapes (dates → ISO strings, Decimal → number) ────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type SerialProps = any
+interface SerialLineItem {
+  id: string
+  description: string
+  quantity: number
+  unit: string
+  rateCents: number
+  markupPct: number | null
+  notes: string | null
+}
+
+interface SerialAccount {
+  id: string
+  name: string
+  code: string | null
+  lineItems: SerialLineItem[]
+  children: Array<{
+    id: string
+    name: string
+    lineItems: SerialLineItem[]
+  }>
+}
+
+interface SerialProposal {
+  id: string
+  title: string
+  publicToken: string
+  version: number
+  status: string
+  content: unknown
+  createdAt: string
+  expiresAt: string | null
+  approvedAt: string | null
+  signatureName: string | null
+  project: {
+    name: string
+    shootType: string
+    shootStartDate: string | null
+    shootEndDate: string | null
+    client: { name: string }
+  }
+  workspace: {
+    name: string
+    legalName: string | null
+    contactEmail: string | null
+    website: string | null
+  }
+}
+
+// ─── Props ────────────────────────────────────────────────────────────────────
 
 interface Props {
-  proposal: SerialProps
-  accounts: SerialProps[]
+  proposal: SerialProposal
+  accounts: SerialAccount[]
   totalCents: number
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
-  const content     = proposal.content as unknown as ProposalContent
+  const content     = proposal.content as ProposalContent
   const sections    = content?.sections ?? []
 
   const aboutSection = sections.find(s => s.type === 'about')
@@ -81,7 +127,8 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
   const milestones: PaymentMilestone[] =
     termsSection?.type === 'terms' ? termsSection.milestones : []
 
-  const { project, workspace } = proposal
+  const project   = proposal.project
+  const workspace = proposal.workspace
   const clientName = project.client.name
 
   const proposalNumber = `PRO-${new Date(proposal.createdAt).getFullYear()}-${String(proposal.version).padStart(3, '0')}`
@@ -114,7 +161,7 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
   const prodFeeAccount  = accounts.find(a => /production fee/i.test(a.name))
   const mainAccounts    = accounts.filter(a => !/production fee/i.test(a.name))
   const prodFeeCents    = prodFeeAccount
-    ? sumAccount(prodFeeAccount as unknown as AccountInput) : 0
+    ? sumAccount(prodFeeAccount) : 0
   const subtotalCents   = totalCents - prodFeeCents
 
   // Sign-off
@@ -274,7 +321,7 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
             {/* Accordion */}
             <div style={{ border: `0.5px solid ${BORDER}`, borderRadius: '10px 10px 0 0', overflow: 'hidden' }}>
               {mainAccounts.map((account, idx) => {
-                const accTotal   = sumAccount(account as unknown as AccountInput)
+                const accTotal   = sumAccount(account)
                 const isOpen     = expanded.has(account.id)
                 const ownCount   = account.lineItems.length
                 const childCount = account.children?.reduce((s, c) => s + c.lineItems.length, 0) ?? 0

@@ -133,10 +133,8 @@ export default async function PublicProposalPage({ params }: Props) {
 
   return (
     <ProposalPublicView
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      proposal={serialisedProposal as any}
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      accounts={serialisedAccounts as any}
+      proposal={serialisedProposal as never}
+      accounts={serialisedAccounts as never}
       totalCents={totalCents}
     />
   )
