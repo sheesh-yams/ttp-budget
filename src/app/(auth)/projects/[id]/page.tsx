@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
 import { BudgetEditor } from '@/components/projects/BudgetEditor'
 import { ProjectProposals } from '@/components/projects/ProjectProposals'
+import { ProjectHeaderActions } from '@/components/projects/ProjectHeaderActions'
 import { createBudget } from '@/server/actions/budgets'
 import { Button } from '@/components/ui/button'
 import { formatMoney } from '@/lib/money'
@@ -85,6 +86,7 @@ export default async function ProjectDetailPage({
           expiresAt: true,
           signatureName: true,
           approvedAt: true,
+          content: true,
         },
       },
     },
@@ -104,6 +106,16 @@ export default async function ProjectDetailPage({
         0
       )
     }
+  }
+
+  // Serialise project for client component (dates → strings)
+  const serialisedProject = {
+    id:             project.id,
+    name:           project.name,
+    status:         project.status,
+    shootType:      project.shootType,
+    shootStartDate: project.shootStartDate?.toISOString() ?? null,
+    shootEndDate:   project.shootEndDate?.toISOString()   ?? null,
   }
 
   return (
@@ -148,18 +160,22 @@ export default async function ProjectDetailPage({
           </div>
         </div>
 
-        {budget && grandTotalCents > 0 && (
-          <div className="rounded-xl border bg-card px-5 py-3 text-right shadow-sm">
-            <p className="text-xs text-muted-foreground">Budget total</p>
-            <p className="text-2xl font-semibold tabular text-foreground">{formatMoney(grandTotalCents)}</p>
-          </div>
-        )}
+        <div className="flex items-start gap-3">
+          {budget && grandTotalCents > 0 && (
+            <div className="rounded-xl border bg-card px-5 py-3 text-right shadow-sm">
+              <p className="text-xs text-muted-foreground">Budget total</p>
+              <p className="text-2xl font-semibold tabular text-foreground">{formatMoney(grandTotalCents)}</p>
+            </div>
+          )}
+          {/* Edit project button (client component) */}
+          <ProjectHeaderActions project={serialisedProject} />
+        </div>
       </div>
 
       {/* Proposals section */}
       <section className="mb-8">
         <ProjectProposals
-          proposals={project.proposals}
+          proposals={project.proposals as never}
           projectId={project.id}
           projectName={project.name}
           budgetId={budget?.id ?? null}

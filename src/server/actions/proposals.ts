@@ -129,45 +129,7 @@ export async function createSentProposal(input: {
   try {
     const user = await getCurrentUser()
 
-    const content = {
-      totalCents: input.totalCents,
-      sections: [
-        {
-          type: 'about',
-          title: 'The project',
-          body: input.about,
-        },
-        {
-          type: 'scope',
-          title: 'Deliverables',
-          items: input.deliverables.map((d, i) => ({
-            number: String(i + 1).padStart(2, '0'),
-            title: d.title,
-            description: d.description,
-          })),
-        },
-        { type: 'budget', detailLevel: 'SUMMARY' },
-        {
-          type: 'terms',
-          title: 'Payment terms',
-          body: '',
-          milestones: [
-            {
-              id: uid(),
-              name: 'Deposit — on signing',
-              percentPct: input.depositPct,
-              trigger: 'on_signing',
-            },
-            {
-              id: uid(),
-              name: 'Final — on delivery',
-              percentPct: 100 - input.depositPct,
-              trigger: 'on_delivery',
-            },
-          ],
-        },
-      ],
-    }
+    const content = buildContent(input)
 
     const proposal = await db.proposal.create({
       data: {
@@ -189,6 +151,164 @@ export async function createSentProposal(input: {
   } catch (err) {
     console.error(err)
     return { success: false, error: 'Failed to create proposal' }
+  }
+}
+
+// ─── Create a DRAFT proposal (same as createSentProposal but stays DRAFT) ────
+
+export async function createDraftProposal(input: {
+  projectId: string
+  budgetId: string
+  title: string
+  about: string
+  deliverables: { title: string; description: string }[]
+  depositPct: number
+  expiresAt: string
+  totalCents: number
+}): Promise<ActionResult<{ id: string; publicToken: string }>> {
+  try {
+    const user = await getCurrentUser()
+    const content = buildContent(input)
+    const proposal = await db.proposal.create({
+      data: {
+        workspaceId: user.workspaceId,
+        projectId: input.projectId,
+        budgetId: input.budgetId,
+        title: input.title,
+        content: content as object,
+        status: 'DRAFT',
+        expiresAt: new Date(input.expiresAt),
+        createdById: user.id,
+      },
+    })
+    revalidatePath(`/projects/${input.projectId}`)
+    return { success: true, data: { id: proposal.id, publicToken: proposal.publicToken } }
+  } catch (err) {
+    console.error(err)
+    return { success: false, error: 'Failed to save draft' }
+  }
+}
+
+// ─── Update an existing DRAFT proposal in-place ───────────────────────────────
+
+export async function updateDraftProposal(
+  proposalId: string,
+  input: {
+    title: string
+    about: string
+    deliverables: { title: string; description: string }[]
+    depositPct: number
+    expiresAt: string
+    totalCents: number
+  }
+): Promise<ActionResult<{ id: string; publicToken: string }>> {
+  try {
+    await getWorkspaceId()
+    const content = buildContent(input)
+    const proposal = await db.proposal.update({
+      where: { id: proposalId },
+      data: {
+        title: input.title,
+        content: content as object,
+        expiresAt: new Date(input.expiresAt),
+        updatedAt: new Date(),
+      },
+    })
+    revalidatePath(`/projects/${proposal.projectId}`)
+    return { success: true, data: { id: proposal.id, publicToken: proposal.publicToken } }
+  } catch (err) {
+    console.error(err)
+    return { success: false, error: 'Failed to update draft' }
+  }
+}
+
+// ─── Send an existing DRAFT proposal ─────────────────────────────────────────
+
+export async function sendDraftProposal(
+  proposalId: string
+): Promise<ActionResult<{ publicToken: string }>> {
+  try {
+    await getWorkspaceId()
+    const proposal = await db.proposal.update({
+      where: { id: proposalId },
+      data: { status: 'SENT', sentAt: new Date() },
+    })
+    revalidatePath(`/projects/${proposal.projectId}`)
+    return { success: true, data: { publicToken: proposal.publicToken } }
+  } catch {
+    return { success: false, error: 'Failed to send proposal' }
+  }
+}
+
+// ─── Create a new version (revision) from an existing proposal ────────────────
+
+export async function createProposalRevision(
+  proposalId: string
+): Promise<ActionResult<{ id: string; publicToken: string }>> {
+  try {
+    const user = await getCurrentUser()
+    const source = await db.proposal.findUniqueOrThrow({
+      where: { id: proposalId },
+    })
+    // Find the highest version for this project
+    const maxVersion = await db.proposal.aggregate({
+      where: { projectId: source.projectId },
+      _max: { version: true },
+    })
+    const nextVersion = (maxVersion._max.version ?? 1) + 1
+    const proposal = await db.proposal.create({
+      data: {
+        workspaceId: source.workspaceId,
+        projectId:   source.projectId,
+        budgetId:    source.budgetId,
+        title:       source.title,
+        content:     source.content as object,
+        status:      'DRAFT',
+        version:     nextVersion,
+        expiresAt:   source.expiresAt,
+        createdById: user.id,
+      },
+    })
+    revalidatePath(`/projects/${source.projectId}`)
+    return { success: true, data: { id: proposal.id, publicToken: proposal.publicToken } }
+  } catch (err) {
+    console.error(err)
+    return { success: false, error: 'Failed to create revision' }
+  }
+}
+
+// ─── Shared content builder ───────────────────────────────────────────────────
+
+function buildContent(input: {
+  about: string
+  deliverables: { title: string; description: string }[]
+  depositPct: number
+  totalCents: number
+}) {
+  return {
+    totalCents: input.totalCents,
+    sections: [
+      { type: 'about', title: 'The project', body: input.about },
+      {
+        type: 'scope',
+        title: 'Deliverables',
+        items: input.deliverables.map((d, i) => ({
+          number: String(i + 1).padStart(2, '0'),
+          title: d.title,
+          description: d.description,
+        })),
+      },
+      { type: 'budget', detailLevel: 'SUMMARY' },
+      {
+        type: 'terms',
+        title: 'Payment terms',
+        body: '',
+        milestones: [
+          { id: uid(), name: 'Deposit — on signing',  percentPct: input.depositPct,             trigger: 'on_signing' },
+          { id: uid(), name: 'Final — on delivery',   percentPct: 100 - input.depositPct,       trigger: 'on_delivery' },
+        ],
+      },
+    ],
   }
 }
 

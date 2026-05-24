@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
-import { getCurrentUser } from '@/lib/auth'
+import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import { Prisma } from '@prisma/client'
@@ -64,5 +64,45 @@ export async function createProjectWithBudget(
   } catch (err) {
     console.error(err)
     return { success: false, error: 'Failed to create project' }
+  }
+}
+
+// ─── Update project info ──────────────────────────────────────────────────────
+
+const SHOOT_TYPES = [
+  'MUSIC_VIDEO','BRAND_CAMPAIGN','PRODUCT_SHOOT','EVENT_RECAP',
+  'SOCIAL_CONTENT','INFLUENCER','DOCUMENTARY','OTHER',
+] as const
+
+const PROJECT_STATUSES = ['LEAD','ACTIVE','WRAPPED','ARCHIVED'] as const
+
+export async function updateProject(
+  projectId: string,
+  input: {
+    name: string
+    status: typeof PROJECT_STATUSES[number]
+    shootType: typeof SHOOT_TYPES[number]
+    shootStartDate: string | null  // YYYY-MM-DD or null
+    shootEndDate: string | null
+  }
+): Promise<ActionResult> {
+  try {
+    const workspaceId = await getWorkspaceId()
+    await db.project.update({
+      where: { id: projectId, workspaceId },
+      data: {
+        name:           input.name.trim(),
+        status:         input.status,
+        shootType:      input.shootType,
+        shootStartDate: input.shootStartDate ? new Date(input.shootStartDate) : null,
+        shootEndDate:   input.shootEndDate   ? new Date(input.shootEndDate)   : null,
+      },
+    })
+    revalidatePath(`/projects/${projectId}`)
+    revalidatePath('/projects')
+    return { success: true, data: undefined }
+  } catch (err) {
+    console.error(err)
+    return { success: false, error: 'Failed to update project' }
   }
 }
