@@ -90,7 +90,7 @@ export async function GET(
       })),
     }))
 
-    totalCents = (accounts as unknown[]).reduce(
+    totalCents = (accounts as unknown[]).reduce<number>(
       (sum, acc) => sum + sumAccount(acc as unknown as AccountInput),
       0
     )
