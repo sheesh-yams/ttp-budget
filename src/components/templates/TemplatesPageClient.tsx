@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { createTemplate, deleteTemplate } from '@/server/actions/templates'
 import { importToTemplate } from '@/server/actions/import'
-import { parseFileText, importPayloadSchema, CSV_TEMPLATE, type ImportRow } from '@/lib/importSchema'
+import { parseFileText, importPayloadSchema, formatZodError, CSV_TEMPLATE, type ImportRow } from '@/lib/importSchema'
 import type { TemplateStructure, TemplateKind, BudgetTemplateExtended } from '@/types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -205,7 +205,7 @@ function ImportTemplateModal({ open, onOpenChange, defaultKind = 'FULL' }: Impor
         const raw    = parseFileText(text, file.name)
         const result = importPayloadSchema.safeParse(raw)
         if (!result.success) {
-          setFileError(result.error.errors[0]?.message ?? 'Invalid file')
+          setFileError(formatZodError(result.error))
           return
         }
         const parsed = result.data

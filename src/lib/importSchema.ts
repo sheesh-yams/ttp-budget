@@ -29,20 +29,6 @@ const UNIT_MAP: Record<string, string> = {
   MILE:     'MILE',  Mile:     'MILE',  mile:      'MILE',
 }
 
-const unitSchema = z
-  .string()
-  .transform((v, ctx) => {
-    const mapped = UNIT_MAP[v.trim()]
-    if (!mapped) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `Unknown unit "${v}". Valid values: Hour, Half Day, Day, Week, Flat, Each, Mile`,
-      })
-      return z.NEVER
-    }
-    return mapped
-  })
-
 // ─── Single import row ────────────────────────────────────────────────────────
 
 export const importRowSchema = z
@@ -62,8 +48,18 @@ export const importRowSchema = z
     /** Quantity — decimals allowed (e.g. 0.5 for a half-day billed fractionally) */
     qty: z.number().positive('qty must be > 0').optional().nullable().default(1),
 
-    /** Rate unit. See UNIT_MAP for accepted strings. */
-    unit: unitSchema,
+    /** Rate unit. See UNIT_MAP for accepted strings. Defaults to Flat if omitted. */
+    unit: z.string().default('Flat').transform((v, ctx) => {
+      const mapped = UNIT_MAP[v.trim()]
+      if (!mapped) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Unknown unit "${v}". Valid values: Hour, Half Day, Day, Week, Flat, Each, Mile`,
+        })
+        return z.NEVER
+      }
+      return mapped
+    }),
 
     /**
      * Rate in DOLLARS — preferred. Automatically converted to cents.
@@ -245,13 +241,19 @@ export function parseFileText(text: string, filename: string): unknown[] {
     }
 
     // ── Parse data rows ──────────────────────────────────────────────────────
-    return lines.slice(dataStartIdx).map((line) => {
+    const dataLines = lines.slice(dataStartIdx).filter(line => {
+      // Drop rows that are entirely empty (e.g. trailing newlines from Google Sheets)
+      const cells = parseCSVRow(line)
+      return cells.some(c => c.trim() !== '')
+    })
+
+    return dataLines.map((line) => {
       const values = parseCSVRow(line)
       const obj: Record<string, unknown> = {}
 
       headers.forEach((header, i) => {
         if (!header) return // skip empty/unknown columns
-        const raw = values[i] ?? ''
+        const raw = (values[i] ?? '').trim()
         if (NUMERIC_FIELDS.has(header)) {
           const n = Number(raw)
           obj[header] = raw === '' ? undefined : isNaN(n) ? raw : n
