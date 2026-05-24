@@ -322,7 +322,7 @@ export function InvoicePDF({ invoice }: { invoice: InvoicePDFData }) {
         {/* ── FOOTER ── */}
         <View style={s.footer} fixed>
           <View>
-            <Text style={s.footerName}>{invoice.workspace.legalName ?? invoice.workspace.name}</Text>
+            <Text style={s.footerName}>{invoice.workspace.name}</Text>
             {invoice.workspace.contactEmail && (
               <Text style={s.footerLbl}>{invoice.workspace.contactEmail}</Text>
             )}

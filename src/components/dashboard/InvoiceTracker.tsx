@@ -26,7 +26,7 @@ export function InvoiceTracker({ invoices }: { invoices: InvoiceRow[] }) {
         {invoices.slice(0, 5).map((inv) => (
           <Link
             key={inv.id}
-            href={`/invoices/${inv.id}/edit`}
+            href={`/projects/${inv.project.id}`}
             className="grid grid-cols-[1fr_80px_72px] items-center border-b border-violet-50 px-4 py-3 text-[13px] last:border-0 hover:bg-muted/30 transition-colors"
           >
             <div>
@@ -74,7 +74,7 @@ export function ProposalQueue({ proposals }: { proposals: ProposalRow[] }) {
         {proposals.slice(0, 4).map((p) => (
           <Link
             key={p.id}
-            href={`/proposals/${p.id}/edit`}
+            href={`/projects/${p.project.id}`}
             className="flex items-start gap-3 border-b border-violet-50 px-4 py-3 text-[13px] last:border-0 hover:bg-muted/30 transition-colors"
           >
             <div

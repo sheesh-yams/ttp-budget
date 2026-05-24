@@ -385,7 +385,7 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
         {/* ══ FOOTER ══ */}
         <View style={s.footer} fixed>
           <View>
-            <Text style={s.footerBold}>{proposal.workspace.legalName ?? proposal.workspace.name}</Text>
+            <Text style={s.footerBold}>{proposal.workspace.name}</Text>
             {proposal.workspace.contactEmail && (
               <Text style={s.footerLbl}>{proposal.workspace.contactEmail}</Text>
             )}
