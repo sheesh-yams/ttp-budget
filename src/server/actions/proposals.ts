@@ -406,6 +406,23 @@ function buildContent(input: {
   }
 }
 
+// ─── Delete a proposal ───────────────────────────────────────────────────────
+
+export async function deleteProposal(proposalId: string): Promise<ActionResult> {
+  try {
+    await getWorkspaceId()
+    const proposal = await db.proposal.findUniqueOrThrow({
+      where: { id: proposalId },
+      select: { projectId: true },
+    })
+    await db.proposal.delete({ where: { id: proposalId } })
+    revalidatePath(`/projects/${proposal.projectId}`)
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to delete proposal' }
+  }
+}
+
 // ─── Update brand overrides ───────────────────────────────────────────────────
 
 export async function updateProposalBranding(

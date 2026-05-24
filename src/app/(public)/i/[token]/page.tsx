@@ -31,6 +31,7 @@ export default async function PublicInvoicePage({ params }: Props) {
       workspace: {
         select: {
           name: true,
+          legalName: true,
           logoUrl: true,
           wireInstructions: true,
           achInstructions: true,

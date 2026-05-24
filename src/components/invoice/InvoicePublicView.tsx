@@ -342,7 +342,7 @@ export function InvoicePublicView({ invoice }: { invoice: InvoiceWithRelations }
         <div style={{ maxWidth: 960, margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 24 }}>
           <div>
             <p style={{ color: '#fff', fontSize: 14, fontWeight: 700, margin: '0 0 6px' }}>
-              The Third Place Creative LLC
+              {workspace.legalName ?? workspace.name}
             </p>
             {workspace.contactEmail && (
               <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, margin: '0 0 3px' }}>

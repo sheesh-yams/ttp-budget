@@ -2,11 +2,12 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, ExternalLink, Clock, Send, FileText, Pencil, RotateCcw, Receipt, CheckCircle } from 'lucide-react'
+import { Plus, ExternalLink, Clock, Send, FileText, Pencil, RotateCcw, Receipt, CheckCircle, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ProposalModal, type ProposalModalMode } from './ProposalModal'
 import { NewInvoiceModal } from './NewInvoiceModal'
-import { createProposalRevision } from '@/server/actions/proposals'
+import { createProposalRevision, deleteProposal } from '@/server/actions/proposals'
 import type { ProposalStatus } from '@/types'
 import type { ProposalContent } from '@/types'
 
@@ -80,6 +81,10 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false)
   const [invoiceProposal, setInvoiceProposal] = useState<Props['proposals'][0] | null>(null)
 
+  // Delete confirm state
+  const [deleteTarget, setDeleteTarget] = useState<Props['proposals'][0] | null>(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
+
   const canCreateProposal = !!budgetId
 
   function openCreate() {
@@ -97,6 +102,20 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
   function openInvoiceModal(p: Props['proposals'][0]) {
     setInvoiceProposal(p)
     setInvoiceModalOpen(true)
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return
+    setDeleteLoading(true)
+    try {
+      const result = await deleteProposal(deleteTarget.id)
+      if (result.success) {
+        setDeleteTarget(null)
+        router.refresh()
+      }
+    } finally {
+      setDeleteLoading(false)
+    }
   }
 
   async function handleCreateRevision(p: Props['proposals'][0]) {
@@ -176,6 +195,7 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
                 const canEdit     = p.status === 'DRAFT'
                 const canRevise   = ['SENT', 'VIEWED', 'APPROVED'].includes(p.status)
                 const canInvoice  = ['SENT', 'VIEWED', 'APPROVED'].includes(p.status) && !!budgetId
+                const canDelete   = p.status !== 'APPROVED'
 
                 return (
                   <tr key={p.id} className="border-b last:border-0 hover:bg-muted/30">
@@ -248,6 +268,17 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
                             <ExternalLink className="h-3.5 w-3.5" />
                           </a>
                         )}
+                        {/* Delete */}
+                        {canDelete && (
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget(p)}
+                            className="rounded p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600 inline-flex"
+                            title="Delete proposal"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -288,6 +319,32 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
           liveTotalCents={totalCents}
         />
       )}
+
+      {/* Delete confirm dialog */}
+      <Dialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete proposal?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            <strong className="text-foreground">{deleteTarget?.title}</strong> will be permanently deleted.
+            This cannot be undone.
+          </p>
+          <div className="flex gap-3 pt-2">
+            <Button variant="outline" className="flex-1" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              className="flex-1"
+              disabled={deleteLoading}
+              onClick={handleDelete}
+            >
+              {deleteLoading ? 'Deleting…' : 'Delete'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

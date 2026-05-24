@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { formatMoney } from '@/lib/money'
-import { sendInvoice, recordPayment } from '@/server/actions/invoices'
+import { sendInvoice, recordPayment, updateInvoiceStatus } from '@/server/actions/invoices'
 import type { InvoiceStatus } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -46,6 +46,9 @@ const STATUS_CONFIG: Record<InvoiceStatus, { label: string; color: string }> = {
 export function ProjectInvoices({ invoices }: Props) {
   const router = useRouter()
 
+  // Status change state
+  const [statusPending, setStatusPending] = useState<string | null>(null)
+
   // Send state
   const [sendPending, setSendPending] = useState<string | null>(null)
 
@@ -56,6 +59,16 @@ export function ProjectInvoices({ invoices }: Props) {
   const [payRef, setPayRef] = useState('')
   const [paySubmitting, setPaySubmitting] = useState(false)
   const [payError, setPayError] = useState('')
+
+  async function handleStatusChange(id: string, status: InvoiceStatus) {
+    setStatusPending(id)
+    try {
+      await updateInvoiceStatus(id, status)
+      router.refresh()
+    } finally {
+      setStatusPending(null)
+    }
+  }
 
   async function handleSend(id: string) {
     setSendPending(id)
@@ -166,9 +179,19 @@ export function ProjectInvoices({ invoices }: Props) {
                   </td>
 
                   <td className="px-3 py-2.5">
-                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${badgeClass}`}>
-                      {badgeLabel}
-                    </span>
+                    <select
+                      value={inv.status}
+                      disabled={statusPending === inv.id}
+                      onChange={e => handleStatusChange(inv.id, e.target.value as InvoiceStatus)}
+                      className={`rounded-full border-0 px-2 py-0.5 text-[11px] font-medium cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 ${badgeClass}`}
+                    >
+                      <option value="DRAFT">Draft</option>
+                      <option value="SENT">Sent</option>
+                      <option value="VIEWED">Viewed</option>
+                      <option value="PAID">Paid</option>
+                      <option value="OVERDUE">Overdue</option>
+                      <option value="VOID">Void</option>
+                    </select>
                   </td>
 
                   <td className="px-3 py-2.5 text-right font-medium tabular-nums text-foreground">
@@ -195,7 +218,7 @@ export function ProjectInvoices({ invoices }: Props) {
                           onClick={() => handleSend(inv.id)}
                           disabled={sendPending === inv.id}
                           className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground inline-flex disabled:opacity-40"
-                          title="Mark as sent"
+                          title="Mark as sent &amp; generate link"
                         >
                           <Send className="h-3.5 w-3.5" />
                         </button>

@@ -89,6 +89,7 @@ export type InvoiceWithRelations = Invoice & {
   workspace: Pick<
     Workspace,
     | 'name'
+    | 'legalName'
     | 'logoUrl'
     | 'wireInstructions'
     | 'achInstructions'

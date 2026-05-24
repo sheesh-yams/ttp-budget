@@ -125,6 +125,35 @@ export async function recordInvoiceView(invoiceId: string, ip: string, userAgent
   }
 }
 
+export async function updateInvoiceStatus(
+  invoiceId: string,
+  status: 'DRAFT' | 'SENT' | 'VIEWED' | 'PAID' | 'OVERDUE' | 'VOID'
+): Promise<ActionResult> {
+  try {
+    const invoice = await db.invoice.findUniqueOrThrow({
+      where: { id: invoiceId },
+      select: { projectId: true, totalCents: true },
+    })
+    await db.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        status,
+        ...(status === 'PAID'
+          ? { paidAt: new Date(), amountPaidCents: invoice.totalCents, sentAt: undefined }
+          : status === 'SENT'
+          ? { sentAt: new Date() }
+          : {}),
+      },
+    })
+    revalidatePath(`/projects/${invoice.projectId}`)
+    revalidatePath('/invoices')
+    revalidatePath('/dashboard')
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to update status' }
+  }
+}
+
 export async function recordPayment(
   invoiceId: string,
   amountCents: number,
