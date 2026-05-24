@@ -208,7 +208,7 @@ function TemplateCard({
   onDelete: () => void
 }) {
   const count = itemCount(template)
-  const tags  = template.tags ?? []
+  const tags  = (template.tags as unknown as ShootType[]) ?? []
 
   return (
     <div className="group relative rounded-xl border border-border bg-white hover:border-violet-200 hover:shadow-sm transition-all">

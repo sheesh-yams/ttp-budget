@@ -30,8 +30,9 @@ export async function createTemplate(
   try {
     const user = await getCurrentUser()
     const data = templateMetaSchema.parse(input)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const createData: any = {
+    // kind/tags/structure fields will be fully typed after `prisma db push && prisma generate`
+    // until then we cast through unknown to satisfy the pre-migration client types
+    const createData = {
       workspaceId: user.workspaceId,
       name:        data.name,
       description: data.description ?? null,
@@ -39,7 +40,7 @@ export async function createTemplate(
       shootType:   data.shootType,
       tags:        data.tags,
       structure:   { accounts: [] },
-    }
+    } as unknown as Parameters<typeof db.budgetTemplate.create>[0]['data']
     const tpl = await db.budgetTemplate.create({ data: createData })
     revalidatePath('/templates')
     return { success: true, data: { id: tpl.id } }
@@ -56,14 +57,13 @@ export async function updateTemplateMeta(
 ): Promise<ActionResult> {
   try {
     const data = templateMetaSchema.parse(input)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const updateData: any = {
+    const updateData = {
       name:        data.name,
       description: data.description ?? null,
       kind:        data.kind,
       shootType:   data.shootType,
       tags:        data.tags,
-    }
+    } as unknown as Parameters<typeof db.budgetTemplate.update>[0]['data']
     await db.budgetTemplate.update({ where: { id }, data: updateData })
     revalidatePath('/templates')
     revalidatePath(`/templates/${id}`)
@@ -116,9 +116,12 @@ export async function listPackages(): Promise<ActionResult<Array<{
 }>>> {
   try {
     const user = await getCurrentUser()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const whereClause = {
+      workspaceId: user.workspaceId,
+      kind: 'PACKAGE',
+    } as unknown as Parameters<typeof db.budgetTemplate.findMany>[0]['where']
     const packages = await db.budgetTemplate.findMany({
-      where:   { workspaceId: user.workspaceId, ...({ kind: 'PACKAGE' } as any) },
+      where:   whereClause,
       orderBy: [{ shootType: 'asc' }, { name: 'asc' }],
     })
     return {
@@ -128,13 +131,13 @@ export async function listPackages(): Promise<ActionResult<Array<{
         const itemCount = (structure.accounts ?? []).reduce(
           (sum, a) => sum + (a.items?.length ?? 0), 0
         )
+        const extended = p as unknown as { tags: ShootType[] }
         return {
           id:          p.id,
           name:        p.name,
           description: p.description,
           shootType:   p.shootType,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          tags:        ((p as any).tags as ShootType[]) ?? [],
+          tags:        extended.tags ?? [],
           structure,
           itemCount,
         }
@@ -145,5 +148,5 @@ export async function listPackages(): Promise<ActionResult<Array<{
   }
 }
 
-// ─── Unused re-export kept for compatibility ──────────────────────────────────
+// ─── Re-export local type ─────────────────────────────────────────────────────
 export type { TemplateKind }
