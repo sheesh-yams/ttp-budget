@@ -107,8 +107,7 @@ export async function GET(
     }
 
     const buffer = await renderToBuffer(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      React.createElement(ProposalPDF as any, {
+      React.createElement(ProposalPDF as never, {
         proposal: serialisedProposal,
         accounts,
         totalCents,
