@@ -175,6 +175,43 @@ export interface RateCardOption {
   notes: string | null
 }
 
+// ─── Template kind (mirrors the TemplateKind enum in schema) ─────────────────
+// Defined locally until `prisma generate` picks up the new schema field.
+
+export type TemplateKind = 'FULL' | 'PACKAGE'
+
+// Extended BudgetTemplate — adds fields that will exist after db push + generate
+export type BudgetTemplateExtended = BudgetTemplate & {
+  kind:      TemplateKind
+  tags:      ShootType[]
+  structure: TemplateStructure
+}
+
+// ─── Template structure (stored as JSON in BudgetTemplate.structure) ─────────
+
+export interface TemplateItem {
+  id: string
+  description: string
+  rateCardId?: string | null
+  qty: number
+  unit: RateUnit
+  rateCents: number
+  markupPct: number   // e.g. 10 = 10%
+  notes: string
+}
+
+export interface TemplateAccount {
+  id: string
+  name: string
+  code?: string
+  items: TemplateItem[]
+  children: TemplateAccount[]
+}
+
+export interface TemplateStructure {
+  accounts: TemplateAccount[]
+}
+
 // ─── Server action return type ────────────────────────────────────────────────
 
 export type ActionResult<T = void> =

@@ -8,12 +8,12 @@ export default async function TemplatesPage() {
   const workspaceId = await getWorkspaceId()
 
   const templates = await db.budgetTemplate.findMany({
-    where: { workspaceId },
+    where:   { workspaceId },
     orderBy: [{ shootType: 'asc' }, { name: 'asc' }],
   })
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <TemplatesPageClient templates={templates} />
     </div>
   )

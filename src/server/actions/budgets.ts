@@ -275,6 +275,48 @@ type AccountNode = {
   children?: AccountNode[]
 }
 
+// ─── Insert package into phase ────────────────────────────────────────────────
+
+export async function insertPackageIntoPhase(
+  phaseId: string,
+  structure: TemplateStructure
+): Promise<ActionResult> {
+  try {
+    await getWorkspaceId()
+    const phase = await db.phase.findUnique({ where: { id: phaseId } })
+    if (!phase) return { success: false, error: 'Phase not found' }
+
+    const existingCount = await db.account.count({ where: { phaseId } })
+    for (let i = 0; i < structure.accounts.length; i++) {
+      const acc = structure.accounts[i]
+      const account = await db.account.create({
+        data: { phaseId, name: acc.name, code: acc.code, order: existingCount + i },
+      })
+      for (let j = 0; j < acc.items.length; j++) {
+        const item = acc.items[j]
+        await db.lineItem.create({
+          data: {
+            accountId:   account.id,
+            description: item.description,
+            rateCardId:  item.rateCardId ?? null,
+            quantity:    item.qty,
+            unit:        item.unit,
+            rateCents:   item.rateCents,
+            markupPct:   item.markupPct ?? null,
+            notes:       item.notes ?? null,
+            tags:        [],
+            order:       j,
+          },
+        })
+      }
+    }
+    revalidatePath('/')
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to insert package' }
+  }
+}
+
 async function cloneAccounts(accounts: AccountNode[], phaseId: string, parentId: string | null) {
   for (const acc of accounts) {
     const newAcc = await db.account.create({

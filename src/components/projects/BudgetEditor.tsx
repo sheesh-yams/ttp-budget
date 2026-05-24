@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useTransition, useOptimistic } from 'react'
-import { Plus, Trash2, ChevronRight, ChevronDown } from 'lucide-react'
+import { Plus, Trash2, ChevronRight, ChevronDown, Package } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AddLineItemModal } from './AddLineItemModal'
+import { InsertPackageModal } from './InsertPackageModal'
 import { deleteLineItem, addAccount } from '@/server/actions/budgets'
 import { formatMoney, lineTotal } from '@/lib/money'
 import { sumAccount, type AccountInput } from '@/lib/totals'
@@ -78,6 +79,7 @@ function PhaseView({
   onMutated: () => void
 }) {
   const [addingToAccount, setAddingToAccount] = useState<string | null>(null)
+  const [showPackages, setShowPackages] = useState(false)
   const [, startTransition] = useTransition()
 
   function handleAddAccount() {
@@ -93,11 +95,25 @@ function PhaseView({
     return (
       <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-16 text-center">
         <p className="text-sm font-medium text-foreground">No budget accounts yet</p>
-        <p className="mt-1 text-xs text-muted-foreground">Add an account (e.g. Camera, Crew) to get started.</p>
-        <Button className="mt-4" size="sm" onClick={handleAddAccount}>
-          <Plus className="mr-1.5 h-3.5 w-3.5" />
-          Add account
-        </Button>
+        <p className="mt-1 text-xs text-muted-foreground">Add an account manually, or insert an add-on package.</p>
+        <div className="mt-4 flex items-center gap-2">
+          <Button size="sm" onClick={handleAddAccount}>
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            Add account
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setShowPackages(true)}>
+            <Package className="mr-1.5 h-3.5 w-3.5" />
+            Insert package
+          </Button>
+        </div>
+        {showPackages && (
+          <InsertPackageModal
+            open
+            onOpenChange={setShowPackages}
+            phaseId={phase.id}
+            onInserted={onMutated}
+          />
+        )}
       </div>
     )
   }
@@ -131,18 +147,19 @@ function PhaseView({
         </table>
       </div>
 
-      {/* Add account button */}
-      <Button
-        variant="outline"
-        size="sm"
-        className="mt-3"
-        onClick={handleAddAccount}
-      >
-        <Plus className="mr-1.5 h-3.5 w-3.5" />
-        Add account
-      </Button>
+      {/* Bottom toolbar */}
+      <div className="mt-3 flex items-center gap-2">
+        <Button variant="outline" size="sm" onClick={handleAddAccount}>
+          <Plus className="mr-1.5 h-3.5 w-3.5" />
+          Add account
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => setShowPackages(true)}>
+          <Package className="mr-1.5 h-3.5 w-3.5" />
+          Insert package
+        </Button>
+      </div>
 
-      {/* Add line item modal */}
+      {/* Modals */}
       {addingToAccount && (
         <AddLineItemModal
           open
@@ -151,6 +168,12 @@ function PhaseView({
           onAdded={onMutated}
         />
       )}
+      <InsertPackageModal
+        open={showPackages}
+        onOpenChange={setShowPackages}
+        phaseId={phase.id}
+        onInserted={onMutated}
+      />
     </div>
   )
 }

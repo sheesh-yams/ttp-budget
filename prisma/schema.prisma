@@ -240,23 +240,30 @@ model RateCard {
 // =============================================================
 
 model BudgetTemplate {
-  id            String   @id @default(cuid())
+  id            String       @id @default(cuid())
   workspaceId   String
-  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace     Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  name          String   // "Music Video — Standard Crew"
-  description   String?  @db.Text
-  shootType     ShootType @default(OTHER)
+  name          String       // "Music Video — Standard Crew"
+  description   String?      @db.Text
+  kind          TemplateKind @default(FULL)      // FULL = complete project blueprint; PACKAGE = add-on building block
+  shootType     ShootType    @default(OTHER)     // primary type (used for auto-selection in NewProjectModal)
+  tags          Json         @default("[]")      // ShootType[] — multi-select subtypes for discoverability
 
   // Stored as a JSON tree of accounts + line items.
   // Materialized into real rows when a Budget is created from this template.
-  // Shape: { accounts: [{ name, code, items: [{ description, rateCardId?, qty, unit, rateCents, markupPct, notes, tags[] }], children: [...] }] }
-  structure     Json
+  // Shape: { accounts: [{ id, name, code, items: [{ id, description, rateCardId?, qty, unit, rateCents, markupPct, notes }], children: [...] }] }
+  structure     Json         @default("{\"accounts\":[]}")
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
   @@index([workspaceId])
+}
+
+enum TemplateKind {
+  FULL     // Complete project budget — used to seed a new project's budget
+  PACKAGE  // Add-on building block — inserted into an existing budget phase
 }
 
 // =============================================================
