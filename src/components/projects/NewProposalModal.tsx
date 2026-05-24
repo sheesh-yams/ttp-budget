@@ -97,8 +97,8 @@ export function NewProposalModal({
         totalCents,
       })
       if (result.success) {
-        const url = result.data.publicUrl ||
-          `${window.location.origin}/p/${result.data.publicToken}`
+        // Always build the URL from the current origin so it works on any domain
+        const url = `${window.location.origin}/p/${result.data.publicToken}`
         setPublicUrl(url)
         onCreated()
       } else {
