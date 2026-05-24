@@ -4,6 +4,11 @@
 
 @layer base {
   :root {
+    /* ── Font variable bridge (Geist → Tailwind) ────────────── */
+    --font-sans:    var(--font-geist-sans, system-ui, sans-serif);
+    --font-mono:    var(--font-geist-mono, monospace);
+    --font-display: var(--font-geist-sans, system-ui, sans-serif);
+
     /* ── shadcn/ui HSL tokens (mapped to brand) ────────────── */
     --background:         270 50% 98%;       /* #F7F4FA canvas */
     --foreground:         30 5% 17%;         /* #2C2C2A body text */
@@ -56,7 +61,7 @@
   * { @apply border-border; }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
     font-feature-settings: 'rlig' 1, 'calt' 1;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;

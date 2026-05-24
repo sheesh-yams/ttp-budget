@@ -36,7 +36,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <DashboardMetrics projects={projects} invoices={invoices} />
+      <DashboardMetrics projects={projects} invoices={invoices} proposals={proposals} />
       <RecentProjects projects={projects} />
       <div className="grid grid-cols-2 gap-4">
         <InvoiceTracker invoices={invoices} />
