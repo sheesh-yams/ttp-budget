@@ -357,6 +357,8 @@ model LineItem {
   unit          RateUnit @default(DAY)
   rateCents     Int      // money in cents; snapshot from rate card, manually adjustable
   markupPct     Decimal? @db.Decimal(6, 4) // optional per-line markup override
+  hasMarkup     Boolean  @default(true)    // whether the budget-level agency fee applies to this item
+  taxRate       Decimal? @db.Decimal(6, 4) // per-item tax rate override (null = no per-item tax; use budget.taxPct for global)
   notes         String?  @db.Text
 
   // Optional formula string for quantity, e.g. "shoot_days + 1". If set, qty is computed.

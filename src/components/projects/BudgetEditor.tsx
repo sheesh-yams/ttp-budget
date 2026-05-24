@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AddLineItemModal } from './AddLineItemModal'
 import { InsertPackageModal } from './InsertPackageModal'
+import { BudgetSummaryBar } from './BudgetSummaryBar'
 import { deleteLineItem, addAccount } from '@/server/actions/budgets'
 import { formatMoney, lineTotal } from '@/lib/money'
 import { sumAccount, type AccountInput } from '@/lib/totals'
@@ -24,15 +25,20 @@ export function BudgetEditor({ budget, projectId }: Props) {
   )
 
   const currentPhase = budget.phases.find(p => p.id === activePhase)
+  const currentAccounts = (currentPhase?.accounts ?? []) as AccountWithItems[]
 
   // Grand total across all accounts in current phase
-  const phaseTotalCents = (currentPhase?.accounts ?? []).reduce(
+  const phaseTotalCents = currentAccounts.reduce(
     (sum, acc) => sum + sumAccount(acc as unknown as AccountInput),
     0
   )
 
+  const budgetMarkupPct = budget.markupPct ? Number(budget.markupPct) : 0
+  const budgetTaxPct    = budget.taxPct    ? Number(budget.taxPct)    : 0
+
   return (
-    <div>
+    // pb-20 leaves room for the fixed summary bar at the bottom
+    <div className="pb-20">
       <Tabs value={activePhase} onValueChange={setActivePhase}>
         <div className="mb-4 flex items-center justify-between">
           <TabsList>
@@ -63,6 +69,13 @@ export function BudgetEditor({ budget, projectId }: Props) {
           </TabsContent>
         ))}
       </Tabs>
+
+      {/* Sticky summary bar — fixed to the bottom of the viewport */}
+      <BudgetSummaryBar
+        accounts={currentAccounts}
+        budgetMarkupPct={budgetMarkupPct}
+        budgetTaxPct={budgetTaxPct}
+      />
     </div>
   )
 }
