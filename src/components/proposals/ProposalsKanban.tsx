@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Eye, Send, CheckCircle, XCircle, Clock, ExternalLink, AlertCircle } from 'lucide-react'
+import { Eye, Send, ExternalLink, ChevronDown, CheckCircle, XCircle, Clock, GripVertical } from 'lucide-react'
 import { format } from 'date-fns'
 import { updateProposalStatus } from '@/server/actions/proposals'
 
@@ -27,7 +27,7 @@ export type ProposalCardData = {
     publicToken:   string
     signatureName: string | null
   }
-  totalCount: number  // how many proposals exist for this project
+  totalCount: number
 }
 
 // ─── Column config ────────────────────────────────────────────────────────────
@@ -35,29 +35,50 @@ export type ProposalCardData = {
 type ColumnId = 'DRAFT' | 'SENT' | 'VIEWED' | 'CHANGES_NEEDED' | 'CLOSED'
 
 const COLUMNS: {
-  id:        ColumnId
-  label:     string
-  dotColor:  string
-  headerBg:  string
-  borderTop: string
+  id:          ColumnId
+  label:       string
+  dotColor:    string
+  headerBg:    string
+  accentColor: string
+  droppable:   boolean
 }[] = [
-  { id: 'DRAFT',          label: 'Drafts',         dotColor: '#9CA3AF', headerBg: '#F9FAFB', borderTop: '#D1D5DB' },
-  { id: 'SENT',           label: 'Sent',            dotColor: '#3B82F6', headerBg: '#EFF6FF', borderTop: '#3B82F6' },
-  { id: 'VIEWED',         label: 'Viewed',          dotColor: '#7C3AED', headerBg: '#F5F3FF', borderTop: '#7C3AED' },
-  { id: 'CHANGES_NEEDED', label: 'Changes Needed',  dotColor: '#F59E0B', headerBg: '#FFFBEB', borderTop: '#F59E0B' },
-  { id: 'CLOSED',         label: 'Closed',          dotColor: '#374151', headerBg: '#F3F4F6', borderTop: '#6B7280' },
+  { id: 'DRAFT',          label: 'Drafts',        dotColor: '#9CA3AF', headerBg: '#F9FAFB', accentColor: '#D1D5DB', droppable: true  },
+  { id: 'SENT',           label: 'Sent',           dotColor: '#3B82F6', headerBg: '#EFF6FF', accentColor: '#3B82F6', droppable: true  },
+  { id: 'VIEWED',         label: 'Viewed',         dotColor: '#7C3AED', headerBg: '#F5F3FF', accentColor: '#7C3AED', droppable: true  },
+  { id: 'CHANGES_NEEDED', label: 'Changes Needed', dotColor: '#F59E0B', headerBg: '#FFFBEB', accentColor: '#F59E0B', droppable: true  },
+  { id: 'CLOSED',         label: 'Closed',         dotColor: '#6B7280', headerBg: '#F3F4F6', accentColor: '#9CA3AF', droppable: false },
 ]
 
-function getColumnId(status: string, expiresAt: Date | string | null): ColumnId {
-  const now = new Date()
-  const isExpired = !!expiresAt && new Date(expiresAt) < now && status !== 'APPROVED'
+// ─── Status helpers ───────────────────────────────────────────────────────────
 
-  if (isExpired)                   return 'CLOSED'
-  if (status === 'APPROVED')       return 'CLOSED'
-  if (status === 'DECLINED')       return 'CLOSED'
-  if (status === 'SENT')           return 'SENT'
-  if (status === 'VIEWED')         return 'VIEWED'
-  if (status === 'CHANGES_NEEDED') return 'CHANGES_NEEDED'
+const STATUS_STYLES: Record<string, { label: string; bg: string; text: string }> = {
+  DRAFT:          { label: 'Draft',          bg: '#F3F4F6', text: '#374151' },
+  SENT:           { label: 'Sent',           bg: '#DBEAFE', text: '#1E40AF' },
+  VIEWED:         { label: 'Viewed',         bg: '#EDE9FE', text: '#5B21B6' },
+  CHANGES_NEEDED: { label: 'Changes Needed', bg: '#FEF3C7', text: '#92400E' },
+  APPROVED:       { label: 'Approved',       bg: '#D1FAE5', text: '#065F46' },
+  DECLINED:       { label: 'Declined',       bg: '#FEE2E2', text: '#991B1B' },
+  EXPIRED:        { label: 'Expired',        bg: '#FEF3C7', text: '#78350F' },
+}
+
+const ACTIVE_STATUSES = ['DRAFT', 'SENT', 'VIEWED', 'CHANGES_NEEDED']
+
+function isTerminal(status: string, expiresAt: Date | string | null): boolean {
+  if (['APPROVED', 'DECLINED'].includes(status)) return true
+  if (expiresAt && new Date(expiresAt) < new Date() && status !== 'APPROVED') return true
+  return false
+}
+
+function effectiveStatus(status: string, expiresAt: Date | string | null): string {
+  if (expiresAt && new Date(expiresAt) < new Date() && status !== 'APPROVED') return 'EXPIRED'
+  return status
+}
+
+function getColumnId(status: string, expiresAt: Date | string | null): ColumnId {
+  if (isTerminal(status, expiresAt)) return 'CLOSED'
+  if (status === 'SENT')             return 'SENT'
+  if (status === 'VIEWED')           return 'VIEWED'
+  if (status === 'CHANGES_NEEDED')   return 'CHANGES_NEEDED'
   return 'DRAFT'
 }
 
@@ -85,30 +106,98 @@ const SHOOT_LABELS: Record<string, string> = {
   OTHER:          'Other',
 }
 
+// ─── Status badge / dropdown ──────────────────────────────────────────────────
+
+function StatusBadge({
+  status,
+  expiresAt,
+  onChange,
+}: {
+  status:     string
+  expiresAt:  Date | string | null
+  onChange:   (s: string) => void
+}) {
+  const eff   = effectiveStatus(status, expiresAt)
+  const style = STATUS_STYLES[eff] ?? STATUS_STYLES.DRAFT
+  const term  = isTerminal(status, expiresAt)
+
+  if (term) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
+        style={{ background: style.bg, color: style.text }}
+      >
+        {eff === 'APPROVED' && <CheckCircle className="h-2.5 w-2.5" />}
+        {eff === 'DECLINED' && <XCircle className="h-2.5 w-2.5" />}
+        {eff === 'EXPIRED'  && <Clock    className="h-2.5 w-2.5" />}
+        {style.label}
+      </span>
+    )
+  }
+
+  return (
+    <div className="relative inline-flex items-center">
+      <select
+        value={status}
+        onChange={e => onChange(e.target.value)}
+        style={{ background: style.bg, color: style.text }}
+        className="rounded-full pl-2 pr-6 py-0.5 text-[10px] font-medium border-0 outline-none cursor-pointer appearance-none leading-none"
+      >
+        {ACTIVE_STATUSES.map(s => (
+          <option key={s} value={s}>{STATUS_STYLES[s].label}</option>
+        ))}
+      </select>
+      <ChevronDown
+        className="absolute right-1.5 top-1/2 -translate-y-1/2 h-2.5 w-2.5 pointer-events-none"
+        style={{ color: style.text }}
+      />
+    </div>
+  )
+}
+
 // ─── Card ─────────────────────────────────────────────────────────────────────
 
 function ProposalCard({
   card,
+  isDragging,
   onStatusChange,
+  onDragStart,
+  onDragEnd,
 }: {
   card:           ProposalCardData
-  onStatusChange: (proposalId: string, status: string) => void
+  isDragging:     boolean
+  onStatusChange: (proposalId: string, newStatus: string) => void
+  onDragStart:    (e: React.DragEvent<HTMLDivElement>) => void
+  onDragEnd:      (e: React.DragEvent<HTMLDivElement>) => void
 }) {
   const { proposal } = card
-  const now        = new Date()
-  const isApproved = proposal.status === 'APPROVED'
-  const isDeclined = proposal.status === 'DECLINED'
-  const isExpired  = !!proposal.expiresAt &&
-                     new Date(proposal.expiresAt) < now &&
-                     proposal.status !== 'APPROVED'
-
-  const canFlagChanges = proposal.status === 'SENT' || proposal.status === 'VIEWED'
-  const canResend      = proposal.status === 'CHANGES_NEEDED'
+  const terminal = isTerminal(proposal.status, proposal.expiresAt)
+  const eff      = effectiveStatus(proposal.status, proposal.expiresAt)
 
   return (
-    <div className="rounded-xl bg-white border border-border hover:border-violet-200 hover:shadow-sm transition-all group">
-      <Link href={`/projects/${card.projectId}`} className="block p-3.5">
-        {/* Shoot type pill */}
+    <div
+      data-card="true"
+      className={`rounded-xl bg-white border transition-all group ${
+        isDragging
+          ? 'opacity-40 border-violet-300 shadow-md scale-[0.97]'
+          : 'border-border hover:border-violet-200 hover:shadow-sm'
+      } ${terminal ? '' : 'cursor-grab active:cursor-grabbing'}`}
+    >
+      {/* Drag handle (only shown on hover for non-terminal cards) */}
+      {!terminal && (
+        <div
+          draggable
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          className="absolute -left-1 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center justify-center w-5 h-8 rounded cursor-grab text-muted-foreground/40 hover:text-muted-foreground z-10"
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </div>
+      )}
+
+      {/* Main clickable area */}
+      <Link href={`/projects/${card.projectId}`} className="block p-3.5" draggable={false}>
+        {/* Shoot type */}
         <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${SHOOT_COLORS[card.shootType] ?? 'bg-gray-100 text-gray-600'}`}>
           {SHOOT_LABELS[card.shootType] ?? card.shootType}
         </span>
@@ -119,13 +208,13 @@ function ProposalCard({
         </p>
         <p className="text-[11.5px] text-muted-foreground mt-0.5">{card.clientName}</p>
 
-        {/* Latest proposal info */}
-        <div className="mt-3 border-t border-border/60 pt-3">
+        {/* Proposal info */}
+        <div className="mt-3 border-t border-border/60 pt-2.5">
           <p className="text-[11.5px] font-medium text-foreground line-clamp-1">{proposal.title}</p>
           <p className="text-[10.5px] text-muted-foreground mt-0.5">
             v{proposal.version}
             {card.totalCount > 1 && (
-              <span className="ml-1 text-muted-foreground/70">· {card.totalCount} revisions</span>
+              <span className="ml-1 opacity-60">· {card.totalCount} revisions</span>
             )}
           </p>
         </div>
@@ -146,59 +235,48 @@ function ProposalCard({
           )}
         </div>
 
-        {/* Closed outcome badge */}
-        {(isApproved || isDeclined || isExpired) && (
+        {/* Approved / won badge */}
+        {eff === 'APPROVED' && (
           <div className="mt-2.5">
-            {isApproved && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-green-100 text-green-700 px-2 py-0.5 text-[10px] font-medium">
-                <CheckCircle className="h-3 w-3" />
-                Won{proposal.signatureName ? ` · ${proposal.signatureName}` : ''}
-              </span>
-            )}
-            {isDeclined && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-[10px] font-medium">
-                <XCircle className="h-3 w-3" />
-                Declined
-              </span>
-            )}
-            {isExpired && !isDeclined && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-700 px-2 py-0.5 text-[10px] font-medium">
-                <Clock className="h-3 w-3" />
-                Expired
-              </span>
-            )}
+            <span className="inline-flex items-center gap-1 rounded-full bg-green-100 text-green-700 px-2 py-0.5 text-[10px] font-medium">
+              <CheckCircle className="h-3 w-3" />
+              Won{proposal.signatureName ? ` · ${proposal.signatureName}` : ''}
+            </span>
+          </div>
+        )}
+        {eff === 'DECLINED' && (
+          <div className="mt-2.5">
+            <span className="inline-flex items-center gap-1 rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-[10px] font-medium">
+              <XCircle className="h-3 w-3" />
+              Declined
+            </span>
+          </div>
+        )}
+        {eff === 'EXPIRED' && (
+          <div className="mt-2.5">
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-700 px-2 py-0.5 text-[10px] font-medium">
+              <Clock className="h-3 w-3" />
+              Expired
+            </span>
           </div>
         )}
       </Link>
 
-      {/* Footer actions */}
-      <div className="flex items-center justify-between border-t border-border/60 px-3.5 py-2 min-h-[36px]">
-        <div>
-          {canFlagChanges && (
-            <button
-              onClick={(e) => { e.preventDefault(); onStatusChange(proposal.id, 'CHANGES_NEEDED') }}
-              className="flex items-center gap-1 text-[10.5px] text-amber-600 hover:text-amber-700 font-medium"
-            >
-              <AlertCircle className="h-3 w-3" />
-              Flag changes needed
-            </button>
-          )}
-          {canResend && (
-            <button
-              onClick={(e) => { e.preventDefault(); onStatusChange(proposal.id, 'SENT') }}
-              className="flex items-center gap-1 text-[10.5px] text-blue-600 hover:text-blue-700 font-medium"
-            >
-              <Send className="h-3 w-3" />
-              Mark re-sent
-            </button>
-          )}
-        </div>
+      {/* Footer: status + external link — stopPropagation prevents Link navigation */}
+      <div
+        className="flex items-center justify-between border-t border-border/60 px-3 py-2"
+        onClick={e => e.stopPropagation()}
+      >
+        <StatusBadge
+          status={proposal.status}
+          expiresAt={proposal.expiresAt}
+          onChange={(newStatus) => onStatusChange(proposal.id, newStatus)}
+        />
         <a
           href={`/p/${proposal.publicToken}`}
           target="_blank"
           rel="noopener noreferrer"
-          onClick={e => e.stopPropagation()}
-          className="text-muted-foreground/50 hover:text-violet-600 transition-colors ml-auto"
+          className="text-muted-foreground/40 hover:text-violet-600 transition-colors"
           title="Open public link"
         >
           <ExternalLink className="h-3.5 w-3.5" />
@@ -208,15 +286,16 @@ function ProposalCard({
   )
 }
 
-// ─── Main Kanban ──────────────────────────────────────────────────────────────
+// ─── Main Kanban board ────────────────────────────────────────────────────────
 
 export function ProposalsKanban({ cards: initialCards }: { cards: ProposalCardData[] }) {
   const router = useRouter()
   const [, startTransition] = useTransition()
-  const [cards, setCards] = useState(initialCards)
+  const [cards, setCards]           = useState(initialCards)
+  const [draggedId, setDraggedId]   = useState<string | null>(null)
+  const [dragOverCol, setDragOverCol] = useState<ColumnId | null>(null)
 
   function handleStatusChange(proposalId: string, newStatus: string) {
-    // Optimistic update — move card to new column immediately
     setCards(prev =>
       prev.map(c =>
         c.proposal.id === proposalId
@@ -230,7 +309,7 @@ export function ProposalsKanban({ cards: initialCards }: { cards: ProposalCardDa
     })
   }
 
-  // Group cards into columns
+  // Group into columns
   const grouped = Object.fromEntries(
     COLUMNS.map(col => [col.id, [] as ProposalCardData[]])
   ) as Record<ColumnId, ProposalCardData[]>
@@ -241,18 +320,45 @@ export function ProposalsKanban({ cards: initialCards }: { cards: ProposalCardDa
   }
 
   return (
-    <div className="overflow-x-auto pb-4 -mx-1 px-1">
+    <div className="overflow-x-auto pb-2 -mx-1 px-1">
       <div className="flex gap-3" style={{ minWidth: `${COLUMNS.length * 272}px` }}>
         {COLUMNS.map(col => {
           const colCards = grouped[col.id]
+          const isOver   = dragOverCol === col.id && col.droppable
+
           return (
-            <div key={col.id} className="flex flex-col w-[260px] shrink-0">
+            <div
+              key={col.id}
+              className="flex flex-col w-[260px] shrink-0"
+              onDragOver={e => {
+                if (!col.droppable) return
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'move'
+                setDragOverCol(col.id)
+              }}
+              onDragLeave={e => {
+                // Only clear if leaving the column entirely (not entering a child)
+                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                  setDragOverCol(null)
+                }
+              }}
+              onDrop={e => {
+                e.preventDefault()
+                const proposalId = e.dataTransfer.getData('proposalId')
+                if (proposalId && col.droppable) {
+                  handleStatusChange(proposalId, col.id) // col.id === target status
+                }
+                setDragOverCol(null)
+                setDraggedId(null)
+              }}
+            >
               {/* Column header */}
               <div
-                className="flex items-center gap-2 rounded-lg px-3 py-2.5 mb-2"
+                className="flex items-center gap-2 rounded-lg px-3 py-2.5 mb-2 transition-all"
                 style={{
-                  backgroundColor: col.headerBg,
-                  borderLeft: `3px solid ${col.borderTop}`,
+                  backgroundColor: isOver ? `${col.accentColor}18` : col.headerBg,
+                  borderLeft: `3px solid ${isOver ? col.accentColor : `${col.accentColor}80`}`,
+                  boxShadow: isOver ? `0 0 0 1px ${col.accentColor}30` : 'none',
                 }}
               >
                 <span
@@ -267,20 +373,52 @@ export function ProposalsKanban({ cards: initialCards }: { cards: ProposalCardDa
                 </span>
               </div>
 
-              {/* Cards */}
-              <div className="flex flex-col gap-2">
+              {/* Card list */}
+              <div
+                className={`relative flex flex-col gap-2 rounded-xl min-h-[80px] p-1 -m-1 transition-colors ${
+                  isOver ? 'bg-violet-50/50' : ''
+                }`}
+              >
                 {colCards.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-border/60 py-8 text-center">
-                    <p className="text-[11px] text-muted-foreground/60">Empty</p>
+                  <div
+                    className={`rounded-xl border-2 border-dashed py-8 text-center transition-all ${
+                      isOver
+                        ? 'border-violet-300 bg-violet-50'
+                        : 'border-border/50'
+                    }`}
+                  >
+                    <p className="text-[11px] text-muted-foreground/50">
+                      {isOver ? 'Drop here' : 'Empty'}
+                    </p>
                   </div>
                 ) : (
                   colCards.map(card => (
-                    <ProposalCard
-                      key={card.proposal.id}
-                      card={card}
-                      onStatusChange={handleStatusChange}
-                    />
+                    <div key={card.proposal.id} className="relative">
+                      <ProposalCard
+                        card={card}
+                        isDragging={draggedId === card.proposal.id}
+                        onStatusChange={handleStatusChange}
+                        onDragStart={e => {
+                          // Set drag image to the whole card element
+                          const cardEl = e.currentTarget.closest('[data-card]') as HTMLElement
+                          if (cardEl) e.dataTransfer.setDragImage(cardEl, 30, 30)
+                          e.dataTransfer.setData('proposalId', card.proposal.id)
+                          e.dataTransfer.effectAllowed = 'move'
+                          // Use setTimeout so opacity change shows after drag image is captured
+                          setTimeout(() => setDraggedId(card.proposal.id), 0)
+                        }}
+                        onDragEnd={() => {
+                          setDraggedId(null)
+                          setDragOverCol(null)
+                        }}
+                      />
+                    </div>
                   ))
+                )}
+
+                {/* Bottom drop target when column has cards */}
+                {isOver && colCards.length > 0 && (
+                  <div className="h-1 rounded-full bg-violet-300 mx-2" />
                 )}
               </div>
             </div>
