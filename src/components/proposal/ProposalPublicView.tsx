@@ -5,7 +5,6 @@ import { ChevronDown, ChevronRight, Check } from 'lucide-react'
 import { formatMoney, lineTotal } from '@/lib/money'
 import { sumAccount, type AccountInput } from '@/lib/totals'
 import type { ProposalContent, PaymentMilestone } from '@/types'
-import type { ProposalFull, AccountWithItems } from '@/types'
 
 // ─── Brand tokens ─────────────────────────────────────────────────────────────
 
@@ -56,10 +55,14 @@ function SectionHeader({ label }: { label: string }) {
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
+// Dates arrive as ISO strings (serialised from the server component)
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SerialProps = any
 
 interface Props {
-  proposal: ProposalFull
-  accounts: AccountWithItems[]
+  proposal: SerialProps
+  accounts: SerialProps[]
   totalCents: number
 }
 

@@ -4,7 +4,6 @@ import { ProposalPublicView } from '@/components/proposal/ProposalPublicView'
 import { recordProposalView } from '@/server/actions/proposals'
 import { sumAccount, type AccountInput } from '@/lib/totals'
 import { headers } from 'next/headers'
-import type { ProposalFull, AccountWithItems } from '@/types'
 
 interface Props {
   params: Promise<{ token: string }>
@@ -26,32 +25,11 @@ export async function generateMetadata({ params }: Props) {
 export default async function PublicProposalPage({ params }: Props) {
   const { token } = await params
 
+  // ── Fetch proposal (no budget nesting — we fetch accounts separately) ──────
   const proposal = await db.proposal.findUnique({
     where: { publicToken: token },
     include: {
       project: { include: { client: true } },
-      budget: {
-        include: {
-          phases: {
-            orderBy: { order: 'asc' },
-            include: {
-              accounts: {
-                where: { parentId: null },
-                orderBy: { order: 'asc' },
-                include: {
-                  lineItems: { orderBy: { order: 'asc' } },
-                  children: {
-                    orderBy: { order: 'asc' },
-                    include: {
-                      lineItems: { orderBy: { order: 'asc' } },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
       workspace: {
         select: {
           name: true,
@@ -69,14 +47,83 @@ export default async function PublicProposalPage({ params }: Props) {
     notFound()
   }
 
-  // Primary phase accounts for budget summary
-  const primaryPhase =
-    proposal.budget.phases.find(p => p.isPrimary) ?? proposal.budget.phases[0]
-  const accounts = (primaryPhase?.accounts ?? []) as unknown as AccountWithItems[]
-  const totalCents = accounts.reduce(
+  // ── Fetch accounts from the primary phase separately ──────────────────────
+  const primaryPhase = await db.phase.findFirst({
+    where: { budgetId: proposal.budgetId, isPrimary: true },
+    include: {
+      accounts: {
+        where: { parentId: null },
+        orderBy: { order: 'asc' },
+        include: {
+          lineItems: { orderBy: { order: 'asc' } },
+          children: {
+            orderBy: { order: 'asc' },
+            include: { lineItems: { orderBy: { order: 'asc' } } },
+          },
+        },
+      },
+    },
+  }) ?? await db.phase.findFirst({
+    where: { budgetId: proposal.budgetId },
+    orderBy: { order: 'asc' },
+    include: {
+      accounts: {
+        where: { parentId: null },
+        orderBy: { order: 'asc' },
+        include: {
+          lineItems: { orderBy: { order: 'asc' } },
+          children: {
+            orderBy: { order: 'asc' },
+            include: { lineItems: { orderBy: { order: 'asc' } } },
+          },
+        },
+      },
+    },
+  })
+
+  const accounts = primaryPhase?.accounts ?? []
+
+  // Convert Decimal → number so the client component receives plain JSON
+  const serialisedAccounts = accounts.map(acc => ({
+    ...acc,
+    lineItems: acc.lineItems.map(item => ({
+      ...item,
+      quantity:  Number(item.quantity),
+      markupPct: item.markupPct != null ? Number(item.markupPct) : null,
+    })),
+    children: acc.children.map(child => ({
+      ...child,
+      lineItems: child.lineItems.map(item => ({
+        ...item,
+        quantity:  Number(item.quantity),
+        markupPct: item.markupPct != null ? Number(item.markupPct) : null,
+      })),
+    })),
+  }))
+
+  const totalCents = serialisedAccounts.reduce(
     (sum, acc) => sum + sumAccount(acc as unknown as AccountInput),
     0
   )
+
+  // Serialise the proposal too (strip Decimal / Date edge cases)
+  const serialisedProposal = {
+    ...proposal,
+    // content is already plain JSON from Prisma
+    project: {
+      ...proposal.project,
+      shootStartDate: proposal.project.shootStartDate?.toISOString() ?? null,
+      shootEndDate:   proposal.project.shootEndDate?.toISOString()   ?? null,
+    },
+    createdAt:  proposal.createdAt.toISOString(),
+    updatedAt:  proposal.updatedAt.toISOString(),
+    sentAt:     proposal.sentAt?.toISOString()     ?? null,
+    expiresAt:  proposal.expiresAt?.toISOString()  ?? null,
+    approvedAt: proposal.approvedAt?.toISOString() ?? null,
+    firstViewedAt: proposal.firstViewedAt?.toISOString() ?? null,
+    lastViewedAt:  proposal.lastViewedAt?.toISOString()  ?? null,
+    declinedAt:    proposal.declinedAt?.toISOString()    ?? null,
+  }
 
   // Record view — fire and forget
   const headersList = await headers()
@@ -86,8 +133,10 @@ export default async function PublicProposalPage({ params }: Props) {
 
   return (
     <ProposalPublicView
-      proposal={proposal as unknown as ProposalFull}
-      accounts={accounts}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      proposal={serialisedProposal as any}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      accounts={serialisedAccounts as any}
       totalCents={totalCents}
     />
   )
