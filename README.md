@@ -6,98 +6,145 @@ Inspired by Saturation.io but stripped down to the parts that matter for an agen
 
 ## Stack
 
-| Layer        | Choice                              |
-|--------------|-------------------------------------|
-| Framework    | Next.js 15 (App Router) + TypeScript|
-| UI           | Tailwind + shadcn/ui                |
-| Database     | Postgres (Neon)                     |
-| ORM          | Prisma                              |
-| Auth         | Clerk                               |
-| Email        | Resend                              |
-| File storage | Vercel Blob                         |
-| PDF          | @react-pdf/renderer                 |
-| Tables/grid  | TanStack Table + TanStack Virtual   |
-| Hosting      | Vercel                              |
+| Layer        | Choice                               |
+|--------------|--------------------------------------|
+| Framework    | Next.js 15 (App Router) + TypeScript |
+| UI           | Tailwind + shadcn/ui                 |
+| Database     | Postgres (Neon)                      |
+| ORM          | Prisma (`prisma db push`, no migrations folder) |
+| Auth         | Clerk                                |
+| Email        | Resend                               |
+| File storage | Vercel Blob                          |
+| PDF          | @react-pdf/renderer                  |
+| Hosting      | Vercel                               |
 
 ## Data Model — at a glance
 
 ```
 Workspace (1)
-  ├── Users (you + 1-2 producers, via Clerk)
-  ├── RateCards (the master rate list — drives line-item autocomplete)
-  ├── BudgetTemplates (saved budget skeletons by shoot type)
+  ├── Users (you + producers, via Clerk)
+  ├── RateCards (master rate list — drives line-item autocomplete)
+  ├── BudgetTemplates (saved budget skeletons, full or package, by shoot type)
   ├── Clients
   │     └── Projects
   │           ├── Budgets
+  │           │     ├── markupPct  (agency fee %)
+  │           │     ├── taxPct     (global tax %)
   │           │     └── Phases (v1, v2, Approved, …)
   │           │           └── Accounts (nested tree)
-  │           │                 └── LineItems (snapshots RateCard at insert time)
+  │           │                 └── LineItems
+  │           │                       ├── rateCents  (snapshot at insert)
+  │           │                       ├── hasMarkup  (opt-out of agency fee)
+  │           │                       └── taxRate    (per-item tax override)
   │           ├── Proposals (public /p/[token] page + PDF)
-  │           └── Invoices (public /i/[token] page + PDF)
+  │           └── Invoices  (public /i/[token] page + PDF)
 ```
 
-Money is stored in cents (integer) everywhere. Percentages are `Decimal(6,4)` (so 0.2000 = 20%).
+Money is stored in **integer cents** everywhere. Percentages are `Decimal(6,4)` (0.2000 = 20%).
 
-Rate cards are the **source of defaults** but never retroactively change historical line items — every line item snapshots `description`, `unit`, and `rateCents` at insert. This is the same pattern Saturation uses and it's correct.
+Rate cards are the **source of defaults** but never retroactively change historical line items — every line item snapshots `description`, `unit`, and `rateCents` at insert time.
 
 ## App Routes
 
 ### Internal (auth required)
-- `/dashboard` — outstanding invoices, recent projects, draft proposals
-- `/clients`, `/clients/[id]`
-- `/projects/[id]` — hub: budgets, proposals, invoices
-- `/projects/[id]/budgets/[budgetId]` — the spreadsheet-like editor
-- `/proposals/[id]/edit`
-- `/invoices/[id]/edit`
-- `/rates` — master rate card
-- `/templates` — budget templates
-- `/settings` — branding, payment instructions, team
+| Route | Description |
+|-------|-------------|
+| `/dashboard` | Outstanding invoices, recent projects, draft proposals |
+| `/clients` | Client list |
+| `/clients/[id]` | Client detail + project history |
+| `/projects/[id]` | Project hub — budgets, proposals, invoices |
+| `/projects/[id]/budgets/[budgetId]` | Spreadsheet-like budget editor |
+| `/proposals` | All proposals — Kanban view + full list table |
+| `/proposals/[id]/edit` | Proposal builder |
+| `/invoices` | Invoice list with metrics |
+| `/invoices/[id]/edit` | Invoice editor |
+| `/rates` | Master rate card |
+| `/templates` | Budget templates — full templates & add-on packages |
+| `/templates/[id]` | Template detail + structure editor |
+| `/settings` | Branding, payment instructions, team |
 
 ### Public (no auth, tokenized)
-- `/p/[token]` — branded proposal page with "Download PDF", "Approve", "Request Changes"
-- `/i/[token]` — branded invoice page with wire/ACH details and "Download PDF"
+| Route | Description |
+|-------|-------------|
+| `/p/[token]` | Branded proposal — approve, download PDF, request changes |
+| `/i/[token]` | Branded invoice — wire/ACH details, download PDF |
 
-## The Three Hard Parts
+## The Three Core Artifacts
 
 ### 1. Budget editor (`/projects/[id]/budgets/[budgetId]`)
 
-A virtualized spreadsheet-like grid. Three row types: **Account** (folder), **LineItem** (data), **Subtotal** (computed). The whole thing scrolls, supports keyboard navigation, and the autocomplete-from-rate-card flow is the single most important UX moment in the app.
+A table-based editor with account groups (collapsible) and line items. Supports multiple phases (tabs) within a single budget.
 
-Keyboard:
-- `Enter` — new line item below
-- `Tab` / `Shift+Tab` — next/prev cell
-- `⌘D` — duplicate row
-- `⌘↑` / `⌘↓` — reorder
-- `⌘K` — command palette (insert rate from master, jump to account, etc.)
-- `Esc` — exit edit mode
+Key behaviours:
+- **Add account** via prompt or bulk import
+- **Add line item** via modal — description, qty, unit, rate
+- **Insert package** — pulls in a saved template package (add-on accounts + line items) into any phase
+- **Bulk import** — drag-and-drop a `.csv` or `.json` file; preview grouped line items before committing (see [Import Format](#bulk-import-format))
+- **Sticky summary bar** — fixed at the bottom of the viewport, always visible:
+  - Net Subtotal (raw line totals)
+  - Markups & Taxes (per-item `markupPct` + `taxRate` overrides)
+  - Agency Fee & Tax (budget-level `markupPct` + `taxPct`)
+  - Grand Total
 
-The description cell is the autocomplete — typing queries `RateCard` ordered by (favorite desc, usageCount desc, name asc). Selecting fills `unit`, `rateCents`, links `rateCardId`, and bumps `usageCount` on save.
-
-Phase tabs at the top. "Duplicate phase" deep-clones the account/line-item tree.
+Budget-level markup (`markupPct`) and tax (`taxPct`) are set on the budget record itself. Individual line items can opt out of the agency fee via `hasMarkup: false`, or carry their own tax rate via `taxRate` (useful for equipment sales tax, workers' comp, etc.).
 
 ### 2. Proposal builder + dual render (web + PDF)
 
-The proposal is JSON in `Proposal.content`. Rendered by a single set of React components that work in both `@react-pdf/renderer` (PDF) and regular JSX (web view at `/p/[token]`).
+The proposal is JSON in `Proposal.content`. A shared set of React components renders in both `@react-pdf/renderer` (PDF) and regular JSX (web view at `/p/[token]`), switching primitives via a `target: "web" | "pdf"` prop.
 
-The shared components live in `/components/proposal/` and accept a `target: "web" | "pdf"` prop that switches the underlying primitives (`<View>` / `<Text>` for PDF, `<div>` / `<p>` for web). Brand tokens (colors, fonts, logos) come from `Workspace` and can be overridden per-proposal via `Proposal.brandOverrides`.
+Brand tokens (colors, fonts, logo) come from `Workspace` settings, overridable per-proposal via `Proposal.brandOverrides`.
 
-Default sections, in order: Cover, About, Scope/Deliverables, Budget (summary or itemized), Terms. Each section is optional and reorderable in the editor.
+Default sections: Cover, About, Scope/Deliverables, Budget (summary or itemized), Terms. Each section is optional.
 
-Approval flow: client types their name, clicks "Approve" → we record `signatureName`, `signatureIp`, `approvedAt`, and snapshot the total into `approvedTotalCents`. Email fires to you via Resend. The public page flips into an "Approved by [Name] on [Date]" state and the typed name renders in a script font on the approved version.
+**Approval flow:** client types their name → `signatureName`, `signatureIp`, `approvedAt`, and `approvedTotalCents` are recorded → Resend email fires to you → public page flips into an approved state with the typed signature in script font.
+
+**Status lifecycle:** `DRAFT → SENT → VIEWED → CHANGES_NEEDED → SENT → …` or `CLOSED` (expired proposals auto-routed to closed column in Kanban).
+
+**Proposals Kanban** (`/proposals`): CRM-style drag-and-drop board with columns DRAFTS | SENT | VIEWED | CHANGES NEEDED | CLOSED. Drag cards between columns to update status; use the status dropdown pill on each card for quick changes. Full proposal list table below the board.
 
 ### 3. Invoice generation & status tracking
 
 Invoices can be:
-- Generated from a budget (one-click "Create deposit invoice — 50%")
+- Generated from a budget (one-click, choose percentage or flat amount)
 - Standalone (ad-hoc line items)
 
-Numbering is auto-incrementing per year: `TTP-2026-001`. The workspace holds the counter.
+Numbering: `TTP-2026-001` — auto-incrementing per year, counter stored on `Workspace`.
 
-Status auto-flips: `SENT → VIEWED` on first public-page open, `SENT → OVERDUE` via a cron when `dueDate < now()` and not paid. `PAID` is manual in v1 (you click "Mark as paid", optionally record the payment method + reference).
+**Status auto-flips:** `SENT → VIEWED` on first public page open. `PAID` is set manually (click "Mark as paid", record method + reference). Overdue detection via `dueDate`.
 
-Public invoice page shows your wire/ACH details from workspace settings, big total, due date, line items, and a "Download PDF" button. Looks like a million bucks because that's what the brand demands.
+Public invoice page shows wire/ACH details from workspace settings, big total, due date, and "Download PDF".
 
-## Suggested File Structure
+## Budget Templates (`/templates`)
+
+Two template kinds:
+- **Full Template** — seeds an entire project budget (all accounts + line items). Used when creating a budget from scratch.
+- **Add-on Package** — a building block inserted into any existing budget phase via "Insert package". Good for recurring crew packages, equipment packages, post bundles, etc.
+
+Templates are tagged by shoot type (Music Video, Brand Campaign, Product Shoot, etc.) with a primary type and optional additional tags. The template detail page has a structure editor for managing accounts and line items within the JSON `structure` field, plus bulk import support.
+
+## Bulk Import Format
+
+Both budgets and templates accept `.csv` or `.json` import files.
+
+**CSV columns** (download a template from the Import modal):
+
+| Column | Required | Description |
+|--------|----------|-------------|
+| `accountName` | ✓ | Account group (created if it doesn't exist) |
+| `description` | ✓ | Line item description |
+| `qty` | — | Quantity (default: 1) |
+| `unit` | ✓ | Hour / Half Day / Day / Week / Flat / Each / Mile |
+| `rateCents` | ✓ | Rate as whole cents — $1,500 → `150000` |
+| `markupPct` | — | Per-item markup as decimal — 10% → `0.10` |
+| `hasMarkup` | — | `true`/`false` — whether agency fee applies (default: true) |
+| `taxRate` | — | Per-item tax as decimal — 8.75% → `0.0875` |
+| `notes` | — | Internal note shown next to description |
+
+**JSON format:** array of objects using the same field names.
+
+The import modal shows a grouped preview of all accounts and line items before writing anything to the database. Existing accounts are extended (not duplicated); new accounts are created in order.
+
+## File Structure
 
 ```
 ttp-budget/
@@ -105,64 +152,73 @@ ttp-budget/
 │   └── schema.prisma
 ├── src/
 │   ├── app/
-│   │   ├── (auth)/                  # Clerk-protected admin app
+│   │   ├── (auth)/                        # Clerk-protected admin app
 │   │   │   ├── dashboard/
 │   │   │   ├── clients/[id]/
 │   │   │   ├── projects/[id]/
 │   │   │   │   └── budgets/[budgetId]/
+│   │   │   ├── proposals/                 # Kanban + list table
 │   │   │   ├── proposals/[id]/edit/
+│   │   │   ├── invoices/
 │   │   │   ├── invoices/[id]/edit/
 │   │   │   ├── rates/
 │   │   │   ├── templates/
+│   │   │   ├── templates/[id]/
 │   │   │   └── settings/
-│   │   ├── (public)/                # Tokenized client pages
+│   │   ├── (public)/                      # Tokenized client pages
 │   │   │   ├── p/[token]/page.tsx
 │   │   │   └── i/[token]/page.tsx
 │   │   └── api/
-│   │       ├── pdf/proposal/[id]/   # PDF stream endpoints
+│   │       ├── pdf/proposal/[id]/
 │   │       ├── pdf/invoice/[id]/
 │   │       ├── proposals/[id]/approve/
 │   │       └── webhooks/clerk/
 │   ├── components/
-│   │   ├── ui/                      # shadcn primitives
+│   │   ├── ui/                            # shadcn primitives
 │   │   ├── budget/
-│   │   │   ├── BudgetGrid.tsx       # the virtualized editor
-│   │   │   ├── LineItemRow.tsx
-│   │   │   ├── AccountRow.tsx
-│   │   │   ├── RateAutocomplete.tsx
-│   │   │   ├── PhaseTabs.tsx
-│   │   │   └── GlobalsPanel.tsx
-│   │   ├── proposal/                # shared web+PDF components
-│   │   │   ├── ProposalDocument.tsx
-│   │   │   ├── CoverSection.tsx
-│   │   │   ├── BudgetSection.tsx
-│   │   │   └── primitives.tsx       # the View/Text switchers
+│   │   │   └── BulkImportModal.tsx        # drag-drop import, preview, success
+│   │   ├── proposals/
+│   │   │   └── ProposalsKanban.tsx        # HTML5 DnD Kanban + status select
+│   │   ├── projects/
+│   │   │   ├── BudgetEditor.tsx           # phase tabs, account table, modals
+│   │   │   ├── BudgetSummaryBar.tsx       # sticky bottom summary bar
+│   │   │   ├── AddLineItemModal.tsx
+│   │   │   ├── InsertPackageModal.tsx
+│   │   │   ├── ProjectProposals.tsx
+│   │   │   └── ProjectInvoices.tsx
+│   │   ├── templates/
+│   │   │   ├── TemplateDetailClient.tsx   # metadata + tags + bulk import
+│   │   │   └── TemplateStructureEditor.tsx
+│   │   ├── proposal/                      # shared web+PDF components
 │   │   └── invoice/
-│   │       ├── InvoiceDocument.tsx
-│   │       └── primitives.tsx
 │   ├── lib/
-│   │   ├── db.ts                    # prisma client singleton
-│   │   ├── money.ts                 # cents <-> display helpers
-│   │   ├── totals.ts                # budget/invoice math
-│   │   ├── formulas.ts              # globals/variables evaluator
+│   │   ├── db.ts                          # Prisma client singleton
+│   │   ├── auth.ts                        # Clerk helpers (getCurrentUser)
+│   │   ├── money.ts                       # cents ↔ display helpers
+│   │   ├── totals.ts                      # budget/invoice math
+│   │   ├── importSchema.ts                # Zod schema + CSV parser + UNIT_MAP
 │   │   ├── invoice-numbering.ts
-│   │   └── auth.ts                  # Clerk helpers
+│   │   └── email.ts
 │   └── server/
-│       └── actions/                 # server actions for mutations
+│       └── actions/                       # Server actions (all auth-gated)
 │           ├── budgets.ts
+│           ├── import.ts                  # importToBudget + importToTemplate
 │           ├── proposals.ts
 │           ├── invoices.ts
 │           ├── rates.ts
-│           └── clients.ts
+│           ├── templates.ts
+│           ├── clients.ts
+│           ├── projects.ts
+│           └── workspace.ts
 ├── .env.example
 ├── next.config.js
 ├── tailwind.config.ts
 └── package.json
 ```
 
-## Environment Variables (`.env.example`)
+## Environment Variables
 
-```
+```bash
 DATABASE_URL="postgresql://..."
 
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
@@ -177,9 +233,23 @@ BLOB_READ_WRITE_TOKEN=
 NEXT_PUBLIC_APP_URL="https://budget.thethirdplace.co"
 ```
 
-## Build Order
+## Development
 
-1. **Phase 1 — Core data + budget editor** (no PDFs yet). Get to "I can build a budget for a real project in the app instead of a spreadsheet."
-2. **Phase 2 — Proposals + public page + PDF**. The visual win. Send your first real proposal through it.
-3. **Phase 3 — Invoices + public page + PDF**. Replace whatever you use today.
-4. **Phase 4 — Polish.** Phases, templates, globals/variables, markups, tags, command palette, email notifications, view tracking.
+```bash
+npm install
+npm run dev          # localhost:3000
+
+# After schema changes:
+npx prisma db push
+npx prisma generate
+```
+
+## Engineering Conventions
+
+- **Money:** always integer cents. Never floats. `$1,500 → 150000`.
+- **Percentages:** always decimals. `10% → 0.10`. Stored as `Decimal(6,4)`.
+- **Server actions:** every mutation goes through a `'use server'` action that calls `getCurrentUser()` first and verifies workspace ownership before touching any DB row.
+- **Return type:** all actions return `ActionResult<T>` — `{ success: true; data: T } | { success: false; error: string }`.
+- **No `any`:** project ESLint does not include `@typescript-eslint` plugin. Never use `// eslint-disable-next-line @typescript-eslint/...` — it causes build failures. Use proper casts like `as Parameters<typeof db.model.method>[0]['data']['field']`.
+- **`router.refresh()`** after optimistic state mutations to sync server-rendered data.
+- **Schema changes:** `prisma db push` (no migrations folder). Run locally and Vercel runs `prisma generate` on deploy.
