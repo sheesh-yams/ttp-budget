@@ -273,6 +273,21 @@ export async function searchRateCards(query: string): Promise<ActionResult<unkno
   }
 }
 
+// ─── Update budget markup / tax rates ────────────────────────────────────────
+
+export async function updateBudgetRates(
+  budgetId: string,
+  { markupPct, taxPct }: { markupPct: number | null; taxPct: number | null }
+): Promise<ActionResult> {
+  try {
+    await getWorkspaceId()
+    await db.budget.update({ where: { id: budgetId }, data: { markupPct, taxPct } })
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to update budget rates' }
+  }
+}
+
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
 type TemplateStructure = {
@@ -299,7 +314,7 @@ async function materialiseTemplate(budgetId: string, structure: TemplateStructur
   for (let i = 0; i < structure.accounts.length; i++) {
     const acc = structure.accounts[i]
     const account = await db.account.create({
-      data: { phaseId: phase.id, name: acc.name, code: acc.code, order: i },
+      data: { phaseId: phase.id, name: acc.name, code: acc.code ?? String((i + 1) * 100), order: i },
     })
     for (let j = 0; j < acc.items.length; j++) {
       const item = acc.items[j]

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { Copy, Check, ExternalLink } from 'lucide-react'
+import { Copy, Check, ExternalLink, Plus, X } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -37,8 +37,6 @@ export function NewProposalModal({
   const [depositPct, setDepositPct] = useState('50')
   const [deliverables, setDeliverables] = useState<Deliverable[]>([
     { title: '', description: '' },
-    { title: '', description: '' },
-    { title: '', description: '' },
   ])
   const defaultExpiry = () => {
     const d = new Date()
@@ -56,15 +54,19 @@ export function NewProposalModal({
     setDeliverables(prev => prev.map((d, idx) => idx === i ? { ...d, [field]: value } : d))
   }
 
+  function addDeliverable() {
+    setDeliverables(prev => [...prev, { title: '', description: '' }])
+  }
+
+  function removeDeliverable(i: number) {
+    setDeliverables(prev => prev.filter((_, idx) => idx !== i))
+  }
+
   function reset() {
     setTitle(`${projectName} — Proposal`)
     setAbout('')
     setDepositPct('50')
-    setDeliverables([
-      { title: '', description: '' },
-      { title: '', description: '' },
-      { title: '', description: '' },
-    ])
+    setDeliverables([{ title: '', description: '' }])
     setExpiresAt(defaultExpiry())
     setError('')
     setPublicUrl(null)
@@ -174,29 +176,51 @@ export function NewProposalModal({
 
             {/* Deliverables */}
             <div className="grid gap-2">
-              <Label>Deliverables</Label>
+              <div className="flex items-center justify-between">
+                <Label>Deliverables</Label>
+                <button
+                  type="button"
+                  onClick={addDeliverable}
+                  className="flex items-center gap-1 text-[11px] font-medium text-violet-600 hover:text-violet-800 transition-colors"
+                >
+                  <Plus className="h-3 w-3" />
+                  Add
+                </button>
+              </div>
               {deliverables.map((d, i) => (
-                <div key={i} className="grid grid-cols-[80px_1fr] gap-2 items-start">
-                  <div className="grid gap-1">
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">
-                      {String(i + 1).padStart(2, '0')}
-                    </span>
-                    <Input
-                      placeholder="Title"
-                      value={d.title}
-                      onChange={e => updateDeliverable(i, 'title', e.target.value)}
-                    />
+                <div key={i} className="group/deliv flex items-start gap-2">
+                  <div className="grid grid-cols-[80px_1fr] gap-2 flex-1">
+                    <div className="grid gap-1">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">
+                        {String(i + 1).padStart(2, '0')}
+                      </span>
+                      <Input
+                        placeholder="Title"
+                        value={d.title}
+                        onChange={e => updateDeliverable(i, 'title', e.target.value)}
+                      />
+                    </div>
+                    <div className="grid gap-1">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">
+                        Description
+                      </span>
+                      <Input
+                        placeholder="Short description…"
+                        value={d.description}
+                        onChange={e => updateDeliverable(i, 'description', e.target.value)}
+                      />
+                    </div>
                   </div>
-                  <div className="grid gap-1">
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">
-                      Description
-                    </span>
-                    <Input
-                      placeholder="Short description…"
-                      value={d.description}
-                      onChange={e => updateDeliverable(i, 'description', e.target.value)}
-                    />
-                  </div>
+                  {deliverables.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeDeliverable(i)}
+                      title="Remove"
+                      className="mt-5 rounded p-0.5 text-muted-foreground opacity-0 group-hover/deliv:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-all"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

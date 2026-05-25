@@ -17,6 +17,7 @@ import { BulkImportModal } from '@/components/budget/BulkImportModal'
 import {
   deleteLineItem, addAccount, upsertLineItem, deleteAccount,
   updateAccount, reorderAccounts, reorderLineItems, moveLineItem,
+  updateBudgetRates,
 } from '@/server/actions/budgets'
 import { formatMoney, lineTotal, centsToRate, rateToCents } from '@/lib/money'
 import { sumAccount, type AccountInput } from '@/lib/totals'
@@ -44,6 +45,7 @@ type EditItemState = {
   item: LineItemRow
   description: string
   quantity: string
+  days: string       // multiplier: stored qty = quantity × days
   unit: RateUnit
   rate: string
   notes: string
@@ -61,6 +63,7 @@ interface Props {
 
 export function BudgetEditor({ budget, projectId }: Props) {
   const router = useRouter()
+  const [, startRatesTransition] = useTransition()
   const [activePhase, setActivePhase] = useState(
     budget.phases.find(p => p.isPrimary)?.id ?? budget.phases[0]?.id
   )
@@ -71,8 +74,28 @@ export function BudgetEditor({ budget, projectId }: Props) {
   const phaseTotalCents = currentAccounts.reduce(
     (sum, acc) => sum + sumAccount(acc as unknown as AccountInput), 0
   )
-  const budgetMarkupPct = budget.markupPct ? Number(budget.markupPct) : 0
-  const budgetTaxPct    = budget.taxPct    ? Number(budget.taxPct)    : 0
+  const serverMarkupPct = budget.markupPct ? Number(budget.markupPct) : 0
+  const serverTaxPct    = budget.taxPct    ? Number(budget.taxPct)    : 0
+
+  // Local state for markup/tax so the summary bar updates instantly without a full refresh
+  const [localMarkupPct, setLocalMarkupPct] = useState(serverMarkupPct)
+  const [localTaxPct,    setLocalTaxPct]    = useState(serverTaxPct)
+  const [markupInput, setMarkupInput] = useState(
+    serverMarkupPct > 0 ? String(+(serverMarkupPct * 100).toFixed(2)) : ''
+  )
+  const [taxInput, setTaxInput] = useState(
+    serverTaxPct > 0 ? String(+(serverTaxPct * 100).toFixed(2)) : ''
+  )
+
+  function saveRates() {
+    const mkPct = markupInput ? parseFloat(markupInput) / 100 : null
+    const txPct = taxInput    ? parseFloat(taxInput)    / 100 : null
+    setLocalMarkupPct(mkPct ?? 0)
+    setLocalTaxPct(txPct ?? 0)
+    startRatesTransition(async () => {
+      await updateBudgetRates(budget.id, { markupPct: mkPct, taxPct: txPct })
+    })
+  }
 
   return (
     <div className="pb-20">
@@ -96,6 +119,38 @@ export function BudgetEditor({ budget, projectId }: Props) {
           </div>
         </div>
 
+        {/* ── Budget rates row ── */}
+        <div className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-border bg-muted/30 px-4 py-2 text-[12px]">
+          <span className="font-medium text-foreground/70">Budget rates</span>
+          <label className="flex items-center gap-1.5 text-muted-foreground">
+            Agency fee
+            <input
+              type="number" min="0" max="100" step="1"
+              value={markupInput}
+              onChange={e => setMarkupInput(e.target.value)}
+              onBlur={saveRates}
+              onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+              placeholder="0"
+              className="w-14 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[12px] tabular-nums outline-none focus:ring-1 focus:ring-primary/40"
+            />
+            <span>%</span>
+          </label>
+          <label className="flex items-center gap-1.5 text-muted-foreground">
+            Tax
+            <input
+              type="number" min="0" max="100" step="0.25"
+              value={taxInput}
+              onChange={e => setTaxInput(e.target.value)}
+              onBlur={saveRates}
+              onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+              placeholder="0"
+              className="w-14 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[12px] tabular-nums outline-none focus:ring-1 focus:ring-primary/40"
+            />
+            <span>%</span>
+          </label>
+          <span className="ml-auto text-[10px] text-muted-foreground/40">Saves on blur · applied to gross total</span>
+        </div>
+
         {budget.phases.map(phase => (
           <TabsContent key={phase.id} value={phase.id}>
             <PhaseView
@@ -110,8 +165,8 @@ export function BudgetEditor({ budget, projectId }: Props) {
 
       <BudgetSummaryBar
         accounts={currentAccounts}
-        budgetMarkupPct={budgetMarkupPct}
-        budgetTaxPct={budgetTaxPct}
+        budgetMarkupPct={localMarkupPct}
+        budgetTaxPct={localTaxPct}
       />
     </div>
   )
@@ -409,6 +464,7 @@ function AccountRows({
       item,
       description: item.description,
       quantity:    String(Number(item.quantity)),
+      days:        '1',
       unit:        item.unit,
       rate:        centsToRate(item.rateCents),
       notes:       item.notes ?? '',
@@ -417,13 +473,16 @@ function AccountRows({
 
   function saveEditItem() {
     if (!editState) return
-    const qty       = parseFloat(editState.quantity)
+    const perUnit   = parseFloat(editState.quantity)
+    const days      = Math.max(1, parseInt(editState.days) || 1)
+    const baseQty   = isNaN(perUnit) || perUnit <= 0 ? Number(editState.item.quantity) : perUnit
+    const quantity  = baseQty * days
     const rateCents = rateToCents(editState.rate)
     startTransition(async () => {
       await upsertLineItem(editState.item.id, {
         accountId:   account.id,
         description: editState.description.trim() || editState.item.description,
-        quantity:    isNaN(qty) || qty <= 0 ? Number(editState.item.quantity) : qty,
+        quantity,
         unit:        editState.unit,
         rateCents:   isNaN(rateCents) ? editState.item.rateCents : rateCents,
         rateCardId:  editState.item.rateCardId ?? null,
@@ -572,8 +631,9 @@ function AccountRows({
           dropZone.beforeItemId === item.id &&
           !isBeingDragged
 
+        const editDays     = isEditing ? (parseInt(es!.days) || 1) : 1
         const displayTotal = isEditing
-          ? lineTotal(parseFloat(es!.quantity) || 0, rateToCents(es!.rate))
+          ? lineTotal((parseFloat(es!.quantity) || 0) * editDays, rateToCents(es!.rate))
           : lineTotal(Number(item.quantity), item.rateCents, Number(item.markupPct) || null)
 
         return (
@@ -623,16 +683,28 @@ function AccountRows({
               )}
             </td>
 
-            {/* Qty */}
+            {/* Qty (× Days in edit mode) */}
             <td className="px-3 py-1.5 text-right">
               {isEditing ? (
-                <input
-                  type="number" min="0" step="0.5"
-                  className="w-full rounded border border-border bg-background px-2 py-1 text-right text-sm tabular outline-none focus:ring-1 focus:ring-primary/40"
-                  value={es!.quantity}
-                  onChange={e => setEditState(s => s && { ...s, quantity: e.target.value })}
-                  onKeyDown={e => { if (e.key === 'Escape') setEditState(null) }}
-                />
+                <div className="flex items-center justify-end gap-1">
+                  <input
+                    type="number" min="0" step="0.5"
+                    title="Quantity per unit (e.g. # of people)"
+                    className="w-10 rounded border border-border bg-background px-1 py-1 text-right text-sm tabular outline-none focus:ring-1 focus:ring-primary/40"
+                    value={es!.quantity}
+                    onChange={e => setEditState(s => s && { ...s, quantity: e.target.value })}
+                    onKeyDown={e => { if (e.key === 'Escape') setEditState(null) }}
+                  />
+                  <span className="text-[10px] text-muted-foreground">×</span>
+                  <input
+                    type="number" min="1" step="1"
+                    title="Days on set"
+                    className="w-8 rounded border border-border bg-background px-1 py-1 text-right text-sm tabular outline-none focus:ring-1 focus:ring-primary/40"
+                    value={es!.days}
+                    onChange={e => setEditState(s => s && { ...s, days: e.target.value })}
+                    onKeyDown={e => { if (e.key === 'Escape') setEditState(null) }}
+                  />
+                </div>
               ) : (
                 <span className="tabular text-foreground/70">{Number(item.quantity)}</span>
               )}

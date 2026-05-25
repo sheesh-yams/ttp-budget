@@ -238,6 +238,7 @@ export function TemplateDetailClient({ template: rawTemplate }: Props) {
       {/* ── Budget structure ── */}
       <div className="rounded-xl border border-border bg-white p-6">
         <TemplateStructureEditor
+          key={String(template.updatedAt)}
           templateId={template.id}
           initialStructure={structure}
         />
