@@ -1,8 +1,7 @@
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { RateCardTable } from '@/components/budget/RateCardTable'
-import { Button } from '@/components/ui/button'
-import { Plus } from 'lucide-react'
+import { AddRateButton } from '@/components/budget/AddRateButton'
 
 export const metadata = { title: 'Rate cards' }
 
@@ -23,10 +22,7 @@ export default async function RatesPage() {
             Master rates that auto-populate when you add a line item to a budget.
           </p>
         </div>
-        <Button>
-          <Plus className="mr-2 h-4 w-4" />
-          Add rate
-        </Button>
+        <AddRateButton />
       </div>
       <RateCardTable rateCards={rateCards} />
     </div>

@@ -115,6 +115,32 @@ export async function deleteLineItem(id: string): Promise<ActionResult> {
   }
 }
 
+// ─── Update account ───────────────────────────────────────────────────────────
+
+export async function updateAccount(id: string, input: { name: string; code?: string | null }): Promise<ActionResult> {
+  try {
+    await getWorkspaceId()
+    await db.account.update({ where: { id }, data: input })
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to update account' }
+  }
+}
+
+// ─── Reorder accounts ─────────────────────────────────────────────────────────
+
+export async function reorderAccounts(accounts: { id: string; order: number }[]): Promise<ActionResult> {
+  try {
+    await getWorkspaceId()
+    await db.$transaction(
+      accounts.map(({ id, order }) => db.account.update({ where: { id }, data: { order } }))
+    )
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to reorder accounts' }
+  }
+}
+
 // ─── Reorder line items ───────────────────────────────────────────────────────
 
 export async function reorderLineItems(items: { id: string; order: number }[]): Promise<ActionResult> {
