@@ -1,14 +1,16 @@
 const path = require('path')
 
-// trigger deploy
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // @react-pdf/renderer has "type":"module" which causes import() to always
-  // load the ESM build (react-pdf.js). That ESM build has a self-contained
-  // reconciler that fails on Vercel Lambda. Force webpack to resolve the
-  // package to its explicit CJS build so the reconciler uses the same
-  // React instance as the rest of the app.
-  serverExternalPackages: ['@react-pdf/renderer'],
+  // Do NOT add @react-pdf/renderer to serverExternalPackages.
+  // serverExternalPackages causes webpack to skip the package so Node's ESM
+  // loader handles it natively — which always loads react-pdf.js (the ESM
+  // build with its own bundled reconciler) regardless of the alias below,
+  // producing error #31 on Vercel Lambda.
+  //
+  // Instead, let webpack bundle the package. The alias below then redirects
+  // every import of @react-pdf/renderer to react-pdf.cjs, which uses
+  // external require('react') and shares one React instance with the app.
   webpack: (config, { isServer }) => {
     if (isServer) {
       config.resolve.alias = {
