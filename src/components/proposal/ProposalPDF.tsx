@@ -1,5 +1,5 @@
 import {
-  Document, Page, Text, View, StyleSheet, Font, Link,
+  Document, Page, Text, View, StyleSheet, Link,
 } from '@react-pdf/renderer'
 import { lineTotal, formatMoney } from '@/lib/money'
 import { sumAccount, type AccountInput } from '@/lib/totals'
