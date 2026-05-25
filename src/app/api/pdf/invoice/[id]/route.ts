@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { renderToBuffer } from '@react-pdf/renderer'
-import type { DocumentProps } from '@react-pdf/renderer'
 import { db } from '@/lib/db'
-import { InvoicePDF } from '@/components/invoice/InvoicePDF'
 import type { InvoiceLineItem } from '@/types'
 import React from 'react'
 
@@ -37,6 +34,12 @@ export async function GET(
   }
 
   try {
+    // Dynamic imports keep @react-pdf/renderer and the PDF components in the
+    // same module resolution context at runtime, preventing the duplicate-React-
+    // instance problem that causes reconciler error #31.
+    const { renderToBuffer } = await import('@react-pdf/renderer')
+    const { InvoicePDF }     = await import('@/components/invoice/InvoicePDF')
+
     const invoiceData = {
       number:         invoice.number,
       title:          invoice.title,
@@ -77,7 +80,7 @@ export async function GET(
     }
 
     const buffer = await renderToBuffer(
-      React.createElement(InvoicePDF as never, { invoice: invoiceData }) as React.ReactElement<DocumentProps>
+      React.createElement(InvoicePDF as never, { invoice: invoiceData })
     )
 
     const slug = invoice.project.name.replace(/[^a-z0-9]/gi, '-').replace(/-+/g, '-')

@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { renderToBuffer } from '@react-pdf/renderer'
-import type { DocumentProps } from '@react-pdf/renderer'
 import { db } from '@/lib/db'
-import { ProposalPDF } from '@/components/proposal/ProposalPDF'
 import { sumAccount, type AccountInput } from '@/lib/totals'
 import React from 'react'
 
@@ -120,12 +117,18 @@ export async function GET(
       },
     }
 
+    // Dynamic imports keep @react-pdf/renderer and the PDF components in the
+    // same module resolution context at runtime, preventing the duplicate-React-
+    // instance problem that causes reconciler error #31.
+    const { renderToBuffer } = await import('@react-pdf/renderer')
+    const { ProposalPDF }    = await import('@/components/proposal/ProposalPDF')
+
     const buffer = await renderToBuffer(
       React.createElement(ProposalPDF as never, {
         proposal: serialisedProposal,
         accounts,
         totalCents,
-      }) as React.ReactElement<DocumentProps>
+      })
     )
 
     const slug = proposal.project.name.replace(/[^a-z0-9]/gi, '-').replace(/-+/g, '-')
