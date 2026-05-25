@@ -96,7 +96,8 @@ export async function GET(
       },
     })
   } catch (err) {
+    const msg = err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err)
     console.error('Invoice PDF render error:', err)
-    return new NextResponse('PDF generation failed', { status: 500 })
+    return new NextResponse(`PDF generation failed:\n\n${msg}`, { status: 500 })
   }
 }
