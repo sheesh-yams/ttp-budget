@@ -122,7 +122,7 @@ const s = StyleSheet.create({
   subtotalRow: { flexDirection: 'row', justifyContent: 'space-between', padding: '9 16', borderBottomWidth: 0.5, borderBottomColor: BDR, backgroundColor: '#fff' },
   subtotalLbl: { fontSize: 10, color: MUT },
   subtotalVal: { fontSize: 10, color: BODY },
-  totalBar:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: '14 20', backgroundColor: INK, borderRadius: '0 0 8 8' },
+  totalBar:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: '14 20', backgroundColor: INK, borderBottomLeftRadius: 8, borderBottomRightRadius: 8 },
   totalBarLbl: { fontSize: 8, fontFamily: 'Helvetica-Bold', color: MINT, letterSpacing: 1.5, textTransform: 'uppercase' },
   totalBarVal: { fontSize: 20, fontFamily: 'Helvetica-Bold', color: '#fff' },
 

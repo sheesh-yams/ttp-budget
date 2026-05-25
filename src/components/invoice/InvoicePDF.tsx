@@ -238,7 +238,7 @@ export function InvoicePDF({ invoice }: { invoice: InvoicePDFData }) {
             </View>
 
             {/* Totals */}
-            <View style={[s.totalsWrap, { borderWidth: 0.5, borderColor: BDR, borderRadius: '0 0 8 8', overflow: 'hidden', marginTop: -0.5 }]}>
+            <View style={[s.totalsWrap, { borderWidth: 0.5, borderColor: BDR, borderBottomLeftRadius: 8, borderBottomRightRadius: 8, overflow: 'hidden', marginTop: -0.5 }]}>
               <View style={s.totalRow}>
                 <Text style={s.totalLbl}>Subtotal</Text>
                 <Text style={s.totalVal}>{formatMoney(invoice.subtotalCents)}</Text>
