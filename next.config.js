@@ -38,12 +38,30 @@ try {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Keep react-pdf external so the patched package.json is used at runtime.
-  // Also externalise react, react-dom, and scheduler so webpack does NOT bundle
-  // them inline — this ensures react-pdf.cjs's require('react') resolves to the
-  // exact same module instance as the rest of the app, preventing the Symbol
-  // registry mismatch that causes minified React error #31 on Vercel Lambda.
-  serverExternalPackages: ['@react-pdf/renderer', 'react', 'react-dom', 'scheduler'],
+  // Do NOT externalise @react-pdf/renderer. When it's external, Node's require()
+  // loads its internal React separately from webpack's bundled React, creating two
+  // React instances whose Symbol.for("react.element") values don't match in the
+  // reconciler's context — causing minified React error #31 on Vercel Lambda.
+  //
+  // Instead, let webpack bundle react-pdf.cjs (the patched exports map above
+  // ensures webpack picks up the CJS build, not the ESM bundle). Inside the
+  // webpack bundle all require('react') calls resolve to the same module instance,
+  // so the reconciler and our createElement calls share one React → no error #31.
+  //
+  // 'canvas' is an optional native dep of react-pdf that must stay external to
+  // avoid a webpack build error on platforms where it isn't installed.
+  serverExternalPackages: [],
+  webpack(config, { isServer }) {
+    if (isServer) {
+      // canvas is an optional native dep inside react-pdf; not installed on Vercel,
+      // so it must stay external or webpack will error trying to bundle a missing native module.
+      config.externals = [...(config.externals ?? []), 'canvas']
+
+      // yoga-layout ships a .wasm file; enable async WASM so webpack can handle it.
+      config.experiments = { ...config.experiments, asyncWebAssembly: true }
+    }
+    return config
+  },
   experimental: {
     serverActions: {
       allowedOrigins: ['localhost:3000'],
