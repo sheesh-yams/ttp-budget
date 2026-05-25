@@ -38,9 +38,12 @@ try {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Keep as external so the patched package.json is used at runtime by Node's
-  // module loader (both require and import conditions now point to react-pdf.cjs).
-  serverExternalPackages: ['@react-pdf/renderer'],
+  // Keep react-pdf external so the patched package.json is used at runtime.
+  // Also externalise react, react-dom, and scheduler so webpack does NOT bundle
+  // them inline — this ensures react-pdf.cjs's require('react') resolves to the
+  // exact same module instance as the rest of the app, preventing the Symbol
+  // registry mismatch that causes minified React error #31 on Vercel Lambda.
+  serverExternalPackages: ['@react-pdf/renderer', 'react', 'react-dom', 'scheduler'],
   experimental: {
     serverActions: {
       allowedOrigins: ['localhost:3000'],
