@@ -2,24 +2,22 @@ import { NextResponse } from 'next/server'
 import { renderToBuffer, Document, Page, View, Text } from '@react-pdf/renderer'
 import React from 'react'
 
-// Step 1: Bare minimum — static imports, JSX, no custom components.
-// Hit GET /api/pdf/test to verify the renderer pipeline works end-to-end.
-// If this passes, the renderer is fine and the bug is inside InvoicePDF/ProposalPDF.
-// If this fails, the bug is in the module loading or renderer setup itself.
+// Step 1 diagnostic: static imports, React.createElement (no JSX), no custom components.
+// Verifies the renderer pipeline works end-to-end before debugging component issues.
 
 export async function GET() {
   try {
-    const elem = (
-      <Document>
-        <Page size="A4" style={{ padding: 40, fontFamily: 'Helvetica' }}>
-          <View style={{ marginBottom: 16 }}>
-            <Text style={{ fontSize: 24, fontWeight: 'bold' }}>Hello World</Text>
-          </View>
-          <Text style={{ fontSize: 12 }}>
-            If you can read this, renderToBuffer works with static imports and JSX.
-          </Text>
-        </Page>
-      </Document>
+    const E = React.createElement
+
+    const elem = E(Document, null,
+      E(Page, { size: 'A4', style: { padding: 40, fontFamily: 'Helvetica' } } as never,
+        E(View, { style: { marginBottom: 16 } } as never,
+          E(Text, { style: { fontSize: 24 } } as never, 'Hello World')
+        ),
+        E(Text, { style: { fontSize: 12 } } as never,
+          'If you can read this, renderToBuffer works with static imports.'
+        )
+      )
     )
 
     const buffer = await renderToBuffer(elem as Parameters<typeof renderToBuffer>[0])
