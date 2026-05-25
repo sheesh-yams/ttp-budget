@@ -1,34 +1,28 @@
 import { NextResponse } from 'next/server'
+import { renderToBuffer, Document, Page, View, Text } from '@react-pdf/renderer'
 import React from 'react'
 
-// Diagnostic endpoint: renders a minimal PDF using raw React.createElement only
-// (no JSX, no imported TSX component files).
-// If this works but /api/pdf/proposal/[id] fails → the issue is JSX compilation.
-// If this also fails → the issue is the rendering setup itself.
+// Step 1: Bare minimum — static imports, JSX, no custom components.
+// Hit GET /api/pdf/test to verify the renderer pipeline works end-to-end.
+// If this passes, the renderer is fine and the bug is inside InvoicePDF/ProposalPDF.
+// If this fails, the bug is in the module loading or renderer setup itself.
+
 export async function GET() {
   try {
-    const { renderToBuffer, Document, Page, View, Text } =
-      await import('@react-pdf/renderer')
-
-    const E = React.createElement
-
-    const elem = E(
-      Document as unknown as React.ElementType,
-      null,
-      E(
-        Page as unknown as React.ElementType,
-        { size: 'A4', style: { padding: 40 } },
-        E(
-          View as unknown as React.ElementType,
-          { style: { marginBottom: 12 } },
-          E(Text as unknown as React.ElementType, { style: { fontSize: 20 } }, 'TTP PDF Test'),
-        ),
-        E(Text as unknown as React.ElementType, { style: { fontSize: 12 } }, 'If you can read this, renderToBuffer works.'),
-      ),
+    const elem = (
+      <Document>
+        <Page size="A4" style={{ padding: 40, fontFamily: 'Helvetica' }}>
+          <View style={{ marginBottom: 16 }}>
+            <Text style={{ fontSize: 24, fontWeight: 'bold' }}>Hello World</Text>
+          </View>
+          <Text style={{ fontSize: 12 }}>
+            If you can read this, renderToBuffer works with static imports and JSX.
+          </Text>
+        </Page>
+      </Document>
     )
 
-    type RenderInput = Parameters<typeof renderToBuffer>[0]
-    const buffer = await renderToBuffer(elem as unknown as RenderInput)
+    const buffer = await renderToBuffer(elem as Parameters<typeof renderToBuffer>[0])
 
     return new NextResponse(new Uint8Array(buffer), {
       headers: {
