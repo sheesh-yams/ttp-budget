@@ -79,8 +79,9 @@ export async function GET(
       },
     }
 
+    type RenderInput = Parameters<typeof renderToBuffer>[0]
     const buffer = await renderToBuffer(
-      React.createElement(InvoicePDF as never, { invoice: invoiceData })
+      React.createElement(InvoicePDF as never, { invoice: invoiceData }) as unknown as RenderInput
     )
 
     const slug = invoice.project.name.replace(/[^a-z0-9]/gi, '-').replace(/-+/g, '-')

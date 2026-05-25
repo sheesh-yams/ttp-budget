@@ -123,12 +123,13 @@ export async function GET(
     const { renderToBuffer } = await import('@react-pdf/renderer')
     const { ProposalPDF }    = await import('@/components/proposal/ProposalPDF')
 
+    type RenderInput = Parameters<typeof renderToBuffer>[0]
     const buffer = await renderToBuffer(
       React.createElement(ProposalPDF as never, {
         proposal: serialisedProposal,
         accounts,
         totalCents,
-      })
+      }) as unknown as RenderInput
     )
 
     const slug = proposal.project.name.replace(/[^a-z0-9]/gi, '-').replace(/-+/g, '-')
