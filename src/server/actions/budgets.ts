@@ -129,15 +129,56 @@ export async function updateAccount(id: string, input: { name: string; code?: st
 
 // ─── Reorder accounts ─────────────────────────────────────────────────────────
 
-export async function reorderAccounts(accounts: { id: string; order: number }[]): Promise<ActionResult> {
+export async function reorderAccounts(
+  accounts: { id: string; order: number; code?: string | null }[]
+): Promise<ActionResult> {
   try {
     await getWorkspaceId()
+    // If any account uses a pure-numeric code (100, 200 …) renumber all of them
+    // so that the codes stay in sync with the new visual order.
+    const hasNumericCodes = accounts.some(a => a.code && /^\d+$/.test(a.code))
     await db.$transaction(
-      accounts.map(({ id, order }) => db.account.update({ where: { id }, data: { order } }))
+      accounts.map(({ id, order }, i) =>
+        db.account.update({
+          where: { id },
+          data: {
+            order,
+            ...(hasNumericCodes ? { code: String((i + 1) * 100) } : {}),
+          },
+        })
+      )
     )
     return { success: true, data: undefined }
   } catch {
     return { success: false, error: 'Failed to reorder accounts' }
+  }
+}
+
+// ─── Delete account ───────────────────────────────────────────────────────────
+
+export async function deleteAccount(id: string): Promise<ActionResult> {
+  try {
+    await getWorkspaceId()
+    await db.account.delete({ where: { id } })
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to delete account' }
+  }
+}
+
+// ─── Move line item to a different account ────────────────────────────────────
+
+export async function moveLineItem(itemId: string, targetAccountId: string): Promise<ActionResult> {
+  try {
+    await getWorkspaceId()
+    const count = await db.lineItem.count({ where: { accountId: targetAccountId } })
+    await db.lineItem.update({
+      where: { id: itemId },
+      data: { accountId: targetAccountId, order: count },
+    })
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to move line item' }
   }
 }
 
@@ -270,7 +311,9 @@ async function materialiseTemplate(budgetId: string, structure: TemplateStructur
           quantity: item.qty,
           unit: item.unit,
           rateCents: item.rateCents,
-          markupPct: item.markupPct ?? null,
+          // Template stores markupPct as a percentage (e.g. 20 for 20%).
+          // The DB and lineTotal() expect a decimal (0.20). Divide by 100.
+          markupPct: item.markupPct != null ? item.markupPct / 100 : null,
           notes: item.notes ?? null,
           tags: item.tags ?? [],
           order: j,
@@ -328,7 +371,9 @@ export async function insertPackageIntoPhase(
             quantity:    item.qty,
             unit:        item.unit,
             rateCents:   item.rateCents,
-            markupPct:   item.markupPct ?? null,
+            // Template stores markupPct as a percentage (e.g. 20 for 20%).
+            // The DB and lineTotal() expect a decimal (0.20). Divide by 100.
+            markupPct:   item.markupPct != null ? item.markupPct / 100 : null,
             notes:       item.notes ?? null,
             tags:        [],
             order:       j,

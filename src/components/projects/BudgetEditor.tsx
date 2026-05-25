@@ -15,8 +15,8 @@ import { InsertPackageModal } from './InsertPackageModal'
 import { BudgetSummaryBar } from './BudgetSummaryBar'
 import { BulkImportModal } from '@/components/budget/BulkImportModal'
 import {
-  deleteLineItem, addAccount, upsertLineItem,
-  updateAccount, reorderAccounts, reorderLineItems,
+  deleteLineItem, addAccount, upsertLineItem, deleteAccount,
+  updateAccount, reorderAccounts, reorderLineItems, moveLineItem,
 } from '@/server/actions/budgets'
 import { formatMoney, lineTotal, centsToRate, rateToCents } from '@/lib/money'
 import { sumAccount, type AccountInput } from '@/lib/totals'
@@ -49,6 +49,9 @@ type EditItemState = {
   notes: string
 }
 
+// Drag item carries its source account so we can detect cross-account drops
+type DragItem = { id: string; accountId: string }
+
 // ─── Root component ───────────────────────────────────────────────────────────
 
 interface Props {
@@ -62,9 +65,10 @@ export function BudgetEditor({ budget, projectId }: Props) {
     budget.phases.find(p => p.isPrimary)?.id ?? budget.phases[0]?.id
   )
 
-  const currentPhase     = budget.phases.find(p => p.id === activePhase)
-  const currentAccounts  = (currentPhase?.accounts ?? []) as AccountWithItems[]
-  const phaseTotalCents  = currentAccounts.reduce(
+  const currentPhase    = budget.phases.find(p => p.id === activePhase)
+  const currentAccounts = (currentPhase?.accounts ?? []) as AccountWithItems[]
+
+  const phaseTotalCents = currentAccounts.reduce(
     (sum, acc) => sum + sumAccount(acc as unknown as AccountInput), 0
   )
   const budgetMarkupPct = budget.markupPct ? Number(budget.markupPct) : 0
@@ -128,21 +132,21 @@ function PhaseView({
   const [showImport, setShowImport]             = useState(false)
   const [, startTransition] = useTransition()
 
-  // Local account list — optimistic reorder
-  const [localAccounts, setLocalAccounts] = useState(phase.accounts as AccountWithItems[])
+  // ── Full local account+item state (allows cross-account optimistic updates) ──
+  const [localAccounts, setLocalAccounts] = useState<AccountWithItems[]>(
+    phase.accounts as AccountWithItems[]
+  )
   useEffect(() => {
     setLocalAccounts(phase.accounts as AccountWithItems[])
   }, [phase.accounts])
 
-  // Account drag state
+  // ── Account drag state ────────────────────────────────────────────────────
   const [dragAccountId, setDragAccountId] = useState<string | null>(null)
   const [dropAccountId, setDropAccountId] = useState<string | null>(null)
 
   function handleAccountDrop(targetId: string) {
     if (!dragAccountId || dragAccountId === targetId) {
-      setDragAccountId(null)
-      setDropAccountId(null)
-      return
+      setDragAccountId(null); setDropAccountId(null); return
     }
     const ordered = [...localAccounts]
     const fromIdx = ordered.findIndex(a => a.id === dragAccountId)
@@ -150,13 +154,66 @@ function PhaseView({
     if (fromIdx === -1 || toIdx === -1) return
     const [removed] = ordered.splice(fromIdx, 1)
     ordered.splice(toIdx, 0, removed)
-    setLocalAccounts(ordered)
-    setDragAccountId(null)
-    setDropAccountId(null)
+    // Optimistically update codes if they're numeric
+    const hasNumericCodes = ordered.some(a => a.code && /^\d+$/.test(a.code))
+    const orderedWithCodes = hasNumericCodes
+      ? ordered.map((a, i) => ({ ...a, code: String((i + 1) * 100) }))
+      : ordered
+    setLocalAccounts(orderedWithCodes)
+    setDragAccountId(null); setDropAccountId(null)
     startTransition(async () => {
-      await reorderAccounts(ordered.map((a, i) => ({ id: a.id, order: i })))
+      await reorderAccounts(ordered.map((a, i) => ({ id: a.id, order: i, code: a.code })))
       onMutated()
     })
+  }
+
+  // ── Item drag state (lifted so cross-account drops work) ──────────────────
+  const [dragItem, setDragItem] = useState<DragItem | null>(null)
+  // dropZone: where the item will land
+  const [dropZone, setDropZone] = useState<{ accountId: string; beforeItemId?: string } | null>(null)
+
+  function handleItemDrop() {
+    if (!dragItem || !dropZone) { setDragItem(null); setDropZone(null); return }
+    const { id: itemId, accountId: srcAccId } = dragItem
+    const { accountId: tgtAccId, beforeItemId } = dropZone
+    setDragItem(null); setDropZone(null)
+
+    if (srcAccId === tgtAccId) {
+      // ── Same-account reorder ────────────────────────────────────────────
+      const acc  = localAccounts.find(a => a.id === srcAccId)!
+      const items = [...acc.lineItems]
+      const fromIdx = items.findIndex(i => i.id === itemId)
+      const rawTo   = beforeItemId ? items.findIndex(i => i.id === beforeItemId) : items.length
+      const toIdx   = rawTo > fromIdx ? rawTo - 1 : rawTo
+      const [removed] = items.splice(fromIdx, 1)
+      items.splice(Math.max(0, toIdx), 0, removed)
+      setLocalAccounts(prev => prev.map(a =>
+        a.id === srcAccId ? { ...a, lineItems: items } : a
+      ))
+      startTransition(async () => {
+        await reorderLineItems(items.map((it, i) => ({ id: it.id, order: i })))
+      })
+    } else {
+      // ── Cross-account move ──────────────────────────────────────────────
+      const srcAcc  = localAccounts.find(a => a.id === srcAccId)!
+      const tgtAcc  = localAccounts.find(a => a.id === tgtAccId)!
+      const srcItem = srcAcc.lineItems.find(i => i.id === itemId)!
+      const newSrcItems = srcAcc.lineItems.filter(i => i.id !== itemId)
+      const newTgtItems = [...tgtAcc.lineItems]
+      const insertIdx = beforeItemId
+        ? newTgtItems.findIndex(i => i.id === beforeItemId)
+        : newTgtItems.length
+      newTgtItems.splice(Math.max(0, insertIdx), 0, srcItem)
+      setLocalAccounts(prev => prev.map(a => {
+        if (a.id === srcAccId) return { ...a, lineItems: newSrcItems }
+        if (a.id === tgtAccId) return { ...a, lineItems: newTgtItems }
+        return a
+      }))
+      startTransition(async () => {
+        await moveLineItem(itemId, tgtAccId)
+        onMutated()
+      })
+    }
   }
 
   function handleAddAccount() {
@@ -177,28 +234,21 @@ function PhaseView({
         </p>
         <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
           <Button size="sm" onClick={handleAddAccount}>
-            <Plus className="mr-1.5 h-3.5 w-3.5" />
-            Add account
+            <Plus className="mr-1.5 h-3.5 w-3.5" />Add account
           </Button>
           <Button size="sm" variant="outline" onClick={() => setShowPackages(true)}>
-            <Package className="mr-1.5 h-3.5 w-3.5" />
-            Insert package
+            <Package className="mr-1.5 h-3.5 w-3.5" />Insert package
           </Button>
           <Button size="sm" variant="outline" onClick={() => setShowImport(true)}>
-            <Upload className="mr-1.5 h-3.5 w-3.5" />
-            Import file
+            <Upload className="mr-1.5 h-3.5 w-3.5" />Import file
           </Button>
         </div>
         {showPackages && (
-          <InsertPackageModal
-            open onOpenChange={setShowPackages}
-            phaseId={phase.id} onInserted={onMutated}
-          />
+          <InsertPackageModal open onOpenChange={setShowPackages} phaseId={phase.id} onInserted={onMutated} />
         )}
         <BulkImportModal
           open={showImport} onOpenChange={setShowImport}
-          target={{ type: 'budget', budgetId, projectId }}
-          onImported={onMutated}
+          target={{ type: 'budget', budgetId, projectId }} onImported={onMutated}
         />
       </div>
     )
@@ -206,7 +256,6 @@ function PhaseView({
 
   return (
     <div>
-      {/* Account table */}
       <div className="overflow-x-auto rounded-xl border">
         <table className="w-full text-sm">
           <thead>
@@ -225,38 +274,50 @@ function PhaseView({
               <AccountRows
                 key={account.id}
                 account={account}
+                // Pass the per-account items from the shared local state
+                items={account.lineItems}
                 depth={0}
                 onAddItem={() => setAddingToAccount(account.id)}
                 onMutated={onMutated}
+                // Account drag
                 isDragging={dragAccountId === account.id}
-                isDragOver={dropAccountId === account.id}
+                isDragOver={dropAccountId === account.id && !dragItem}
                 onHeaderDragStart={() => setDragAccountId(account.id)}
-                onHeaderDragOver={() => setDropAccountId(account.id)}
+                onHeaderDragOver={() => !dragItem && setDropAccountId(account.id)}
                 onHeaderDragEnd={() => { setDragAccountId(null); setDropAccountId(null) }}
                 onHeaderDrop={() => handleAccountDrop(account.id)}
+                // Item drag (lifted)
+                dragItem={dragItem}
+                dropZone={dropZone}
+                onItemDragStart={setDragItem}
+                onItemDragEnd={() => { setDragItem(null); setDropZone(null) }}
+                onItemDragOverItem={(beforeItemId) =>
+                  setDropZone({ accountId: account.id, beforeItemId })
+                }
+                onItemDragOverHeader={() =>
+                  setDropZone({ accountId: account.id })
+                }
+                onItemDrop={handleItemDrop}
+                // Account delete
+                onAccountDeleted={onMutated}
               />
             ))}
           </tbody>
         </table>
       </div>
 
-      {/* Bottom toolbar */}
       <div className="mt-3 flex items-center gap-2">
         <Button variant="outline" size="sm" onClick={handleAddAccount}>
-          <Plus className="mr-1.5 h-3.5 w-3.5" />
-          Add account
+          <Plus className="mr-1.5 h-3.5 w-3.5" />Add account
         </Button>
         <Button variant="outline" size="sm" onClick={() => setShowPackages(true)}>
-          <Package className="mr-1.5 h-3.5 w-3.5" />
-          Insert package
+          <Package className="mr-1.5 h-3.5 w-3.5" />Insert package
         </Button>
         <Button variant="outline" size="sm" onClick={() => setShowImport(true)}>
-          <Upload className="mr-1.5 h-3.5 w-3.5" />
-          Import
+          <Upload className="mr-1.5 h-3.5 w-3.5" />Import
         </Button>
       </div>
 
-      {/* Modals */}
       {addingToAccount && (
         <AddLineItemModal
           open
@@ -271,8 +332,7 @@ function PhaseView({
       />
       <BulkImportModal
         open={showImport} onOpenChange={setShowImport}
-        target={{ type: 'budget', budgetId, projectId }}
-        onImported={onMutated}
+        target={{ type: 'budget', budgetId, projectId }} onImported={onMutated}
       />
     </div>
   )
@@ -281,38 +341,40 @@ function PhaseView({
 // ─── Account rows ─────────────────────────────────────────────────────────────
 
 function AccountRows({
-  account, depth, onAddItem, onMutated,
+  account, items, depth, onAddItem, onMutated, onAccountDeleted,
+  // Account drag
   isDragging, isDragOver,
   onHeaderDragStart, onHeaderDragOver, onHeaderDragEnd, onHeaderDrop,
+  // Item drag (from PhaseView)
+  dragItem, dropZone,
+  onItemDragStart, onItemDragEnd,
+  onItemDragOverItem, onItemDragOverHeader, onItemDrop,
 }: {
   account: AccountWithItems
+  items: LineItemRow[]
   depth: number
   onAddItem: () => void
   onMutated: () => void
+  onAccountDeleted: () => void
   isDragging: boolean
   isDragOver: boolean
   onHeaderDragStart: () => void
   onHeaderDragOver: () => void
   onHeaderDragEnd: () => void
   onHeaderDrop: () => void
+  dragItem: DragItem | null
+  dropZone: { accountId: string; beforeItemId?: string } | null
+  onItemDragStart: (item: DragItem) => void
+  onItemDragEnd: () => void
+  onItemDragOverItem: (beforeItemId: string) => void
+  onItemDragOverHeader: () => void
+  onItemDrop: () => void
 }) {
-  const [collapsed, setCollapsed]   = useState(false)
-  const [, startTransition]         = useTransition()
-
-  // Account name editing
-  const [editingName, setEditingName] = useState(false)
-  const [nameValue, setNameValue]     = useState(account.name)
-
-  // Line item inline editing
-  const [editState, setEditState] = useState<EditItemState | null>(null)
-
-  // Local item list — optimistic reorder
-  const [items, setItems] = useState(account.lineItems)
-  useEffect(() => { setItems(account.lineItems) }, [account.lineItems])
-
-  // Item drag state
-  const [dragItemId, setDragItemId] = useState<string | null>(null)
-  const [dropItemId, setDropItemId] = useState<string | null>(null)
+  const [collapsed, setCollapsed]       = useState(false)
+  const [, startTransition]             = useTransition()
+  const [editingName, setEditingName]   = useState(false)
+  const [nameValue, setNameValue]       = useState(account.name)
+  const [editState, setEditState]       = useState<EditItemState | null>(null)
 
   const totalCents = sumAccount(account as unknown as AccountInput)
   const indent     = depth * 20
@@ -328,7 +390,20 @@ function AccountRows({
     })
   }
 
-  // ── Line item edit ────────────────────────────────────────────────────────
+  // ── Account delete ────────────────────────────────────────────────────────
+  function handleDeleteAccount() {
+    const itemCount = items.length
+    const msg = itemCount > 0
+      ? `Delete "${account.name}" and its ${itemCount} line item${itemCount !== 1 ? 's' : ''}?`
+      : `Delete "${account.name}"?`
+    if (!confirm(msg)) return
+    startTransition(async () => {
+      await deleteAccount(account.id)
+      onAccountDeleted()
+    })
+  }
+
+  // ── Item inline edit ──────────────────────────────────────────────────────
   function startEditItem(item: LineItemRow) {
     setEditState({
       item,
@@ -342,7 +417,7 @@ function AccountRows({
 
   function saveEditItem() {
     if (!editState) return
-    const qty      = parseFloat(editState.quantity)
+    const qty       = parseFloat(editState.quantity)
     const rateCents = rateToCents(editState.rate)
     startTransition(async () => {
       await upsertLineItem(editState.item.id, {
@@ -360,7 +435,7 @@ function AccountRows({
     })
   }
 
-  // ── Line item delete ──────────────────────────────────────────────────────
+  // ── Item delete ───────────────────────────────────────────────────────────
   function handleDeleteItem(id: string) {
     if (!confirm('Delete this line item?')) return
     startTransition(async () => {
@@ -369,23 +444,12 @@ function AccountRows({
     })
   }
 
-  // ── Line item drag-drop ───────────────────────────────────────────────────
-  function handleItemDrop(targetId: string) {
-    if (!dragItemId || dragItemId === targetId) {
-      setDragItemId(null); setDropItemId(null); return
-    }
-    const ordered = [...items]
-    const fromIdx = ordered.findIndex(i => i.id === dragItemId)
-    const toIdx   = ordered.findIndex(i => i.id === targetId)
-    if (fromIdx === -1 || toIdx === -1) return
-    const [removed] = ordered.splice(fromIdx, 1)
-    ordered.splice(toIdx, 0, removed)
-    setItems(ordered)
-    setDragItemId(null); setDropItemId(null)
-    startTransition(async () => {
-      await reorderLineItems(ordered.map((it, i) => ({ id: it.id, order: i })))
-    })
-  }
+  // ── Cross-account drop highlight on this account's header ─────────────────
+  const isItemDropTargetHeader =
+    dragItem !== null &&
+    dragItem.accountId !== account.id &&
+    dropZone?.accountId === account.id &&
+    !dropZone.beforeItemId
 
   return (
     <>
@@ -393,13 +457,29 @@ function AccountRows({
       <tr
         className={[
           'border-b bg-secondary/40 font-medium transition-colors',
-          isDragging ? 'opacity-40' : '',
-          isDragOver ? 'outline outline-1 outline-primary/50 bg-primary/5' : '',
+          isDragging          ? 'opacity-40' : '',
+          isDragOver          ? 'outline outline-1 outline-primary/50 bg-primary/5' : '',
+          isItemDropTargetHeader ? 'outline outline-1 outline-violet-400/60 bg-violet-50/40' : '',
         ].join(' ')}
-        onDragOver={e => { e.preventDefault(); onHeaderDragOver() }}
-        onDrop={e => { e.preventDefault(); onHeaderDrop() }}
+        onDragOver={e => {
+          e.preventDefault()
+          if (dragItem) {
+            // An item is being dragged — use this header as "drop at end of account"
+            onItemDragOverHeader()
+          } else {
+            onHeaderDragOver()
+          }
+        }}
+        onDrop={e => {
+          e.preventDefault()
+          if (dragItem) {
+            onItemDrop()
+          } else {
+            onHeaderDrop()
+          }
+        }}
       >
-        {/* Drag handle — only this cell is draggable */}
+        {/* Account drag handle */}
         <td
           className="w-7 cursor-grab active:cursor-grabbing pl-1"
           draggable
@@ -414,7 +494,7 @@ function AccountRows({
           <GripVertical className="h-3.5 w-3.5 text-muted-foreground/40 mx-auto" />
         </td>
 
-        {/* Name — click pencil to edit inline */}
+        {/* Name (editable) */}
         <td className="px-4 py-2" style={{ paddingLeft: `${indent + 16}px` }}>
           {editingName ? (
             <input
@@ -445,8 +525,7 @@ function AccountRows({
                 {account.name}
               </button>
               <button
-                type="button"
-                title="Rename"
+                type="button" title="Rename"
                 className="invisible rounded p-0.5 text-muted-foreground hover:text-foreground group-hover/name:visible"
                 onClick={() => { setNameValue(account.name); setEditingName(true) }}
               >
@@ -461,15 +540,25 @@ function AccountRows({
         <td className="px-3 py-2 text-right tabular font-semibold">
           {formatMoney(totalCents)}
         </td>
+
+        {/* Add item + Delete section */}
         <td className="px-2">
-          <button
-            type="button"
-            title="Add line item"
-            className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-            onClick={onAddItem}
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
+          <div className="flex items-center justify-end gap-0.5">
+            <button
+              type="button" title="Add line item"
+              className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              onClick={onAddItem}
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button" title="Delete section"
+              className="rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+              onClick={handleDeleteAccount}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </td>
       </tr>
 
@@ -477,6 +566,11 @@ function AccountRows({
       {!collapsed && items.map(item => {
         const isEditing = editState?.item.id === item.id
         const es        = isEditing ? editState! : null
+        const isBeingDragged = dragItem?.id === item.id
+        const isDropBefore   =
+          dropZone?.accountId === account.id &&
+          dropZone.beforeItemId === item.id &&
+          !isBeingDragged
 
         const displayTotal = isEditing
           ? lineTotal(parseFloat(es!.quantity) || 0, rateToCents(es!.rate))
@@ -487,14 +581,14 @@ function AccountRows({
             key={item.id}
             className={[
               'group/item border-b transition-colors',
-              isEditing             ? 'bg-muted/30' : 'hover:bg-muted/20',
-              dragItemId === item.id ? 'opacity-40'  : '',
-              dropItemId === item.id ? 'outline outline-1 outline-primary/40 bg-primary/5' : '',
+              isEditing        ? 'bg-muted/30'     : 'hover:bg-muted/20',
+              isBeingDragged   ? 'opacity-40'       : '',
+              isDropBefore     ? 'border-t-2 border-t-violet-400' : '',
             ].join(' ')}
-            onDragOver={e => { e.preventDefault(); setDropItemId(item.id) }}
-            onDrop={e => { e.preventDefault(); handleItemDrop(item.id) }}
+            onDragOver={e => { e.preventDefault(); onItemDragOverItem(item.id) }}
+            onDrop={e => { e.preventDefault(); onItemDrop() }}
           >
-            {/* Drag handle */}
+            {/* Item drag handle */}
             <td
               className="w-7 cursor-grab active:cursor-grabbing pl-1"
               draggable
@@ -502,9 +596,9 @@ function AccountRows({
                 e.dataTransfer.setData('text/plain', item.id)
                 const row = e.currentTarget.closest('tr')
                 if (row) e.dataTransfer.setDragImage(row, 0, 0)
-                setDragItemId(item.id)
+                onItemDragStart({ id: item.id, accountId: account.id })
               }}
-              onDragEnd={() => { setDragItemId(null); setDropItemId(null) }}
+              onDragEnd={onItemDragEnd}
             >
               <GripVertical className="h-3.5 w-3.5 text-muted-foreground/25 mx-auto" />
             </td>
@@ -634,17 +728,24 @@ function AccountRows({
         <AccountRows
           key={child.id}
           account={child}
+          items={child.lineItems}
           depth={depth + 1}
           onAddItem={onAddItem}
           onMutated={onMutated}
-          // Child accounts share the same phase-level drag, which is complex.
-          // For now they're not independently draggable against siblings.
+          onAccountDeleted={onAccountDeleted}
           isDragging={false}
           isDragOver={false}
           onHeaderDragStart={() => {}}
           onHeaderDragOver={() => {}}
           onHeaderDragEnd={() => {}}
           onHeaderDrop={() => {}}
+          dragItem={dragItem}
+          dropZone={dropZone}
+          onItemDragStart={onItemDragStart}
+          onItemDragEnd={onItemDragEnd}
+          onItemDragOverItem={onItemDragOverItem}
+          onItemDragOverHeader={onItemDragOverHeader}
+          onItemDrop={onItemDrop}
         />
       ))}
     </>
