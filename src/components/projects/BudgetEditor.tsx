@@ -3,7 +3,7 @@
 import { useState, useTransition, useEffect } from 'react'
 import {
   Plus, Trash2, ChevronRight, ChevronDown, Package,
-  Upload, GripVertical, Check, X, Pencil,
+  Upload, GripVertical, Check, X, Pencil, Star, Copy,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -17,7 +17,7 @@ import { BulkImportModal } from '@/components/budget/BulkImportModal'
 import {
   deleteLineItem, addAccount, upsertLineItem, deleteAccount,
   updateAccount, reorderAccounts, reorderLineItems, moveLineItem,
-  updateBudgetRates,
+  updateBudgetRates, duplicatePhase, renamePhase, makePhasePrimary, deletePhase,
 } from '@/server/actions/budgets'
 import { formatMoney, lineTotal, centsToRate, rateToCents } from '@/lib/money'
 import { sumAccount, type AccountInput } from '@/lib/totals'
@@ -64,6 +64,7 @@ interface Props {
 export function BudgetEditor({ budget, projectId }: Props) {
   const router = useRouter()
   const [, startRatesTransition] = useTransition()
+  const [, startPhaseTransition] = useTransition()
   const [activePhase, setActivePhase] = useState(
     budget.phases.find(p => p.isPrimary)?.id ?? budget.phases[0]?.id
   )
@@ -87,6 +88,10 @@ export function BudgetEditor({ budget, projectId }: Props) {
     serverTaxPct > 0 ? String(+(serverTaxPct * 100).toFixed(2)) : ''
   )
 
+  // Phase rename state
+  const [editingPhaseId, setEditingPhaseId] = useState<string | null>(null)
+  const [phaseNameInput, setPhaseNameInput] = useState('')
+
   function saveRates() {
     const mkPct = markupInput ? parseFloat(markupInput) / 100 : null
     const txPct = taxInput    ? parseFloat(taxInput)    / 100 : null
@@ -97,23 +102,160 @@ export function BudgetEditor({ budget, projectId }: Props) {
     })
   }
 
+  function startRenamePhase(phase: BudgetWithPhases['phases'][number]) {
+    setPhaseNameInput(phase.name)
+    setEditingPhaseId(phase.id)
+  }
+
+  function saveRenamePhase() {
+    const trimmed = phaseNameInput.trim()
+    if (!trimmed || !editingPhaseId) { setEditingPhaseId(null); return }
+    const phase = budget.phases.find(p => p.id === editingPhaseId)
+    if (trimmed === phase?.name) { setEditingPhaseId(null); return }
+    setEditingPhaseId(null)
+    startPhaseTransition(async () => {
+      await renamePhase(editingPhaseId, trimmed)
+      router.refresh()
+    })
+  }
+
+  function handleMakePrimary(phaseId: string) {
+    startPhaseTransition(async () => {
+      await makePhasePrimary(phaseId)
+      router.refresh()
+    })
+  }
+
+  function handleAddPhase() {
+    const currentName = currentPhase?.name ?? 'v1 Estimate'
+    // Auto-suggest next version name
+    const match = currentName.match(/v(\d+)/i)
+    const nextNum = match ? parseInt(match[1]) + 1 : budget.phases.length + 1
+    const suggested = `v${nextNum} Estimate`
+    const name = prompt('Name for new budget version:', suggested)
+    if (!name?.trim()) return
+    startPhaseTransition(async () => {
+      // Duplicate the current active phase into a new one
+      const sourceId = activePhase ?? budget.phases[0]?.id
+      if (!sourceId) return
+      const result = await duplicatePhase(sourceId, name.trim())
+      if (result.success) {
+        router.refresh()
+        setActivePhase(result.data.id)
+      }
+    })
+  }
+
+  function handleDeletePhase(phaseId: string) {
+    const phase = budget.phases.find(p => p.id === phaseId)
+    if (!confirm(`Delete "${phase?.name ?? 'this phase'}"? All line items in it will be lost.`)) return
+    startPhaseTransition(async () => {
+      const result = await deletePhase(phaseId)
+      if (result.success) {
+        // Switch to first remaining phase
+        const remaining = budget.phases.filter(p => p.id !== phaseId)
+        if (remaining.length > 0) setActivePhase(remaining[0].id)
+        router.refresh()
+      } else {
+        alert((result as { success: false; error: string }).error)
+      }
+    })
+  }
+
   return (
     <div className="pb-20">
       <Tabs value={activePhase} onValueChange={setActivePhase}>
-        <div className="mb-4 flex items-center justify-between">
-          <TabsList>
-            {budget.phases.map(phase => (
-              <TabsTrigger key={phase.id} value={phase.id}>
-                {phase.name}
-                {phase.isPrimary && (
-                  <span className="ml-1.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                    primary
-                  </span>
-                )}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-          <div className="text-right">
+        {/* ── Phase tabs row ── */}
+        <div className="mb-3 flex items-center gap-2">
+          <div className="flex items-center gap-1 flex-wrap">
+            {budget.phases.map(phase => {
+              const isActive  = activePhase === phase.id
+              const isEditing = editingPhaseId === phase.id
+
+              return (
+                <div
+                  key={phase.id}
+                  className={[
+                    'group/tab relative flex items-center gap-1 rounded-md px-2.5 py-1 text-[13px] transition-colors cursor-pointer select-none',
+                    isActive
+                      ? 'bg-white border border-border shadow-sm font-medium text-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/60',
+                  ].join(' ')}
+                  onClick={() => { if (!isEditing) setActivePhase(phase.id) }}
+                >
+                  {isEditing ? (
+                    <input
+                      autoFocus
+                      className="w-28 rounded border border-primary/50 bg-background px-1 py-0.5 text-[13px] font-medium outline-none ring-1 ring-primary/30"
+                      value={phaseNameInput}
+                      onChange={e => setPhaseNameInput(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter')  { e.stopPropagation(); saveRenamePhase() }
+                        if (e.key === 'Escape') { e.stopPropagation(); setEditingPhaseId(null) }
+                      }}
+                      onBlur={saveRenamePhase}
+                      onClick={e => e.stopPropagation()}
+                    />
+                  ) : (
+                    <span>{phase.name}</span>
+                  )}
+
+                  {phase.isPrimary && (
+                    <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary leading-none">
+                      primary
+                    </span>
+                  )}
+
+                  {/* Per-tab actions (visible on hover when active) */}
+                  {isActive && !isEditing && (
+                    <span className="ml-0.5 hidden items-center gap-0.5 group-hover/tab:flex" onClick={e => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        title="Rename"
+                        className="rounded p-0.5 text-muted-foreground hover:text-foreground transition-colors"
+                        onClick={() => startRenamePhase(phase)}
+                      >
+                        <Pencil className="h-2.5 w-2.5" />
+                      </button>
+                      {!phase.isPrimary && (
+                        <button
+                          type="button"
+                          title="Make primary (this phase will be used for new proposals)"
+                          className="rounded p-0.5 text-muted-foreground hover:text-amber-500 transition-colors"
+                          onClick={() => handleMakePrimary(phase.id)}
+                        >
+                          <Star className="h-2.5 w-2.5" />
+                        </button>
+                      )}
+                      {budget.phases.length > 1 && !phase.isPrimary && (
+                        <button
+                          type="button"
+                          title="Delete this version"
+                          className="rounded p-0.5 text-muted-foreground hover:text-destructive transition-colors"
+                          onClick={() => handleDeletePhase(phase.id)}
+                        >
+                          <Trash2 className="h-2.5 w-2.5" />
+                        </button>
+                      )}
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+
+            {/* Add new version */}
+            <button
+              type="button"
+              title="Save a copy of this budget as a new version"
+              onClick={handleAddPhase}
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-[12px] text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+            >
+              <Copy className="h-3 w-3" />
+              New version
+            </button>
+          </div>
+
+          <div className="ml-auto text-right shrink-0">
             <p className="text-xs text-muted-foreground">Phase total</p>
             <p className="text-lg font-semibold tabular">{formatMoney(phaseTotalCents)}</p>
           </div>
@@ -209,11 +351,8 @@ function PhaseView({
     if (fromIdx === -1 || toIdx === -1) return
     const [removed] = ordered.splice(fromIdx, 1)
     ordered.splice(toIdx, 0, removed)
-    // Optimistically update codes if they're numeric
-    const hasNumericCodes = ordered.some(a => a.code && /^\d+$/.test(a.code))
-    const orderedWithCodes = hasNumericCodes
-      ? ordered.map((a, i) => ({ ...a, code: String((i + 1) * 100) }))
-      : ordered
+    // Always renumber with 100/200/300 codes after a reorder
+    const orderedWithCodes = ordered.map((a, i) => ({ ...a, code: String((i + 1) * 100) }))
     setLocalAccounts(orderedWithCodes)
     setDragAccountId(null); setDropAccountId(null)
     startTransition(async () => {
@@ -274,8 +413,11 @@ function PhaseView({
   function handleAddAccount() {
     const name = prompt('Account name (e.g. Camera, Post Production)')
     if (!name?.trim()) return
+    // Auto-assign the next sequential code (100, 200, 300…)
+    const topLevel = localAccounts.filter(a => !('parentId' in a && a.parentId))
+    const code = String((topLevel.length + 1) * 100)
     startTransition(async () => {
-      await addAccount({ phaseId: phase.id, name: name.trim(), order: phase.accounts.length })
+      await addAccount({ phaseId: phase.id, name: name.trim(), code, order: localAccounts.length })
       onMutated()
     })
   }
@@ -325,10 +467,11 @@ function PhaseView({
             </tr>
           </thead>
           <tbody>
-            {localAccounts.map(account => (
+            {localAccounts.map((account, accountIndex) => (
               <AccountRows
                 key={account.id}
                 account={account}
+                accountIndex={accountIndex}
                 // Pass the per-account items from the shared local state
                 items={account.lineItems}
                 depth={0}
@@ -396,7 +539,7 @@ function PhaseView({
 // ─── Account rows ─────────────────────────────────────────────────────────────
 
 function AccountRows({
-  account, items, depth, onAddItem, onMutated, onAccountDeleted,
+  account, accountIndex, items, depth, onAddItem, onMutated, onAccountDeleted,
   // Account drag
   isDragging, isDragOver,
   onHeaderDragStart, onHeaderDragOver, onHeaderDragEnd, onHeaderDrop,
@@ -406,6 +549,7 @@ function AccountRows({
   onItemDragOverItem, onItemDragOverHeader, onItemDrop,
 }: {
   account: AccountWithItems
+  accountIndex: number
   items: LineItemRow[]
   depth: number
   onAddItem: () => void
@@ -578,8 +722,10 @@ function AccountRows({
                   ? <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
                   : <ChevronDown  className="h-3.5 w-3.5 text-muted-foreground" />
                 }
-                {account.code && (
-                  <span className="text-xs font-mono text-muted-foreground">{account.code}</span>
+                {depth === 0 && (
+                  <span className="text-xs font-mono text-muted-foreground/60 w-8 text-right shrink-0">
+                    {account.code ?? String((accountIndex + 1) * 100)}
+                  </span>
                 )}
                 {account.name}
               </button>
@@ -800,6 +946,7 @@ function AccountRows({
         <AccountRows
           key={child.id}
           account={child}
+          accountIndex={0}
           items={child.lineItems}
           depth={depth + 1}
           onAddItem={onAddItem}

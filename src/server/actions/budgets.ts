@@ -49,6 +49,7 @@ export async function createBudget(projectId: string, templateId?: string): Prom
 const addAccountSchema = z.object({
   phaseId: z.string(),
   name: z.string().min(1).max(200),
+  code: z.string().optional(),
   parentId: z.string().optional(),
   order: z.number().optional(),
 })
@@ -134,17 +135,13 @@ export async function reorderAccounts(
 ): Promise<ActionResult> {
   try {
     await getWorkspaceId()
-    // If any account uses a pure-numeric code (100, 200 …) renumber all of them
-    // so that the codes stay in sync with the new visual order.
-    const hasNumericCodes = accounts.some(a => a.code && /^\d+$/.test(a.code))
+    // Always assign sequential 100/200/300 codes when reordering so the
+    // display order stays in sync — even if accounts had no codes before.
     await db.$transaction(
       accounts.map(({ id, order }, i) =>
         db.account.update({
           where: { id },
-          data: {
-            order,
-            ...(hasNumericCodes ? { code: String((i + 1) * 100) } : {}),
-          },
+          data: { order, code: String((i + 1) * 100) },
         })
       )
     )
@@ -428,5 +425,48 @@ async function cloneAccounts(accounts: AccountNode[], phaseId: string, parentId:
     if (acc.children && acc.children.length) {
       await cloneAccounts(acc.children, phaseId, newAcc.id)
     }
+  }
+}
+
+// ─── Phase management ─────────────────────────────────────────────────────────
+
+export async function renamePhase(phaseId: string, name: string): Promise<ActionResult> {
+  try {
+    await getWorkspaceId()
+    await db.phase.update({ where: { id: phaseId }, data: { name: name.trim() } })
+    revalidatePath('/')
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to rename phase' }
+  }
+}
+
+export async function makePhasePrimary(phaseId: string): Promise<ActionResult> {
+  try {
+    await getWorkspaceId()
+    const phase = await db.phase.findUniqueOrThrow({ where: { id: phaseId }, select: { budgetId: true } })
+    await db.$transaction([
+      db.phase.updateMany({ where: { budgetId: phase.budgetId }, data: { isPrimary: false } }),
+      db.phase.update({ where: { id: phaseId }, data: { isPrimary: true } }),
+    ])
+    revalidatePath('/')
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to set primary phase' }
+  }
+}
+
+export async function deletePhase(phaseId: string): Promise<ActionResult> {
+  try {
+    await getWorkspaceId()
+    const phase = await db.phase.findUniqueOrThrow({ where: { id: phaseId }, select: { budgetId: true, isPrimary: true } })
+    if (phase.isPrimary) return { success: false, error: 'Cannot delete the primary phase' }
+    const count = await db.phase.count({ where: { budgetId: phase.budgetId } })
+    if (count <= 1) return { success: false, error: 'Cannot delete the only phase' }
+    await db.phase.delete({ where: { id: phaseId } })
+    revalidatePath('/')
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to delete phase' }
   }
 }
