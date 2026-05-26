@@ -49,10 +49,10 @@
 
     /* ── Proposal cover gradient ─────────────────────────────── */
     --gradient-cover:
-      radial-gradient(ellipse 70% 60% at 85% 30%, #5D00A4 0%, rgba(93,0,164,0.55) 35%, rgba(93,0,164,0) 70%),
-      radial-gradient(ellipse 50% 50% at 15% 80%, #04FFCC 0%, rgba(4,255,204,0.30) 35%, rgba(4,255,204,0) 70%),
-      radial-gradient(ellipse 60% 50% at 50% 45%, #7B1FBF 0%, rgba(123,31,191,0.20) 40%, rgba(10,6,18,0) 80%),
-      #0A0612;
+      radial-gradient(ellipse 80% 65% at 78% 22%, #7B1FBF 0%, rgba(123,31,191,0.65) 38%, rgba(123,31,191,0) 72%),
+      radial-gradient(ellipse 55% 55% at 18% 72%, #3A006F 0%, rgba(58,0,111,0.55) 42%, rgba(58,0,111,0) 75%),
+      radial-gradient(ellipse 65% 50% at 50% 48%, #5D00A4 0%, rgba(93,0,164,0.30) 48%, rgba(93,0,164,0) 82%),
+      #080010;
   }
 }
 
