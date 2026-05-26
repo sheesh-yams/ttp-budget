@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
 import { z } from 'zod'
 import { headers } from 'next/headers'
@@ -75,6 +76,10 @@ export async function POST(
       proposalUrl: `${process.env.NEXT_PUBLIC_APP_URL}/proposals/${proposal.id}/edit`,
     })
   }
+
+  // Bust server cache so the Kanban reflects APPROVED → Closed immediately
+  revalidatePath('/proposals')
+  revalidatePath(`/projects/${proposal.projectId}`)
 
   return NextResponse.json({ status: 'approved', approvedAt: now })
 }

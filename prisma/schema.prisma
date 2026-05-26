@@ -387,6 +387,7 @@ enum ProposalStatus {
   APPROVED
   DECLINED
   EXPIRED
+  LOST            // deal lost — manually marked by the user
 }
 
 enum ProposalDetailLevel {

@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, ExternalLink, Clock, Send, FileText, Pencil, RotateCcw, Receipt, CheckCircle, Trash2 } from 'lucide-react'
+import { Plus, ExternalLink, Clock, Send, FileText, Pencil, RotateCcw, Receipt, CheckCircle, Trash2, TrendingDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ProposalModal, type ProposalModalMode } from './ProposalModal'
@@ -33,14 +33,15 @@ interface Props {
   totalCents: number
 }
 
-const STATUS_CONFIG: Record<ProposalStatus, { label: string; color: string; icon: React.ReactNode }> = {
-  DRAFT:           { label: 'Draft',           color: 'bg-gray-100 text-gray-600',       icon: <FileText    className="h-3 w-3" /> },
-  SENT:            { label: 'Sent',            color: 'bg-blue-100 text-blue-700',       icon: <Send        className="h-3 w-3" /> },
-  VIEWED:          { label: 'Viewed',          color: 'bg-violet-100 text-violet-700',   icon: <Clock       className="h-3 w-3" /> },
-  CHANGES_NEEDED:  { label: 'Changes Needed',  color: 'bg-amber-100 text-amber-700',     icon: <Clock       className="h-3 w-3" /> },
-  APPROVED:        { label: 'Approved',        color: 'bg-green-100 text-green-700',     icon: <CheckCircle className="h-3 w-3" /> },
-  DECLINED:        { label: 'Declined',        color: 'bg-red-100 text-red-700',         icon: <Clock       className="h-3 w-3" /> },
-  EXPIRED:         { label: 'Expired',         color: 'bg-amber-100 text-amber-700',     icon: <Clock       className="h-3 w-3" /> },
+const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
+  DRAFT:           { label: 'Draft',           color: 'bg-gray-100 text-gray-600',       icon: <FileText     className="h-3 w-3" /> },
+  SENT:            { label: 'Sent',            color: 'bg-blue-100 text-blue-700',       icon: <Send         className="h-3 w-3" /> },
+  VIEWED:          { label: 'Viewed',          color: 'bg-violet-100 text-violet-700',   icon: <Clock        className="h-3 w-3" /> },
+  CHANGES_NEEDED:  { label: 'Changes Needed',  color: 'bg-amber-100 text-amber-700',     icon: <Clock        className="h-3 w-3" /> },
+  APPROVED:        { label: 'Approved',        color: 'bg-green-100 text-green-700',     icon: <CheckCircle  className="h-3 w-3" /> },
+  DECLINED:        { label: 'Declined',        color: 'bg-red-100 text-red-700',         icon: <Clock        className="h-3 w-3" /> },
+  EXPIRED:         { label: 'Expired',         color: 'bg-amber-100 text-amber-700',     icon: <Clock        className="h-3 w-3" /> },
+  LOST:            { label: 'Lost',            color: 'bg-rose-50 text-rose-800',        icon: <TrendingDown className="h-3 w-3" /> },
 }
 
 function extractFromContent(content: unknown): {
@@ -196,7 +197,7 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
             <tbody>
               {proposals.map(p => {
                 const cfg = STATUS_CONFIG[p.status] ?? STATUS_CONFIG.DRAFT
-                const isExpired = !!p.expiresAt && new Date(p.expiresAt) < new Date() && p.status !== 'APPROVED'
+                const isExpired = !!p.expiresAt && new Date(p.expiresAt) < new Date() && !['APPROVED', 'LOST'].includes(p.status)
                 const canEdit     = p.status === 'DRAFT'
                 const canRevise   = ['SENT', 'VIEWED', 'APPROVED'].includes(p.status)
                 const canInvoice  = ['SENT', 'VIEWED', 'APPROVED'].includes(p.status) && !!budgetId

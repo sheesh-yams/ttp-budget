@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Eye, Send, ExternalLink, ChevronDown, CheckCircle, XCircle, Clock, GripVertical } from 'lucide-react'
+import { Eye, Send, ExternalLink, ChevronDown, CheckCircle, XCircle, Clock, GripVertical, TrendingDown } from 'lucide-react'
 import { format } from 'date-fns'
 import { updateProposalStatus } from '@/server/actions/proposals'
 
@@ -59,18 +59,20 @@ const STATUS_STYLES: Record<string, { label: string; bg: string; text: string }>
   APPROVED:       { label: 'Approved',       bg: '#D1FAE5', text: '#065F46' },
   DECLINED:       { label: 'Declined',       bg: '#FEE2E2', text: '#991B1B' },
   EXPIRED:        { label: 'Expired',        bg: '#FEF3C7', text: '#78350F' },
+  LOST:           { label: 'Lost',           bg: '#FFF1F2', text: '#9F1239' },
 }
 
-const ACTIVE_STATUSES = ['DRAFT', 'SENT', 'VIEWED', 'CHANGES_NEEDED']
+// Working stages shown in the status dropdown; LOST is the "close as lost" action
+const ACTIVE_STATUSES = ['DRAFT', 'SENT', 'VIEWED', 'CHANGES_NEEDED', 'LOST']
 
 function isTerminal(status: string, expiresAt: Date | string | null): boolean {
-  if (['APPROVED', 'DECLINED'].includes(status)) return true
+  if (['APPROVED', 'DECLINED', 'LOST'].includes(status)) return true
   if (expiresAt && new Date(expiresAt) < new Date() && status !== 'APPROVED') return true
   return false
 }
 
 function effectiveStatus(status: string, expiresAt: Date | string | null): string {
-  if (expiresAt && new Date(expiresAt) < new Date() && status !== 'APPROVED') return 'EXPIRED'
+  if (expiresAt && new Date(expiresAt) < new Date() && !['APPROVED', 'LOST'].includes(status)) return 'EXPIRED'
   return status
 }
 
@@ -127,9 +129,10 @@ function StatusBadge({
         className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
         style={{ background: style.bg, color: style.text }}
       >
-        {eff === 'APPROVED' && <CheckCircle className="h-2.5 w-2.5" />}
-        {eff === 'DECLINED' && <XCircle className="h-2.5 w-2.5" />}
-        {eff === 'EXPIRED'  && <Clock    className="h-2.5 w-2.5" />}
+        {eff === 'APPROVED' && <CheckCircle  className="h-2.5 w-2.5" />}
+        {eff === 'DECLINED' && <XCircle      className="h-2.5 w-2.5" />}
+        {eff === 'LOST'     && <TrendingDown className="h-2.5 w-2.5" />}
+        {eff === 'EXPIRED'  && <Clock        className="h-2.5 w-2.5" />}
         {style.label}
       </span>
     )
@@ -249,6 +252,14 @@ function ProposalCard({
             <span className="inline-flex items-center gap-1 rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-[10px] font-medium">
               <XCircle className="h-3 w-3" />
               Declined
+            </span>
+          </div>
+        )}
+        {eff === 'LOST' && (
+          <div className="mt-2.5">
+            <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: '#FFF1F2', color: '#9F1239' }}>
+              <TrendingDown className="h-3 w-3" />
+              Lost
             </span>
           </div>
         )}

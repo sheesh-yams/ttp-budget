@@ -16,6 +16,7 @@ const STATUS_STYLES: Record<string, { label: string; bg: string; text: string }>
   APPROVED:       { label: 'Approved',       bg: '#D1FAE5', text: '#065F46' },
   DECLINED:       { label: 'Declined',       bg: '#FEE2E2', text: '#991B1B' },
   EXPIRED:        { label: 'Expired',        bg: '#FEF3C7', text: '#78350F' },
+  LOST:           { label: 'Lost',           bg: '#FFF1F2', text: '#9F1239' },
 }
 
 export default async function ProposalsPage() {
@@ -162,7 +163,7 @@ export default async function ProposalsPage() {
               </thead>
               <tbody>
                 {allProposals.map(p => {
-                  const isExpired = !!p.expiresAt && new Date(p.expiresAt) < now && p.status !== 'APPROVED'
+                  const isExpired = !!p.expiresAt && new Date(p.expiresAt) < now && !['APPROVED', 'LOST'].includes(p.status)
                   const eff       = isExpired ? 'EXPIRED' : p.status
                   const style     = STATUS_STYLES[eff] ?? STATUS_STYLES.DRAFT
 
