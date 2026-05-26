@@ -1,5 +1,5 @@
 import {
-  Document, Page, Text, View, StyleSheet, Link,
+  Document, Page, Text, View, StyleSheet, Link, Font,
 } from '@react-pdf/renderer'
 import { lineTotal, formatMoney } from '@/lib/money'
 import { sumAccount, type AccountInput } from '@/lib/totals'
@@ -36,6 +36,7 @@ interface ProposalData {
   workspace: {
     name: string; legalName: string | null;
     contactEmail: string | null; website: string | null;
+    invoiceNumberPrefix: string;
   };
 }
 
@@ -67,7 +68,7 @@ function fmtDate(d: string | null) {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  page:     { fontFamily: 'Helvetica', fontSize: 10, color: BODY, backgroundColor: '#fff' },
+  page:     { fontFamily: 'Helvetica', fontSize: 10, color: BODY, backgroundColor: '#fff', paddingBottom: 56 },
 
   // Cover
   cover:    { backgroundColor: INK, padding: '40 48 36 48', minHeight: 220 },
@@ -135,10 +136,10 @@ const s = StyleSheet.create({
   milestoneTrig: { fontSize: 9.5, color: MUT, marginBottom: 12 },
   milestoneAmt:  { fontSize: 12, fontFamily: 'Helvetica-Bold', color: V },
 
-  // Footer
-  footer:    { flexDirection: 'row', justifyContent: 'space-between', padding: '16 48', backgroundColor: INK },
-  footerLbl: { fontSize: 9, color: 'rgba(255,255,255,0.5)' },
-  footerBold:{ fontSize: 10, fontFamily: 'Helvetica-Bold', color: '#fff', marginBottom: 3 },
+  // Footer — absolutely pinned to bottom of every page
+  footer:    { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: '12 48', backgroundColor: INK },
+  footerLbl: { fontSize: 8.5, color: 'rgba(255,255,255,0.5)' },
+  footerBold:{ fontSize: 9.5, fontFamily: 'Helvetica-Bold', color: '#fff', marginBottom: 2 },
 })
 
 // ─── Section header ───────────────────────────────────────────────────────────
@@ -167,7 +168,8 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
   const milestones: PaymentMilestone[] = termsSection?.type === 'terms' ? termsSection.milestones : []
 
   const clientName   = proposal.project.client.name
-  const proposalNum  = `PRO-${new Date(proposal.createdAt).getFullYear()}-${String(proposal.version).padStart(3, '0')}`
+  const prefix       = proposal.workspace.invoiceNumberPrefix || 'TTP'
+  const proposalNum  = `${prefix}-${new Date(proposal.createdAt).getFullYear()}-${String(proposal.version).padStart(3, '0')}`
   const shootType    = SHOOT_LABELS[proposal.project.shootType] ?? proposal.project.shootType
   const validThrough = proposal.expiresAt ? fmtDate(proposal.expiresAt) : null
 
@@ -189,9 +191,12 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
   const prodFeeCents   = prodFeeAccount ? sumAccount(prodFeeAccount as unknown as AccountInput) : 0
   const subtotalCents  = totalCents - prodFeeCents
 
+  // Prevent react-pdf from splitting words with hyphens mid-line
+  Font.registerHyphenationCallback((word) => [word])
+
   return (
     <Document>
-      <Page size="A4" style={s.page}>
+      <Page size="A4" style={s.page} wrap>
 
         {/* ══ COVER ══ */}
         <View style={s.cover}>
@@ -259,7 +264,7 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
 
         {/* ══ DELIVERABLES ══ */}
         {deliverables.length > 0 && (
-          <View style={s.sectionAlt}>
+          <View style={s.sectionAlt} wrap={false}>
             <SectionLabel label="Deliverables" />
             <View style={s.delGrid}>
               {deliverables.map((d, i) => (
@@ -364,7 +369,7 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
 
         {/* ══ PAYMENT TERMS ══ */}
         {milestones.length > 0 && (
-          <View style={s.sectionAlt}>
+          <View style={s.sectionAlt} wrap={false} break={accounts.length > 0}>
             <SectionLabel label="Payment Terms" />
             <View style={s.milestoneGrid}>
               {milestones.map((m, i) => (

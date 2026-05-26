@@ -38,6 +38,7 @@ export default async function PublicProposalPage({ params }: Props) {
           website: true,
           contactPhone: true,
           logoUrl: true,
+          invoiceNumberPrefix: true,
         },
       },
     },

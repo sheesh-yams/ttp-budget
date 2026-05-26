@@ -101,6 +101,7 @@ interface SerialProposal {
     legalName: string | null
     contactEmail: string | null
     website: string | null
+    invoiceNumberPrefix: string
   }
 }
 
@@ -131,7 +132,8 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
   const workspace = proposal.workspace
   const clientName = project.client.name
 
-  const proposalNumber = `PRO-${new Date(proposal.createdAt).getFullYear()}-${String(proposal.version).padStart(3, '0')}`
+  const prefix         = proposal.workspace.invoiceNumberPrefix || 'TTP'
+  const proposalNumber = `${prefix}-${new Date(proposal.createdAt).getFullYear()}-${String(proposal.version).padStart(3, '0')}`
 
   const validThrough = proposal.expiresAt ? fmt(proposal.expiresAt) : null
 

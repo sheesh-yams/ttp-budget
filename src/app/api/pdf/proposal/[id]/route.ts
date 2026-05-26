@@ -19,6 +19,7 @@ export async function GET(
         select: {
           name: true, legalName: true,
           contactEmail: true, website: true,
+          invoiceNumberPrefix: true,
         },
       },
     },
@@ -112,10 +113,11 @@ export async function GET(
         client: { name: proposal.project.client.name },
       },
       workspace: {
-        name:         proposal.workspace.name,
-        legalName:    proposal.workspace.legalName,
-        contactEmail: proposal.workspace.contactEmail,
-        website:      proposal.workspace.website,
+        name:                proposal.workspace.name,
+        legalName:           proposal.workspace.legalName,
+        contactEmail:        proposal.workspace.contactEmail,
+        website:             proposal.workspace.website,
+        invoiceNumberPrefix: proposal.workspace.invoiceNumberPrefix,
       },
     }
 
