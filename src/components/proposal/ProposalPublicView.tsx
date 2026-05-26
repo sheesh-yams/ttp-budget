@@ -159,12 +159,15 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
     })
   }
 
-  // Separate production fee account for callout row
-  const prodFeeAccount  = accounts.find(a => /production fee/i.test(a.name))
-  const mainAccounts    = accounts.filter(a => !/production fee/i.test(a.name))
-  const prodFeeCents    = prodFeeAccount
-    ? sumAccount(prodFeeAccount) : 0
-  const subtotalCents   = totalCents - prodFeeCents
+  // Budget-level agency fee — read from frozen snapshot stored in content
+  type BudgetSnapshot = { productionCents: number; budgetMarkupPct: number; budgetTaxPct: number }
+  const snap           = (proposal.content as { budgetSnapshot?: BudgetSnapshot }).budgetSnapshot
+  const productionCents = snap?.productionCents ?? totalCents
+  const budgetMarkupPct = snap?.budgetMarkupPct ?? 0
+  const budgetTaxPct    = snap?.budgetTaxPct    ?? 0
+  const agencyFeeCents  = budgetMarkupPct > 0 ? Math.round(productionCents * budgetMarkupPct) : 0
+  const preTaxCents     = productionCents + agencyFeeCents
+  const taxCents        = budgetTaxPct   > 0 ? Math.round(preTaxCents * budgetTaxPct) : 0
 
   // Sign-off
   const isAlreadyApproved = proposal.status === 'APPROVED'
@@ -320,13 +323,13 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
 
             {/* Accordion */}
             <div style={{ border: `0.5px solid ${BORDER}`, borderRadius: '10px 10px 0 0', overflow: 'hidden' }}>
-              {mainAccounts.map((account, idx) => {
+              {accounts.map((account, idx) => {
                 const accTotal   = sumAccount(account)
                 const isOpen     = expanded.has(account.id)
                 const ownCount   = account.lineItems.length
                 const childCount = account.children?.reduce((s, c) => s + c.lineItems.length, 0) ?? 0
                 const itemCount  = ownCount + childCount
-                const isLast     = idx === mainAccounts.length - 1
+                const isLast     = idx === accounts.length - 1
 
                 return (
                   <div key={account.id}>
@@ -422,12 +425,24 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
             <div style={{ borderLeft: `0.5px solid ${BORDER}`, borderRight: `0.5px solid ${BORDER}` }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '13px 20px', background: '#fff', borderBottom: `0.5px solid ${BORDER}` }}>
                 <span style={{ fontSize: 13, color: MUTED }}>Subtotal</span>
-                <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', color: BODY }}>{formatMoney(subtotalCents)}</span>
+                <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', color: BODY }}>{formatMoney(productionCents)}</span>
               </div>
-              {prodFeeAccount && prodFeeCents > 0 && (
+              {agencyFeeCents > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '13px 20px', background: '#fff', borderBottom: `0.5px solid ${BORDER}` }}>
-                  <span style={{ fontSize: 13, color: MUTED }}>Production Fee</span>
-                  <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', color: BODY }}>{formatMoney(prodFeeCents)}</span>
+                  <span style={{ fontSize: 13, color: MUTED }}>
+                    Agency Fee{' '}
+                    <span style={{ fontSize: 11, color: MUTED }}>({Math.round(budgetMarkupPct * 100)}%)</span>
+                  </span>
+                  <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', color: BODY }}>{formatMoney(agencyFeeCents)}</span>
+                </div>
+              )}
+              {taxCents > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '13px 20px', background: '#fff', borderBottom: `0.5px solid ${BORDER}` }}>
+                  <span style={{ fontSize: 13, color: MUTED }}>
+                    Tax{' '}
+                    <span style={{ fontSize: 11, color: MUTED }}>({Math.round(budgetTaxPct * 100)}%)</span>
+                  </span>
+                  <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', color: BODY }}>{formatMoney(taxCents)}</span>
                 </div>
               )}
             </div>

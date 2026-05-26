@@ -185,11 +185,15 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
       })()
     : null
 
-  // Separate production fee
-  const prodFeeAccount = accounts.find(a => /production fee/i.test(a.name))
-  const mainAccounts   = accounts.filter(a => !/production fee/i.test(a.name))
-  const prodFeeCents   = prodFeeAccount ? sumAccount(prodFeeAccount as unknown as AccountInput) : 0
-  const subtotalCents  = totalCents - prodFeeCents
+  // Budget-level agency fee — read from frozen snapshot in content
+  type BudgetSnapshot = { productionCents: number; budgetMarkupPct: number; budgetTaxPct: number }
+  const snap            = (proposal.content as { budgetSnapshot?: BudgetSnapshot }).budgetSnapshot
+  const productionCents = snap?.productionCents ?? totalCents
+  const budgetMarkupPct = snap?.budgetMarkupPct ?? 0
+  const budgetTaxPct    = snap?.budgetTaxPct    ?? 0
+  const agencyFeeCents  = budgetMarkupPct > 0 ? Math.round(productionCents * budgetMarkupPct) : 0
+  const preTaxCents     = productionCents + agencyFeeCents
+  const taxCents        = budgetTaxPct   > 0 ? Math.round(preTaxCents * budgetTaxPct) : 0
 
   // Prevent react-pdf from splitting words with hyphens mid-line
   Font.registerHyphenationCallback((word) => [word])
@@ -292,9 +296,9 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
                 <Text style={[s.colR, s.headText]}>Total</Text>
               </View>
 
-              {mainAccounts.map((acc, ai) => {
+              {accounts.map((acc, ai) => {
                 const accTotal = sumAccount(acc as unknown as AccountInput)
-                const isLast   = ai === mainAccounts.length - 1 && !prodFeeAccount
+                const isLast   = ai === accounts.length - 1
                 return (
                   <View key={acc.id}>
                     {/* Account header row */}
@@ -343,15 +347,25 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
                 )
               })}
 
-              {/* Subtotal & Production Fee rows */}
+              {/* Subtotal, Agency Fee, Tax rows */}
               <View style={s.subtotalRow}>
                 <Text style={s.subtotalLbl}>Subtotal</Text>
-                <Text style={s.subtotalVal}>{formatMoney(subtotalCents)}</Text>
+                <Text style={s.subtotalVal}>{formatMoney(productionCents)}</Text>
               </View>
-              {prodFeeAccount && prodFeeCents > 0 && (
+              {agencyFeeCents > 0 && (
                 <View style={s.subtotalRow}>
-                  <Text style={s.subtotalLbl}>Production Fee</Text>
-                  <Text style={s.subtotalVal}>{formatMoney(prodFeeCents)}</Text>
+                  <Text style={s.subtotalLbl}>
+                    {`Agency Fee (${Math.round(budgetMarkupPct * 100)}%)`}
+                  </Text>
+                  <Text style={s.subtotalVal}>{formatMoney(agencyFeeCents)}</Text>
+                </View>
+              )}
+              {taxCents > 0 && (
+                <View style={s.subtotalRow}>
+                  <Text style={s.subtotalLbl}>
+                    {`Tax (${Math.round(budgetTaxPct * 100)}%)`}
+                  </Text>
+                  <Text style={s.subtotalVal}>{formatMoney(taxCents)}</Text>
                 </View>
               )}
 
