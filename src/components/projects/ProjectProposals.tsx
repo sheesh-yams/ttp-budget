@@ -2,12 +2,12 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, ExternalLink, Clock, Send, FileText, Pencil, RotateCcw, Receipt, CheckCircle, Trash2, TrendingDown } from 'lucide-react'
+import { Plus, ExternalLink, Clock, Send, FileText, Pencil, Receipt, CheckCircle, Trash2, TrendingDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ProposalModal, type ProposalModalMode } from './ProposalModal'
 import { NewInvoiceModal } from './NewInvoiceModal'
-import { createProposalRevision, deleteProposal } from '@/server/actions/proposals'
+import { deleteProposal } from '@/server/actions/proposals'
 import type { ProposalStatus } from '@/types'
 import type { ProposalContent } from '@/types'
 
@@ -77,8 +77,6 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
   const [modalOpen, setModalOpen] = useState(false)
   const [modalMode, setModalMode] = useState<ProposalModalMode>('create')
   const [editingProposal, setEditingProposal] = useState<Props['proposals'][0] | null>(null)
-  const [revisionPending, setRevisionPending] = useState<string | null>(null)
-
   // Invoice modal state
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false)
   const [invoiceProposal, setInvoiceProposal] = useState<Props['proposals'][0] | null>(null)
@@ -117,18 +115,6 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
       }
     } finally {
       setDeleteLoading(false)
-    }
-  }
-
-  async function handleCreateRevision(p: Props['proposals'][0]) {
-    setRevisionPending(p.id)
-    try {
-      const result = await createProposalRevision(p.id)
-      if (result.success) {
-        router.refresh()
-      }
-    } finally {
-      setRevisionPending(null)
     }
   }
 
@@ -199,7 +185,6 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
                 const cfg = STATUS_CONFIG[p.status] ?? STATUS_CONFIG.DRAFT
                 const isExpired = !!p.expiresAt && new Date(p.expiresAt) < new Date() && !['APPROVED', 'LOST'].includes(p.status)
                 const canEdit     = p.status === 'DRAFT'
-                const canRevise   = ['SENT', 'VIEWED', 'APPROVED'].includes(p.status)
                 const canInvoice  = ['SENT', 'VIEWED', 'APPROVED'].includes(p.status) && !!budgetId
                 const canDelete   = p.status !== 'APPROVED'
 
@@ -237,18 +222,6 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
                             title="Edit draft"
                           >
                             <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                        {/* Create revision off a sent/approved proposal */}
-                        {canRevise && (
-                          <button
-                            type="button"
-                            onClick={() => handleCreateRevision(p)}
-                            disabled={revisionPending === p.id}
-                            className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground inline-flex disabled:opacity-40"
-                            title="Create new revision (draft)"
-                          >
-                            <RotateCcw className="h-3.5 w-3.5" />
                           </button>
                         )}
                         {/* Create invoice */}

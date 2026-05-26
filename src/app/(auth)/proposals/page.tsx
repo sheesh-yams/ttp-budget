@@ -85,7 +85,8 @@ export default async function ProposalsPage() {
   const cards: ProposalCardData[] = projects
     .filter(p => p.proposals.length > 0)
     .map(p => {
-      const latest = p.proposals[0]
+      // Show the latest sent proposal in the Kanban (skip drafts); fall back to newest if all are drafts
+      const latest = p.proposals.find(pr => pr.status !== 'DRAFT') ?? p.proposals[0]
       return {
         projectId:   p.id,
         projectName: p.name,

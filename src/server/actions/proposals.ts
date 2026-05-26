@@ -217,6 +217,13 @@ export async function createSentProposal(input: {
     const content = buildContent(input)
     const snapshot = await captureBudgetSnapshot(input.budgetId)
 
+    // Auto-increment version so each new send is v1, v2, v3 …
+    const maxVersion = await db.proposal.aggregate({
+      where: { projectId: input.projectId },
+      _max: { version: true },
+    })
+    const nextVersion = (maxVersion._max.version ?? 0) + 1
+
     const proposal = await db.proposal.create({
       data: {
         workspaceId: user.workspaceId,
@@ -227,6 +234,7 @@ export async function createSentProposal(input: {
         status: 'SENT',
         sentAt: new Date(),
         expiresAt: new Date(input.expiresAt),
+        version: nextVersion,
         createdById: user.id,
       },
     })
@@ -255,6 +263,14 @@ export async function createDraftProposal(input: {
   try {
     const user = await getCurrentUser()
     const content = buildContent(input)
+
+    // Auto-increment version so each new proposal is v1, v2, v3 …
+    const maxVersion = await db.proposal.aggregate({
+      where: { projectId: input.projectId },
+      _max: { version: true },
+    })
+    const nextVersion = (maxVersion._max.version ?? 0) + 1
+
     const proposal = await db.proposal.create({
       data: {
         workspaceId: user.workspaceId,
@@ -264,6 +280,7 @@ export async function createDraftProposal(input: {
         content: content as object,
         status: 'DRAFT',
         expiresAt: new Date(input.expiresAt),
+        version: nextVersion,
         createdById: user.id,
       },
     })
