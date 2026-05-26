@@ -146,6 +146,10 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
       })()
     : undefined
 
+  // Pre-fill create mode from the most recent non-draft proposal
+  const lastSent = proposals.find(p => p.status !== 'DRAFT')
+  const prefill  = lastSent ? extractFromContent(lastSent.content) : undefined
+
   return (
     <div>
       <div className="mb-3 flex items-center justify-between">
@@ -300,6 +304,7 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
           budgetId={budgetId}
           totalCents={totalCents}
           existing={existing}
+          prefill={modalMode === 'create' ? prefill : undefined}
           onDone={() => router.refresh()}
         />
       )}

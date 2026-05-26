@@ -12,38 +12,31 @@ function uid() { return crypto.randomUUID().slice(0, 8) }
 // Stored in content.budgetSnapshot so the public page never reads live budget data.
 
 async function captureBudgetSnapshot(budgetId: string) {
-  const primaryPhase = await db.phase.findFirst({
-    where: { budgetId, isPrimary: true },
-    include: {
-      accounts: {
-        where: { parentId: null },
-        orderBy: { order: 'asc' },
-        include: {
-          lineItems: { orderBy: { order: 'asc' } },
-          children: {
-            orderBy: { order: 'asc' },
-            include: { lineItems: { orderBy: { order: 'asc' } } },
-          },
-        },
-      },
-    },
-  }) ?? await db.phase.findFirst({
-    where: { budgetId },
-    orderBy: { order: 'asc' },
-    include: {
-      accounts: {
-        where: { parentId: null },
-        orderBy: { order: 'asc' },
-        include: {
-          lineItems: { orderBy: { order: 'asc' } },
-          children: {
-            orderBy: { order: 'asc' },
-            include: { lineItems: { orderBy: { order: 'asc' } } },
-          },
-        },
-      },
-    },
+  // Fetch budget-level markup / tax rates alongside the primary phase
+  const budget = await db.budget.findUnique({
+    where: { id: budgetId },
+    select: { markupPct: true, taxPct: true },
   })
+  const budgetMarkupPct = budget?.markupPct != null ? Number(budget.markupPct) : 0
+  const budgetTaxPct    = budget?.taxPct    != null ? Number(budget.taxPct)    : 0
+
+  const phaseInclude = {
+    accounts: {
+      where: { parentId: null },
+      orderBy: { order: 'asc' as const },
+      include: {
+        lineItems: { orderBy: { order: 'asc' as const } },
+        children: {
+          orderBy: { order: 'asc' as const },
+          include: { lineItems: { orderBy: { order: 'asc' as const } } },
+        },
+      },
+    },
+  }
+
+  const primaryPhase =
+    await db.phase.findFirst({ where: { budgetId, isPrimary: true }, include: phaseInclude }) ??
+    await db.phase.findFirst({ where: { budgetId }, orderBy: { order: 'asc' }, include: phaseInclude })
 
   const accounts = (primaryPhase?.accounts ?? []).map(acc => ({
     id:       acc.id,
@@ -77,12 +70,19 @@ async function captureBudgetSnapshot(budgetId: string) {
     })),
   }))
 
-  const totalCents = accounts.reduce(
+  // Production subtotal (per-line base + per-line markups)
+  const productionCents = accounts.reduce(
     (sum, acc) => sum + sumAccount(acc as unknown as AccountInput),
     0
   )
 
-  return { accounts, totalCents }
+  // Apply budget-level agency fee and tax → gross total
+  const agencyFeeCents = Math.round(productionCents * budgetMarkupPct)
+  const preTax         = productionCents + agencyFeeCents
+  const taxCents       = Math.round(preTax * budgetTaxPct)
+  const totalCents     = preTax + taxCents
+
+  return { accounts, productionCents, budgetMarkupPct, budgetTaxPct, totalCents }
 }
 
 // ─── Create proposal from a budget ───────────────────────────────────────────

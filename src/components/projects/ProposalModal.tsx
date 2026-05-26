@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition, useEffect } from 'react'
-import { Copy, Check, ExternalLink } from 'lucide-react'
+import { Copy, Check, ExternalLink, Plus, X } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -38,6 +38,8 @@ interface Props {
   totalCents: number
   /** Required for edit-draft and revision modes */
   existing?: ExistingProposal
+  /** In create mode: pre-fill deliverables + about from the most recent proposal */
+  prefill?: { about: string; deliverables: Deliverable[]; depositPct: number }
   onDone: () => void
 }
 
@@ -62,6 +64,7 @@ export function ProposalModal({
   projectName,
   totalCents,
   existing,
+  prefill,
   onDone,
 }: Props) {
   const [pending, startTransition] = useTransition()
@@ -71,8 +74,6 @@ export function ProposalModal({
   const [about,       setAbout]       = useState('')
   const [depositPct,  setDepositPct]  = useState('50')
   const [deliverables, setDeliverables] = useState<Deliverable[]>([
-    { title: '', description: '' },
-    { title: '', description: '' },
     { title: '', description: '' },
   ])
   const [expiresAt, setExpiresAt] = useState(defaultExpiry)
@@ -87,34 +88,35 @@ export function ProposalModal({
   useEffect(() => {
     if (!open) return
     if (existing) {
+      // Edit-draft or revision: populate from the existing proposal
       setTitle(existing.title)
       setAbout(existing.about)
       setDepositPct(String(existing.depositPct))
-      const dels = existing.deliverables.length > 0
-        ? [...existing.deliverables, { title: '', description: '' }].slice(0, Math.max(3, existing.deliverables.length))
-        : [{ title: '', description: '' }, { title: '', description: '' }, { title: '', description: '' }]
-      setDeliverables(dels)
-      if (existing.expiresAt) {
-        setExpiresAt(existing.expiresAt.split('T')[0])
-      } else {
-        setExpiresAt(defaultExpiry())
-      }
+      setDeliverables(
+        existing.deliverables.length > 0
+          ? existing.deliverables
+          : [{ title: '', description: '' }]
+      )
+      setExpiresAt(existing.expiresAt ? existing.expiresAt.split('T')[0] : defaultExpiry())
     } else {
+      // Create mode: title is always fresh; deliverables + about come from prefill if available
       setTitle(`${projectName} — Proposal`)
-      setAbout('')
-      setDepositPct('50')
-      setDeliverables([
-        { title: '', description: '' },
-        { title: '', description: '' },
-        { title: '', description: '' },
-      ])
+      if (prefill && prefill.deliverables.length > 0) {
+        setAbout(prefill.about)
+        setDeliverables(prefill.deliverables)
+        setDepositPct(String(prefill.depositPct))
+      } else {
+        setAbout('')
+        setDeliverables([{ title: '', description: '' }])
+        setDepositPct('50')
+      }
       setExpiresAt(defaultExpiry())
     }
     setError('')
     setSuccessToken(null)
     setCopied(false)
     setIsDraft(false)
-  }, [open, existing, projectName])
+  }, [open, existing, projectName, prefill])
 
   function updateDeliverable(i: number, field: keyof Deliverable, value: string) {
     setDeliverables(prev => prev.map((d, idx) => idx === i ? { ...d, [field]: value } : d))
@@ -122,6 +124,10 @@ export function ProposalModal({
 
   function addDeliverable() {
     setDeliverables(prev => [...prev, { title: '', description: '' }])
+  }
+
+  function removeDeliverable(i: number) {
+    setDeliverables(prev => prev.filter((_, idx) => idx !== i))
   }
 
   function validate() {
@@ -274,57 +280,6 @@ export function ProposalModal({
               />
             </div>
 
-            {/* About */}
-            <div className="grid gap-1.5">
-              <Label htmlFor="pm-about">Project description</Label>
-              <textarea
-                id="pm-about"
-                rows={4}
-                placeholder="A brief description of the project shown on the cover and 'The Project' section…"
-                value={about}
-                onChange={e => setAbout(e.target.value)}
-                className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
-              />
-            </div>
-
-            {/* Deliverables */}
-            <div className="grid gap-2">
-              <div className="flex items-center justify-between">
-                <Label>Deliverables</Label>
-                <button
-                  type="button"
-                  onClick={addDeliverable}
-                  className="text-[11px] text-primary hover:underline"
-                >
-                  + Add
-                </button>
-              </div>
-              {deliverables.map((d, i) => (
-                <div key={i} className="grid grid-cols-[90px_1fr] gap-2 items-start">
-                  <div className="grid gap-1">
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">
-                      {String(i + 1).padStart(2, '0')}
-                    </span>
-                    <Input
-                      placeholder="Title"
-                      value={d.title}
-                      onChange={e => updateDeliverable(i, 'title', e.target.value)}
-                    />
-                  </div>
-                  <div className="grid gap-1">
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">
-                      Description
-                    </span>
-                    <Input
-                      placeholder="Short description…"
-                      value={d.description}
-                      onChange={e => updateDeliverable(i, 'description', e.target.value)}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-
             {/* Deposit + Expiry */}
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-1.5">
@@ -351,6 +306,73 @@ export function ProposalModal({
                   onChange={e => setExpiresAt(e.target.value)}
                 />
               </div>
+            </div>
+
+            {/* Divider */}
+            <div className="border-t border-border/60" />
+
+            {/* About */}
+            <div className="grid gap-1.5">
+              <Label htmlFor="pm-about">Project description</Label>
+              <textarea
+                id="pm-about"
+                rows={3}
+                placeholder="A brief description of the project shown on the cover and 'The Project' section…"
+                value={about}
+                onChange={e => setAbout(e.target.value)}
+                className="flex min-h-[72px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
+              />
+            </div>
+
+            {/* Deliverables */}
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between">
+                <Label>Deliverables</Label>
+                <button
+                  type="button"
+                  onClick={addDeliverable}
+                  className="flex items-center gap-1 text-[11px] font-medium text-violet-600 hover:text-violet-800 transition-colors"
+                >
+                  <Plus className="h-3 w-3" />
+                  Add
+                </button>
+              </div>
+              {deliverables.map((d, i) => (
+                <div key={i} className="flex items-start gap-2">
+                  <div className="grid grid-cols-[90px_1fr] gap-2 flex-1">
+                    <div className="grid gap-1">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">
+                        {String(i + 1).padStart(2, '0')}
+                      </span>
+                      <Input
+                        placeholder="Title"
+                        value={d.title}
+                        onChange={e => updateDeliverable(i, 'title', e.target.value)}
+                      />
+                    </div>
+                    <div className="grid gap-1">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">
+                        Description
+                      </span>
+                      <Input
+                        placeholder="Short description…"
+                        value={d.description}
+                        onChange={e => updateDeliverable(i, 'description', e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  {deliverables.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeDeliverable(i)}
+                      title="Remove"
+                      className="mt-5 rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
 
             {error && <p className="text-sm text-destructive">{error}</p>}
