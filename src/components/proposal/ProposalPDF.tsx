@@ -1,5 +1,5 @@
 import {
-  Document, Page, Text, View, StyleSheet, Link, Font,
+  Document, Page, Text, View, StyleSheet, Link, Font, Image,
 } from '@react-pdf/renderer'
 import { lineTotal, formatMoney } from '@/lib/money'
 import { sumAccount, type AccountInput } from '@/lib/totals'
@@ -31,6 +31,7 @@ interface Account {
 interface ProposalData {
   id: string; title: string; publicToken: string; version: number;
   content: unknown; createdAt: string; expiresAt: string | null;
+  logoSrc?: string;
   project: {
     name: string; shootType: string;
     shootStartDate: string | null; shootEndDate: string | null;
@@ -77,6 +78,7 @@ const s = StyleSheet.create({
   cover:    { backgroundColor: INK, padding: '24 48 20 48', minHeight: 180 },
   coverTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 },
   logoBox:  { flexDirection: 'row', alignItems: 'center' },
+  logoImg:  { width: 104, height: 22 },
   logoMark: { width: 18, height: 18, borderRadius: 3, backgroundColor: MINT, marginRight: 6, justifyContent: 'center', alignItems: 'center' },
   logoT:    { fontSize: 9, fontFamily: 'Helvetica-Bold', color: '#003D31' },
   logoName: { fontSize: 9, fontFamily: 'Helvetica-Bold', color: '#fff', letterSpacing: 1.5 },
@@ -204,11 +206,17 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
         <View style={s.cover}>
           <View style={s.coverTop}>
             <View style={s.logoBox}>
-              <View style={s.logoMark}>
-                <Text style={s.logoT}>T</Text>
-              </View>
-              <Text style={s.logoName}>The Third Place </Text>
-              <Text style={s.logoCreative}>Creative</Text>
+              {proposal.logoSrc ? (
+                <Image src={proposal.logoSrc} style={s.logoImg} />
+              ) : (
+                <>
+                  <View style={s.logoMark}>
+                    <Text style={s.logoT}>T</Text>
+                  </View>
+                  <Text style={s.logoName}>The Third Place </Text>
+                  <Text style={s.logoCreative}>Creative</Text>
+                </>
+              )}
             </View>
             <Text style={s.propNum}>PROPOSAL · {proposalNum}</Text>
           </View>
@@ -357,7 +365,7 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
               <View style={s.totalBar}>
                 <View>
                   <Text style={s.totalBarLbl}>Total Investment</Text>
-                  <Text style={[s.totalBarLbl, { fontSize: 7, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5, marginTop: 2 }]}>All-in, USD</Text>
+                  <Text style={[s.totalBarLbl, { fontSize: 7, color: '#2A2A28', letterSpacing: 0.5, marginTop: 2 }]}>All-in, USD</Text>
                 </View>
                 <Text style={s.totalBarVal}>{formatMoney(totalCents)}</Text>
               </View>
