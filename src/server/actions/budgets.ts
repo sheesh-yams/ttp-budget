@@ -251,7 +251,7 @@ export async function updatePhaseOverview(
       where: { id: phaseId },
       data: {
         description:  data.description || null,
-        deliverables: data.deliverables.length > 0 ? data.deliverables : undefined,
+        deliverables: data.deliverables.length > 0 ? (data.deliverables as unknown as Prisma.InputJsonValue) : undefined,
       },
     })
     revalidatePath('/')
