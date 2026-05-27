@@ -61,7 +61,7 @@ export function ProjectCallSheets({ callSheets, projectId, projectName, shootSta
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-10 text-center">
           <Clock className="h-8 w-8 text-muted-foreground/40 mb-2" />
           <p className="text-sm font-medium text-foreground">No call sheets yet</p>
-          <p className="mt-1 text-xs text-muted-foreground">Create one to share crew calls, location details, and the day's schedule.</p>
+          <p className="mt-1 text-xs text-muted-foreground">Create one to share crew calls, location details, and the day&apos;s schedule.</p>
           <Button size="sm" variant="outline" className="mt-4" onClick={() => setModalOpen(true)}>
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             New call sheet

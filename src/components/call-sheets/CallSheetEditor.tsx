@@ -440,7 +440,7 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
 
           {!weather && !hospital && locationAddress && (
             <p className="text-xs text-muted-foreground italic">
-              Click "Fetch weather &amp; hospital" to auto-populate forecast and nearest hospital.
+              Click &ldquo;Fetch weather &amp; hospital&rdquo; to auto-populate forecast and nearest hospital.
             </p>
           )}
         </Section>
