@@ -219,11 +219,13 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
     const result = await importCrewFromBudget(initial.id, initial.budgetId)
     setImporting(false)
     if (result.success) {
+      // Update local state immediately — no page reload needed
+      setCrew(result.data.crew)
+      setDirty(false)
       setImportMsg(result.data.added > 0
         ? `${result.data.added} crew slot${result.data.added !== 1 ? 's' : ''} imported — fill in names and call times`
         : 'All crew roles already present'
       )
-      router.refresh()
     } else {
       setImportMsg((result as { success: false; error: string }).error)
     }

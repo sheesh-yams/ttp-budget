@@ -13,7 +13,7 @@ import type { ActionResult } from '@/types'
 export async function importCrewFromBudget(
   callSheetId: string,
   budgetId: string
-): Promise<ActionResult<{ added: number }>> {
+): Promise<ActionResult<{ added: number; crew: CrewDept[] }>> {
   try {
     const user = await getCurrentUser()
 
@@ -72,13 +72,16 @@ export async function importCrewFromBudget(
       },
     })
 
-    // Build an array of (deptName, role, qty) tuples from all matching line items
-    const incoming: Array<{ dept: string; role: string; qty: number }> = []
+    // Each line item = one person. quantity is billing days, NOT headcount.
+    // We count the number of line items per (dept, role) pair and create that
+    // many slots — so 2 "Production Assistant" line items → 2 PA slots,
+    // but 1 "Associate Producer" × 6 days → 1 AP slot.
+    const incoming: Array<{ dept: string; role: string }> = []
     for (const acc of accounts) {
       const allItems = [
-        ...acc.lineItems.map(i => ({ dept: acc.name, role: i.description, qty: Math.max(1, Math.round(Number(i.quantity))) })),
+        ...acc.lineItems.map(i => ({ dept: acc.name, role: i.description })),
         ...acc.children.flatMap(child =>
-          child.lineItems.map(i => ({ dept: child.name, role: i.description, qty: Math.max(1, Math.round(Number(i.quantity))) }))
+          child.lineItems.map(i => ({ dept: child.name, role: i.description }))
         ),
       ]
       incoming.push(...allItems)
@@ -88,16 +91,24 @@ export async function importCrewFromBudget(
       return { success: false, error: 'No crew line items found in this budget. Make sure line items are added from CREW rate cards.' }
     }
 
-    // Merge into existing crew — group into departments, expanding qty > 1 into multiple blank member slots
+    // Count how many line items share the same (dept, role) key
+    const incomingCounts = new Map<string, { dept: string; role: string; count: number }>()
+    for (const { dept, role } of incoming) {
+      const key = `${dept}::${role}`
+      const entry = incomingCounts.get(key)
+      if (entry) entry.count++
+      else incomingCounts.set(key, { dept, role, count: 1 })
+    }
+
+    // Merge into existing crew
     const existingCrew = (cs.crew as unknown as CrewDept[]) ?? []
     const crewMap = new Map<string, CrewMember[]>(existingCrew.map(d => [d.dept, d.members]))
 
     let added = 0
-    for (const { dept, role, qty } of incoming) {
+    for (const { dept, role, count } of incomingCounts.values()) {
       const members = crewMap.get(dept) ?? []
-      // Don't add a blank slot if a member with this exact role already exists (avoids duplicates on re-import)
-      const existingForRole = members.filter(m => m.role === role)
-      const slotsNeeded = Math.max(0, qty - existingForRole.length)
+      const existingForRole = members.filter(m => m.role === role).length
+      const slotsNeeded = Math.max(0, count - existingForRole)
       for (let i = 0; i < slotsNeeded; i++) {
         members.push({ name: '', role, callTime: '' })
         added++
@@ -120,7 +131,9 @@ export async function importCrewFromBudget(
     })
 
     revalidatePath(`/projects/${cs.projectId}/call-sheets/${callSheetId}`)
-    return { success: true, data: { added } }
+    // Return the full updated crew so the editor can call setCrew() immediately
+    // without waiting for a router.refresh() round-trip.
+    return { success: true, data: { added, crew: newCrew } }
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : 'Failed to import crew' }
   }
