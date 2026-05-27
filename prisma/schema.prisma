@@ -74,6 +74,7 @@ model Workspace {
   budgets           Budget[]
   proposals         Proposal[]
   invoices          Invoice[]
+  callSheets        CallSheet[]
 }
 
 enum UserRole {
@@ -175,6 +176,7 @@ model Project {
   budgets        Budget[]
   proposals      Proposal[]
   invoices       Invoice[]
+  callSheets     CallSheet[]
 
   @@index([workspaceId])
   @@index([clientId])
@@ -555,4 +557,65 @@ model InvoiceView {
   referer      String?
 
   @@index([invoiceId])
+}
+
+// =============================================================
+// CALL SHEETS
+// =============================================================
+
+enum CallSheetStatus {
+  DRAFT
+  SENT   // link shared with crew
+  FINAL  // locked for the day
+}
+
+model CallSheet {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  title         String   // "Day 1 — Studio A" (auto-populated, editable)
+  shootDate     DateTime // the date of the shoot
+  generalCall   String   @default("07:00") // HH:MM string
+  status        CallSheetStatus @default(DRAFT)
+  publicToken   String   @unique @default(cuid()) // /cs/[token]
+
+  // Location
+  locationName    String?
+  locationAddress String?  // full street address — used for geocoding
+  locationLat     Float?   // cached after geocode
+  locationLng     Float?   // cached after geocode
+  parkingAddress  String?
+  locationNotes   String?  @db.Text
+
+  // Auto-fetched data (cached on record, refreshable)
+  // { name, address, phone, distanceKm, lat, lng }
+  hospitalInfo    Json?
+  // { high, low, conditions, windKph, precipPct, sunrise, sunset, fetchedAt }
+  weather         Json?
+
+  // Emergency contact for the day
+  emergencyContact String?
+
+  // Crew — array of dept groups
+  // [{ dept: "Camera", members: [{ name, role, callTime, phone, email }] }]
+  crew            Json     @default("[]")
+
+  // Schedule — ordered time blocks
+  // [{ time: "07:00", label: "General Call / Load In", notes?: string }]
+  schedule        Json     @default("[]")
+
+  // Logistics
+  cateringInfo    String?  @db.Text
+  notes           String?  @db.Text
+
+  sentAt          DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([workspaceId])
+  @@index([shootDate])
 }

@@ -8,6 +8,7 @@ import { ProjectProposals } from '@/components/projects/ProjectProposals'
 import { ProjectInvoices } from '@/components/projects/ProjectInvoices'
 import { ProjectHeaderActions } from '@/components/projects/ProjectHeaderActions'
 import { ProposalOverview } from '@/components/projects/ProposalOverview'
+import { ProjectCallSheets } from '@/components/call-sheets/ProjectCallSheets'
 import { createBudget } from '@/server/actions/budgets'
 import { Button } from '@/components/ui/button'
 import { formatMoney } from '@/lib/money'
@@ -104,6 +105,17 @@ export default async function ProjectDetailPage({
           dueDate: true,
           publicToken: true,
           sentAt: true,
+        },
+      },
+      callSheets: {
+        orderBy: { shootDate: 'asc' },
+        select: {
+          id: true,
+          title: true,
+          shootDate: true,
+          generalCall: true,
+          status: true,
+          publicToken: true,
         },
       },
     },
@@ -207,6 +219,19 @@ export default async function ProjectDetailPage({
           <ProjectInvoices invoices={project.invoices as never} />
         </section>
       )}
+
+      {/* Call Sheets section */}
+      <section className="mb-8">
+        <ProjectCallSheets
+          callSheets={project.callSheets.map(cs => ({
+            ...cs,
+            shootDate: cs.shootDate.toISOString(),
+          }))}
+          projectId={project.id}
+          projectName={project.name}
+          shootStartDate={project.shootStartDate?.toISOString() ?? null}
+        />
+      </section>
 
       {/* Proposal Overview section — editable description + deliverables per budget version */}
       {budget && (() => {

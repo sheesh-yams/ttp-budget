@@ -8,6 +8,7 @@ import type {
   RateCard,
   Proposal,
   Invoice,
+  CallSheet,
   Workspace,
   User,
   BudgetTemplate,
@@ -20,6 +21,7 @@ import type {
   InvoiceKind,
   ProposalDetailLevel,
   UserRole,
+  CallSheetStatus,
 } from '@prisma/client'
 
 // ─── Re-exports ───────────────────────────────────────────────────────────────
@@ -33,6 +35,8 @@ export type {
   InvoiceKind,
   ProposalDetailLevel,
   UserRole,
+  CallSheetStatus,
+  CallSheet,
 }
 
 // ─── Enriched types (with relations included) ─────────────────────────────────
@@ -210,6 +214,12 @@ export interface TemplateAccount {
 
 export interface TemplateStructure {
   accounts: TemplateAccount[]
+}
+
+// ─── Call sheet ──────────────────────────────────────────────────────────────
+
+export type CallSheetWithProject = CallSheet & {
+  project: Pick<Project, 'id' | 'name'>
 }
 
 // ─── Server action return type ────────────────────────────────────────────────

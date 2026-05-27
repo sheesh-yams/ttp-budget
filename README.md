@@ -31,11 +31,14 @@ Workspace (1)
   │           │     ├── markupPct  (agency fee %)
   │           │     ├── taxPct     (global tax %)
   │           │     └── Phases (v1, v2, Approved, …)
+  │           │           ├── description   (shown on proposal cover / "The Project" section)
+  │           │           ├── deliverables  (JSON array — shown in proposal scope section)
   │           │           └── Accounts (nested tree)
   │           │                 └── LineItems
-  │           │                       ├── rateCents  (snapshot at insert)
-  │           │                       ├── hasMarkup  (opt-out of agency fee)
-  │           │                       └── taxRate    (per-item tax override)
+  │           │                       ├── rateCents        (snapshot at insert)
+  │           │                       ├── hasMarkup        (opt-out of agency fee)
+  │           │                       ├── taxRate          (per-item tax override)
+  │           │                       └── quantityFormula  (e.g. "shoot_days + 1" — A×B multiplier)
   │           ├── Proposals (public /p/[token] page + PDF)
   │           └── Invoices  (public /i/[token] page + PDF)
 ```
@@ -52,10 +55,9 @@ Rate cards are the **source of defaults** but never retroactively change histori
 | `/dashboard` | Outstanding invoices, recent projects, draft proposals |
 | `/clients` | Client list |
 | `/clients/[id]` | Client detail + project history |
-| `/projects/[id]` | Project hub — budgets, proposals, invoices |
+| `/projects/[id]` | Project hub — budgets, proposals, invoices, proposal overview |
 | `/projects/[id]/budgets/[budgetId]` | Spreadsheet-like budget editor |
 | `/proposals` | All proposals — Kanban view + full list table |
-| `/proposals/[id]/edit` | Proposal builder |
 | `/invoices` | Invoice list with metrics |
 | `/invoices/[id]/edit` | Invoice editor |
 | `/rates` | Master rate card |
@@ -78,19 +80,30 @@ A table-based editor with account groups (collapsible) and line items. Supports 
 Key behaviours:
 - **Add account** via prompt or bulk import
 - **Add line item** via modal — description, qty, unit, rate
+- **A×B quantity formula** — line items can carry a `quantityFormula` string (e.g. `shoot_days + 1`) evaluated against `budget.globals`; displayed as `A×B` in the editor, web view, and PDF
 - **Insert package** — pulls in a saved template package (add-on accounts + line items) into any phase
 - **Bulk import** — drag-and-drop a `.csv` or `.json` file; preview grouped line items before committing (see [Import Format](#bulk-import-format))
+- **Inline editing** — click any cell in the budget table to edit in place; drag handles for reordering accounts
+- **Cross-account drag** — drag line items between account sections
+- **Delete account** — removes account and all children; auto-renumbers codes
+- **Per-item markup & tax** — each line item can override the budget-level markup (`markupPct`) or tax (`taxRate`), or opt out of the agency fee entirely (`hasMarkup: false`)
 - **Sticky summary bar** — fixed at the bottom of the viewport, always visible:
   - Net Subtotal (raw line totals)
   - Markups & Taxes (per-item `markupPct` + `taxRate` overrides)
   - Agency Fee & Tax (budget-level `markupPct` + `taxPct`)
   - Grand Total
 
-Budget-level markup (`markupPct`) and tax (`taxPct`) are set on the budget record itself. Individual line items can opt out of the agency fee via `hasMarkup: false`, or carry their own tax rate via `taxRate` (useful for equipment sales tax, workers' comp, etc.).
+Budget-level markup (`markupPct`) and tax (`taxPct`) are set on the budget record itself and editable directly from the summary bar.
+
+**Phase versioning** — each budget can have multiple phases (tabs). Actions available per phase:
+- Rename, duplicate (copies all accounts + line items), make primary, delete
+- The primary phase is the one used by default for proposals and invoices
 
 ### 2. Proposal builder + dual render (web + PDF)
 
-The proposal is JSON in `Proposal.content`. A shared set of React components renders in both `@react-pdf/renderer` (PDF) and regular JSX (web view at `/p/[token]`), switching primitives via a `target: "web" | "pdf"` prop.
+**Proposal Overview** (on the project page) — a dedicated section below the proposals list where you fill in the project description and deliverables. These live on the `Phase` record (not the proposal), so they travel with the budget version you choose to send.
+
+The proposal itself is JSON in `Proposal.content`. A shared set of React components renders in both `@react-pdf/renderer` (PDF) and regular JSX (web view at `/p/[token]`), switching primitives via a `target: "web" | "pdf"` prop.
 
 Brand tokens (colors, fonts, logo) come from `Workspace` settings, overridable per-proposal via `Proposal.brandOverrides`.
 
@@ -98,9 +111,13 @@ Default sections: Cover, About, Scope/Deliverables, Budget (summary or itemized)
 
 **Approval flow:** client types their name → `signatureName`, `signatureIp`, `approvedAt`, and `approvedTotalCents` are recorded → Resend email fires to you → public page flips into an approved state with the typed signature in script font.
 
-**Status lifecycle:** `DRAFT → SENT → VIEWED → CHANGES_NEEDED → SENT → …` or `CLOSED` (expired proposals auto-routed to closed column in Kanban).
+**Status lifecycle:** `DRAFT → SENT → VIEWED → CHANGES_NEEDED → SENT → …` or `APPROVED`, `LOST`, `EXPIRED` (expired proposals auto-routed to closed column in Kanban).
 
-**Proposals Kanban** (`/proposals`): CRM-style drag-and-drop board with columns DRAFTS | SENT | VIEWED | CHANGES NEEDED | CLOSED. Drag cards between columns to update status; use the status dropdown pill on each card for quick changes. Full proposal list table below the board.
+**Version auto-increment** — each time a new proposal is sent for a project, the `version` counter increments automatically. The Kanban shows only the latest sent version per proposal thread.
+
+**Proposals Kanban** (`/proposals`): CRM-style drag-and-drop board with columns DRAFTS | SENT | VIEWED | CHANGES NEEDED | WON | LOST. Lost column is hidden by default and revealed via toggle. Drag cards between columns to update status; use the status dropdown pill on each card for quick changes. Full proposal list table below the board.
+
+**PDF design** — compact header with workspace logo, MINT accent bar on the cover with the total, budget totals pinned to bottom of the budget page, payment terms inline on the final page.
 
 ### 3. Invoice generation & status tracking
 
@@ -113,6 +130,8 @@ Numbering: `TTP-2026-001` — auto-incrementing per year, counter stored on `Wor
 **Status auto-flips:** `SENT → VIEWED` on first public page open. `PAID` is set manually (click "Mark as paid", record method + reference). Overdue detection via `dueDate`.
 
 Public invoice page shows wire/ACH details from workspace settings, big total, due date, and "Download PDF".
+
+**PDF design** — compact header with workspace logo, MINT accent bar, row numbers, totals pinned to the bottom.
 
 ## Budget Templates (`/templates`)
 
@@ -170,10 +189,9 @@ ttp-budget/
 │   │   ├── (auth)/                        # Clerk-protected admin app
 │   │   │   ├── dashboard/
 │   │   │   ├── clients/[id]/
-│   │   │   ├── projects/[id]/
+│   │   │   ├── projects/[id]/             # Project hub (budget + proposals + invoices + overview)
 │   │   │   │   └── budgets/[budgetId]/
 │   │   │   ├── proposals/                 # Kanban + list table
-│   │   │   ├── proposals/[id]/edit/
 │   │   │   ├── invoices/
 │   │   │   ├── invoices/[id]/edit/
 │   │   │   ├── rates/
@@ -193,14 +211,15 @@ ttp-budget/
 │   │   ├── budget/
 │   │   │   └── BulkImportModal.tsx        # drag-drop import, preview, success
 │   │   ├── proposals/
-│   │   │   └── ProposalsKanban.tsx        # HTML5 DnD Kanban + status select
+│   │   │   └── ProposalsKanban.tsx        # HTML5 DnD Kanban + status select (Won/Lost split)
 │   │   ├── projects/
-│   │   │   ├── BudgetEditor.tsx           # phase tabs, account table, modals
-│   │   │   ├── BudgetSummaryBar.tsx       # sticky bottom summary bar
+│   │   │   ├── BudgetEditor.tsx           # phase tabs, account table, inline editing, drag handles
+│   │   │   ├── BudgetSummaryBar.tsx       # sticky bottom summary bar (subtotal, markup, tax, total)
 │   │   │   ├── AddLineItemModal.tsx
 │   │   │   ├── InsertPackageModal.tsx
 │   │   │   ├── ProjectProposals.tsx
-│   │   │   └── ProjectInvoices.tsx
+│   │   │   ├── ProjectInvoices.tsx
+│   │   │   └── ProposalOverview.tsx       # per-phase description + deliverables editor
 │   │   ├── templates/
 │   │   │   ├── TemplateDetailClient.tsx   # metadata + tags + bulk import
 │   │   │   └── TemplateStructureEditor.tsx
@@ -216,9 +235,9 @@ ttp-budget/
 │   │   └── email.ts
 │   └── server/
 │       └── actions/                       # Server actions (all auth-gated)
-│           ├── budgets.ts
+│           ├── budgets.ts                 # includes updatePhaseOverview, reorderAccounts, deleteAccount
 │           ├── import.ts                  # importToBudget + importToTemplate
-│           ├── proposals.ts
+│           ├── proposals.ts               # createDraftProposal, createSentProposal, sendDraftProposal, updateDraftProposal
 │           ├── invoices.ts
 │           ├── rates.ts
 │           ├── templates.ts
@@ -268,3 +287,4 @@ npx prisma generate
 - **No `any`:** project ESLint does not include `@typescript-eslint` plugin. Never use `// eslint-disable-next-line @typescript-eslint/...` — it causes build failures. Use proper casts like `as Parameters<typeof db.model.method>[0]['data']['field']`.
 - **`router.refresh()`** after optimistic state mutations to sync server-rendered data.
 - **Schema changes:** `prisma db push` (no migrations folder). Run locally and Vercel runs `prisma generate` on deploy.
+- **Phase description/deliverables** live on the `Phase` model (not `Proposal`). This means the Proposal Overview is per-budget-version, not per-proposal-send — editing it updates the content for all future sends from that phase.

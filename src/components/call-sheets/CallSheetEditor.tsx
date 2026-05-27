@@ -1,0 +1,604 @@
+'use client'
+
+import { useState, useTransition, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import {
+  ChevronLeft, Check, Copy, ExternalLink, RefreshCw,
+  MapPin, Cloud, Hospital, AlertTriangle, Lock, Send,
+} from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { CrewEditor } from './CrewEditor'
+import { ScheduleEditor } from './ScheduleEditor'
+import {
+  updateCallSheet,
+  sendCallSheet,
+  finalizeCallSheet,
+  reopenCallSheet,
+  fetchLocationData,
+  type CrewDept,
+  type ScheduleBlock,
+  type WeatherInfo,
+  type HospitalInfo,
+} from '@/server/actions/call-sheets'
+import type { CallSheetStatus } from '@/types'
+
+// =============================================================================
+// Types
+// =============================================================================
+
+export interface CallSheetData {
+  id: string
+  projectId: string
+  projectName: string
+  title: string
+  shootDate: string        // ISO
+  generalCall: string
+  status: CallSheetStatus
+  publicToken: string
+  locationName: string | null
+  locationAddress: string | null
+  parkingAddress: string | null
+  locationNotes: string | null
+  emergencyContact: string | null
+  crew: CrewDept[]
+  schedule: ScheduleBlock[]
+  cateringInfo: string | null
+  notes: string | null
+  weather: WeatherInfo | null
+  hospitalInfo: HospitalInfo | null
+}
+
+// =============================================================================
+// Status config
+// =============================================================================
+
+const STATUS_CONFIG: Record<CallSheetStatus, { label: string; color: string }> = {
+  DRAFT: { label: 'Draft', color: 'bg-gray-100 text-gray-600' },
+  SENT:  { label: 'Sent',  color: 'bg-blue-100 text-blue-700' },
+  FINAL: { label: 'Final', color: 'bg-green-100 text-green-700' },
+}
+
+// =============================================================================
+// Component
+// =============================================================================
+
+export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
+  const router = useRouter()
+  const [pending, startTransition] = useTransition()
+
+  // ── Form state ───────────────────────────────────────────────────────────────
+  const [title,           setTitle]           = useState(initial.title)
+  const [shootDate,       setShootDate]       = useState(initial.shootDate.split('T')[0])
+  const [generalCall,     setGeneralCall]     = useState(initial.generalCall)
+  const [locationName,    setLocationName]    = useState(initial.locationName ?? '')
+  const [locationAddress, setLocationAddress] = useState(initial.locationAddress ?? '')
+  const [parkingAddress,  setParkingAddress]  = useState(initial.parkingAddress ?? '')
+  const [locationNotes,   setLocationNotes]   = useState(initial.locationNotes ?? '')
+  const [emergencyContact,setEmergencyContact]= useState(initial.emergencyContact ?? '')
+  const [crew,            setCrew]            = useState<CrewDept[]>(initial.crew)
+  const [schedule,        setSchedule]        = useState<ScheduleBlock[]>(initial.schedule)
+  const [cateringInfo,    setCateringInfo]    = useState(initial.cateringInfo ?? '')
+  const [notes,           setNotes]           = useState(initial.notes ?? '')
+
+  // ── Derived / UI state ───────────────────────────────────────────────────────
+  const [status,      setStatus]      = useState<CallSheetStatus>(initial.status)
+  const [weather,     setWeather]     = useState<WeatherInfo | null>(initial.weather)
+  const [hospital,    setHospital]    = useState<HospitalInfo | null>(initial.hospitalInfo)
+  const [dirty,       setDirty]       = useState(false)
+  const [saved,       setSaved]       = useState(false)
+  const [error,       setError]       = useState('')
+  const [fetchError,  setFetchError]  = useState('')
+  const [fetching,    setFetching]    = useState(false)
+  const [copied,      setCopied]      = useState(false)
+
+  const isLocked = status === 'FINAL'
+  const publicUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/cs/${initial.publicToken}`
+
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+
+  const markDirty = useCallback(() => { setDirty(true); setSaved(false) }, [])
+
+  function field<T>(setter: (v: T) => void) {
+    return (v: T) => { setter(v); markDirty() }
+  }
+
+  // ── Save ─────────────────────────────────────────────────────────────────────
+
+  function handleSave() {
+    setError('')
+    startTransition(async () => {
+      const result = await updateCallSheet(initial.id, {
+        title:            title.trim() || initial.title,
+        shootDate,
+        generalCall,
+        locationName:     locationName.trim()     || undefined,
+        locationAddress:  locationAddress.trim()  || undefined,
+        parkingAddress:   parkingAddress.trim()   || undefined,
+        locationNotes:    locationNotes.trim()     || undefined,
+        emergencyContact: emergencyContact.trim()  || undefined,
+        crew,
+        schedule,
+        cateringInfo:     cateringInfo.trim()     || undefined,
+        notes:            notes.trim()            || undefined,
+      })
+      if (result.success) {
+        setDirty(false)
+        setSaved(true)
+        setTimeout(() => setSaved(false), 2000)
+        router.refresh()
+      } else {
+        setError((result as { success: false; error: string }).error)
+      }
+    })
+  }
+
+  // ── Send / Finalize / Reopen ──────────────────────────────────────────────────
+
+  function handleSend() {
+    startTransition(async () => {
+      // Save first if dirty
+      if (dirty) {
+        const saveResult = await updateCallSheet(initial.id, {
+          title, shootDate, generalCall,
+          locationName, locationAddress, parkingAddress, locationNotes,
+          emergencyContact, crew, schedule, cateringInfo, notes,
+        })
+        if (!saveResult.success) { setError((saveResult as { success: false; error: string }).error); return }
+      }
+      const result = await sendCallSheet(initial.id)
+      if (result.success) {
+        setStatus('SENT')
+        setDirty(false)
+        router.refresh()
+      } else {
+        setError((result as { success: false; error: string }).error)
+      }
+    })
+  }
+
+  function handleFinalize() {
+    if (!confirm('Finalize this call sheet? It will be locked for editing.')) return
+    startTransition(async () => {
+      const result = await finalizeCallSheet(initial.id)
+      if (result.success) { setStatus('FINAL'); router.refresh() }
+      else setError((result as { success: false; error: string }).error)
+    })
+  }
+
+  function handleReopen() {
+    startTransition(async () => {
+      const result = await reopenCallSheet(initial.id)
+      if (result.success) { setStatus('DRAFT'); router.refresh() }
+      else setError((result as { success: false; error: string }).error)
+    })
+  }
+
+  // ── Fetch location data ───────────────────────────────────────────────────────
+
+  async function handleFetchLocation() {
+    setFetchError('')
+    setFetching(true)
+    try {
+      // Save address first so the server has the latest value
+      if (locationAddress.trim()) {
+        await updateCallSheet(initial.id, {
+          locationAddress: locationAddress.trim(),
+          locationName: locationName.trim() || undefined,
+        })
+      }
+      const result = await fetchLocationData(initial.id)
+      if (result.success) {
+        setWeather(result.data.weather)
+        setHospital(result.data.hospital)
+        router.refresh()
+      } else {
+        setFetchError((result as { success: false; error: string }).error)
+      }
+    } finally {
+      setFetching(false)
+    }
+  }
+
+  async function handleCopyLink() {
+    await navigator.clipboard.writeText(publicUrl)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  // =============================================================================
+  // Render
+  // =============================================================================
+
+  return (
+    <div className="max-w-3xl mx-auto">
+      {/* Back */}
+      <Link
+        href={`/projects/${initial.projectId}`}
+        className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <ChevronLeft className="h-4 w-4" />
+        {initial.projectName}
+      </Link>
+
+      {/* ── Header ── */}
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          {isLocked ? (
+            <h1 className="text-xl font-semibold text-foreground truncate">{title}</h1>
+          ) : (
+            <input
+              value={title}
+              onChange={e => { setTitle(e.target.value); markDirty() }}
+              className="flex-1 min-w-0 text-xl font-semibold bg-transparent text-foreground focus:outline-none border-b-2 border-transparent focus:border-violet-400"
+            />
+          )}
+          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_CONFIG[status].color}`}>
+            {STATUS_CONFIG[status].label}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {isLocked ? (
+            <>
+              <a
+                href={publicUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-md border border-input px-3 py-1.5 text-xs font-medium hover:bg-muted transition-colors"
+              >
+                <ExternalLink className="h-3 w-3" />
+                Open crew view
+              </a>
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className="inline-flex items-center gap-1.5 rounded-md border border-input px-3 py-1.5 text-xs font-medium hover:bg-muted transition-colors"
+              >
+                {copied ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
+                {copied ? 'Copied!' : 'Copy link'}
+              </button>
+              <Button size="sm" variant="outline" onClick={handleReopen} disabled={pending}>
+                Reopen
+              </Button>
+            </>
+          ) : (
+            <>
+              {/* Save */}
+              {dirty && (
+                <Button size="sm" variant="outline" onClick={handleSave} disabled={pending}>
+                  {pending ? 'Saving…' : saved ? <><Check className="h-3 w-3 mr-1" />Saved</> : 'Save changes'}
+                </Button>
+              )}
+              {saved && !dirty && (
+                <span className="text-xs text-green-600 font-medium flex items-center gap-1">
+                  <Check className="h-3 w-3" /> Saved
+                </span>
+              )}
+
+              {/* Send */}
+              <Button size="sm" onClick={handleSend} disabled={pending}>
+                <Send className="mr-1.5 h-3.5 w-3.5" />
+                {status === 'DRAFT' ? 'Send to crew' : 'Resend'}
+              </Button>
+
+              {/* Finalize */}
+              {status === 'SENT' && (
+                <Button size="sm" variant="outline" onClick={handleFinalize} disabled={pending}>
+                  <Lock className="mr-1.5 h-3 w-3" />
+                  Finalize
+                </Button>
+              )}
+
+              {/* Share link (once sent) */}
+              {status === 'SENT' && (
+                <button
+                  type="button"
+                  onClick={handleCopyLink}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-input px-3 py-1.5 text-xs font-medium hover:bg-muted transition-colors"
+                >
+                  {copied ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
+                  {copied ? 'Copied!' : 'Copy link'}
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {error && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          {error}
+        </div>
+      )}
+
+      {/* ── Locked banner ── */}
+      {isLocked && (
+        <div className="mb-6 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-2.5 text-sm text-green-800">
+          <Lock className="h-4 w-4 shrink-0" />
+          This call sheet is finalized and locked. Click Reopen to make changes.
+        </div>
+      )}
+
+      <div className="space-y-6">
+
+        {/* ── Shoot info ── */}
+        <Section title="Shoot Info">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-1.5">
+              <Label htmlFor="cs-date">Shoot date</Label>
+              <Input
+                id="cs-date"
+                type="date"
+                value={shootDate}
+                disabled={isLocked}
+                onChange={e => field(setShootDate)(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="cs-call">General call time</Label>
+              <Input
+                id="cs-call"
+                type="time"
+                value={generalCall}
+                disabled={isLocked}
+                onChange={e => field(setGeneralCall)(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="cs-emergency">Emergency contact for the day</Label>
+            <Input
+              id="cs-emergency"
+              placeholder="e.g. John Smith — 310-555-0101"
+              value={emergencyContact}
+              disabled={isLocked}
+              onChange={e => field(setEmergencyContact)(e.target.value)}
+            />
+          </div>
+        </Section>
+
+        {/* ── Location ── */}
+        <Section
+          title="Location"
+          icon={<MapPin className="h-4 w-4" />}
+          action={!isLocked && (
+            <button
+              type="button"
+              onClick={handleFetchLocation}
+              disabled={fetching || !locationAddress.trim()}
+              className="flex items-center gap-1.5 text-xs font-medium text-violet-600 hover:text-violet-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <RefreshCw className={`h-3 w-3 ${fetching ? 'animate-spin' : ''}`} />
+              {fetching ? 'Fetching…' : 'Fetch weather & hospital'}
+            </button>
+          )}
+        >
+          {fetchError && (
+            <p className="text-xs text-destructive flex items-center gap-1">
+              <AlertTriangle className="h-3.5 w-3.5" />{fetchError}
+            </p>
+          )}
+
+          <div className="grid gap-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-1.5">
+                <Label htmlFor="cs-locname">Location name</Label>
+                <Input
+                  id="cs-locname"
+                  placeholder="Smashbox Studios Stage 4"
+                  value={locationName}
+                  disabled={isLocked}
+                  onChange={e => field(setLocationName)(e.target.value)}
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="cs-locaddr">Full address</Label>
+                <Input
+                  id="cs-locaddr"
+                  placeholder="1234 Main St, Los Angeles, CA 90001"
+                  value={locationAddress}
+                  disabled={isLocked}
+                  onChange={e => field(setLocationAddress)(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="cs-parking">Parking address</Label>
+              <Input
+                id="cs-parking"
+                placeholder="Parking structure address or lot name"
+                value={parkingAddress}
+                disabled={isLocked}
+                onChange={e => field(setParkingAddress)(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="cs-locnotes">Entry / access notes</Label>
+              <textarea
+                id="cs-locnotes"
+                rows={2}
+                placeholder="Gate code, check-in desk, loading dock instructions…"
+                value={locationNotes}
+                disabled={isLocked}
+                onChange={e => field(setLocationNotes)(e.target.value)}
+                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-60"
+              />
+            </div>
+          </div>
+
+          {/* Weather + Hospital cards */}
+          {(weather || hospital) && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 mt-2">
+              {weather && <WeatherCard weather={weather} />}
+              {hospital && <HospitalCard hospital={hospital} />}
+            </div>
+          )}
+
+          {!weather && !hospital && locationAddress && (
+            <p className="text-xs text-muted-foreground italic">
+              Click "Fetch weather &amp; hospital" to auto-populate forecast and nearest hospital.
+            </p>
+          )}
+        </Section>
+
+        {/* ── Schedule ── */}
+        <Section title="Schedule">
+          <ScheduleEditor
+            schedule={schedule}
+            readonly={isLocked}
+            onChange={s => { setSchedule(s); markDirty() }}
+          />
+        </Section>
+
+        {/* ── Crew ── */}
+        <Section title="Crew">
+          <CrewEditor
+            crew={crew}
+            readonly={isLocked}
+            onChange={c => { setCrew(c); markDirty() }}
+          />
+        </Section>
+
+        {/* ── Logistics ── */}
+        <Section title="Logistics">
+          <div className="grid gap-4">
+            <div className="grid gap-1.5">
+              <Label htmlFor="cs-catering">Catering / craft services</Label>
+              <textarea
+                id="cs-catering"
+                rows={2}
+                placeholder="Vendor name, delivery time, location on set…"
+                value={cateringInfo}
+                disabled={isLocked}
+                onChange={e => field(setCateringInfo)(e.target.value)}
+                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-60"
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="cs-notes">Additional notes</Label>
+              <textarea
+                id="cs-notes"
+                rows={3}
+                placeholder="Wardrobe notes, special requirements, COVID protocols…"
+                value={notes}
+                disabled={isLocked}
+                onChange={e => field(setNotes)(e.target.value)}
+                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-60"
+              />
+            </div>
+          </div>
+        </Section>
+
+      </div>
+
+      {/* Floating save (visible when dirty + not locked) */}
+      {dirty && !isLocked && (
+        <div className="fixed bottom-6 right-6 z-50">
+          <Button onClick={handleSave} disabled={pending} className="shadow-lg">
+            {pending ? 'Saving…' : 'Save changes'}
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// =============================================================================
+// Section wrapper
+// =============================================================================
+
+function Section({
+  title,
+  icon,
+  action,
+  children,
+}: {
+  title: string
+  icon?: React.ReactNode
+  action?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <section>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="flex items-center gap-1.5 text-base font-semibold text-foreground">
+          {icon}
+          {title}
+        </h2>
+        {action}
+      </div>
+      <div className="rounded-xl border bg-card p-5 space-y-4">
+        {children}
+      </div>
+    </section>
+  )
+}
+
+// =============================================================================
+// Weather card
+// =============================================================================
+
+function WeatherCard({ weather }: { weather: WeatherInfo }) {
+  const sunrise = new Date(weather.sunrise).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  const sunset  = new Date(weather.sunset).toLocaleTimeString('en-US',  { hour: 'numeric', minute: '2-digit' })
+  const fetchedAt = new Date(weather.fetchedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+
+  return (
+    <div className="rounded-lg border border-sky-200 bg-sky-50 p-4">
+      <div className="flex items-center gap-1.5 mb-3">
+        <Cloud className="h-4 w-4 text-sky-600" />
+        <p className="text-xs font-semibold text-sky-700 uppercase tracking-wide">Weather</p>
+        <span className="ml-auto text-[10px] text-sky-500">as of {fetchedAt}</span>
+      </div>
+      <div className="flex items-end gap-2 mb-2">
+        <span className="text-3xl font-bold text-sky-900">{weather.high}°</span>
+        <span className="text-lg text-sky-600 mb-0.5">/ {weather.low}°</span>
+      </div>
+      <p className="text-sm font-medium text-sky-800 mb-3">{weather.conditions}</p>
+      <div className="grid grid-cols-2 gap-1.5 text-xs text-sky-700">
+        <span>💨 {weather.windMph} mph wind</span>
+        <span>🌧 {weather.precipPct}% precip</span>
+        <span>🌅 Sunrise {sunrise}</span>
+        <span>🌇 Sunset {sunset}</span>
+      </div>
+    </div>
+  )
+}
+
+// =============================================================================
+// Hospital card
+// =============================================================================
+
+function HospitalCard({ hospital }: { hospital: HospitalInfo }) {
+  const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${hospital.name} ${hospital.address}`)}`
+
+  return (
+    <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+      <div className="flex items-center gap-1.5 mb-3">
+        <Hospital className="h-4 w-4 text-red-600" />
+        <p className="text-xs font-semibold text-red-700 uppercase tracking-wide">Nearest Hospital</p>
+        <span className="ml-auto text-[10px] text-red-500">{hospital.distanceKm} km away</span>
+      </div>
+      <p className="text-sm font-semibold text-red-900 mb-1">{hospital.name}</p>
+      <p className="text-xs text-red-700 mb-2 leading-relaxed">{hospital.address}</p>
+      {hospital.phone && (
+        <a href={`tel:${hospital.phone}`} className="text-xs font-medium text-red-700 hover:underline block mb-2">
+          📞 {hospital.phone}
+        </a>
+      )}
+      <a
+        href={mapsUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1 text-xs font-medium text-red-700 hover:underline"
+      >
+        <ExternalLink className="h-3 w-3" />
+        Open in Maps
+      </a>
+    </div>
+  )
+}
