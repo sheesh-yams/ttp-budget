@@ -19,7 +19,7 @@ import {
   updateAccount, reorderAccounts, reorderLineItems, moveLineItem,
   updateBudgetRates, duplicatePhase, renamePhase, makePhasePrimary, deletePhase,
 } from '@/server/actions/budgets'
-import { formatMoney, lineTotal, centsToRate, rateToCents } from '@/lib/money'
+import { formatMoney, lineTotal, centsToRate, rateToCents, parseQtyFormula, fmtUnit } from '@/lib/money'
 import { sumAccount, type AccountInput } from '@/lib/totals'
 import type { BudgetWithPhases, AccountWithItems } from '@/types'
 import { useRouter } from 'next/navigation'
@@ -37,19 +37,6 @@ const UNITS: { value: RateUnit; label: string }[] = [
   { value: 'MILE',     label: 'Mile' },
 ]
 
-/** Parse A × B from a quantityFormula like "3x2". Returns [headcount=A, days=B]. */
-function parseFormula(item: { quantity: unknown; quantityFormula: string | null }): [number, number] {
-  const match = item.quantityFormula?.match(/^(\d+(?:\.\d+)?)[x×](\d+(?:\.\d+)?)$/)
-  if (match) return [Number(match[1]), Number(match[2])]
-  return [Number(item.quantity), 1]
-}
-
-/** Format the billing unit column: "2 Days", "1 Week", "Flat" etc. */
-function formatUnit(days: number, unit: RateUnit): string {
-  if (unit === 'FLAT') return 'Flat'
-  const label = UNITS.find(u => u.value === unit)?.label ?? unit
-  return `${days} ${label}${days !== 1 ? 's' : ''}`
-}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -861,7 +848,7 @@ function AccountRows({
                   onKeyDown={e => { if (e.key === 'Escape') setEditState(null) }}
                 />
               ) : (() => {
-                const [hc] = parseFormula(item)
+                const [hc] = parseQtyFormula(Number(item.quantity), item.quantityFormula)
                 return (
                   <span className={`tabular ${hc === 1 ? 'text-foreground/25' : 'text-foreground/70'}`}>
                     {hc}
@@ -898,10 +885,10 @@ function AccountRows({
                   </Select>
                 </div>
               ) : (() => {
-                const [, days] = parseFormula(item)
+                const [, days] = parseQtyFormula(Number(item.quantity), item.quantityFormula)
                 return (
                   <span className="text-xs text-muted-foreground">
-                    {formatUnit(days, item.unit)}
+                    {fmtUnit(days, item.unit)}
                   </span>
                 )
               })()}

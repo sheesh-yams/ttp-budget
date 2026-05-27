@@ -1,7 +1,7 @@
 import {
   Document, Page, Text, View, StyleSheet, Link, Font, Image,
 } from '@react-pdf/renderer'
-import { lineTotal, formatMoney } from '@/lib/money'
+import { lineTotal, formatMoney, parseQtyFormula, fmtUnit } from '@/lib/money'
 import { sumAccount, type AccountInput } from '@/lib/totals'
 import type { ProposalContent, PaymentMilestone } from '@/types'
 
@@ -313,8 +313,7 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
                       return (
                         <View key={item.id} style={[s.budgetRow, last && isLast ? s.budgetLast : {}]}>
                           <Text style={[s.col1, s.lineDesc]}>{item.description}</Text>
-                          <Text style={[s.colSm, s.lineVal]}>{item.quantityFormula?.match(/^\d+(?:\.\d+)?[x×]\d+(?:\.\d+)?$/) ? item.quantityFormula.replace('x', ' × ') : item.quantity}</Text>
-                          <Text style={[s.colUnit, s.lineVal, { fontSize: 8 }]}>{item.unit.toUpperCase()}</Text>
+                          {(() => { const [hc, days] = parseQtyFormula(Number(item.quantity), item.quantityFormula); return (<><Text style={[s.colSm, s.lineVal, { opacity: hc === 1 ? 0.35 : 1 }]}>{hc}</Text><Text style={[s.colUnit, s.lineVal, { fontSize: 8 }]}>{fmtUnit(days, item.unit)}</Text></>); })()}
                           <Text style={[s.colR, s.lineAmt]}>{formatMoney(tot)}</Text>
                         </View>
                       )

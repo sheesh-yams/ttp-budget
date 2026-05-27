@@ -63,3 +63,40 @@ export function applyMarkup(cents: number, markupPct: number): number {
 export function formatPct(pct: number): string {
   return `${Math.round(pct * 100)}%`
 }
+
+// ─── Quantity / unit display helpers ─────────────────────────────────────────
+// A budget line item stores quantity = A × B, and optionally quantityFormula
+// = "AxB" (e.g. "3x2") so we can recover A (headcount) and B (days on set).
+
+const UNIT_LABELS: Record<string, string> = {
+  HOUR:     'Hour',
+  HALF_DAY: 'Half Day',
+  DAY:      'Day',
+  WEEK:     'Week',
+  FLAT:     'Flat',
+  EACH:     'Each',
+  MILE:     'Mile',
+}
+
+/**
+ * Parse A × B from a quantityFormula like "3x2".
+ * Returns [headcount=A, days=B].
+ * Falls back to [quantity, 1] when no formula is present.
+ */
+export function parseQtyFormula(quantity: number, formula: string | null | undefined): [number, number] {
+  const match = formula?.match(/^(\d+(?:\.\d+)?)[x×](\d+(?:\.\d+)?)$/)
+  if (match) return [Number(match[1]), Number(match[2])]
+  return [quantity, 1]
+}
+
+/**
+ * Format the billing unit column for display.
+ * Days=1 → "Day" / "Week" / "Flat"
+ * Days>1 → "2 Days" / "3 Weeks"
+ */
+export function fmtUnit(days: number, unit: string): string {
+  if (unit === 'FLAT') return 'Flat'
+  const label = UNIT_LABELS[unit] ?? unit
+  if (days === 1) return label
+  return `${days} ${label}s`
+}
