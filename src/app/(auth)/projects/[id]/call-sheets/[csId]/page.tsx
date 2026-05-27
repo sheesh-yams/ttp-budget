@@ -64,9 +64,7 @@ export default async function CallSheetPage({
     locationAddress: cs.locationAddress,
     parkingAddress:  cs.parkingAddress,
     locationNotes:   cs.locationNotes,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     pointOfContact:  (cs as any).pointOfContact as unknown as PointOfContact | null,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     talent:          ((cs as any).talent as unknown as TalentMember[]) ?? [],
     crew:            (cs.crew as unknown as CrewDept[])       ?? [],
     schedule:        (cs.schedule as unknown as ScheduleBlock[]) ?? [],

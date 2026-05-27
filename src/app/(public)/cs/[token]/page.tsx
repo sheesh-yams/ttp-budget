@@ -50,9 +50,7 @@ export default async function PublicCallSheetPage({ params }: { params: Promise<
   const schedule       = (cs.schedule      as unknown as ScheduleBlock[]) ?? []
   const weather        = cs.weather        as unknown as WeatherInfo | null
   const hospital       = cs.hospitalInfo   as unknown as HospitalInfo | null
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const talent         = ((cs as any).talent        as unknown as TalentMember[])  ?? []
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pointOfContact = (cs as any).pointOfContact as unknown as PointOfContact | null
   const client         = cs.project.client
 
