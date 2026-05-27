@@ -1,5 +1,5 @@
 import {
-  Document, Page, Text, View, StyleSheet, Link, Font, Image,
+  Document, Page, Text, View, StyleSheet, Link, Font,
 } from '@react-pdf/renderer'
 import { lineTotal, formatMoney } from '@/lib/money'
 import { sumAccount, type AccountInput } from '@/lib/totals'
@@ -13,7 +13,6 @@ const BODY = '#2C2C2A'
 const MUT  = '#888780'
 const BDR  = '#E8E0F0'
 const CAN  = '#F7F4FA'
-const LAV  = '#EDE9FE'   // lavender tint for total row
 
 // ─── No mid-word hyphenation ──────────────────────────────────────────────────
 Font.registerHyphenationCallback((w) => [w])
@@ -32,7 +31,6 @@ interface Account {
 interface ProposalData {
   id: string; title: string; publicToken: string; version: number;
   content: unknown; createdAt: string; expiresAt: string | null;
-  logoSrc?: string;
   project: {
     name: string; shootType: string;
     shootStartDate: string | null; shootEndDate: string | null;
@@ -73,101 +71,85 @@ function fmtDate(d: string | null) {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  // Page — paddingBottom leaves room for pinned footer
-  page: { fontFamily: 'Helvetica', fontSize: 10, color: BODY, backgroundColor: '#fff', paddingBottom: 52 },
+  page:     { fontFamily: 'Helvetica', fontSize: 10, color: BODY, backgroundColor: '#fff', paddingBottom: 56 },
 
-  // ── Cover (compact) ─────────────────────────────────────────────────────────
-  cover:    { backgroundColor: INK, padding: '22 48 18 48' },
-  coverTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  logoImg:  { height: 22, width: 104 },
+  // Cover
+  cover:    { backgroundColor: INK, padding: '40 48 36 48', minHeight: 220 },
+  coverTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 },
   logoBox:  { flexDirection: 'row', alignItems: 'center' },
-  logoMark: { width: 14, height: 14, borderRadius: 2, backgroundColor: MINT, marginRight: 5, justifyContent: 'center', alignItems: 'center' },
-  logoT:    { fontSize: 7, fontFamily: 'Helvetica-Bold', color: '#003D31' },
-  logoName: { fontSize: 7, fontFamily: 'Helvetica-Bold', color: '#fff', letterSpacing: 1.2 },
-  logoCreative: { fontSize: 7, fontFamily: 'Helvetica-Bold', color: MINT },
-  propNum:  { fontSize: 7.5, color: 'rgba(255,255,255,0.35)', letterSpacing: 1 },
+  logoMark: { width: 18, height: 18, borderRadius: 3, backgroundColor: MINT, marginRight: 6, justifyContent: 'center', alignItems: 'center' },
+  logoT:    { fontSize: 9, fontFamily: 'Helvetica-Bold', color: '#003D31' },
+  logoName: { fontSize: 9, fontFamily: 'Helvetica-Bold', color: '#fff', letterSpacing: 1.5 },
+  logoCreative: { fontSize: 9, fontFamily: 'Helvetica-Bold', color: MINT },
+  propNum:  { fontSize: 8, color: 'rgba(255,255,255,0.35)', letterSpacing: 1.2 },
+  coverLabel: { fontSize: 8, color: MINT, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 10, fontFamily: 'Helvetica-Bold' },
+  coverTitle: { fontSize: 28, fontFamily: 'Helvetica-Bold', color: '#fff', lineHeight: 1.15, marginBottom: 12 },
+  coverDesc:  { fontSize: 11, color: 'rgba(255,255,255,0.55)', lineHeight: 1.6, maxWidth: 400, marginBottom: 28 },
+  coverMeta:  { flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)', paddingTop: 16 },
+  metaGroup:  { flexDirection: 'row', gap: 32 },
+  metaItem:   { marginRight: 32 },
+  metaLabel:  { fontSize: 7, color: 'rgba(255,255,255,0.35)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 3 },
+  metaValue:  { fontSize: 11, fontFamily: 'Helvetica-Bold', color: '#fff' },
+  totalLabel: { fontSize: 7, color: MINT, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 3, textAlign: 'right', fontFamily: 'Helvetica-Bold' },
+  totalValue: { fontSize: 22, fontFamily: 'Helvetica-Bold', color: '#fff', textAlign: 'right' },
 
-  coverLabel: { fontSize: 7.5, color: MINT, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 8, fontFamily: 'Helvetica-Bold' },
-  coverTitle: { fontSize: 22, fontFamily: 'Helvetica-Bold', color: '#fff', lineHeight: 1.15, marginBottom: 10 },
-  coverDesc:  { fontSize: 10, color: 'rgba(255,255,255,0.55)', lineHeight: 1.6, maxWidth: 420, marginBottom: 20 },
-
-  // Total — displayed above the metadata strip
-  coverTotalLabel: { fontSize: 7, color: 'rgba(255,255,255,0.4)', letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 4, fontFamily: 'Helvetica-Bold' },
-  coverTotalAmt:   { fontSize: 26, fontFamily: 'Helvetica-Bold', color: '#fff', marginBottom: 16 },
-
-  // Metadata strip — shoot dates / client / type / valid through
-  coverMeta:  { flexDirection: 'row', gap: 28, flexWrap: 'wrap', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.12)', paddingTop: 14 },
-  metaItem:   { marginRight: 24 },
-  metaLabel:  { fontSize: 6.5, color: 'rgba(255,255,255,0.38)', letterSpacing: 0.9, textTransform: 'uppercase', marginBottom: 3 },
-  metaValue:  { fontSize: 10, fontFamily: 'Helvetica-Bold', color: '#fff' },
-
-  // ── Body sections ────────────────────────────────────────────────────────────
-  section:     { padding: '28 48' },
-  sectionAlt:  { padding: '28 48', backgroundColor: CAN },
-  sectionLine: { height: 1.5, backgroundColor: V, marginBottom: 7 },
-  sectionTag:  { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: V, letterSpacing: 1.6, textTransform: 'uppercase', marginBottom: 18 },
+  // Body sections
+  section:     { padding: '32 48' },
+  sectionAlt:  { padding: '32 48', backgroundColor: CAN },
+  sectionLine: { height: 1.5, backgroundColor: V, marginBottom: 8 },
+  sectionTag:  { fontSize: 8, fontFamily: 'Helvetica-Bold', color: V, letterSpacing: 1.6, textTransform: 'uppercase', marginBottom: 20 },
   bodyText:    { fontSize: 11, lineHeight: 1.75, color: BODY },
 
-  // ── Deliverables ─────────────────────────────────────────────────────────────
-  delGrid:  { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  delCard:  { width: '30%', borderTopWidth: 2.5, borderTopColor: V, borderWidth: 0.5, borderColor: BDR, borderRadius: 6, padding: '12 12 16' },
-  delNum:   { fontSize: 18, fontFamily: 'Helvetica-Bold', color: V, marginBottom: 6, lineHeight: 1 },
-  delTitle: { fontSize: 10, fontFamily: 'Helvetica-Bold', color: BODY, marginBottom: 4 },
-  delDesc:  { fontSize: 9, color: MUT, lineHeight: 1.5 },
+  // Deliverables
+  delGrid:     { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  delCard:     { width: '30%', borderTopWidth: 2.5, borderTopColor: V, borderWidth: 0.5, borderColor: BDR, borderRadius: 6, padding: '14 14 18' },
+  delNum:      { fontSize: 20, fontFamily: 'Helvetica-Bold', color: V, marginBottom: 8, lineHeight: 1 },
+  delTitle:    { fontSize: 11, fontFamily: 'Helvetica-Bold', color: BODY, marginBottom: 5 },
+  delDesc:     { fontSize: 9.5, color: MUT, lineHeight: 1.55 },
 
-  // ── Budget table ─────────────────────────────────────────────────────────────
-  budgetCard:  { borderWidth: 0.5, borderColor: BDR, borderRadius: 8, overflow: 'hidden' },
-  budgetRow:   { flexDirection: 'row', alignItems: 'center', padding: '9 16', borderBottomWidth: 0.5, borderBottomColor: BDR, backgroundColor: '#fff' },
-  budgetHead:  { flexDirection: 'row', alignItems: 'center', padding: '7 16', borderBottomWidth: 0.5, borderBottomColor: BDR, backgroundColor: CAN },
+  // Budget table
+  budgetCard:  { borderWidth: 0.5, borderColor: BDR, borderRadius: 8, overflow: 'hidden', marginBottom: 0 },
+  budgetRow:   { flexDirection: 'row', alignItems: 'center', padding: '10 16', borderBottomWidth: 0.5, borderBottomColor: BDR, backgroundColor: '#fff' },
+  budgetHead:  { flexDirection: 'row', alignItems: 'center', padding: '8 16', borderBottomWidth: 0.5, borderBottomColor: BDR, backgroundColor: CAN },
   budgetLast:  { borderBottomWidth: 0 },
   col1:        { flex: 1 },
   colR:        { width: 70, textAlign: 'right' },
-  colSm:       { width: 38, textAlign: 'right' },
-  colUnit:     { width: 34, textAlign: 'right' },
-  headText:    { fontSize: 7, fontFamily: 'Helvetica-Bold', color: MUT, letterSpacing: 0.7, textTransform: 'uppercase' },
-  // Account header row
-  acctCode:    { fontSize: 9, fontFamily: 'Helvetica-Bold', color: V, marginRight: 7 },
-  acctName:    { fontSize: 10, fontFamily: 'Helvetica-Bold', color: BODY },
-  acctAmt:     { fontSize: 10, fontFamily: 'Helvetica-Bold', color: BODY, textAlign: 'right' },
-  // Line item rows
-  lineDesc:    { fontSize: 9.5, color: BODY, paddingLeft: 12 },
-  lineAmt:     { fontSize: 9.5, fontFamily: 'Helvetica-Bold', color: BODY, textAlign: 'right' },
-  lineVal:     { fontSize: 9.5, color: MUT, textAlign: 'right' },
+  colSm:       { width: 40, textAlign: 'right' },
+  colUnit:     { width: 36, textAlign: 'right' },
+  headText:    { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: MUT, letterSpacing: 0.8, textTransform: 'uppercase' },
+  acctName:    { fontSize: 11, fontFamily: 'Helvetica-Bold', color: BODY },
+  acctCode:    { fontSize: 8.5, color: V, fontFamily: 'Helvetica-Bold', marginRight: 6 },
+  lineDesc:    { fontSize: 10, color: BODY, paddingLeft: 12 },
+  lineAmt:     { fontSize: 10, fontFamily: 'Helvetica-Bold', color: BODY, textAlign: 'right' },
+  lineVal:     { fontSize: 10, color: MUT, textAlign: 'right' },
+  acctAmt:     { fontSize: 11, fontFamily: 'Helvetica-Bold', color: BODY, textAlign: 'right' },
+  subtotalRow: { flexDirection: 'row', justifyContent: 'space-between', padding: '9 16', borderBottomWidth: 0.5, borderBottomColor: BDR, backgroundColor: '#fff' },
+  subtotalLbl: { fontSize: 10, color: MUT },
+  subtotalVal: { fontSize: 10, color: BODY },
+  totalBar:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: '14 20', backgroundColor: INK, borderBottomLeftRadius: 8, borderBottomRightRadius: 8 },
+  totalBarLbl: { fontSize: 8, fontFamily: 'Helvetica-Bold', color: MINT, letterSpacing: 1.5, textTransform: 'uppercase' },
+  totalBarVal: { fontSize: 20, fontFamily: 'Helvetica-Bold', color: '#fff' },
 
-  // Subtotal rows
-  subtotalRow: { flexDirection: 'row', justifyContent: 'space-between', padding: '8 16', borderBottomWidth: 0.5, borderBottomColor: BDR, backgroundColor: '#fff' },
-  subtotalLbl: { fontSize: 9.5, color: MUT },
-  subtotalVal: { fontSize: 9.5, color: BODY },
+  // Payment terms
+  milestoneGrid: { flexDirection: 'row', gap: 12 },
+  milestoneCard: { flex: 1, borderWidth: 0.5, borderColor: BDR, borderRadius: 8, padding: '18 18 22' },
+  milestoneNum:  { fontSize: 8, fontFamily: 'Helvetica-Bold', color: V, letterSpacing: 1.4, textTransform: 'uppercase', marginBottom: 8 },
+  milestonePct:  { fontSize: 26, fontFamily: 'Helvetica-Bold', color: BODY, lineHeight: 1, marginBottom: 4 },
+  milestoneName: { fontSize: 11, fontFamily: 'Helvetica-Bold', color: BODY, marginBottom: 4 },
+  milestoneTrig: { fontSize: 9.5, color: MUT, marginBottom: 12 },
+  milestoneAmt:  { fontSize: 12, fontFamily: 'Helvetica-Bold', color: V },
 
-  // Big total — sits above the accent bar, separated from line items
-  totalBigRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: '14 20', backgroundColor: LAV },
-  totalBigLabel: { fontSize: 7, fontFamily: 'Helvetica-Bold', color: V, letterSpacing: 1.4, textTransform: 'uppercase', marginBottom: 3 },
-  totalBigAmt:   { fontSize: 22, fontFamily: 'Helvetica-Bold', color: INK },
-
-  // Mint accent bar — replaces the old INK grandBar
-  accentBar:    { padding: '9 20', backgroundColor: MINT },
-  accentBarLbl: { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: '#003D31', letterSpacing: 1.4, textTransform: 'uppercase' },
-
-  // ── Payment terms ─────────────────────────────────────────────────────────────
-  milestoneGrid: { flexDirection: 'row', gap: 10 },
-  milestoneCard: { flex: 1, borderWidth: 0.5, borderColor: BDR, borderRadius: 8, padding: '16 16 20' },
-  milestoneNum:  { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: V, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 7 },
-  milestonePct:  { fontSize: 24, fontFamily: 'Helvetica-Bold', color: BODY, lineHeight: 1, marginBottom: 4 },
-  milestoneName: { fontSize: 10, fontFamily: 'Helvetica-Bold', color: BODY, marginBottom: 3 },
-  milestoneTrig: { fontSize: 9, color: MUT, marginBottom: 10 },
-  milestoneAmt:  { fontSize: 11, fontFamily: 'Helvetica-Bold', color: V },
-
-  // ── Footer — pinned absolutely ────────────────────────────────────────────────
-  footer:    { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: '11 48', backgroundColor: INK },
+  // Footer — pinned absolutely
+  footer:    { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: '12 48', backgroundColor: INK },
   footerLbl: { fontSize: 8, color: 'rgba(255,255,255,0.45)' },
-  footerBold:{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: '#fff', marginBottom: 2 },
+  footerBold:{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: '#fff', marginBottom: 2 },
 })
 
 // ─── Section header ───────────────────────────────────────────────────────────
 
 function SectionLabel({ label }: { label: string }) {
   return (
-    <View style={{ marginBottom: 18 }}>
+    <View style={{ marginBottom: 20 }}>
       <View style={s.sectionLine} />
       <Text style={s.sectionTag}>{label}</Text>
     </View>
@@ -206,7 +188,7 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
       })()
     : null
 
-  // Budget snapshot values for agency fee display
+  // Agency fee from frozen snapshot
   type BudgetSnapshot = { productionCents: number; budgetMarkupPct: number; budgetTaxPct: number }
   const snap            = (proposal.content as { budgetSnapshot?: BudgetSnapshot }).budgetSnapshot
   const productionCents = snap?.productionCents ?? totalCents
@@ -222,21 +204,17 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
 
         {/* ══ COVER ══ */}
         <View style={s.cover}>
-          {/* Top bar — logo + proposal number */}
           <View style={s.coverTop}>
-            {proposal.logoSrc ? (
-              <Image src={proposal.logoSrc} style={s.logoImg} />
-            ) : (
-              <View style={s.logoBox}>
-                <View style={s.logoMark}><Text style={s.logoT}>T</Text></View>
-                <Text style={s.logoName}>The Third Place </Text>
-                <Text style={s.logoCreative}>Creative</Text>
+            <View style={s.logoBox}>
+              <View style={s.logoMark}>
+                <Text style={s.logoT}>T</Text>
               </View>
-            )}
+              <Text style={s.logoName}>The Third Place </Text>
+              <Text style={s.logoCreative}>Creative</Text>
+            </View>
             <Text style={s.propNum}>PROPOSAL · {proposalNum}</Text>
           </View>
 
-          {/* Prepared for + title */}
           <Text style={s.coverLabel}>Prepared for {clientName}</Text>
           <Text style={s.coverTitle}>{proposal.title}</Text>
           {aboutBody ? (
@@ -245,34 +223,33 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
             </Text>
           ) : null}
 
-          {/* Total — above the metadata strip */}
-          {totalCents > 0 && (
-            <View style={{ marginBottom: 0 }}>
-              <Text style={s.coverTotalLabel}>Total Investment</Text>
-              <Text style={s.coverTotalAmt}>{formatMoney(totalCents)}</Text>
-            </View>
-          )}
-
-          {/* Metadata strip — shoot dates, client, type, valid through */}
           <View style={s.coverMeta}>
-            {shootDates && (
+            <View style={s.metaGroup}>
+              {shootDates && (
+                <View style={s.metaItem}>
+                  <Text style={s.metaLabel}>Shoot Dates</Text>
+                  <Text style={s.metaValue}>{shootDates}</Text>
+                </View>
+              )}
               <View style={s.metaItem}>
-                <Text style={s.metaLabel}>Shoot Dates</Text>
-                <Text style={s.metaValue}>{shootDates}</Text>
+                <Text style={s.metaLabel}>Client</Text>
+                <Text style={s.metaValue}>{clientName}</Text>
               </View>
-            )}
-            <View style={s.metaItem}>
-              <Text style={s.metaLabel}>Client</Text>
-              <Text style={s.metaValue}>{clientName}</Text>
-            </View>
-            <View style={s.metaItem}>
-              <Text style={s.metaLabel}>Type</Text>
-              <Text style={s.metaValue}>{shootType}</Text>
-            </View>
-            {validThrough && (
               <View style={s.metaItem}>
-                <Text style={s.metaLabel}>Valid Through</Text>
-                <Text style={s.metaValue}>{validThrough}</Text>
+                <Text style={s.metaLabel}>Type</Text>
+                <Text style={s.metaValue}>{shootType}</Text>
+              </View>
+              {validThrough && (
+                <View style={s.metaItem}>
+                  <Text style={s.metaLabel}>Valid Through</Text>
+                  <Text style={s.metaValue}>{validThrough}</Text>
+                </View>
+              )}
+            </View>
+            {totalCents > 0 && (
+              <View>
+                <Text style={s.totalLabel}>Total</Text>
+                <Text style={s.totalValue}>{formatMoney(totalCents)}</Text>
               </View>
             )}
           </View>
@@ -308,7 +285,6 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
             <SectionLabel label="Budget Summary" />
 
             <View style={s.budgetCard}>
-              {/* Column headers */}
               <View style={s.budgetHead}>
                 <Text style={[s.col1, s.headText]}>Description</Text>
                 <Text style={[s.colSm, s.headText]}>Qty</Text>
@@ -321,7 +297,6 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
                 const isLast   = ai === accounts.length - 1
                 return (
                   <View key={acc.id}>
-                    {/* Account header row */}
                     <View style={[s.budgetRow, { backgroundColor: '#F9F7FC' }, isLast && !acc.lineItems.length ? s.budgetLast : {}]}>
                       <View style={[s.col1, { flexDirection: 'row', alignItems: 'center' }]}>
                         {acc.code && <Text style={s.acctCode}>{acc.code}</Text>}
@@ -332,7 +307,6 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
                       <Text style={[s.acctAmt, s.colR]}>{formatMoney(accTotal)}</Text>
                     </View>
 
-                    {/* Own line items */}
                     {acc.lineItems.map((item, ii) => {
                       const tot  = lineTotal(item.quantity, item.rateCents, item.markupPct)
                       const last = ii === acc.lineItems.length - 1 && (!acc.children || acc.children.length === 0)
@@ -346,14 +320,13 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
                       )
                     })}
 
-                    {/* Child accounts */}
                     {acc.children?.flatMap(child =>
-                      child.lineItems.map((item, ii) => {
+                      child.lineItems.map((item) => {
                         const tot = lineTotal(item.quantity, item.rateCents, item.markupPct)
                         return (
                           <View key={item.id} style={s.budgetRow}>
                             <View style={[s.col1, { flexDirection: 'row' }]}>
-                              <Text style={[s.lineDesc, { color: MUT, fontSize: 8, marginRight: 4 }]}>{child.name} · </Text>
+                              <Text style={[s.lineDesc, { color: MUT, fontSize: 8.5, marginRight: 4 }]}>{child.name} · </Text>
                               <Text style={s.lineDesc}>{item.description}</Text>
                             </View>
                             <Text style={[s.colSm, s.lineVal]}>{item.quantity}</Text>
@@ -368,12 +341,11 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
               })}
             </View>
 
-            {/* Totals — wrap={false} keeps them from splitting onto a new page */}
+            {/* Totals — kept together with wrap={false} */}
             <View
               wrap={false}
               style={{ borderWidth: 0.5, borderTopWidth: 0, borderColor: BDR, borderBottomLeftRadius: 8, borderBottomRightRadius: 8, overflow: 'hidden', marginTop: -0.5 }}
             >
-              {/* Subtotal row */}
               <View style={s.subtotalRow}>
                 <Text style={s.subtotalLbl}>Subtotal</Text>
                 <Text style={s.subtotalVal}>{formatMoney(productionCents)}</Text>
@@ -390,18 +362,12 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
                   <Text style={s.subtotalVal}>{formatMoney(taxCents)}</Text>
                 </View>
               )}
-
-              {/* Big total amount — above the accent bar */}
-              <View style={s.totalBigRow}>
+              <View style={s.totalBar}>
                 <View>
-                  <Text style={s.totalBigLabel}>Total Investment</Text>
-                  <Text style={s.totalBigAmt}>{formatMoney(totalCents)}</Text>
+                  <Text style={s.totalBarLbl}>Total Investment</Text>
+                  <Text style={[s.totalBarLbl, { fontSize: 7, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5, marginTop: 2 }]}>All-in, USD</Text>
                 </View>
-              </View>
-
-              {/* Mint accent bar */}
-              <View style={s.accentBar}>
-                <Text style={s.accentBarLbl}>All-in · USD</Text>
+                <Text style={s.totalBarVal}>{formatMoney(totalCents)}</Text>
               </View>
             </View>
           </View>
@@ -427,7 +393,7 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
           </View>
         )}
 
-        {/* ══ FOOTER — pinned to every page ══ */}
+        {/* ══ FOOTER ══ */}
         <View style={s.footer} fixed>
           <View>
             <Text style={s.footerBold}>{proposal.workspace.name}</Text>
@@ -440,7 +406,7 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
               </Link>
             )}
           </View>
-          <View style={{ textAlign: 'right' }}>
+          <View style={{ alignItems: 'flex-end' }}>
             <Text style={s.footerLbl}>{proposalNum}</Text>
             {validThrough && <Text style={s.footerLbl}>Valid through {validThrough}</Text>}
           </View>

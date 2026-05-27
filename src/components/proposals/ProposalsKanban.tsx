@@ -32,7 +32,7 @@ export type ProposalCardData = {
 
 // ─── Column config ────────────────────────────────────────────────────────────
 
-type ColumnId = 'DRAFT' | 'SENT' | 'VIEWED' | 'CHANGES_NEEDED' | 'CLOSED'
+type ColumnId = 'DRAFT' | 'SENT' | 'VIEWED' | 'CHANGES_NEEDED' | 'WON' | 'LOST'
 
 const COLUMNS: {
   id:          ColumnId
@@ -46,7 +46,8 @@ const COLUMNS: {
   { id: 'SENT',           label: 'Sent',           dotColor: '#3B82F6', headerBg: '#EFF6FF', accentColor: '#3B82F6', droppable: true  },
   { id: 'VIEWED',         label: 'Viewed',         dotColor: '#7C3AED', headerBg: '#F5F3FF', accentColor: '#7C3AED', droppable: true  },
   { id: 'CHANGES_NEEDED', label: 'Changes Needed', dotColor: '#F59E0B', headerBg: '#FFFBEB', accentColor: '#F59E0B', droppable: true  },
-  { id: 'CLOSED',         label: 'Closed',         dotColor: '#6B7280', headerBg: '#F3F4F6', accentColor: '#9CA3AF', droppable: false },
+  { id: 'WON',            label: 'Won',            dotColor: '#10B981', headerBg: '#ECFDF5', accentColor: '#10B981', droppable: false },
+  { id: 'LOST',           label: 'Lost',           dotColor: '#9F1239', headerBg: '#FFF1F2', accentColor: '#E11D48', droppable: false },
 ]
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
@@ -67,7 +68,7 @@ const ACTIVE_STATUSES = ['DRAFT', 'SENT', 'VIEWED', 'CHANGES_NEEDED', 'LOST']
 
 function isTerminal(status: string, expiresAt: Date | string | null): boolean {
   if (['APPROVED', 'DECLINED', 'LOST'].includes(status)) return true
-  if (expiresAt && new Date(expiresAt) < new Date() && status !== 'APPROVED') return true
+  if (expiresAt && new Date(expiresAt) < new Date() && !['APPROVED', 'LOST'].includes(status)) return true
   return false
 }
 
@@ -77,10 +78,12 @@ function effectiveStatus(status: string, expiresAt: Date | string | null): strin
 }
 
 function getColumnId(status: string, expiresAt: Date | string | null): ColumnId {
-  if (isTerminal(status, expiresAt)) return 'CLOSED'
-  if (status === 'SENT')             return 'SENT'
-  if (status === 'VIEWED')           return 'VIEWED'
-  if (status === 'CHANGES_NEEDED')   return 'CHANGES_NEEDED'
+  if (status === 'APPROVED') return 'WON'
+  if (['DECLINED', 'LOST'].includes(status)) return 'LOST'
+  if (expiresAt && new Date(expiresAt) < new Date()) return 'LOST' // expired → Lost
+  if (status === 'SENT')           return 'SENT'
+  if (status === 'VIEWED')         return 'VIEWED'
+  if (status === 'CHANGES_NEEDED') return 'CHANGES_NEEDED'
   return 'DRAFT'
 }
 
@@ -305,6 +308,7 @@ export function ProposalsKanban({ cards: initialCards }: { cards: ProposalCardDa
   const [cards, setCards]           = useState(initialCards)
   const [draggedId, setDraggedId]   = useState<string | null>(null)
   const [dragOverCol, setDragOverCol] = useState<ColumnId | null>(null)
+  const [showLost, setShowLost]     = useState(false)
 
   function handleStatusChange(proposalId: string, newStatus: string) {
     setCards(prev =>
@@ -330,10 +334,28 @@ export function ProposalsKanban({ cards: initialCards }: { cards: ProposalCardDa
     grouped[colId].push(card)
   }
 
+  const lostCount = grouped['LOST'].length
+  const visibleColumns = showLost ? COLUMNS : COLUMNS.filter(c => c.id !== 'LOST')
+
   return (
+    <div className="space-y-3">
+      {/* Lost toggle — only shown when there are lost proposals */}
+      {lostCount > 0 && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setShowLost(v => !v)}
+            className="flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-[11px] font-medium text-rose-700 hover:bg-rose-100 transition-colors"
+          >
+            <TrendingDown className="h-3 w-3" />
+            {showLost ? 'Hide' : 'Show'} lost ({lostCount})
+          </button>
+        </div>
+      )}
+
     <div className="overflow-x-auto pb-2 -mx-1 px-1">
-      <div className="flex gap-3" style={{ minWidth: `${COLUMNS.length * 272}px` }}>
-        {COLUMNS.map(col => {
+      <div className="flex gap-3" style={{ minWidth: `${visibleColumns.length * 272}px` }}>
+        {visibleColumns.map(col => {
           const colCards = grouped[col.id]
           const isOver   = dragOverCol === col.id && col.droppable
 
@@ -436,6 +458,7 @@ export function ProposalsKanban({ cards: initialCards }: { cards: ProposalCardDa
           )
         })}
       </div>
+    </div>
     </div>
   )
 }
