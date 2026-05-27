@@ -56,7 +56,7 @@ export async function importCrewFromBudget(
         lineItems: {
           where: crewWhere,
           orderBy: { order: 'asc' },
-          select: { description: true, quantity: true },
+          select: { description: true, quantity: true, quantityFormula: true },
         },
         children: {
           orderBy: { order: 'asc' },
@@ -65,23 +65,36 @@ export async function importCrewFromBudget(
             lineItems: {
               where: crewWhere,
               orderBy: { order: 'asc' },
-              select: { description: true, quantity: true },
+              select: { description: true, quantity: true, quantityFormula: true },
             },
           },
         },
       },
     })
 
-    // Each line item = one person. quantity is billing days, NOT headcount.
-    // We count the number of line items per (dept, role) pair and create that
-    // many slots — so 2 "Production Assistant" line items → 2 PA slots,
-    // but 1 "Associate Producer" × 6 days → 1 AP slot.
-    const incoming: Array<{ dept: string; role: string }> = []
+    // Use the A value from quantityFormula as headcount.
+    // "3x2" → A=3 people × B=2 days. We want 3 slots, not 2.
+    // If there's no formula, quantity itself is treated as headcount.
+    function headcountOf(qty: unknown, formula: string | null): number {
+      const match = formula?.match(/^(\d+(?:\.\d+)?)[x×]/)
+      if (match) return Math.max(1, Math.round(Number(match[1])))
+      return Math.max(1, Math.round(Number(qty)))
+    }
+
+    const incoming: Array<{ dept: string; role: string; qty: number }> = []
     for (const acc of accounts) {
       const allItems = [
-        ...acc.lineItems.map(i => ({ dept: acc.name, role: i.description })),
+        ...acc.lineItems.map(i => ({
+          dept: acc.name,
+          role: i.description,
+          qty: headcountOf(i.quantity, i.quantityFormula),
+        })),
         ...acc.children.flatMap(child =>
-          child.lineItems.map(i => ({ dept: child.name, role: i.description }))
+          child.lineItems.map(i => ({
+            dept: child.name,
+            role: i.description,
+            qty: headcountOf(i.quantity, i.quantityFormula),
+          }))
         ),
       ]
       incoming.push(...allItems)
@@ -91,13 +104,13 @@ export async function importCrewFromBudget(
       return { success: false, error: 'No crew line items found in this budget. Make sure line items are added from CREW rate cards.' }
     }
 
-    // Count how many line items share the same (dept, role) key
+    // Sum headcounts per (dept, role) across all matching line items
     const incomingCounts = new Map<string, { dept: string; role: string; count: number }>()
-    for (const { dept, role } of incoming) {
+    for (const { dept, role, qty } of incoming) {
       const key = `${dept}::${role}`
       const entry = incomingCounts.get(key)
-      if (entry) entry.count++
-      else incomingCounts.set(key, { dept, role, count: 1 })
+      if (entry) entry.count += qty
+      else incomingCounts.set(key, { dept, role, count: qty })
     }
 
     // Merge into existing crew

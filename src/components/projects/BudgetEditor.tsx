@@ -37,6 +37,20 @@ const UNITS: { value: RateUnit; label: string }[] = [
   { value: 'MILE',     label: 'Mile' },
 ]
 
+/** Parse A × B from a quantityFormula like "3x2". Returns [headcount=A, days=B]. */
+function parseFormula(item: { quantity: unknown; quantityFormula: string | null }): [number, number] {
+  const match = item.quantityFormula?.match(/^(\d+(?:\.\d+)?)[x×](\d+(?:\.\d+)?)$/)
+  if (match) return [Number(match[1]), Number(match[2])]
+  return [Number(item.quantity), 1]
+}
+
+/** Format the billing unit column: "2 Days", "1 Week", "Flat" etc. */
+function formatUnit(days: number, unit: RateUnit): string {
+  if (unit === 'FLAT') return 'Flat'
+  const label = UNITS.find(u => u.value === unit)?.label ?? unit
+  return `${days} ${label}${days !== 1 ? 's' : ''}`
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type LineItemRow = AccountWithItems['lineItems'][number]
@@ -459,8 +473,8 @@ function PhaseView({
             <tr className="border-b bg-muted/50 text-xs font-medium text-muted-foreground">
               <th className="w-7" />
               <th className="px-4 py-2.5 text-left">Description</th>
-              <th className="px-3 py-2.5 text-right w-16">Qty</th>
-              <th className="px-3 py-2.5 text-right w-20">Unit</th>
+              <th className="px-3 py-2.5 text-right w-14" title="Headcount — how many people of this role">Qty</th>
+              <th className="px-3 py-2.5 text-right w-32" title="Billing unit — days, weeks, or flat">Unit</th>
               <th className="px-3 py-2.5 text-right w-28">Rate</th>
               <th className="px-3 py-2.5 text-right w-28">Total</th>
               <th className="w-16" />
@@ -835,56 +849,62 @@ function AccountRows({
               )}
             </td>
 
-            {/* Qty (× Days in edit mode) */}
+            {/* QTY — headcount (A from A×B formula). Dimmed when 1 (implied). */}
             <td className="px-2 py-1.5 text-right">
+              {isEditing ? (
+                <input
+                  type="number" min="1" step="1"
+                  title="Headcount — how many people of this role"
+                  className="w-14 rounded border border-border bg-background px-1 py-1 text-right text-sm tabular outline-none focus:ring-1 focus:ring-primary/40"
+                  value={es!.quantity}
+                  onChange={e => setEditState(s => s && { ...s, quantity: e.target.value })}
+                  onKeyDown={e => { if (e.key === 'Escape') setEditState(null) }}
+                />
+              ) : (() => {
+                const [hc] = parseFormula(item)
+                return (
+                  <span className={`tabular ${hc === 1 ? 'text-foreground/25' : 'text-foreground/70'}`}>
+                    {hc}
+                  </span>
+                )
+              })()}
+            </td>
+
+            {/* Unit — billing period (B days/weeks + unit type).
+                Edit: [days input] [unit dropdown] together in this cell. */}
+            <td className="px-3 py-1.5 text-right">
               {isEditing ? (
                 <div className="flex items-center justify-end gap-1">
                   <input
-                    type="number" min="0" step="0.5"
-                    title="Quantity per unit (e.g. # of people)"
-                    className="w-14 rounded border border-border bg-background px-1 py-1 text-right text-sm tabular outline-none focus:ring-1 focus:ring-primary/40"
-                    value={es!.quantity}
-                    onChange={e => setEditState(s => s && { ...s, quantity: e.target.value })}
-                    onKeyDown={e => { if (e.key === 'Escape') setEditState(null) }}
-                  />
-                  <span className="text-[10px] text-muted-foreground">×</span>
-                  <input
                     type="number" min="1" step="1"
-                    title="Days on set"
+                    title="Days / weeks on set"
                     className="w-12 rounded border border-border bg-background px-1 py-1 text-right text-sm tabular outline-none focus:ring-1 focus:ring-primary/40"
                     value={es!.days}
                     onChange={e => setEditState(s => s && { ...s, days: e.target.value })}
                     onKeyDown={e => { if (e.key === 'Escape') setEditState(null) }}
                   />
+                  <Select
+                    value={es!.unit}
+                    onValueChange={v => setEditState(s => s && { ...s, unit: v as RateUnit })}
+                  >
+                    <SelectTrigger className="h-7 text-xs w-20">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {UNITS.map(u => (
+                        <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              ) : (
-                <span className="tabular text-foreground/70">
-                  {item.quantityFormula?.match(/^\d+(?:\.\d+)?[x×]\d+(?:\.\d+)?$/)
-                    ? item.quantityFormula.replace('x', ' × ')
-                    : Number(item.quantity)}
-                </span>
-              )}
-            </td>
-
-            {/* Unit */}
-            <td className="px-3 py-1.5 text-right">
-              {isEditing ? (
-                <Select
-                  value={es!.unit}
-                  onValueChange={v => setEditState(s => s && { ...s, unit: v as RateUnit })}
-                >
-                  <SelectTrigger className="h-7 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {UNITS.map(u => (
-                      <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <span className="text-xs uppercase text-muted-foreground">{item.unit}</span>
-              )}
+              ) : (() => {
+                const [, days] = parseFormula(item)
+                return (
+                  <span className="text-xs text-muted-foreground">
+                    {formatUnit(days, item.unit)}
+                  </span>
+                )
+              })()}
             </td>
 
             {/* Rate */}
