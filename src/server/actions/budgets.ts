@@ -219,10 +219,12 @@ export async function duplicatePhase(phaseId: string, newName: string): Promise<
 
     const newPhase = await db.phase.create({
       data: {
-        budgetId: source.budgetId,
-        name: newName,
-        order: (maxOrder._max.order ?? 0) + 1,
-        isPrimary: false,
+        budgetId:     source.budgetId,
+        name:         newName,
+        order:        (maxOrder._max.order ?? 0) + 1,
+        isPrimary:    false,
+        description:  source.description ?? null,
+        deliverables: source.deliverables ?? undefined,
       },
     })
 
@@ -232,6 +234,30 @@ export async function duplicatePhase(phaseId: string, newName: string): Promise<
     return { success: true, data: { id: newPhase.id } }
   } catch {
     return { success: false, error: 'Failed to duplicate phase' }
+  }
+}
+
+// ─── Update phase overview (description + deliverables) ──────────────────────
+
+interface DeliverableInput { title: string; description: string; number?: string }
+
+export async function updatePhaseOverview(
+  phaseId: string,
+  data: { description: string | null; deliverables: DeliverableInput[] }
+): Promise<ActionResult> {
+  try {
+    await getWorkspaceId()
+    await db.phase.update({
+      where: { id: phaseId },
+      data: {
+        description:  data.description || null,
+        deliverables: data.deliverables.length > 0 ? data.deliverables : undefined,
+      },
+    })
+    revalidatePath('/')
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to save overview' }
   }
 }
 

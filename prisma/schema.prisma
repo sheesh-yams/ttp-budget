@@ -310,6 +310,10 @@ model Phase {
   isLocked      Boolean  @default(false) // approved phases get locked
   isPrimary     Boolean  @default(false) // the one used by default for proposals/invoices
 
+  // Proposal overview — editable per budget version
+  description   String?  @db.Text
+  deliverables  Json?    // [{title: string, description: string, number?: string}]
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

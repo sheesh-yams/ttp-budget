@@ -7,6 +7,7 @@ import { BudgetEditor } from '@/components/projects/BudgetEditor'
 import { ProjectProposals } from '@/components/projects/ProjectProposals'
 import { ProjectInvoices } from '@/components/projects/ProjectInvoices'
 import { ProjectHeaderActions } from '@/components/projects/ProjectHeaderActions'
+import { ProposalOverview } from '@/components/projects/ProposalOverview'
 import { createBudget } from '@/server/actions/budgets'
 import { Button } from '@/components/ui/button'
 import { formatMoney } from '@/lib/money'
@@ -206,6 +207,22 @@ export default async function ProjectDetailPage({
           <ProjectInvoices invoices={project.invoices as never} />
         </section>
       )}
+
+      {/* Proposal Overview section — editable description + deliverables per budget version */}
+      {budget && (() => {
+        const primaryPhase = budget.phases.find(p => p.isPrimary) ?? budget.phases[0]
+        if (!primaryPhase) return null
+        return (
+          <ProposalOverview
+            phase={{
+              id:           primaryPhase.id,
+              name:         primaryPhase.name,
+              description:  (primaryPhase as { description?: string | null }).description ?? null,
+              deliverables: (primaryPhase as { deliverables?: unknown }).deliverables as ({ title: string; description: string }[]) | null,
+            }}
+          />
+        )
+      })()}
 
       {/* Budget section */}
       <section>

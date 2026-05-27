@@ -207,8 +207,6 @@ export async function createSentProposal(input: {
   projectId: string
   budgetId: string
   title: string
-  about: string
-  deliverables: { title: string; description: string }[]
   depositPct: number      // 0-100, remainder becomes final payment
   expiresAt: string       // ISO date string
   totalCents: number      // pre-computed from budget; stored for approval snapshot
@@ -216,7 +214,20 @@ export async function createSentProposal(input: {
   try {
     const user = await getCurrentUser()
 
-    const content = buildContent(input)
+    // Read description + deliverables from the primary phase
+    const primaryPhase = await db.phase.findFirst({
+      where: { budgetId: input.budgetId, isPrimary: true },
+      select: { description: true, deliverables: true },
+    }) ?? await db.phase.findFirst({
+      where: { budgetId: input.budgetId },
+      orderBy: { order: 'asc' },
+      select: { description: true, deliverables: true },
+    })
+
+    const phaseAbout = primaryPhase?.description ?? ''
+    const phaseDeliverables = (primaryPhase?.deliverables as { title: string; description: string }[] | null) ?? []
+
+    const content = buildContent({ ...input, about: phaseAbout, deliverables: phaseDeliverables })
     const snapshot = await captureBudgetSnapshot(input.budgetId)
 
     // Auto-increment version so each new send is v1, v2, v3 …
@@ -256,15 +267,26 @@ export async function createDraftProposal(input: {
   projectId: string
   budgetId: string
   title: string
-  about: string
-  deliverables: { title: string; description: string }[]
   depositPct: number
   expiresAt: string
   totalCents: number
 }): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
     const user = await getCurrentUser()
-    const content = buildContent(input)
+
+    const primaryPhase = await db.phase.findFirst({
+      where: { budgetId: input.budgetId, isPrimary: true },
+      select: { description: true, deliverables: true },
+    }) ?? await db.phase.findFirst({
+      where: { budgetId: input.budgetId },
+      orderBy: { order: 'asc' },
+      select: { description: true, deliverables: true },
+    })
+
+    const phaseAbout = primaryPhase?.description ?? ''
+    const phaseDeliverables = (primaryPhase?.deliverables as { title: string; description: string }[] | null) ?? []
+
+    const content = buildContent({ ...input, about: phaseAbout, deliverables: phaseDeliverables })
 
     // Auto-increment version so each new proposal is v1, v2, v3 …
     const maxVersion = await db.proposal.aggregate({
@@ -300,8 +322,6 @@ export async function updateDraftProposal(
   proposalId: string,
   input: {
     title: string
-    about: string
-    deliverables: { title: string; description: string }[]
     depositPct: number
     expiresAt: string
     totalCents: number
@@ -309,7 +329,21 @@ export async function updateDraftProposal(
 ): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
     await getWorkspaceId()
-    const content = buildContent(input)
+    const existing = await db.proposal.findUniqueOrThrow({
+      where: { id: proposalId },
+      select: { budgetId: true },
+    })
+    const primaryPhase = await db.phase.findFirst({
+      where: { budgetId: existing.budgetId, isPrimary: true },
+      select: { description: true, deliverables: true },
+    }) ?? await db.phase.findFirst({
+      where: { budgetId: existing.budgetId },
+      orderBy: { order: 'asc' },
+      select: { description: true, deliverables: true },
+    })
+    const phaseAbout = primaryPhase?.description ?? ''
+    const phaseDeliverables = (primaryPhase?.deliverables as { title: string; description: string }[] | null) ?? []
+    const content = buildContent({ ...input, about: phaseAbout, deliverables: phaseDeliverables })
     const proposal = await db.proposal.update({
       where: { id: proposalId },
       data: {

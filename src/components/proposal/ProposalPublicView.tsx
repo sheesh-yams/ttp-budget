@@ -379,7 +379,8 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
                                     textAlign: hi === 0 ? 'left' : 'right',
                                     fontSize: 11, fontWeight: 600, letterSpacing: '0.08em',
                                     textTransform: 'uppercase', color: MUTED,
-                                    width: hi === 0 ? 'auto' : hi === 3 ? 100 : 60,
+                                    width: hi === 0 ? 'auto' : hi === 3 ? 100 : hi === 1 ? 90 : 60,
+                                    whiteSpace: 'nowrap',
                                   }}
                                 >{h}</th>
                               ))}
@@ -391,7 +392,7 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
                               return (
                                 <tr key={item.id} style={{ borderBottom: `0.5px solid ${BORDER}` }}>
                                   <td style={{ padding: '10px 16px 10px 44px', fontSize: 13, color: BODY }}>{item.description}</td>
-                                  <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 13, color: MUTED, fontVariantNumeric: 'tabular-nums' }}>{item.quantityFormula?.match(/^\d+(?:\.\d+)?[x×]\d+(?:\.\d+)?$/) ? item.quantityFormula.replace('x', ' × ') : Number(item.quantity)}</td>
+                                  <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 13, color: MUTED, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{item.quantityFormula?.match(/^\d+(?:\.\d+)?[x×]\d+(?:\.\d+)?$/) ? item.quantityFormula.replace('x', ' × ') : Number(item.quantity)}</td>
                                   <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 11, color: MUTED, textTransform: 'uppercase' }}>{item.unit}</td>
                                   <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 13, fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: BODY }}>{formatMoney(tot)}</td>
                                 </tr>
@@ -406,7 +407,7 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
                                       <span style={{ color: MUTED, fontSize: 11, marginRight: 6 }}>{child.name} ·</span>
                                       {item.description}
                                     </td>
-                                    <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 13, color: MUTED, fontVariantNumeric: 'tabular-nums' }}>{item.quantityFormula?.match(/^\d+(?:\.\d+)?[x×]\d+(?:\.\d+)?$/) ? item.quantityFormula.replace('x', ' × ') : Number(item.quantity)}</td>
+                                    <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 13, color: MUTED, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{item.quantityFormula?.match(/^\d+(?:\.\d+)?[x×]\d+(?:\.\d+)?$/) ? item.quantityFormula.replace('x', ' × ') : Number(item.quantity)}</td>
                                     <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 11, color: MUTED, textTransform: 'uppercase' }}>{item.unit}</td>
                                     <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 13, fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: BODY }}>{formatMoney(tot)}</td>
                                   </tr>

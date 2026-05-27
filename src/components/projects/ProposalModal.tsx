@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition, useEffect } from 'react'
-import { Copy, Check, ExternalLink, Plus, X } from 'lucide-react'
+import { Copy, Check, ExternalLink } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,8 +13,6 @@ import {
   sendDraftProposal,
 } from '@/server/actions/proposals'
 
-interface Deliverable { title: string; description: string }
-
 export type ProposalModalMode = 'create' | 'edit-draft' | 'revision'
 
 interface ExistingProposal {
@@ -22,10 +20,10 @@ interface ExistingProposal {
   title: string
   publicToken: string
   expiresAt: string | null
-  /** Pre-parsed fields extracted from content JSON */
-  about: string
-  deliverables: Deliverable[]
   depositPct: number
+  // kept in type for compatibility but no longer shown in modal
+  about?: string
+  deliverables?: unknown[]
 }
 
 interface Props {
@@ -36,10 +34,8 @@ interface Props {
   budgetId: string
   projectName: string
   totalCents: number
-  /** Required for edit-draft and revision modes */
   existing?: ExistingProposal
-  /** In create mode: pre-fill deliverables + about from the most recent proposal */
-  prefill?: { about: string; deliverables: Deliverable[]; depositPct: number }
+  prefill?: { depositPct: number; about?: string; deliverables?: unknown[] }
   onDone: () => void
 }
 
@@ -69,47 +65,23 @@ export function ProposalModal({
 }: Props) {
   const [pending, startTransition] = useTransition()
 
-  // ── Form state (re-initialised when modal opens / mode changes) ──────────────
-  const [title,       setTitle]       = useState('')
-  const [about,       setAbout]       = useState('')
-  const [depositPct,  setDepositPct]  = useState('50')
-  const [deliverables, setDeliverables] = useState<Deliverable[]>([
-    { title: '', description: '' },
-  ])
-  const [expiresAt, setExpiresAt] = useState(defaultExpiry)
-  const [error,     setError]     = useState('')
-
-  // Success state
+  const [title,      setTitle]      = useState('')
+  const [depositPct, setDepositPct] = useState('50')
+  const [expiresAt,  setExpiresAt]  = useState(defaultExpiry)
+  const [error,      setError]      = useState('')
   const [successToken, setSuccessToken] = useState<string | null>(null)
   const [copied,       setCopied]       = useState(false)
   const [isDraft,      setIsDraft]      = useState(false)
 
-  // Initialise / reset form when modal opens
   useEffect(() => {
     if (!open) return
     if (existing) {
-      // Edit-draft or revision: populate from the existing proposal
       setTitle(existing.title)
-      setAbout(existing.about)
       setDepositPct(String(existing.depositPct))
-      setDeliverables(
-        existing.deliverables.length > 0
-          ? existing.deliverables
-          : [{ title: '', description: '' }]
-      )
       setExpiresAt(existing.expiresAt ? existing.expiresAt.split('T')[0] : defaultExpiry())
     } else {
-      // Create mode: title is always fresh; deliverables + about come from prefill if available
       setTitle(`${projectName} — Proposal`)
-      if (prefill && prefill.deliverables.length > 0) {
-        setAbout(prefill.about)
-        setDeliverables(prefill.deliverables)
-        setDepositPct(String(prefill.depositPct))
-      } else {
-        setAbout('')
-        setDeliverables([{ title: '', description: '' }])
-        setDepositPct('50')
-      }
+      setDepositPct(String(prefill?.depositPct ?? 50))
       setExpiresAt(defaultExpiry())
     }
     setError('')
@@ -117,18 +89,6 @@ export function ProposalModal({
     setCopied(false)
     setIsDraft(false)
   }, [open, existing, projectName, prefill])
-
-  function updateDeliverable(i: number, field: keyof Deliverable, value: string) {
-    setDeliverables(prev => prev.map((d, idx) => idx === i ? { ...d, [field]: value } : d))
-  }
-
-  function addDeliverable() {
-    setDeliverables(prev => [...prev, { title: '', description: '' }])
-  }
-
-  function removeDeliverable(i: number) {
-    setDeliverables(prev => prev.filter((_, idx) => idx !== i))
-  }
 
   function validate() {
     if (!title.trim()) { setError('Title is required'); return false }
@@ -139,14 +99,12 @@ export function ProposalModal({
     return true
   }
 
-  function buildInput() {
+  function baseInput() {
     return {
       projectId,
       budgetId,
-      title:        title.trim(),
-      about:        about.trim(),
-      deliverables: deliverables.filter(d => d.title.trim()),
-      depositPct:   parseInt(depositPct, 10),
+      title:      title.trim(),
+      depositPct: parseInt(depositPct, 10),
       expiresAt,
       totalCents,
     }
@@ -158,12 +116,12 @@ export function ProposalModal({
       let result: { success: boolean; data?: { publicToken: string }; error?: string }
 
       if (mode === 'edit-draft' && existing) {
-        const r = await updateDraftProposal(existing.id, buildInput())
+        const r = await updateDraftProposal(existing.id, baseInput())
         result = r.success
           ? { success: true, data: { publicToken: existing.publicToken } }
           : { success: false, error: (r as { success: false; error: string }).error }
       } else {
-        const r = await createDraftProposal(buildInput())
+        const r = await createDraftProposal(baseInput())
         result = r.success
           ? { success: true, data: { publicToken: r.data.publicToken } }
           : { success: false, error: (r as { success: false; error: string }).error }
@@ -182,33 +140,17 @@ export function ProposalModal({
   function handleSend() {
     if (!validate()) return
     startTransition(async () => {
-      // For edit-draft: update content first, then send
       if (mode === 'edit-draft' && existing) {
-        const updateResult = await updateDraftProposal(existing.id, buildInput())
-        if (!updateResult.success) {
-          setError((updateResult as { success: false; error: string }).error)
-          return
-        }
+        const updateResult = await updateDraftProposal(existing.id, baseInput())
+        if (!updateResult.success) { setError((updateResult as { success: false; error: string }).error); return }
         const sendResult = await sendDraftProposal(existing.id)
-        if (sendResult.success) {
-          setSuccessToken(existing.publicToken)
-          setIsDraft(false)
-          onDone()
-        } else {
-          setError((sendResult as { success: false; error: string }).error)
-        }
+        if (sendResult.success) { setSuccessToken(existing.publicToken); setIsDraft(false); onDone() }
+        else { setError((sendResult as { success: false; error: string }).error) }
         return
       }
-
-      // For create / revision: create sent in one step
-      const r = await createSentProposal(buildInput())
-      if (r.success) {
-        setSuccessToken(r.data.publicToken)
-        setIsDraft(false)
-        onDone()
-      } else {
-        setError((r as { success: false; error: string }).error)
-      }
+      const r = await createSentProposal(baseInput())
+      if (r.success) { setSuccessToken(r.data.publicToken); setIsDraft(false); onDone() }
+      else { setError((r as { success: false; error: string }).error) }
     })
   }
 
@@ -223,28 +165,20 @@ export function ProposalModal({
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!pending) onOpenChange(v) }}>
-      <DialogContent className="sm:max-w-[580px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle>
-            {successToken
-              ? (isDraft ? 'Draft Saved' : 'Proposal Sent')
-              : MODE_TITLE[mode]}
+            {successToken ? (isDraft ? 'Draft Saved' : 'Proposal Sent') : MODE_TITLE[mode]}
           </DialogTitle>
         </DialogHeader>
 
         {successToken ? (
-          /* ── Success state ── */
           <div className="py-2 space-y-4">
             {isDraft ? (
-              <p className="text-sm text-muted-foreground">
-                Draft saved. You can continue editing or send it when ready.
-              </p>
+              <p className="text-sm text-muted-foreground">Draft saved. Send it when ready.</p>
             ) : (
-              <p className="text-sm text-muted-foreground">
-                Your proposal is live. Share this link with your client.
-              </p>
+              <p className="text-sm text-muted-foreground">Your proposal is live. Share this link with your client.</p>
             )}
-
             {!isDraft && (
               <>
                 <div className="flex items-center gap-2 rounded-lg border bg-secondary/30 p-3">
@@ -261,119 +195,33 @@ export function ProposalModal({
                 </Button>
               </>
             )}
-
-            <Button variant="outline" size="sm" className="w-full" onClick={() => onOpenChange(false)}>
-              Done
-            </Button>
+            <Button variant="outline" size="sm" className="w-full" onClick={() => onOpenChange(false)}>Done</Button>
           </div>
         ) : (
-          /* ── Form ── */
           <div className="grid gap-5 py-2">
-            {/* Title */}
             <div className="grid gap-1.5">
               <Label htmlFor="pm-title">Proposal title</Label>
-              <Input
-                id="pm-title"
-                value={title}
-                onChange={e => setTitle(e.target.value)}
-                autoFocus
-              />
+              <Input id="pm-title" value={title} onChange={e => setTitle(e.target.value)} autoFocus />
             </div>
 
-            {/* Deposit + Expiry */}
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-1.5">
                 <Label htmlFor="pm-deposit">Deposit %</Label>
-                <Input
-                  id="pm-deposit"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="5"
-                  value={depositPct}
-                  onChange={e => setDepositPct(e.target.value)}
-                />
+                <Input id="pm-deposit" type="number" min="0" max="100" step="5"
+                  value={depositPct} onChange={e => setDepositPct(e.target.value)} />
                 <p className="text-xs text-muted-foreground">
                   Remainder ({100 - (parseInt(depositPct, 10) || 50)}%) due on delivery
                 </p>
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="pm-expiry">Valid through</Label>
-                <Input
-                  id="pm-expiry"
-                  type="date"
-                  value={expiresAt}
-                  onChange={e => setExpiresAt(e.target.value)}
-                />
+                <Input id="pm-expiry" type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)} />
               </div>
             </div>
 
-            {/* Divider */}
-            <div className="border-t border-border/60" />
-
-            {/* About */}
-            <div className="grid gap-1.5">
-              <Label htmlFor="pm-about">Project description</Label>
-              <textarea
-                id="pm-about"
-                rows={3}
-                placeholder="A brief description of the project shown on the cover and 'The Project' section…"
-                value={about}
-                onChange={e => setAbout(e.target.value)}
-                className="flex min-h-[72px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
-              />
-            </div>
-
-            {/* Deliverables */}
-            <div className="grid gap-2">
-              <div className="flex items-center justify-between">
-                <Label>Deliverables</Label>
-                <button
-                  type="button"
-                  onClick={addDeliverable}
-                  className="flex items-center gap-1 text-[11px] font-medium text-violet-600 hover:text-violet-800 transition-colors"
-                >
-                  <Plus className="h-3 w-3" />
-                  Add
-                </button>
-              </div>
-              {deliverables.map((d, i) => (
-                <div key={i} className="flex items-start gap-2">
-                  <div className="grid grid-cols-[90px_1fr] gap-2 flex-1">
-                    <div className="grid gap-1">
-                      <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">
-                        {String(i + 1).padStart(2, '0')}
-                      </span>
-                      <Input
-                        placeholder="Title"
-                        value={d.title}
-                        onChange={e => updateDeliverable(i, 'title', e.target.value)}
-                      />
-                    </div>
-                    <div className="grid gap-1">
-                      <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">
-                        Description
-                      </span>
-                      <Input
-                        placeholder="Short description…"
-                        value={d.description}
-                        onChange={e => updateDeliverable(i, 'description', e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  {deliverables.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeDeliverable(i)}
-                      title="Remove"
-                      className="mt-5 rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
+            <p className="text-xs text-muted-foreground rounded-lg bg-secondary/40 px-3 py-2">
+              Description and deliverables are pulled from the <strong>Proposal Overview</strong> section on the project page.
+            </p>
 
             {error && <p className="text-sm text-destructive">{error}</p>}
           </div>
@@ -381,9 +229,7 @@ export function ProposalModal({
 
         {!successToken && (
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>Cancel</Button>
             <Button variant="outline" onClick={handleSaveDraft} disabled={pending}>
               {pending ? 'Saving…' : 'Save Draft'}
             </Button>

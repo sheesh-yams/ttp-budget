@@ -1,14 +1,12 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { Copy, Check, ExternalLink, Plus, X } from 'lucide-react'
+import { Copy, Check, ExternalLink } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { createSentProposal } from '@/server/actions/proposals'
-
-interface Deliverable { title: string; description: string }
 
 interface Props {
   open: boolean
@@ -31,42 +29,22 @@ export function NewProposalModal({
 }: Props) {
   const [pending, startTransition] = useTransition()
 
-  // Form state
-  const [title, setTitle]   = useState(`${projectName} — Proposal`)
-  const [about, setAbout]   = useState('')
-  const [depositPct, setDepositPct] = useState('50')
-  const [deliverables, setDeliverables] = useState<Deliverable[]>([
-    { title: '', description: '' },
-  ])
   const defaultExpiry = () => {
     const d = new Date()
     d.setDate(d.getDate() + 30)
     return d.toISOString().split('T')[0]
   }
-  const [expiresAt, setExpiresAt] = useState(defaultExpiry)
-  const [error, setError] = useState('')
 
-  // Success state
-  const [publicUrl, setPublicUrl] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
-
-  function updateDeliverable(i: number, field: keyof Deliverable, value: string) {
-    setDeliverables(prev => prev.map((d, idx) => idx === i ? { ...d, [field]: value } : d))
-  }
-
-  function addDeliverable() {
-    setDeliverables(prev => [...prev, { title: '', description: '' }])
-  }
-
-  function removeDeliverable(i: number) {
-    setDeliverables(prev => prev.filter((_, idx) => idx !== i))
-  }
+  const [title,      setTitle]      = useState(`${projectName} — Proposal`)
+  const [depositPct, setDepositPct] = useState('50')
+  const [expiresAt,  setExpiresAt]  = useState(defaultExpiry)
+  const [error,      setError]      = useState('')
+  const [publicUrl,  setPublicUrl]  = useState<string | null>(null)
+  const [copied,     setCopied]     = useState(false)
 
   function reset() {
     setTitle(`${projectName} — Proposal`)
-    setAbout('')
     setDepositPct('50')
-    setDeliverables([{ title: '', description: '' }])
     setExpiresAt(defaultExpiry())
     setError('')
     setPublicUrl(null)
@@ -85,21 +63,16 @@ export function NewProposalModal({
     if (!expiresAt) { setError('Valid-through date is required'); return }
     setError('')
 
-    const filledDeliverables = deliverables.filter(d => d.title.trim())
-
     startTransition(async () => {
       const result = await createSentProposal({
         projectId,
         budgetId,
         title: title.trim(),
-        about: about.trim(),
-        deliverables: filledDeliverables,
         depositPct: deposit,
         expiresAt,
         totalCents,
       })
       if (result.success) {
-        // Always build the URL from the current origin so it works on any domain
         const url = `${window.location.origin}/p/${result.data.publicToken}`
         setPublicUrl(url)
         onCreated()
@@ -118,13 +91,12 @@ export function NewProposalModal({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
-          <DialogTitle>{publicUrl ? 'Proposal Created' : 'New Proposal'}</DialogTitle>
+          <DialogTitle>{publicUrl ? 'Proposal Created' : 'Send Proposal'}</DialogTitle>
         </DialogHeader>
 
         {publicUrl ? (
-          /* ── Success state ── */
           <div className="py-2">
             <p className="text-sm text-muted-foreground mb-4">
               Your proposal is live. Share this link with your client.
@@ -148,9 +120,7 @@ export function NewProposalModal({
             </div>
           </div>
         ) : (
-          /* ── Form state ── */
           <div className="grid gap-5 py-2">
-            {/* Title */}
             <div className="grid gap-1.5">
               <Label htmlFor="prop-title">Proposal title</Label>
               <Input
@@ -161,71 +131,6 @@ export function NewProposalModal({
               />
             </div>
 
-            {/* About */}
-            <div className="grid gap-1.5">
-              <Label htmlFor="prop-about">Project description</Label>
-              <textarea
-                id="prop-about"
-                rows={4}
-                placeholder="A brief description of the project — shown in the cover and 'The Project' section…"
-                value={about}
-                onChange={e => setAbout(e.target.value)}
-                className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
-              />
-            </div>
-
-            {/* Deliverables */}
-            <div className="grid gap-2">
-              <div className="flex items-center justify-between">
-                <Label>Deliverables</Label>
-                <button
-                  type="button"
-                  onClick={addDeliverable}
-                  className="flex items-center gap-1 text-[11px] font-medium text-violet-600 hover:text-violet-800 transition-colors"
-                >
-                  <Plus className="h-3 w-3" />
-                  Add
-                </button>
-              </div>
-              {deliverables.map((d, i) => (
-                <div key={i} className="group/deliv flex items-start gap-2">
-                  <div className="grid grid-cols-[80px_1fr] gap-2 flex-1">
-                    <div className="grid gap-1">
-                      <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">
-                        {String(i + 1).padStart(2, '0')}
-                      </span>
-                      <Input
-                        placeholder="Title"
-                        value={d.title}
-                        onChange={e => updateDeliverable(i, 'title', e.target.value)}
-                      />
-                    </div>
-                    <div className="grid gap-1">
-                      <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">
-                        Description
-                      </span>
-                      <Input
-                        placeholder="Short description…"
-                        value={d.description}
-                        onChange={e => updateDeliverable(i, 'description', e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  {deliverables.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeDeliverable(i)}
-                      title="Remove"
-                      className="mt-5 rounded p-0.5 text-muted-foreground opacity-0 group-hover/deliv:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-all"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* Deposit + Expiry */}
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-1.5">
                 <Label htmlFor="prop-deposit">Deposit %</Label>
@@ -253,6 +158,10 @@ export function NewProposalModal({
               </div>
             </div>
 
+            <p className="text-xs text-muted-foreground rounded-lg bg-secondary/40 px-3 py-2">
+              Description and deliverables are pulled from the <strong>Proposal Overview</strong> section below.
+            </p>
+
             {error && <p className="text-sm text-destructive">{error}</p>}
           </div>
         )}
@@ -263,7 +172,7 @@ export function NewProposalModal({
               Cancel
             </Button>
             <Button onClick={handleSubmit} disabled={pending}>
-              {pending ? 'Creating…' : 'Create & Send Proposal'}
+              {pending ? 'Sending…' : 'Send Proposal'}
             </Button>
           </DialogFooter>
         )}
