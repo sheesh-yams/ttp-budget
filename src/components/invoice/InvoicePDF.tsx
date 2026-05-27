@@ -181,7 +181,7 @@ export function InvoicePDF({ invoice }: { invoice: InvoicePDFData }) {
           {/* Logo + invoice number */}
           <View style={s.coverTop}>
             {invoice.logoSrc ? (
-              <Image src={invoice.logoSrc} style={s.logoImg} alt="" />
+              <Image src={invoice.logoSrc} style={s.logoImg} />
             ) : (
               <View style={s.logoBox}>
                 <View style={s.logoMark}><Text style={s.logoT}>T</Text></View>

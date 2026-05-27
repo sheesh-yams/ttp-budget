@@ -207,7 +207,7 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
           <View style={s.coverTop}>
             <View style={s.logoBox}>
               {proposal.logoSrc ? (
-                <Image src={proposal.logoSrc} style={s.logoImg} alt="" />
+                <Image src={proposal.logoSrc} style={s.logoImg} />
               ) : (
                 <>
                   <View style={s.logoMark}>
