@@ -22,13 +22,18 @@ export default async function CallSheetPage({
   const { id: projectId, csId } = await params
   const user = await getCurrentUser()
 
-  const [cs, project] = await Promise.all([
+  const [cs, project, budget] = await Promise.all([
     db.callSheet.findFirst({
       where: { id: csId, workspaceId: user.workspaceId },
     }),
     db.project.findFirst({
       where: { id: projectId, workspaceId: user.workspaceId },
       select: { id: true, name: true },
+    }),
+    db.budget.findFirst({
+      where: { projectId, workspaceId: user.workspaceId },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
     }),
   ])
 
@@ -38,6 +43,7 @@ export default async function CallSheetPage({
     id:              cs.id,
     projectId:       project.id,
     projectName:     project.name,
+    budgetId:        budget?.id ?? null,
     title:           cs.title,
     shootDate:       cs.shootDate.toISOString(),
     generalCall:     cs.generalCall,

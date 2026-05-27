@@ -5,7 +5,29 @@ import { db } from '@/lib/db'
 import { getWorkspaceId, getCurrentUser } from '@/lib/auth'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
-import { Prisma, type RateUnit } from '@prisma/client'
+import { Prisma, type RateUnit, type RateCategory } from '@prisma/client'
+
+// ─── Category mapping ─────────────────────────────────────────────────────────
+// Maps the detailed RateCategory on RateCard to the broader LineItemCategory
+// snapshot stored on LineItem. Used for crew import into call sheets.
+// NOTE: LineItemCategory is defined locally until `prisma db push + generate` runs.
+
+type LineItemCategory = 'CREW' | 'LOCATION' | 'EQUIPMENT' | 'SERVICE' | 'DELIVERABLE'
+
+function mapRateCategory(rc: RateCategory): LineItemCategory {
+  switch (rc) {
+    case 'CREW':            return 'CREW'
+    case 'TALENT':          return 'CREW'        // on-screen talent = crew for call sheet
+    case 'EQUIPMENT':       return 'EQUIPMENT'
+    case 'LOCATION':        return 'LOCATION'
+    case 'POST':            return 'DELIVERABLE'  // edits, color, mix — not a person
+    case 'TRAVEL':          return 'SERVICE'
+    case 'CATERING':        return 'SERVICE'
+    case 'INSURANCE':       return 'SERVICE'
+    case 'PRODUCTION_FEE':  return 'SERVICE'
+    case 'MISC':            return 'SERVICE'
+  }
+}
 
 // ─── Create budget ────────────────────────────────────────────────────────────
 
@@ -88,15 +110,32 @@ export async function upsertLineItem(
   try {
     await getWorkspaceId()
     const data = lineItemSchema.parse(input)
-    const item = id
-      ? await db.lineItem.update({ where: { id }, data })
-      : await db.lineItem.create({ data: data as Prisma.LineItemUncheckedCreateInput })
 
-    if (!id && data.rateCardId) {
-      void db.rateCard.update({
-        where: { id: data.rateCardId },
-        data: { usageCount: { increment: 1 } },
+    let item
+    if (id) {
+      item = await db.lineItem.update({ where: { id }, data })
+    } else {
+      // Snapshot lineItemCategory from the rate card at creation time
+      let lineItemCategory: LineItemCategory | undefined
+      if (data.rateCardId) {
+        const rc = await db.rateCard.findUnique({
+          where: { id: data.rateCardId },
+          select: { category: true },
+        })
+        if (rc) lineItemCategory = mapRateCategory(rc.category)
+      }
+      item = await db.lineItem.create({
+        data: {
+          ...(data as Prisma.LineItemUncheckedCreateInput),
+          ...(lineItemCategory ? { lineItemCategory } : {}),
+        },
       })
+      if (data.rateCardId) {
+        void db.rateCard.update({
+          where: { id: data.rateCardId },
+          data: { usageCount: { increment: 1 } },
+        })
+      }
     }
     return { success: true, data: { id: item.id } }
   } catch {
@@ -228,7 +267,7 @@ export async function duplicatePhase(phaseId: string, newName: string): Promise<
       },
     })
 
-    await cloneAccounts(source.accounts as AccountNode[], newPhase.id, null)
+    await cloneAccounts(source.accounts as unknown as AccountNode[], newPhase.id, null)
 
     revalidatePath('/')
     return { success: true, data: { id: newPhase.id } }
@@ -334,6 +373,14 @@ type TemplateStructure = {
 async function materialiseTemplate(budgetId: string, structure: TemplateStructure) {
   const phase = await db.phase.findFirst({ where: { budgetId } })
   if (!phase) return
+
+  // Pre-fetch rate card categories for all items in the structure
+  const rateCardIds = structure.accounts
+    .flatMap(a => [...a.items, ...(a.children?.flatMap(c => c.items) ?? [])])
+    .map(i => i.rateCardId)
+    .filter((id): id is string => !!id)
+  const rcMap = await buildRateCategoryMap(rateCardIds)
+
   for (let i = 0; i < structure.accounts.length; i++) {
     const acc = structure.accounts[i]
     const account = await db.account.create({
@@ -341,6 +388,7 @@ async function materialiseTemplate(budgetId: string, structure: TemplateStructur
     })
     for (let j = 0; j < acc.items.length; j++) {
       const item = acc.items[j]
+      const lineItemCategory = item.rateCardId ? rcMap.get(item.rateCardId) : undefined
       await db.lineItem.create({
         data: {
           accountId: account.id,
@@ -355,6 +403,7 @@ async function materialiseTemplate(budgetId: string, structure: TemplateStructur
           notes: item.notes ?? null,
           tags: item.tags ?? [],
           order: j,
+          ...(lineItemCategory ? { lineItemCategory } : {}),
         },
       })
     }
@@ -378,8 +427,19 @@ type AccountNode = {
     quantityFormula: string | null
     tags: string[]
     order: number
+    lineItemCategory?: LineItemCategory | null
   }>
   children?: AccountNode[]
+}
+
+/** Batch-fetch rate cards by ID and return a map of id → LineItemCategory. */
+async function buildRateCategoryMap(ids: string[]): Promise<Map<string, LineItemCategory>> {
+  if (!ids.length) return new Map()
+  const cards = await db.rateCard.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, category: true },
+  })
+  return new Map(cards.map(c => [c.id, mapRateCategory(c.category)]))
 }
 
 // ─── Insert package into phase ────────────────────────────────────────────────
@@ -393,6 +453,13 @@ export async function insertPackageIntoPhase(
     const phase = await db.phase.findUnique({ where: { id: phaseId } })
     if (!phase) return { success: false, error: 'Phase not found' }
 
+    // Pre-fetch rate card categories
+    const rateCardIds = structure.accounts
+      .flatMap(a => a.items)
+      .map(i => i.rateCardId)
+      .filter((id): id is string => !!id)
+    const rcMap = await buildRateCategoryMap(rateCardIds)
+
     const existingCount = await db.account.count({ where: { phaseId } })
     for (let i = 0; i < structure.accounts.length; i++) {
       const acc = structure.accounts[i]
@@ -401,6 +468,7 @@ export async function insertPackageIntoPhase(
       })
       for (let j = 0; j < acc.items.length; j++) {
         const item = acc.items[j]
+        const lineItemCategory = item.rateCardId ? rcMap.get(item.rateCardId) : undefined
         await db.lineItem.create({
           data: {
             accountId:   account.id,
@@ -415,6 +483,7 @@ export async function insertPackageIntoPhase(
             notes:       item.notes ?? null,
             tags:        [],
             order:       j,
+            ...(lineItemCategory ? { lineItemCategory } : {}),
           },
         })
       }
@@ -434,17 +503,19 @@ async function cloneAccounts(accounts: AccountNode[], phaseId: string, parentId:
     for (const item of acc.lineItems) {
       await db.lineItem.create({
         data: {
-          accountId: newAcc.id,
-          description: item.description,
-          rateCardId: item.rateCardId,
-          quantity: Number(item.quantity),
-          unit: item.unit,
-          rateCents: item.rateCents,
-          markupPct: item.markupPct ? Number(item.markupPct) : null,
-          notes: item.notes,
-          quantityFormula: item.quantityFormula,
-          tags: item.tags,
-          order: item.order,
+          accountId:        newAcc.id,
+          description:      item.description,
+          rateCardId:       item.rateCardId,
+          quantity:         Number(item.quantity),
+          unit:             item.unit,
+          rateCents:        item.rateCents,
+          markupPct:        item.markupPct ? Number(item.markupPct) : null,
+          notes:            item.notes,
+          quantityFormula:  item.quantityFormula,
+          tags:             item.tags,
+          order:            item.order,
+          // Preserve snapshotted category when duplicating a phase
+          ...(item.lineItemCategory ? { lineItemCategory: item.lineItemCategory } : {}),
         },
       })
     }

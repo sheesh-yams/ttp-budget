@@ -210,6 +210,16 @@ enum RateUnit {
   MILE
 }
 
+// Broad call-sheet / import category — auto-populated from RateCard.category at insert time.
+// Intentionally simpler than RateCategory: used internally for crew import, not shown in UI.
+enum LineItemCategory {
+  CREW        // line item represents a person on set (DP, gaffer, PA, talent, etc.)
+  LOCATION    // location fee, permit, scout
+  EQUIPMENT   // camera, grip, lighting, vehicles
+  SERVICE     // travel, catering, insurance, production fee, post services
+  DELIVERABLE // final deliverable: edit, color, mix, VFX — NOT a crew member
+}
+
 model RateCard {
   id            String   @id @default(cuid())
   workspaceId   String
@@ -369,6 +379,10 @@ model LineItem {
 
   // Optional formula string for quantity, e.g. "shoot_days + 1". If set, qty is computed.
   quantityFormula String?
+
+  // Broad category — snapshot from RateCard.category at insert time via mapping.
+  // Null for ad-hoc items with no rate card. Never shown in client UI.
+  lineItemCategory LineItemCategory?
 
   // Tags for filtering — array of strings
   tags          String[]

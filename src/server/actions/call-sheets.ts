@@ -3,7 +3,119 @@
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
+import { Prisma } from '@prisma/client'
 import type { ActionResult } from '@/types'
+
+// =============================================================================
+// Crew import from budget
+// =============================================================================
+
+export async function importCrewFromBudget(
+  callSheetId: string,
+  budgetId: string
+): Promise<ActionResult<{ added: number }>> {
+  try {
+    const user = await getCurrentUser()
+
+    // Verify call sheet belongs to workspace
+    const cs = await db.callSheet.findFirst({
+      where: { id: callSheetId, workspaceId: user.workspaceId },
+      select: { id: true, projectId: true, crew: true, status: true },
+    })
+    if (!cs) return { success: false, error: 'Call sheet not found' }
+    if (cs.status === 'FINAL') return { success: false, error: 'Cannot edit a finalized call sheet' }
+
+    // Verify budget belongs to same workspace
+    const budget = await db.budget.findFirst({
+      where: { id: budgetId, workspaceId: user.workspaceId },
+      select: { id: true },
+    })
+    if (!budget) return { success: false, error: 'Budget not found' }
+
+    // Get primary phase and its CREW line items
+    const phase =
+      (await db.phase.findFirst({ where: { budgetId, isPrimary: true } })) ??
+      (await db.phase.findFirst({ where: { budgetId }, orderBy: { order: 'asc' } }))
+    if (!phase) return { success: false, error: 'Budget has no phases' }
+
+    // Fetch all top-level accounts with their CREW line items
+    const accounts = await db.account.findMany({
+      where: { phaseId: phase.id, parentId: null },
+      orderBy: { order: 'asc' },
+      select: {
+        name: true,
+        lineItems: {
+          where: { lineItemCategory: 'CREW' } as Prisma.LineItemWhereInput,
+          orderBy: { order: 'asc' },
+          select: { description: true, quantity: true },
+        },
+        children: {
+          orderBy: { order: 'asc' },
+          select: {
+            name: true,
+            lineItems: {
+              where: { lineItemCategory: 'CREW' } as Prisma.LineItemWhereInput,
+              orderBy: { order: 'asc' },
+              select: { description: true, quantity: true },
+            },
+          },
+        },
+      },
+    })
+
+    // Build an array of (deptName, role, qty) tuples from all matching line items
+    const incoming: Array<{ dept: string; role: string; qty: number }> = []
+    for (const acc of accounts) {
+      const allItems = [
+        ...acc.lineItems.map(i => ({ dept: acc.name, role: i.description, qty: Math.max(1, Math.round(Number(i.quantity))) })),
+        ...acc.children.flatMap(child =>
+          child.lineItems.map(i => ({ dept: child.name, role: i.description, qty: Math.max(1, Math.round(Number(i.quantity))) }))
+        ),
+      ]
+      incoming.push(...allItems)
+    }
+
+    if (!incoming.length) {
+      return { success: false, error: 'No crew line items found in this budget. Make sure line items are added from CREW rate cards.' }
+    }
+
+    // Merge into existing crew — group into departments, expanding qty > 1 into multiple blank member slots
+    const existingCrew = (cs.crew as unknown as CrewDept[]) ?? []
+    const crewMap = new Map<string, CrewMember[]>(existingCrew.map(d => [d.dept, d.members]))
+
+    let added = 0
+    for (const { dept, role, qty } of incoming) {
+      const members = crewMap.get(dept) ?? []
+      // Don't add a blank slot if a member with this exact role already exists (avoids duplicates on re-import)
+      const existingForRole = members.filter(m => m.role === role)
+      const slotsNeeded = Math.max(0, qty - existingForRole.length)
+      for (let i = 0; i < slotsNeeded; i++) {
+        members.push({ name: '', role, callTime: '' })
+        added++
+      }
+      crewMap.set(dept, members)
+    }
+
+    // Preserve original dept order, then append any new depts
+    const existingDeptNames = new Set(existingCrew.map(d => d.dept))
+    const newCrew: CrewDept[] = [
+      ...existingCrew.map(d => ({ dept: d.dept, members: crewMap.get(d.dept) ?? d.members })),
+      ...Array.from(crewMap.entries())
+        .filter(([name]) => !existingDeptNames.has(name))
+        .map(([dept, members]) => ({ dept, members })),
+    ]
+
+    await db.callSheet.update({
+      where: { id: callSheetId },
+      data: { crew: JSON.parse(JSON.stringify(newCrew)) },
+    })
+
+    revalidatePath(`/projects/${cs.projectId}/call-sheets/${callSheetId}`)
+    return { success: true, data: { added } }
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : 'Failed to import crew' }
+  }
+}
 
 // =============================================================================
 // JSON field types

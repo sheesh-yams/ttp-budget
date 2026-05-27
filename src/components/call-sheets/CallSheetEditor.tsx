@@ -18,6 +18,7 @@ import {
   finalizeCallSheet,
   reopenCallSheet,
   fetchLocationData,
+  importCrewFromBudget,
   type CrewDept,
   type ScheduleBlock,
   type WeatherInfo,
@@ -33,8 +34,9 @@ export interface CallSheetData {
   id: string
   projectId: string
   projectName: string
+  budgetId: string | null    // for crew import; null if no budget on the project
   title: string
-  shootDate: string        // ISO
+  shootDate: string          // ISO
   generalCall: string
   status: CallSheetStatus
   publicToken: string
@@ -92,7 +94,9 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
   const [error,       setError]       = useState('')
   const [fetchError,  setFetchError]  = useState('')
   const [fetching,    setFetching]    = useState(false)
-  const [copied,      setCopied]      = useState(false)
+  const [copied,        setCopied]        = useState(false)
+  const [importing,     setImporting]     = useState(false)
+  const [importMsg,     setImportMsg]     = useState('')
 
   const isLocked = status === 'FINAL'
   const publicUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/cs/${initial.publicToken}`
@@ -206,6 +210,24 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
     await navigator.clipboard.writeText(publicUrl)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  async function handleImportCrew() {
+    if (!initial.budgetId) return
+    setImporting(true)
+    setImportMsg('')
+    const result = await importCrewFromBudget(initial.id, initial.budgetId)
+    setImporting(false)
+    if (result.success) {
+      setImportMsg(result.data.added > 0
+        ? `${result.data.added} crew slot${result.data.added !== 1 ? 's' : ''} imported — fill in names and call times`
+        : 'All crew roles already present'
+      )
+      router.refresh()
+    } else {
+      setImportMsg((result as { success: false; error: string }).error)
+    }
+    setTimeout(() => setImportMsg(''), 5000)
   }
 
   // =============================================================================
@@ -455,7 +477,25 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
         </Section>
 
         {/* ── Crew ── */}
-        <Section title="Crew">
+        <Section
+          title="Crew"
+          action={!isLocked && initial.budgetId && (
+            <div className="flex items-center gap-3">
+              {importMsg && (
+                <span className="text-xs text-muted-foreground">{importMsg}</span>
+              )}
+              <button
+                type="button"
+                onClick={handleImportCrew}
+                disabled={importing}
+                className="flex items-center gap-1.5 text-xs font-medium text-violet-600 hover:text-violet-800 disabled:opacity-40 transition-colors"
+              >
+                <RefreshCw className={`h-3 w-3 ${importing ? 'animate-spin' : ''}`} />
+                {importing ? 'Importing…' : 'Import from budget'}
+              </button>
+            </div>
+          )}
+        >
           <CrewEditor
             crew={crew}
             readonly={isLocked}
