@@ -4,6 +4,8 @@ import { db } from '@/lib/db'
 import { ProposalPDF } from '@/components/proposal/ProposalPDF'
 import { sumAccount, type AccountInput } from '@/lib/totals'
 import React from 'react'
+import fs from 'fs'
+import path from 'path'
 
 export async function GET(
   _req: NextRequest,
@@ -96,6 +98,13 @@ export async function GET(
     )
   }
 
+  // Read logo file once and encode as base64 data URI
+  let logoSrc: string | undefined
+  try {
+    const logoBuffer = fs.readFileSync(path.join(process.cwd(), 'public', 'logo.png'))
+    logoSrc = `data:image/png;base64,${logoBuffer.toString('base64')}`
+  } catch { /* logo missing — component falls back to text */ }
+
   try {
     const serialisedProposal = {
       id:           proposal.id,
@@ -105,6 +114,7 @@ export async function GET(
       content:      proposal.content,
       createdAt:    proposal.createdAt.toISOString(),
       expiresAt:    proposal.expiresAt?.toISOString()  ?? null,
+      logoSrc,
       project: {
         name:           proposal.project.name,
         shootType:      proposal.project.shootType,
