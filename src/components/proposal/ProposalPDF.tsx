@@ -115,7 +115,7 @@ const s = StyleSheet.create({
   col1:        { flex: 1 },
   colR:        { width: 70, textAlign: 'right' },
   colSm:       { width: 40, textAlign: 'right' },
-  colUnit:     { width: 36, textAlign: 'right' },
+  colUnit:     { width: 56, textAlign: 'right' },
   headText:    { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: MUT, letterSpacing: 0.8, textTransform: 'uppercase' },
   acctName:    { fontSize: 11, fontFamily: 'Helvetica-Bold', color: BODY },
   acctCode:    { fontSize: 8.5, color: V, fontFamily: 'Helvetica-Bold', marginRight: 6 },
@@ -313,7 +313,7 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
                       return (
                         <View key={item.id} style={[s.budgetRow, last && isLast ? s.budgetLast : {}]}>
                           <Text style={[s.col1, s.lineDesc]}>{item.description}</Text>
-                          {(() => { const [hc, days] = parseQtyFormula(Number(item.quantity), item.quantityFormula); return (<><Text style={[s.colSm, s.lineVal, { opacity: hc === 1 ? 0.35 : 1 }]}>{hc}</Text><Text style={[s.colUnit, s.lineVal, { fontSize: 8 }]}>{fmtUnit(days, item.unit)}</Text></>); })()}
+                          {(() => { const [hc, days] = parseQtyFormula(Number(item.quantity), item.quantityFormula); return (<><Text style={[s.colSm, s.lineVal, { opacity: hc === 1 ? 0.35 : 1 }]}>{hc}</Text><Text style={[s.colUnit, s.lineVal]}>{fmtUnit(days, item.unit)}</Text></>); })()}
                           <Text style={[s.colR, s.lineAmt]}>{formatMoney(tot)}</Text>
                         </View>
                       )
@@ -328,8 +328,7 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
                               <Text style={[s.lineDesc, { color: MUT, fontSize: 8.5, marginRight: 4 }]}>{child.name} · </Text>
                               <Text style={s.lineDesc}>{item.description}</Text>
                             </View>
-                            <Text style={[s.colSm, s.lineVal]}>{item.quantityFormula?.match(/^\d+(?:\.\d+)?[x×]\d+(?:\.\d+)?$/) ? item.quantityFormula.replace('x', ' × ') : item.quantity}</Text>
-                            <Text style={[s.colUnit, s.lineVal, { fontSize: 8 }]}>{item.unit.toUpperCase()}</Text>
+                            {(() => { const [hc, days] = parseQtyFormula(Number(item.quantity), item.quantityFormula); return (<><Text style={[s.colSm, s.lineVal, { opacity: hc === 1 ? 0.35 : 1 }]}>{hc}</Text><Text style={[s.colUnit, s.lineVal]}>{fmtUnit(days, item.unit)}</Text></>); })()}
                             <Text style={[s.colR, s.lineAmt]}>{formatMoney(tot)}</Text>
                           </View>
                         )
