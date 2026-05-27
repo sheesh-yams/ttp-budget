@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
 import { CallSheetEditor } from '@/components/call-sheets/CallSheetEditor'
-import type { CrewDept, ScheduleBlock, WeatherInfo, HospitalInfo } from '@/server/actions/call-sheets'
+import type { CrewDept, ScheduleBlock, WeatherInfo, HospitalInfo, TalentMember, PointOfContact } from '@/server/actions/call-sheets'
 
 export async function generateMetadata({
   params,
@@ -28,7 +28,18 @@ export default async function CallSheetPage({
     }),
     db.project.findFirst({
       where: { id: projectId, workspaceId: user.workspaceId },
-      select: { id: true, name: true },
+      select: {
+        id: true,
+        name: true,
+        client: {
+          select: {
+            name: true,
+            contactName: true,
+            contactEmail: true,
+            contactPhone: true,
+          },
+        },
+      },
     }),
     db.budget.findFirst({
       where: { projectId, workspaceId: user.workspaceId },
@@ -53,13 +64,24 @@ export default async function CallSheetPage({
     locationAddress: cs.locationAddress,
     parkingAddress:  cs.parkingAddress,
     locationNotes:   cs.locationNotes,
-    emergencyContact:cs.emergencyContact,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    pointOfContact:  (cs as any).pointOfContact as unknown as PointOfContact | null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    talent:          ((cs as any).talent as unknown as TalentMember[]) ?? [],
     crew:            (cs.crew as unknown as CrewDept[])       ?? [],
     schedule:        (cs.schedule as unknown as ScheduleBlock[]) ?? [],
     cateringInfo:    cs.cateringInfo,
     notes:           cs.notes,
     weather:         cs.weather    as unknown as WeatherInfo | null,
     hospitalInfo:    cs.hospitalInfo as unknown as HospitalInfo | null,
+    clientContact:   project.client
+      ? {
+          companyName:  project.client.name,
+          contactName:  project.client.contactName,
+          contactEmail: project.client.contactEmail,
+          contactPhone: project.client.contactPhone,
+        }
+      : null,
   }
 
   return (

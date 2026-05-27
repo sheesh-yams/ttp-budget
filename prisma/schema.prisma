@@ -610,15 +610,20 @@ model CallSheet {
   // { high, low, conditions, windKph, precipPct, sunrise, sunset, fetchedAt }
   weather         Json?
 
-  // Emergency contact for the day
-  emergencyContact String?
+  // Point of contact for the day (replaces emergencyContact)
+  // { name, title, phone, email }
+  pointOfContact  Json?
+
+  // Talent — flat list of on-screen talent
+  // [{ name, role, callTime, phone, email }]
+  talent          Json     @default("[]")
 
   // Crew — array of dept groups
   // [{ dept: "Camera", members: [{ name, role, callTime, phone, email }] }]
   crew            Json     @default("[]")
 
   // Schedule — ordered time blocks
-  // [{ time: "07:00", label: "General Call / Load In", notes?: string }]
+  // [{ startTime: "07:00", endTime?: "08:00", label: "...", whoNeeded?: "...", notes?: "..." }]
   schedule        Json     @default("[]")
 
   // Logistics

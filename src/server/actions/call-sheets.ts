@@ -169,9 +169,28 @@ export interface CrewDept {
   members: CrewMember[]
 }
 
+/** On-screen talent (flat list, no dept grouping). */
+export interface TalentMember {
+  name: string
+  role?: string      // character name / "Model" / "Talent"
+  callTime: string   // "HH:MM"
+  phone?: string
+  email?: string
+}
+
+export interface PointOfContact {
+  name: string
+  title?: string     // "EP", "Producer", "AD", etc.
+  phone?: string
+  email?: string
+}
+
 export interface ScheduleBlock {
-  time: string       // "HH:MM"
+  startTime: string  // "HH:MM"  (field was `time` in v1 — kept as fallback below)
+  time?: string      // @deprecated — kept for backward-compat with existing records
+  endTime?: string   // "HH:MM"
   label: string
+  whoNeeded?: string // free-text: "Director, DP, 1st AD"
   notes?: string
 }
 
@@ -281,7 +300,8 @@ export async function updateCallSheet(
     locationAddress: string
     parkingAddress: string
     locationNotes: string
-    emergencyContact: string
+    pointOfContact: PointOfContact | null
+    talent: TalentMember[]
     crew: CrewDept[]
     schedule: ScheduleBlock[]
     cateringInfo: string
@@ -306,7 +326,8 @@ export async function updateCallSheet(
         ...(input.locationAddress    !== undefined && { locationAddress:  input.locationAddress }),
         ...(input.parkingAddress     !== undefined && { parkingAddress:   input.parkingAddress }),
         ...(input.locationNotes      !== undefined && { locationNotes:    input.locationNotes }),
-        ...(input.emergencyContact   !== undefined && { emergencyContact: input.emergencyContact }),
+        ...(input.pointOfContact     !== undefined && { pointOfContact:   JSON.parse(JSON.stringify(input.pointOfContact)) }),
+        ...(input.talent             !== undefined && { talent:    JSON.parse(JSON.stringify(input.talent)) }),
         ...(input.crew               !== undefined && { crew:     JSON.parse(JSON.stringify(input.crew)) }),
         ...(input.schedule           !== undefined && { schedule: JSON.parse(JSON.stringify(input.schedule)) }),
         ...(input.cateringInfo       !== undefined && { cateringInfo:     input.cateringInfo }),

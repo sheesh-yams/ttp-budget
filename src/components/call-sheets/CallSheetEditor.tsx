@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { CrewEditor } from './CrewEditor'
 import { ScheduleEditor } from './ScheduleEditor'
+import { TalentEditor } from './TalentEditor'
 import {
   updateCallSheet,
   sendCallSheet,
@@ -23,6 +24,8 @@ import {
   type ScheduleBlock,
   type WeatherInfo,
   type HospitalInfo,
+  type TalentMember,
+  type PointOfContact,
 } from '@/server/actions/call-sheets'
 import type { CallSheetStatus } from '@/types'
 
@@ -44,13 +47,20 @@ export interface CallSheetData {
   locationAddress: string | null
   parkingAddress: string | null
   locationNotes: string | null
-  emergencyContact: string | null
+  pointOfContact: PointOfContact | null
+  talent: TalentMember[]
   crew: CrewDept[]
   schedule: ScheduleBlock[]
   cateringInfo: string | null
   notes: string | null
   weather: WeatherInfo | null
   hospitalInfo: HospitalInfo | null
+  clientContact: {
+    companyName: string
+    contactName?: string | null
+    contactEmail?: string | null
+    contactPhone?: string | null
+  } | null
 }
 
 // =============================================================================
@@ -79,7 +89,10 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
   const [locationAddress, setLocationAddress] = useState(initial.locationAddress ?? '')
   const [parkingAddress,  setParkingAddress]  = useState(initial.parkingAddress ?? '')
   const [locationNotes,   setLocationNotes]   = useState(initial.locationNotes ?? '')
-  const [emergencyContact,setEmergencyContact]= useState(initial.emergencyContact ?? '')
+  const [pointOfContact,  setPointOfContact]  = useState<PointOfContact>(
+    initial.pointOfContact ?? { name: '', title: '', phone: '', email: '' }
+  )
+  const [talent,          setTalent]          = useState<TalentMember[]>(initial.talent ?? [])
   const [crew,            setCrew]            = useState<CrewDept[]>(initial.crew)
   const [schedule,        setSchedule]        = useState<ScheduleBlock[]>(initial.schedule)
   const [cateringInfo,    setCateringInfo]    = useState(initial.cateringInfo ?? '')
@@ -122,7 +135,8 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
         locationAddress:  locationAddress.trim()  || undefined,
         parkingAddress:   parkingAddress.trim()   || undefined,
         locationNotes:    locationNotes.trim()     || undefined,
-        emergencyContact: emergencyContact.trim()  || undefined,
+        pointOfContact:   pointOfContact.name.trim() ? pointOfContact : null,
+        talent,
         crew,
         schedule,
         cateringInfo:     cateringInfo.trim()     || undefined,
@@ -148,7 +162,8 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
         const saveResult = await updateCallSheet(initial.id, {
           title, shootDate, generalCall,
           locationName, locationAddress, parkingAddress, locationNotes,
-          emergencyContact, crew, schedule, cateringInfo, notes,
+          pointOfContact: pointOfContact.name.trim() ? pointOfContact : null,
+          talent, crew, schedule, cateringInfo, notes,
         })
         if (!saveResult.success) { setError((saveResult as { success: false; error: string }).error); return }
       }
@@ -373,17 +388,71 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
               />
             </div>
           </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="cs-emergency">Emergency contact for the day</Label>
-            <Input
-              id="cs-emergency"
-              placeholder="e.g. John Smith — 310-555-0101"
-              value={emergencyContact}
-              disabled={isLocked}
-              onChange={e => field(setEmergencyContact)(e.target.value)}
-            />
+          {/* Point of Contact */}
+          <div className="grid gap-2">
+            <Label>Point of contact for the day</Label>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-1.5">
+                <Input
+                  placeholder="Name"
+                  value={pointOfContact.name}
+                  disabled={isLocked}
+                  onChange={e => { setPointOfContact(p => ({ ...p, name: e.target.value })); markDirty() }}
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Input
+                  placeholder="Title / role"
+                  value={pointOfContact.title ?? ''}
+                  disabled={isLocked}
+                  onChange={e => { setPointOfContact(p => ({ ...p, title: e.target.value })); markDirty() }}
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Input
+                  placeholder="Phone"
+                  value={pointOfContact.phone ?? ''}
+                  disabled={isLocked}
+                  onChange={e => { setPointOfContact(p => ({ ...p, phone: e.target.value })); markDirty() }}
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Input
+                  type="email"
+                  placeholder="Email"
+                  value={pointOfContact.email ?? ''}
+                  disabled={isLocked}
+                  onChange={e => { setPointOfContact(p => ({ ...p, email: e.target.value })); markDirty() }}
+                />
+              </div>
+            </div>
           </div>
         </Section>
+
+        {/* ── Client contacts (read-only, auto-populated) ── */}
+        {initial.clientContact && (
+          <Section title="Client Contacts">
+            <div className="divide-y rounded-lg border">
+              <div className="flex items-center justify-between px-3 py-2 gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">{initial.clientContact.companyName}</p>
+                  {initial.clientContact.contactName && (
+                    <p className="text-xs text-muted-foreground">{initial.clientContact.contactName}</p>
+                  )}
+                  <div className="flex flex-wrap gap-x-3 mt-0.5">
+                    {initial.clientContact.contactPhone && (
+                      <p className="text-xs text-muted-foreground">{initial.clientContact.contactPhone}</p>
+                    )}
+                    {initial.clientContact.contactEmail && (
+                      <p className="text-xs text-muted-foreground">{initial.clientContact.contactEmail}</p>
+                    )}
+                  </div>
+                </div>
+                <p className="text-[10px] text-muted-foreground/60 italic shrink-0">from project</p>
+              </div>
+            </div>
+          </Section>
+        )}
 
         {/* ── Location ── */}
         <Section
@@ -475,6 +544,15 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
             schedule={schedule}
             readonly={isLocked}
             onChange={s => { setSchedule(s); markDirty() }}
+          />
+        </Section>
+
+        {/* ── Talent ── */}
+        <Section title="Talent">
+          <TalentEditor
+            talent={talent}
+            readonly={isLocked}
+            onChange={t => { setTalent(t); markDirty() }}
           />
         </Section>
 

@@ -65,14 +65,17 @@ export function CrewEditor({ crew, onChange, readonly = false }: Props) {
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">{dept.dept}</p>
             <div className="divide-y rounded-lg border">
               {dept.members.map((m, mi) => (
-                <div key={mi} className="flex items-center justify-between px-3 py-2">
-                  <div>
+                <div key={mi} className="flex items-center justify-between px-3 py-2 gap-3">
+                  <div className="min-w-0">
                     <p className="text-sm font-medium text-foreground">{m.name || '—'}</p>
                     <p className="text-xs text-muted-foreground">{m.role}</p>
+                    <div className="flex flex-wrap gap-x-3 mt-0.5">
+                      {m.phone && <p className="text-xs text-muted-foreground">{m.phone}</p>}
+                      {m.email && <p className="text-xs text-muted-foreground">{m.email}</p>}
+                    </div>
                   </div>
-                  <div className="text-right">
+                  <div className="text-right shrink-0">
                     <p className="text-sm font-mono font-semibold text-foreground">{m.callTime || '—'}</p>
-                    {m.phone && <p className="text-xs text-muted-foreground">{m.phone}</p>}
                   </div>
                 </div>
               ))}
@@ -119,18 +122,19 @@ export function CrewEditor({ crew, onChange, readonly = false }: Props) {
             {!isCollapsed && (
               <div>
                 {/* Column headers */}
-                <div className="grid grid-cols-[1fr_1fr_80px_80px_24px] gap-2 px-3 py-1.5 border-b bg-muted/20 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                <div className="grid grid-cols-[1fr_1fr_72px_1fr_1fr_24px] gap-2 px-3 py-1.5 border-b bg-muted/20 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                   <span>Name</span>
                   <span>Role</span>
                   <span>Call</span>
                   <span>Phone</span>
+                  <span>Email</span>
                   <span />
                 </div>
 
                 {dept.members.map((m, memberIdx) => (
                   <div
                     key={memberIdx}
-                    className="group/member grid grid-cols-[1fr_1fr_80px_80px_24px] gap-2 px-3 py-1.5 border-b last:border-0 items-center"
+                    className="group/member grid grid-cols-[1fr_1fr_72px_1fr_1fr_24px] gap-2 px-3 py-1.5 border-b last:border-0 items-center"
                   >
                     <input
                       placeholder="Name"
@@ -151,9 +155,16 @@ export function CrewEditor({ crew, onChange, readonly = false }: Props) {
                       className="w-full bg-transparent text-sm font-mono text-foreground focus:outline-none border-b border-transparent focus:border-input"
                     />
                     <input
-                      placeholder="—"
+                      placeholder="Phone"
                       value={m.phone ?? ''}
                       onChange={e => updateMember(deptIdx, memberIdx, 'phone', e.target.value)}
+                      className="w-full bg-transparent text-sm text-muted-foreground placeholder:text-muted-foreground/50 focus:outline-none border-b border-transparent focus:border-input"
+                    />
+                    <input
+                      placeholder="Email"
+                      type="email"
+                      value={m.email ?? ''}
+                      onChange={e => updateMember(deptIdx, memberIdx, 'email', e.target.value)}
                       className="w-full bg-transparent text-sm text-muted-foreground placeholder:text-muted-foreground/50 focus:outline-none border-b border-transparent focus:border-input"
                     />
                     <button

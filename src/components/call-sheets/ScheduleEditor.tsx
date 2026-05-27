@@ -9,14 +9,25 @@ interface Props {
   readonly?: boolean
 }
 
+/** Normalise a block so startTime is always defined (backward-compat with old `time` field). */
+function startOf(block: ScheduleBlock): string {
+  return block.startTime ?? block.time ?? ''
+}
+
+/** Suggest a time 30 min after the given HH:MM string. */
+function addMinutes(hhmm: string, mins: number): string {
+  const [h, m] = hhmm.split(':').map(Number)
+  const total = h * 60 + m + mins
+  return `${String(Math.floor(total / 60) % 24).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+}
+
 export function ScheduleEditor({ schedule, onChange, readonly = false }: Props) {
   function add() {
-    const lastTime = schedule.at(-1)?.time ?? '07:00'
-    // Suggest 30 min after last block
-    const [h, m] = lastTime.split(':').map(Number)
-    const totalMin = h * 60 + m + 30
-    const nextTime = `${String(Math.floor(totalMin / 60) % 24).padStart(2, '0')}:${String(totalMin % 60).padStart(2, '0')}`
-    onChange([...schedule, { time: nextTime, label: '' }])
+    const last = schedule.at(-1)
+    const lastEnd = last?.endTime ?? startOf(last ?? { startTime: '07:00', label: '' })
+    const nextStart = addMinutes(lastEnd, 0)   // pick up right after last block ends
+    const nextEnd   = addMinutes(nextStart, 30)
+    onChange([...schedule, { startTime: nextStart, endTime: nextEnd, label: '', whoNeeded: '' }])
   }
 
   function remove(i: number) {
@@ -41,15 +52,30 @@ export function ScheduleEditor({ schedule, onChange, readonly = false }: Props) 
     onChange(next)
   }
 
+  // ── Readonly view ──────────────────────────────────────────────────────────
   if (readonly) {
     return (
       <div className="space-y-0 divide-y rounded-lg border">
         {schedule.map((block, i) => (
           <div key={i} className="flex items-start gap-4 px-4 py-2.5">
-            <span className="font-mono text-sm font-semibold text-foreground w-12 shrink-0 pt-0.5">{block.time}</span>
-            <div>
+            <div className="shrink-0 pt-0.5 min-w-[80px]">
+              <span className="font-mono text-sm font-semibold text-foreground">
+                {startOf(block)}
+                {block.endTime && (
+                  <span className="font-normal text-muted-foreground"> – {block.endTime}</span>
+                )}
+              </span>
+            </div>
+            <div className="flex-1">
               <p className="text-sm text-foreground">{block.label}</p>
-              {block.notes && <p className="text-xs text-muted-foreground mt-0.5">{block.notes}</p>}
+              {block.whoNeeded && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  <span className="font-medium">Who: </span>{block.whoNeeded}
+                </p>
+              )}
+              {block.notes && (
+                <p className="text-xs text-muted-foreground mt-0.5 italic">{block.notes}</p>
+              )}
             </div>
           </div>
         ))}
@@ -60,70 +86,90 @@ export function ScheduleEditor({ schedule, onChange, readonly = false }: Props) 
     )
   }
 
+  // ── Editable view ──────────────────────────────────────────────────────────
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
+      {/* Column headers */}
+      {schedule.length > 0 && (
+        <div className="grid grid-cols-[20px_112px_8px_80px_1fr_1fr_24px] gap-2 px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          <span />
+          <span>Start</span>
+          <span />
+          <span>End</span>
+          <span>Description</span>
+          <span>Who&apos;s Needed</span>
+          <span />
+        </div>
+      )}
+
       {schedule.map((block, i) => (
-        <div key={i} className="group/block flex items-start gap-2">
-          {/* Reorder */}
-          <div className="flex flex-col gap-0.5 pt-1 opacity-0 group-hover/block:opacity-100 transition-opacity">
-            <button
-              type="button"
-              onClick={() => moveUp(i)}
-              disabled={i === 0}
-              className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-20"
-            >
-              <ChevronUp className="h-3 w-3" />
-            </button>
-            <button
-              type="button"
-              onClick={() => moveDown(i)}
-              disabled={i === schedule.length - 1}
-              className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-20"
-            >
-              <ChevronDown className="h-3 w-3" />
-            </button>
-          </div>
+        <div key={i} className="group/block space-y-1">
+          <div className="flex items-center gap-2">
+            {/* Reorder */}
+            <div className="flex flex-col gap-0.5 opacity-0 group-hover/block:opacity-100 transition-opacity">
+              <button type="button" onClick={() => moveUp(i)} disabled={i === 0}
+                className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-20">
+                <ChevronUp className="h-2.5 w-2.5" />
+              </button>
+              <button type="button" onClick={() => moveDown(i)} disabled={i === schedule.length - 1}
+                className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-20">
+                <ChevronDown className="h-2.5 w-2.5" />
+              </button>
+            </div>
 
-          {/* Time */}
-          <input
-            type="time"
-            value={block.time}
-            onChange={e => update(i, 'time', e.target.value)}
-            className="w-24 shrink-0 rounded-md border border-input bg-transparent px-2 py-1.5 text-sm font-mono shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
-          />
+            {/* Start time */}
+            <input
+              type="time"
+              value={startOf(block)}
+              onChange={e => update(i, 'startTime', e.target.value)}
+              className="w-28 shrink-0 rounded-md border border-input bg-transparent px-2 py-1.5 text-sm font-mono shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            />
 
-          {/* Label + notes */}
-          <div className="flex-1 space-y-1">
+            <span className="text-muted-foreground text-xs shrink-0">–</span>
+
+            {/* End time */}
+            <input
+              type="time"
+              value={block.endTime ?? ''}
+              onChange={e => update(i, 'endTime', e.target.value)}
+              className="w-24 shrink-0 rounded-md border border-input bg-transparent px-2 py-1.5 text-sm font-mono shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+
+            {/* Label */}
             <input
               placeholder="Block description…"
               value={block.label}
               onChange={e => update(i, 'label', e.target.value)}
-              className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="flex-1 rounded-md border border-input bg-transparent px-2 py-1.5 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             />
+
+            {/* Who's needed */}
             <input
-              placeholder="Notes (optional)"
-              value={block.notes ?? ''}
-              onChange={e => update(i, 'notes', e.target.value)}
-              className="w-full bg-transparent px-2 py-0.5 text-xs text-muted-foreground placeholder:text-muted-foreground/50 focus:outline-none border-b border-transparent focus:border-input"
+              placeholder="Who&apos;s needed…"
+              value={block.whoNeeded ?? ''}
+              onChange={e => update(i, 'whoNeeded', e.target.value)}
+              className="flex-1 rounded-md border border-input bg-transparent px-2 py-1.5 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             />
+
+            {/* Remove */}
+            <button type="button" onClick={() => remove(i)}
+              className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 group-hover/block:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-all">
+              <X className="h-3.5 w-3.5" />
+            </button>
           </div>
 
-          {/* Remove */}
-          <button
-            type="button"
-            onClick={() => remove(i)}
-            className="mt-1.5 rounded p-0.5 text-muted-foreground opacity-0 group-hover/block:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-all"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
+          {/* Notes sub-row */}
+          <input
+            placeholder="Notes (optional)"
+            value={block.notes ?? ''}
+            onChange={e => update(i, 'notes', e.target.value)}
+            className="w-full bg-transparent pl-8 px-2 py-0.5 text-xs text-muted-foreground placeholder:text-muted-foreground/50 focus:outline-none border-b border-transparent focus:border-input"
+          />
         </div>
       ))}
 
-      <button
-        type="button"
-        onClick={add}
-        className="flex items-center gap-1.5 text-xs font-medium text-violet-600 hover:text-violet-800 transition-colors pt-1"
-      >
+      <button type="button" onClick={add}
+        className="flex items-center gap-1.5 text-xs font-medium text-violet-600 hover:text-violet-800 transition-colors pt-1">
         <Plus className="h-3.5 w-3.5" />
         Add block
       </button>
