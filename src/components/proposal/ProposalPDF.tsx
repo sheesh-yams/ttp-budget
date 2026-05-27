@@ -87,7 +87,7 @@ const s = StyleSheet.create({
   coverLabel: { fontSize: 8, color: MINT, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 8, fontFamily: 'Helvetica-Bold' },
   coverTitle: { fontSize: 22, fontFamily: 'Helvetica-Bold', color: '#fff', lineHeight: 1.15, marginBottom: 10 },
   coverDesc:  { fontSize: 10.5, color: 'rgba(255,255,255,0.55)', lineHeight: 1.6, maxWidth: 400, marginBottom: 18 },
-  coverMeta:  { flexDirection: 'row', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)', paddingTop: 12 },
+  coverMeta:  { flexDirection: 'row', borderTopWidth: 1, borderTopColor: MINT, paddingTop: 12 },
   metaGroup:  { flexDirection: 'row', gap: 28 },
   metaItem:   { marginRight: 28 },
   metaLabel:  { fontSize: 7, color: 'rgba(255,255,255,0.35)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 3 },

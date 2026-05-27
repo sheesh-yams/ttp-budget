@@ -232,7 +232,7 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
           </h1>
           {aboutBody && (
             <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 14, lineHeight: 1.6, maxWidth: 560, margin: '0 0 28px' }}>
-              {aboutBody.length > 160 ? aboutBody.slice(0, 160) + '…' : aboutBody}
+              {aboutBody}
             </p>
           )}
 
