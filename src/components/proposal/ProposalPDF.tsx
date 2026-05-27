@@ -79,7 +79,7 @@ const s = StyleSheet.create({
   // ── Cover (compact) ─────────────────────────────────────────────────────────
   cover:    { backgroundColor: INK, padding: '22 48 18 48' },
   coverTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  logoImg:  { height: 22 },
+  logoImg:  { height: 22, width: 104 },
   logoBox:  { flexDirection: 'row', alignItems: 'center' },
   logoMark: { width: 14, height: 14, borderRadius: 2, backgroundColor: MINT, marginRight: 5, justifyContent: 'center', alignItems: 'center' },
   logoT:    { fontSize: 7, fontFamily: 'Helvetica-Bold', color: '#003D31' },
@@ -93,7 +93,7 @@ const s = StyleSheet.create({
 
   // Total — displayed above the metadata strip
   coverTotalLabel: { fontSize: 7, color: 'rgba(255,255,255,0.4)', letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 4, fontFamily: 'Helvetica-Bold' },
-  coverTotalAmt:   { fontSize: 26, fontFamily: 'Helvetica-Bold', color: '#fff', letterSpacing: '-0.02em', marginBottom: 16 },
+  coverTotalAmt:   { fontSize: 26, fontFamily: 'Helvetica-Bold', color: '#fff', marginBottom: 16 },
 
   // Metadata strip — shoot dates / client / type / valid through
   coverMeta:  { flexDirection: 'row', gap: 28, flexWrap: 'wrap', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.12)', paddingTop: 14 },

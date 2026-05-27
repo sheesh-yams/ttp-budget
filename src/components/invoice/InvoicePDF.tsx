@@ -86,7 +86,7 @@ const s = StyleSheet.create({
   // ── Header (compact) ──────────────────────────────────────────────────────
   cover:    { backgroundColor: INK, padding: '22 48 18 48' },
   coverTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  logoImg:  { height: 22 },
+  logoImg:  { height: 22, width: 104 },
   // fallback text logo when no image
   logoBox:  { flexDirection: 'row', alignItems: 'center' },
   logoMark: { width: 14, height: 14, borderRadius: 2, backgroundColor: MINT, marginRight: 5, justifyContent: 'center', alignItems: 'center' },
