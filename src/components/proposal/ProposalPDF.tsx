@@ -21,7 +21,7 @@ Font.registerHyphenationCallback((w) => [w])
 
 interface LineItem {
   id: string; description: string; quantity: number; unit: string;
-  rateCents: number; markupPct: number | null;
+  rateCents: number; markupPct: number | null; quantityFormula?: string | null;
 }
 interface Account {
   id: string; name: string; code: string | null;
@@ -313,7 +313,7 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
                       return (
                         <View key={item.id} style={[s.budgetRow, last && isLast ? s.budgetLast : {}]}>
                           <Text style={[s.col1, s.lineDesc]}>{item.description}</Text>
-                          <Text style={[s.colSm, s.lineVal]}>{item.quantity}</Text>
+                          <Text style={[s.colSm, s.lineVal]}>{item.quantityFormula?.match(/^\d+(?:\.\d+)?[x×]\d+(?:\.\d+)?$/) ? item.quantityFormula.replace('x', ' × ') : item.quantity}</Text>
                           <Text style={[s.colUnit, s.lineVal, { fontSize: 8 }]}>{item.unit.toUpperCase()}</Text>
                           <Text style={[s.colR, s.lineAmt]}>{formatMoney(tot)}</Text>
                         </View>
@@ -329,7 +329,7 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
                               <Text style={[s.lineDesc, { color: MUT, fontSize: 8.5, marginRight: 4 }]}>{child.name} · </Text>
                               <Text style={s.lineDesc}>{item.description}</Text>
                             </View>
-                            <Text style={[s.colSm, s.lineVal]}>{item.quantity}</Text>
+                            <Text style={[s.colSm, s.lineVal]}>{item.quantityFormula?.match(/^\d+(?:\.\d+)?[x×]\d+(?:\.\d+)?$/) ? item.quantityFormula.replace('x', ' × ') : item.quantity}</Text>
                             <Text style={[s.colUnit, s.lineVal, { fontSize: 8 }]}>{item.unit.toUpperCase()}</Text>
                             <Text style={[s.colR, s.lineAmt]}>{formatMoney(tot)}</Text>
                           </View>

@@ -64,6 +64,7 @@ interface SerialLineItem {
   rateCents: number
   markupPct: number | null
   notes: string | null
+  quantityFormula: string | null
 }
 
 interface SerialAccount {
@@ -390,7 +391,7 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
                               return (
                                 <tr key={item.id} style={{ borderBottom: `0.5px solid ${BORDER}` }}>
                                   <td style={{ padding: '10px 16px 10px 44px', fontSize: 13, color: BODY }}>{item.description}</td>
-                                  <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 13, color: MUTED, fontVariantNumeric: 'tabular-nums' }}>{Number(item.quantity)}</td>
+                                  <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 13, color: MUTED, fontVariantNumeric: 'tabular-nums' }}>{item.quantityFormula?.match(/^\d+(?:\.\d+)?[x×]\d+(?:\.\d+)?$/) ? item.quantityFormula.replace('x', ' × ') : Number(item.quantity)}</td>
                                   <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 11, color: MUTED, textTransform: 'uppercase' }}>{item.unit}</td>
                                   <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 13, fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: BODY }}>{formatMoney(tot)}</td>
                                 </tr>
@@ -405,7 +406,7 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
                                       <span style={{ color: MUTED, fontSize: 11, marginRight: 6 }}>{child.name} ·</span>
                                       {item.description}
                                     </td>
-                                    <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 13, color: MUTED, fontVariantNumeric: 'tabular-nums' }}>{Number(item.quantity)}</td>
+                                    <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 13, color: MUTED, fontVariantNumeric: 'tabular-nums' }}>{item.quantityFormula?.match(/^\d+(?:\.\d+)?[x×]\d+(?:\.\d+)?$/) ? item.quantityFormula.replace('x', ' × ') : Number(item.quantity)}</td>
                                     <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 11, color: MUTED, textTransform: 'uppercase' }}>{item.unit}</td>
                                     <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 13, fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: BODY }}>{formatMoney(tot)}</td>
                                   </tr>

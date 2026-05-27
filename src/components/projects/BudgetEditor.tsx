@@ -604,11 +604,14 @@ function AccountRows({
 
   // ── Item inline edit ──────────────────────────────────────────────────────
   function startEditItem(item: LineItemRow) {
+    // Restore A × B from saved formula (e.g. "3x2" → quantity:"3", days:"2")
+    const formula = item.quantityFormula
+    const match   = formula?.match(/^(\d+(?:\.\d+)?)[x×](\d+(?:\.\d+)?)$/)
     setEditState({
       item,
       description: item.description,
-      quantity:    String(Number(item.quantity)),
-      days:        '1',
+      quantity:    match ? match[1] : String(Number(item.quantity)),
+      days:        match ? match[2] : '1',
       unit:        item.unit,
       rate:        centsToRate(item.rateCents),
       notes:       item.notes ?? '',
@@ -618,20 +621,23 @@ function AccountRows({
   function saveEditItem() {
     if (!editState) return
     const perUnit   = parseFloat(editState.quantity)
-    const days      = Math.max(1, parseInt(editState.days) || 1)
+    const daysVal   = Math.max(1, parseInt(editState.days) || 1)
     const baseQty   = isNaN(perUnit) || perUnit <= 0 ? Number(editState.item.quantity) : perUnit
-    const quantity  = baseQty * days
+    const quantity  = baseQty * daysVal
     const rateCents = rateToCents(editState.rate)
+    // Persist formula so re-opening shows A × B, not (A*B) × 1
+    const quantityFormula = daysVal > 1 ? `${baseQty}x${daysVal}` : null
     startTransition(async () => {
       await upsertLineItem(editState.item.id, {
-        accountId:   account.id,
-        description: editState.description.trim() || editState.item.description,
+        accountId:       account.id,
+        description:     editState.description.trim() || editState.item.description,
         quantity,
-        unit:        editState.unit,
-        rateCents:   isNaN(rateCents) ? editState.item.rateCents : rateCents,
-        rateCardId:  editState.item.rateCardId ?? null,
-        markupPct:   editState.item.markupPct ? Number(editState.item.markupPct) : null,
-        notes:       editState.notes.trim() || null,
+        unit:            editState.unit,
+        rateCents:       isNaN(rateCents) ? editState.item.rateCents : rateCents,
+        rateCardId:      editState.item.rateCardId ?? null,
+        markupPct:       editState.item.markupPct ? Number(editState.item.markupPct) : null,
+        notes:           editState.notes.trim() || null,
+        quantityFormula,
       })
       setEditState(null)
       onMutated()
@@ -814,7 +820,7 @@ function AccountRows({
               {isEditing ? (
                 <input
                   autoFocus
-                  className="w-full rounded border border-border bg-background px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+                  className="w-full max-w-lg rounded border border-border bg-background px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-primary/40"
                   value={es!.description}
                   onChange={e => setEditState(s => s && { ...s, description: e.target.value })}
                   onKeyDown={e => { if (e.key === 'Escape') setEditState(null) }}
@@ -830,13 +836,13 @@ function AccountRows({
             </td>
 
             {/* Qty (× Days in edit mode) */}
-            <td className="px-3 py-1.5 text-right">
+            <td className="px-2 py-1.5 text-right">
               {isEditing ? (
                 <div className="flex items-center justify-end gap-1">
                   <input
                     type="number" min="0" step="0.5"
                     title="Quantity per unit (e.g. # of people)"
-                    className="w-10 rounded border border-border bg-background px-1 py-1 text-right text-sm tabular outline-none focus:ring-1 focus:ring-primary/40"
+                    className="w-14 rounded border border-border bg-background px-1 py-1 text-right text-sm tabular outline-none focus:ring-1 focus:ring-primary/40"
                     value={es!.quantity}
                     onChange={e => setEditState(s => s && { ...s, quantity: e.target.value })}
                     onKeyDown={e => { if (e.key === 'Escape') setEditState(null) }}
@@ -845,14 +851,18 @@ function AccountRows({
                   <input
                     type="number" min="1" step="1"
                     title="Days on set"
-                    className="w-8 rounded border border-border bg-background px-1 py-1 text-right text-sm tabular outline-none focus:ring-1 focus:ring-primary/40"
+                    className="w-12 rounded border border-border bg-background px-1 py-1 text-right text-sm tabular outline-none focus:ring-1 focus:ring-primary/40"
                     value={es!.days}
                     onChange={e => setEditState(s => s && { ...s, days: e.target.value })}
                     onKeyDown={e => { if (e.key === 'Escape') setEditState(null) }}
                   />
                 </div>
               ) : (
-                <span className="tabular text-foreground/70">{Number(item.quantity)}</span>
+                <span className="tabular text-foreground/70">
+                  {item.quantityFormula?.match(/^\d+(?:\.\d+)?[x×]\d+(?:\.\d+)?$/)
+                    ? item.quantityFormula.replace('x', ' × ')
+                    : Number(item.quantity)}
+                </span>
               )}
             </td>
 
