@@ -74,24 +74,22 @@ const s = StyleSheet.create({
   page:     { fontFamily: 'Helvetica', fontSize: 10, color: BODY, backgroundColor: '#fff', paddingBottom: 56 },
 
   // Cover
-  cover:    { backgroundColor: INK, padding: '40 48 36 48', minHeight: 220 },
-  coverTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 },
+  cover:    { backgroundColor: INK, padding: '24 48 20 48', minHeight: 180 },
+  coverTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 },
   logoBox:  { flexDirection: 'row', alignItems: 'center' },
   logoMark: { width: 18, height: 18, borderRadius: 3, backgroundColor: MINT, marginRight: 6, justifyContent: 'center', alignItems: 'center' },
   logoT:    { fontSize: 9, fontFamily: 'Helvetica-Bold', color: '#003D31' },
   logoName: { fontSize: 9, fontFamily: 'Helvetica-Bold', color: '#fff', letterSpacing: 1.5 },
   logoCreative: { fontSize: 9, fontFamily: 'Helvetica-Bold', color: MINT },
   propNum:  { fontSize: 8, color: 'rgba(255,255,255,0.35)', letterSpacing: 1.2 },
-  coverLabel: { fontSize: 8, color: MINT, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 10, fontFamily: 'Helvetica-Bold' },
-  coverTitle: { fontSize: 28, fontFamily: 'Helvetica-Bold', color: '#fff', lineHeight: 1.15, marginBottom: 12 },
-  coverDesc:  { fontSize: 11, color: 'rgba(255,255,255,0.55)', lineHeight: 1.6, maxWidth: 400, marginBottom: 28 },
-  coverMeta:  { flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)', paddingTop: 16 },
-  metaGroup:  { flexDirection: 'row', gap: 32 },
-  metaItem:   { marginRight: 32 },
+  coverLabel: { fontSize: 8, color: MINT, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 8, fontFamily: 'Helvetica-Bold' },
+  coverTitle: { fontSize: 22, fontFamily: 'Helvetica-Bold', color: '#fff', lineHeight: 1.15, marginBottom: 10 },
+  coverDesc:  { fontSize: 10.5, color: 'rgba(255,255,255,0.55)', lineHeight: 1.6, maxWidth: 400, marginBottom: 18 },
+  coverMeta:  { flexDirection: 'row', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)', paddingTop: 12 },
+  metaGroup:  { flexDirection: 'row', gap: 28 },
+  metaItem:   { marginRight: 28 },
   metaLabel:  { fontSize: 7, color: 'rgba(255,255,255,0.35)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 3 },
-  metaValue:  { fontSize: 11, fontFamily: 'Helvetica-Bold', color: '#fff' },
-  totalLabel: { fontSize: 7, color: MINT, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 3, textAlign: 'right', fontFamily: 'Helvetica-Bold' },
-  totalValue: { fontSize: 22, fontFamily: 'Helvetica-Bold', color: '#fff', textAlign: 'right' },
+  metaValue:  { fontSize: 10, fontFamily: 'Helvetica-Bold', color: '#fff' },
 
   // Body sections
   section:     { padding: '32 48' },
@@ -126,9 +124,9 @@ const s = StyleSheet.create({
   subtotalRow: { flexDirection: 'row', justifyContent: 'space-between', padding: '9 16', borderBottomWidth: 0.5, borderBottomColor: BDR, backgroundColor: '#fff' },
   subtotalLbl: { fontSize: 10, color: MUT },
   subtotalVal: { fontSize: 10, color: BODY },
-  totalBar:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: '14 20', backgroundColor: INK, borderBottomLeftRadius: 8, borderBottomRightRadius: 8 },
-  totalBarLbl: { fontSize: 8, fontFamily: 'Helvetica-Bold', color: MINT, letterSpacing: 1.5, textTransform: 'uppercase' },
-  totalBarVal: { fontSize: 20, fontFamily: 'Helvetica-Bold', color: '#fff' },
+  totalBar:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: '14 20', backgroundColor: MINT, borderBottomLeftRadius: 8, borderBottomRightRadius: 8 },
+  totalBarLbl: { fontSize: 8, fontFamily: 'Helvetica-Bold', color: INK, letterSpacing: 1.5, textTransform: 'uppercase' },
+  totalBarVal: { fontSize: 20, fontFamily: 'Helvetica-Bold', color: INK },
 
   // Payment terms
   milestoneGrid: { flexDirection: 'row', gap: 12 },
@@ -246,12 +244,6 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
                 </View>
               )}
             </View>
-            {totalCents > 0 && (
-              <View>
-                <Text style={s.totalLabel}>Total</Text>
-                <Text style={s.totalValue}>{formatMoney(totalCents)}</Text>
-              </View>
-            )}
           </View>
         </View>
 
