@@ -38,6 +38,15 @@ export async function importCrewFromBudget(
       (await db.phase.findFirst({ where: { budgetId }, orderBy: { order: 'asc' } }))
     if (!phase) return { success: false, error: 'Budget has no phases' }
 
+    // CREW filter: matches items explicitly categorised as CREW, OR items created
+    // before the lineItemCategory migration whose rate card is CREW/TALENT.
+    const crewWhere = {
+      OR: [
+        { lineItemCategory: 'CREW' },
+        { lineItemCategory: null, rateCard: { category: { in: ['CREW', 'TALENT'] } } },
+      ],
+    } as Prisma.LineItemWhereInput
+
     // Fetch all top-level accounts with their CREW line items
     const accounts = await db.account.findMany({
       where: { phaseId: phase.id, parentId: null },
@@ -45,7 +54,7 @@ export async function importCrewFromBudget(
       select: {
         name: true,
         lineItems: {
-          where: { lineItemCategory: 'CREW' } as Prisma.LineItemWhereInput,
+          where: crewWhere,
           orderBy: { order: 'asc' },
           select: { description: true, quantity: true },
         },
@@ -54,7 +63,7 @@ export async function importCrewFromBudget(
           select: {
             name: true,
             lineItems: {
-              where: { lineItemCategory: 'CREW' } as Prisma.LineItemWhereInput,
+              where: crewWhere,
               orderBy: { order: 'asc' },
               select: { description: true, quantity: true },
             },
