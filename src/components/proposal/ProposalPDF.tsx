@@ -58,10 +58,18 @@ const SHOOT_LABELS: Record<string, string> = {
   SOCIAL_CONTENT: 'Social Content', INFLUENCER: 'Influencer',
   DOCUMENTARY: 'Documentary', OTHER: 'Other',
 }
-const MILESTONE_LABELS: Record<string, string> = {
-  on_signing: 'Due on signing', on_shoot_day: 'Due on shoot day',
-  on_delivery: 'Due on delivery', net_30: 'Net 30 from invoice',
-  net_60: 'Net 60 from invoice', net_90: 'Net 90 from invoice',
+function milestoneLabelPdf(m: PaymentMilestone, shootStartDate: string | null): string {
+  if (m.trigger === 'custom_date') {
+    return m.customDate ? `Due ${fmtDate(m.customDate)}` : 'Custom date'
+  }
+  if (m.trigger === 'on_shoot_day') {
+    return shootStartDate ? `Due ${fmtDate(shootStartDate)}` : 'Due on shoot day'
+  }
+  const LABELS: Record<string, string> = {
+    on_signing: 'Due on signing', on_delivery: 'Due on delivery',
+    net_30: 'Net 30 from invoice', net_60: 'Net 60 from invoice', net_90: 'Net 90 from invoice',
+  }
+  return LABELS[m.trigger] ?? m.trigger
 }
 
 function fmtDate(d: string | null) {
@@ -381,7 +389,7 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
                   <Text style={s.milestoneNum}>Payment {String(i + 1).padStart(2, '0')}</Text>
                   <Text style={s.milestonePct}>{m.percentPct}%</Text>
                   <Text style={s.milestoneName}>{m.name}</Text>
-                  <Text style={s.milestoneTrig}>{MILESTONE_LABELS[m.trigger] ?? m.trigger}</Text>
+                  <Text style={s.milestoneTrig}>{milestoneLabelPdf(m, proposal.project.shootStartDate)}</Text>
                   {totalCents > 0 && (
                     <Text style={s.milestoneAmt}>{formatMoney(Math.round(totalCents * m.percentPct / 100))}</Text>
                   )}

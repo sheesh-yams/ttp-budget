@@ -27,15 +27,25 @@ const SHOOT_LABELS: Record<string, string> = {
   DOCUMENTARY: 'Documentary', OTHER: 'Other',
 }
 
-const MILESTONE_LABELS: Record<string, string> = {
-  on_signing: 'Due on signing', on_shoot_day: 'Due on shoot day',
-  on_delivery: 'Due on delivery', net_30: 'Net 30 from invoice',
-  net_60: 'Net 60 from invoice', net_90: 'Net 90 from invoice',
-  custom_date: 'Custom date',
-}
-
 function fmt(d: Date | string) {
   return new Date(d).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+}
+
+function milestoneLabel(m: PaymentMilestone, shootStartDate: string | null): string {
+  if (m.trigger === 'custom_date') {
+    return m.customDate ? `Due ${fmt(m.customDate)}` : 'Custom date'
+  }
+  if (m.trigger === 'on_shoot_day') {
+    return shootStartDate ? `Due ${fmt(shootStartDate)}` : 'Due on shoot day'
+  }
+  const LABELS: Record<string, string> = {
+    on_signing:  'Due on signing',
+    on_delivery: 'Due on delivery',
+    net_30:      'Net 30 from invoice',
+    net_60:      'Net 60 from invoice',
+    net_90:      'Net 90 from invoice',
+  }
+  return LABELS[m.trigger] ?? m.trigger
 }
 
 // ─── Section header ───────────────────────────────────────────────────────────
@@ -490,7 +500,7 @@ export function ProposalPublicView({ proposal, accounts, totalCents, isDraft = f
                   </p>
                   <p style={{ fontSize: 15, fontWeight: 600, color: BODY, margin: '0 0 6px' }}>{m.name}</p>
                   <p style={{ fontSize: 13, color: MUTED, margin: '0 0 18px' }}>
-                    {MILESTONE_LABELS[m.trigger] ?? m.trigger}
+                    {milestoneLabel(m, project.shootStartDate)}
                   </p>
                   {totalCents > 0 && (
                     <p style={{ fontSize: 15, fontWeight: 700, color: V, fontVariantNumeric: 'tabular-nums', margin: 0 }}>
