@@ -1,8 +1,8 @@
 # The Third Place — Budget & Invoice Platform
 
-Internal tool for The Third Place Creative. Builds production budgets, sends sleek proposals to clients, and tracks invoices.
+Internal tool for The Third Place Creative. Builds production budgets, sends sleek proposals to clients, tracks invoices, and distributes call sheets to crew.
 
-Inspired by Saturation.io but stripped down to the parts that matter for an agency: **budgets → proposals → invoices**. No banking, no expense cards, no QuickBooks. Just the three core artifacts done extremely well.
+Inspired by Saturation.io but stripped down to the parts that matter for an agency: **budgets → proposals → invoices → call sheets**. No banking, no expense cards, no QuickBooks. Just the core production artifacts done extremely well.
 
 ## Stack
 
@@ -36,11 +36,19 @@ Workspace (1)
   │           │           └── Accounts (nested tree)
   │           │                 └── LineItems
   │           │                       ├── rateCents        (snapshot at insert)
+  │           │                       ├── lineItemCategory (CREW / TALENT / EQUIPMENT / …)
   │           │                       ├── hasMarkup        (opt-out of agency fee)
   │           │                       ├── taxRate          (per-item tax override)
-  │           │                       └── quantityFormula  (e.g. "shoot_days + 1" — A×B multiplier)
+  │           │                       └── quantityFormula  (A×B multiplier, e.g. "3x2" = 3 people × 2 days)
   │           ├── Proposals (public /p/[token] page + PDF)
-  │           └── Invoices  (public /i/[token] page + PDF)
+  │           ├── Invoices  (public /i/[token] page + PDF)
+  │           └── CallSheets (public /cs/[token] page)
+  │                 ├── crew          JSON — [{ dept, members: [{ name, role, callTime, phone, email }] }]
+  │                 ├── talent        JSON — [{ name, role, callTime, phone, email }]
+  │                 ├── schedule      JSON — [{ startTime, endTime, label, whoNeeded, notes }]
+  │                 ├── pointOfContact JSON — { name, title, phone, email }
+  │                 ├── weather       JSON — fetched from Open-Meteo
+  │                 └── hospitalInfo  JSON — nearest hospital fetched via geocoding
 ```
 
 Money is stored in **integer cents** everywhere. Percentages are `Decimal(6,4)` (0.2000 = 20%).
@@ -55,8 +63,9 @@ Rate cards are the **source of defaults** but never retroactively change histori
 | `/dashboard` | Outstanding invoices, recent projects, draft proposals |
 | `/clients` | Client list |
 | `/clients/[id]` | Client detail + project history |
-| `/projects/[id]` | Project hub — budgets, proposals, invoices, proposal overview |
+| `/projects/[id]` | Project hub — budgets, proposals, invoices, call sheets, proposal overview |
 | `/projects/[id]/budgets/[budgetId]` | Spreadsheet-like budget editor |
+| `/projects/[id]/call-sheets/[csId]` | Call sheet editor |
 | `/proposals` | All proposals — Kanban view + full list table |
 | `/invoices` | Invoice list with metrics |
 | `/invoices/[id]/edit` | Invoice editor |
@@ -68,10 +77,11 @@ Rate cards are the **source of defaults** but never retroactively change histori
 ### Public (no auth, tokenized)
 | Route | Description |
 |-------|-------------|
-| `/p/[token]` | Branded proposal — approve, download PDF, request changes |
+| `/p/[token]` | Branded proposal — approve, download PDF, request changes. DRAFT status renders a preview banner instead of 404. |
 | `/i/[token]` | Branded invoice — wire/ACH details, download PDF |
+| `/cs/[token]` | Call sheet for crew — desktop 2-col layout, mobile single-column. DRAFT shows a preview banner. |
 
-## The Three Core Artifacts
+## The Four Core Artifacts
 
 ### 1. Budget editor (`/projects/[id]/budgets/[budgetId]`)
 
@@ -80,44 +90,41 @@ A table-based editor with account groups (collapsible) and line items. Supports 
 Key behaviours:
 - **Add account** via prompt or bulk import
 - **Add line item** via modal — description, qty, unit, rate
-- **A×B quantity formula** — line items can carry a `quantityFormula` string (e.g. `shoot_days + 1`) evaluated against `budget.globals`; displayed as `A×B` in the editor, web view, and PDF
+- **QTY × Unit display** — line items show headcount (QTY, dimmed if 1) and unit period (e.g. "2 Days", "Week", "Flat") as separate columns. Stored as `quantityFormula = "3x2"` (A people × B days). Consistent across editor, web proposal, and PDF.
 - **Insert package** — pulls in a saved template package (add-on accounts + line items) into any phase
-- **Bulk import** — drag-and-drop a `.csv` or `.json` file; preview grouped line items before committing (see [Import Format](#bulk-import-format))
+- **Bulk import** — drag-and-drop a `.csv` or `.json` file; preview grouped line items before committing
 - **Inline editing** — click any cell in the budget table to edit in place; drag handles for reordering accounts
 - **Cross-account drag** — drag line items between account sections
 - **Delete account** — removes account and all children; auto-renumbers codes
-- **Per-item markup & tax** — each line item can override the budget-level markup (`markupPct`) or tax (`taxRate`), or opt out of the agency fee entirely (`hasMarkup: false`)
-- **Sticky summary bar** — fixed at the bottom of the viewport, always visible:
-  - Net Subtotal (raw line totals)
-  - Markups & Taxes (per-item `markupPct` + `taxRate` overrides)
-  - Agency Fee & Tax (budget-level `markupPct` + `taxPct`)
-  - Grand Total
+- **Per-item markup & tax** — each line item can override the budget-level markup or tax, or opt out of the agency fee entirely
+- **Sticky summary bar** — fixed at the bottom: Net Subtotal, Markups & Taxes, Agency Fee & Tax, Grand Total
+- **Line item categories** — each item carries a `lineItemCategory` (CREW, TALENT, EQUIPMENT, etc.) used by call sheet crew import
 
-Budget-level markup (`markupPct`) and tax (`taxPct`) are set on the budget record itself and editable directly from the summary bar.
-
-**Phase versioning** — each budget can have multiple phases (tabs). Actions available per phase:
+**Phase versioning** — each budget can have multiple phases (tabs):
 - Rename, duplicate (copies all accounts + line items), make primary, delete
-- The primary phase is the one used by default for proposals and invoices
+- The primary phase is used by default for proposals and invoices
 
 ### 2. Proposal builder + dual render (web + PDF)
 
-**Proposal Overview** (on the project page) — a dedicated section below the proposals list where you fill in the project description and deliverables. These live on the `Phase` record (not the proposal), so they travel with the budget version you choose to send.
+**Proposal Overview** (on the project page) — a dedicated section where you fill in the project description and deliverables. These live on the `Phase` record, so they travel with the budget version you choose to send.
 
-The proposal itself is JSON in `Proposal.content`. A shared set of React components renders in both `@react-pdf/renderer` (PDF) and regular JSX (web view at `/p/[token]`), switching primitives via a `target: "web" | "pdf"` prop.
+**Payment schedule** — flexible multi-payment terms set in the proposal modal:
+- Default: 2 payments (50% on signing, 50% on delivery)
+- Add/remove payments freely
+- Each payment has a trigger: On signing, On shoot day, On delivery, Net 30/60/90, or Custom date
+- Amount can be entered as a **percentage** or a **fixed dollar amount** (toggle per row) — dollar amounts auto-convert to percentages before saving
+- Pre-fills from previous proposal versions
+- Running total indicator; save/send blocked if payments don't sum to 100%
 
-Brand tokens (colors, fonts, logo) come from `Workspace` settings, overridable per-proposal via `Proposal.brandOverrides`.
+**Draft preview** — "Save Draft" stores the proposal and shows a "Preview draft" button. The public `/p/[token]` URL works for drafts too, with a sticky amber "Draft Preview" banner at the top and the sign-off section hidden.
 
-Default sections: Cover, About, Scope/Deliverables, Budget (summary or itemized), Terms. Each section is optional.
+**Status lifecycle:** `DRAFT → SENT → VIEWED → CHANGES_NEEDED → SENT → …` or `APPROVED`, `LOST`, `EXPIRED`.
 
-**Approval flow:** client types their name → `signatureName`, `signatureIp`, `approvedAt`, and `approvedTotalCents` are recorded → Resend email fires to you → public page flips into an approved state with the typed signature in script font.
+**Version auto-increment** — each new proposal for a project increments the `version` counter. The Kanban shows only the latest sent version per thread.
 
-**Status lifecycle:** `DRAFT → SENT → VIEWED → CHANGES_NEEDED → SENT → …` or `APPROVED`, `LOST`, `EXPIRED` (expired proposals auto-routed to closed column in Kanban).
+**Proposals Kanban** (`/proposals`): CRM-style drag-and-drop board — DRAFTS | SENT | VIEWED | CHANGES NEEDED | WON | LOST. Lost column hidden by default. Drag cards to update status.
 
-**Version auto-increment** — each time a new proposal is sent for a project, the `version` counter increments automatically. The Kanban shows only the latest sent version per proposal thread.
-
-**Proposals Kanban** (`/proposals`): CRM-style drag-and-drop board with columns DRAFTS | SENT | VIEWED | CHANGES NEEDED | WON | LOST. Lost column is hidden by default and revealed via toggle. Drag cards between columns to update status; use the status dropdown pill on each card for quick changes. Full proposal list table below the board.
-
-**PDF design** — compact header with workspace logo, MINT accent bar on the cover with the total, budget totals pinned to bottom of the budget page, payment terms inline on the final page.
+**Approval flow:** client types their name → `signatureName`, `signatureIp`, `approvedAt`, and `approvedTotalCents` recorded → Resend email fires → public page flips to approved state with the typed signature in script font.
 
 ### 3. Invoice generation & status tracking
 
@@ -127,28 +134,43 @@ Invoices can be:
 
 Numbering: `TTP-2026-001` — auto-incrementing per year, counter stored on `Workspace`.
 
-**Status auto-flips:** `SENT → VIEWED` on first public page open. `PAID` is set manually (click "Mark as paid", record method + reference). Overdue detection via `dueDate`.
+**Status auto-flips:** `SENT → VIEWED` on first public page open. `PAID` is set manually. Overdue detection via `dueDate`.
 
-Public invoice page shows wire/ACH details from workspace settings, big total, due date, and "Download PDF".
+### 4. Call sheets (`/projects/[id]/call-sheets/[csId]`)
 
-**PDF design** — compact header with workspace logo, MINT accent bar, row numbers, totals pinned to the bottom.
+Day-of documents distributed to the full crew and talent via a secret token URL.
+
+**Editor sections:**
+- **Shoot Info** — date, general call time, point of contact (name, title, phone, email)
+- **Client Contacts** — auto-populated from the project's Client record (read-only)
+- **Location** — name, address, parking, entry notes. "Fetch weather & hospital" button auto-populates forecast (Open-Meteo) and nearest hospital (geocoding)
+- **Schedule** — time blocks with start + end time, description, "who's needed", and optional notes. Drag handles to reorder.
+- **Talent** — flat list (name, role/character, call time, phone, email)
+- **Crew** — grouped by department (name, role, call time, phone, email). Collapsible dept sections.
+  - **Import from budget** — pulls CREW/TALENT line items from the primary budget phase; uses the A value from `quantityFormula` as headcount (e.g. "3x2" → 3 crew slots)
+- **Logistics** — catering/craft services info, additional notes
+
+**Status lifecycle:** `DRAFT → SENT → FINAL`. Finalized call sheets are locked. Reopening returns to DRAFT.
+
+**Draft preview** — the Preview button in the editor opens the public crew view in a new tab with a "Draft Preview" banner. View analytics are skipped for drafts.
+
+**Public crew view (`/cs/[token]`):**
+- Desktop: 2-column layout — left (weather, location, POC, client contacts, hospital) + right (schedule, talent, crew by dept, catering, notes)
+- Mobile: single-column stack
+- Phone/email shown as tappable links throughout
+- Schedule shows `startTime – endTime` and "Who:" per block
 
 ## Budget Templates (`/templates`)
 
 Two template kinds:
-- **Full Template** — seeds an entire project budget (all accounts + line items). Used when creating a budget from scratch.
-- **Add-on Package** — a building block inserted into any existing budget phase via "Insert package". Good for recurring crew packages, equipment packages, post bundles, etc.
+- **Full Template** — seeds an entire project budget (all accounts + line items)
+- **Add-on Package** — a building block inserted into any existing budget phase via "Insert package"
 
-Templates are tagged by shoot type (Music Video, Brand Campaign, Product Shoot, etc.) with a primary type and optional additional tags. The template detail page has a structure editor for managing accounts and line items within the JSON `structure` field, plus bulk import support.
+Templates are tagged by shoot type with a primary type and optional additional tags. The template detail page has a structure editor plus bulk import support.
 
 ## Bulk Import Format
 
-Both budgets and templates accept `.csv` or `.json` import files. A pre-formatted Google Sheets-compatible template lives at `ttp-budget-import-template.xlsx` in the repo root — open it in Google Sheets, fill it in, then export as CSV.
-
-**Entry points:**
-- Budget editor → Import button (bottom toolbar or empty state)
-- Templates list → Import button (header or empty state) — creates a new template and populates it in one shot
-- Template detail → Import button (info card header) — merges into an existing template
+Both budgets and templates accept `.csv` or `.json` import files.
 
 **CSV columns:**
 
@@ -158,25 +180,14 @@ Both budgets and templates accept `.csv` or `.json` import files. A pre-formatte
 | `description` | — | Line item label. Falls back to `accountName` if blank |
 | `qty` | — | Quantity, decimals allowed (default: 1) |
 | `unit` | — | Hour / Half Day / Day / Week / Flat / Each / Mile (default: Flat) |
-| `rate` | ✓* | Rate in **dollars** — `1500` for $1,500/day. Auto-converted to cents |
+| `rate` | ✓* | Rate in **dollars** — `1500` for $1,500/day |
 | `rateCents` | ✓* | Rate in cents (legacy) — `150000` for $1,500/day |
 | `markupPct` | — | Per-item markup as decimal — 10% → `0.10` |
 | `hasMarkup` | — | `true`/`false` — whether agency fee applies (default: true) |
 | `taxRate` | — | Per-item tax as decimal — 8.75% → `0.0875` |
 | `notes` | — | Internal note shown next to the description |
 
-*Provide either `rate` (dollars, preferred) or `rateCents` (cents, legacy) — not both.
-
-**JSON format:** array of objects using the same field names.
-
-**Parser behaviour:**
-- Scans the first 5 rows to find the actual header row — safely ignores title rows, subtitle rows, and instruction rows exported from Google Sheets
-- Strips `*`, `($)`, spaces and other decoration from column names (`accountName *` → `accountName`)
-- Skips description/hint rows that follow the header (detected by checking whether the rate column contains a non-numeric string)
-- Filters out blank trailing rows
-- Trims all cell values before validation
-
-The import modal shows a grouped preview of all accounts and line items before writing anything to the database. Existing accounts are extended (not duplicated); new accounts are appended in order.
+*Provide either `rate` (preferred) or `rateCents` — not both.
 
 ## File Structure
 
@@ -186,58 +197,63 @@ ttp-budget/
 │   └── schema.prisma
 ├── src/
 │   ├── app/
-│   │   ├── (auth)/                        # Clerk-protected admin app
+│   │   ├── (auth)/
 │   │   │   ├── dashboard/
 │   │   │   ├── clients/[id]/
-│   │   │   ├── projects/[id]/             # Project hub (budget + proposals + invoices + overview)
+│   │   │   ├── projects/[id]/
+│   │   │   │   ├── call-sheets/[csId]/      # Call sheet editor page
 │   │   │   │   └── budgets/[budgetId]/
-│   │   │   ├── proposals/                 # Kanban + list table
+│   │   │   ├── proposals/
 │   │   │   ├── invoices/
-│   │   │   ├── invoices/[id]/edit/
 │   │   │   ├── rates/
-│   │   │   ├── templates/
 │   │   │   ├── templates/[id]/
 │   │   │   └── settings/
-│   │   ├── (public)/                      # Tokenized client pages
-│   │   │   ├── p/[token]/page.tsx
-│   │   │   └── i/[token]/page.tsx
+│   │   ├── (public)/
+│   │   │   ├── p/[token]/page.tsx           # Proposal public view (draft-aware)
+│   │   │   ├── i/[token]/page.tsx           # Invoice public view
+│   │   │   └── cs/[token]/page.tsx          # Call sheet public view (draft-aware)
 │   │   └── api/
 │   │       ├── pdf/proposal/[id]/
 │   │       ├── pdf/invoice/[id]/
 │   │       ├── proposals/[id]/approve/
 │   │       └── webhooks/clerk/
 │   ├── components/
-│   │   ├── ui/                            # shadcn primitives
+│   │   ├── ui/                              # shadcn primitives
 │   │   ├── budget/
-│   │   │   └── BulkImportModal.tsx        # drag-drop import, preview, success
+│   │   │   └── BulkImportModal.tsx
+│   │   ├── call-sheets/
+│   │   │   ├── CallSheetEditor.tsx          # Full call sheet editor with all sections
+│   │   │   ├── CrewEditor.tsx               # Dept-grouped crew table (name/role/call/phone/email)
+│   │   │   ├── TalentEditor.tsx             # Flat talent list
+│   │   │   ├── ScheduleEditor.tsx           # Time blocks with start/end/whoNeeded
+│   │   │   └── ProjectCallSheets.tsx        # Call sheets section on project page
 │   │   ├── proposals/
-│   │   │   └── ProposalsKanban.tsx        # HTML5 DnD Kanban + status select (Won/Lost split)
+│   │   │   └── ProposalsKanban.tsx
 │   │   ├── projects/
-│   │   │   ├── BudgetEditor.tsx           # phase tabs, account table, inline editing, drag handles
-│   │   │   ├── BudgetSummaryBar.tsx       # sticky bottom summary bar (subtotal, markup, tax, total)
-│   │   │   ├── AddLineItemModal.tsx
-│   │   │   ├── InsertPackageModal.tsx
+│   │   │   ├── BudgetEditor.tsx
+│   │   │   ├── BudgetSummaryBar.tsx
+│   │   │   ├── ProposalModal.tsx            # Create/edit/send proposals + payment schedule
 │   │   │   ├── ProjectProposals.tsx
 │   │   │   ├── ProjectInvoices.tsx
-│   │   │   └── ProposalOverview.tsx       # per-phase description + deliverables editor
-│   │   ├── templates/
-│   │   │   ├── TemplateDetailClient.tsx   # metadata + tags + bulk import
-│   │   │   └── TemplateStructureEditor.tsx
-│   │   ├── proposal/                      # shared web+PDF components
+│   │   │   └── ProposalOverview.tsx
+│   │   ├── proposal/
+│   │   │   ├── ProposalPublicView.tsx       # Web render (draft-aware, sign-off hidden for drafts)
+│   │   │   └── ProposalPDF.tsx
 │   │   └── invoice/
 │   ├── lib/
-│   │   ├── db.ts                          # Prisma client singleton
-│   │   ├── auth.ts                        # Clerk helpers (getCurrentUser)
-│   │   ├── money.ts                       # cents ↔ display helpers
-│   │   ├── totals.ts                      # budget/invoice math
-│   │   ├── importSchema.ts                # Zod schema + CSV parser + UNIT_MAP
+│   │   ├── db.ts
+│   │   ├── auth.ts
+│   │   ├── money.ts                         # cents ↔ display, parseQtyFormula, fmtUnit
+│   │   ├── totals.ts
+│   │   ├── importSchema.ts
 │   │   ├── invoice-numbering.ts
 │   │   └── email.ts
 │   └── server/
-│       └── actions/                       # Server actions (all auth-gated)
-│           ├── budgets.ts                 # includes updatePhaseOverview, reorderAccounts, deleteAccount
-│           ├── import.ts                  # importToBudget + importToTemplate
-│           ├── proposals.ts               # createDraftProposal, createSentProposal, sendDraftProposal, updateDraftProposal
+│       └── actions/
+│           ├── budgets.ts
+│           ├── call-sheets.ts               # CRUD + importCrewFromBudget + fetchLocationData
+│           ├── import.ts
+│           ├── proposals.ts                 # createDraft, createSent, send, update — all use milestones[]
 │           ├── invoices.ts
 │           ├── rates.ts
 │           ├── templates.ts
@@ -281,10 +297,12 @@ npx prisma generate
 ## Engineering Conventions
 
 - **Money:** always integer cents. Never floats. `$1,500 → 150000`.
-- **Percentages:** always decimals. `10% → 0.10`. Stored as `Decimal(6,4)`.
-- **Server actions:** every mutation goes through a `'use server'` action that calls `getCurrentUser()` first and verifies workspace ownership before touching any DB row.
+- **Percentages:** always decimals stored as `Decimal(6,4)`. Exception: `PaymentMilestone.percentPct` is stored as display percent (50 = 50%) in JSON.
+- **Server actions:** every mutation calls `getCurrentUser()` first and verifies workspace ownership before touching any DB row.
 - **Return type:** all actions return `ActionResult<T>` — `{ success: true; data: T } | { success: false; error: string }`.
-- **No `any`:** project ESLint does not include `@typescript-eslint` plugin. Never use `// eslint-disable-next-line @typescript-eslint/...` — it causes build failures. Use proper casts like `as Parameters<typeof db.model.method>[0]['data']['field']`.
-- **`router.refresh()`** after optimistic state mutations to sync server-rendered data.
-- **Schema changes:** `prisma db push` (no migrations folder). Run locally and Vercel runs `prisma generate` on deploy.
-- **Phase description/deliverables** live on the `Phase` model (not `Proposal`). This means the Proposal Overview is per-budget-version, not per-proposal-send — editing it updates the content for all future sends from that phase.
+- **ESLint:** the project does not include `@typescript-eslint` plugin. Never add `// eslint-disable-next-line @typescript-eslint/...` comments — they cause build failures. Use proper casts instead (`as unknown as T`).
+- **JSON fields:** all Prisma JSON field writes must go through `JSON.parse(JSON.stringify(value))` to avoid Decimal serialization issues.
+- **`router.refresh()`** syncs server-rendered data after mutations. For client state that needs to update immediately (e.g. crew list after import), update React state directly from the action's return value — don't rely solely on refresh.
+- **Schema changes:** `prisma db push` (no migrations folder). Run locally; Vercel runs `prisma generate` on deploy.
+- **Quantity formula:** `quantityFormula = "AxB"` encodes headcount (A) × days (B). Use `parseQtyFormula()` from `money.ts` everywhere it's displayed. `fmtUnit(days, unit)` formats the unit column ("2 Days", "Week", "Flat").
+- **Call sheet draft preview:** public `/cs/[token]` and `/p/[token]` both render for DRAFT status with a sticky amber banner. View analytics are skipped for drafts. The sign-off section is hidden on draft proposals.
