@@ -4,6 +4,9 @@ import { getCurrentUser } from '@/lib/auth'
 import { CallSheetEditor } from '@/components/call-sheets/CallSheetEditor'
 import type { CrewDept, ScheduleBlock, WeatherInfo, HospitalInfo, TalentMember, PointOfContact } from '@/server/actions/call-sheets'
 
+// Geocoding + Overpass + weather in sequence can take ~20s; extend the limit.
+export const maxDuration = 30
+
 export async function generateMetadata({
   params,
 }: {

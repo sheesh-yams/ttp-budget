@@ -1,8 +1,5 @@
 'use server'
 
-// Geocoding + Overpass + weather in sequence can take up to 20s; bump the limit.
-export const maxDuration = 30
-
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
