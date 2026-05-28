@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, ExternalLink, Clock, Send, FileText, Pencil, Receipt, CheckCircle, Trash2, TrendingDown } from 'lucide-react'
+import { Plus, ExternalLink, Eye, Clock, Send, FileText, Pencil, Receipt, CheckCircle, Trash2, TrendingDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ProposalModal, type ProposalModalMode } from './ProposalModal'
@@ -235,8 +235,18 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
                             <Receipt className="h-3.5 w-3.5" />
                           </button>
                         )}
-                        {/* Open public URL */}
-                        {p.status !== 'DRAFT' && (
+                        {/* Preview (draft) / Open (sent) */}
+                        {p.status === 'DRAFT' ? (
+                          <a
+                            href={`/p/${p.publicToken}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground inline-flex"
+                            title="Preview draft"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </a>
+                        ) : (
                           <a
                             href={`/p/${p.publicToken}`}
                             target="_blank"

@@ -130,7 +130,6 @@ export function ProposalModal({
       if (result.success && result.data) {
         setSuccessToken(result.data.publicToken)
         setIsDraft(true)
-        onDone()
       } else {
         setError(result.error ?? 'Something went wrong')
       }
@@ -144,12 +143,12 @@ export function ProposalModal({
         const updateResult = await updateDraftProposal(existing.id, baseInput())
         if (!updateResult.success) { setError((updateResult as { success: false; error: string }).error); return }
         const sendResult = await sendDraftProposal(existing.id)
-        if (sendResult.success) { setSuccessToken(existing.publicToken); setIsDraft(false); onDone() }
+        if (sendResult.success) { setSuccessToken(existing.publicToken); setIsDraft(false) }
         else { setError((sendResult as { success: false; error: string }).error) }
         return
       }
       const r = await createSentProposal(baseInput())
-      if (r.success) { setSuccessToken(r.data.publicToken); setIsDraft(false); onDone() }
+      if (r.success) { setSuccessToken(r.data.publicToken); setIsDraft(false) }
       else { setError((r as { success: false; error: string }).error) }
     })
   }
@@ -163,8 +162,14 @@ export function ProposalModal({
     setTimeout(() => setCopied(false), 2000)
   }
 
+  function handleClose(v: boolean) {
+    if (pending) return
+    if (!v && successToken) onDone()  // refresh parent after a successful save/send
+    onOpenChange(v)
+  }
+
   return (
-    <Dialog open={open} onOpenChange={v => { if (!pending) onOpenChange(v) }}>
+    <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle>
@@ -203,7 +208,7 @@ export function ProposalModal({
                 </Button>
               </>
             )}
-            <Button variant="outline" size="sm" className="w-full" onClick={() => onOpenChange(false)}>Done</Button>
+            <Button variant="outline" size="sm" className="w-full" onClick={() => handleClose(false)}>Done</Button>
           </div>
         ) : (
           <div className="grid gap-5 py-2">
