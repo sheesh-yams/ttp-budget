@@ -435,8 +435,16 @@ export async function fetchLocationData(id: string): Promise<ActionResult<{
     let lng = cs.locationLng
 
     if (!lat || !lng) {
+      // Strip suite/unit/floor before geocoding — Nominatim can't resolve them
+      // and they cause "address not found" errors for otherwise valid addresses.
+      const geocodeAddr = cs.locationAddress
+        .replace(/\b(suite|ste|apt|apartment|unit|floor|fl|room|rm|#)\.?\s*[\w-]+/gi, '')
+        .replace(/\s{2,}/g, ' ')
+        .replace(/,\s*,/g, ',')
+        .trim()
+
       const geoRes = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(cs.locationAddress)}`,
+        `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(geocodeAddr)}`,
         {
           headers: {
             'User-Agent': 'TTP-Budget/1.0 (budget.thethirdplace.co)',

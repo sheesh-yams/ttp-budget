@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label'
 import { CrewEditor } from './CrewEditor'
 import { ScheduleEditor } from './ScheduleEditor'
 import { TalentEditor } from './TalentEditor'
+import { AddressAutocomplete } from '@/components/ui/AddressAutocomplete'
 import {
   updateCallSheet,
   sendCallSheet,
@@ -503,12 +504,12 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="cs-locaddr">Full address</Label>
-                <Input
+                <AddressAutocomplete
                   id="cs-locaddr"
                   placeholder="1234 Main St, Los Angeles, CA 90001"
                   value={locationAddress}
                   disabled={isLocked}
-                  onChange={e => field(setLocationAddress)(e.target.value)}
+                  onChange={v => field(setLocationAddress)(v)}
                 />
               </div>
             </div>
