@@ -1,5 +1,8 @@
 'use server'
 
+// Geocoding + Overpass + weather in sequence can take up to 20s; bump the limit.
+export const maxDuration = 30
+
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
@@ -455,7 +458,7 @@ export async function fetchLocationData(id: string): Promise<ActionResult<{
     // ── 2. Nearest hospital via Overpass API ────────────────────────────────────
     // Search 20 km radius; fetch up to 5 candidates and pick the closest one.
     const overpassQuery =
-      `[out:json][timeout:15];` +
+      `[out:json][timeout:8];` +
       `(node["amenity"="hospital"](around:20000,${lat},${lng});` +
       `way["amenity"="hospital"](around:20000,${lat},${lng}););` +
       `out center 5;`
@@ -542,6 +545,14 @@ export async function fetchLocationData(id: string): Promise<ActionResult<{
     }
 
     const d = wData.daily
+    if (!d?.temperature_2m_max?.length) {
+      // Open-Meteo only provides forecasts up to 16 days out — beyond that the
+      // daily arrays come back empty.
+      return {
+        success: false,
+        error: 'Weather unavailable — forecasts are only available within 16 days of the shoot date',
+      }
+    }
     const weather: WeatherInfo = {
       high:       Math.round(d.temperature_2m_max[0]),
       low:        Math.round(d.temperature_2m_min[0]),
