@@ -212,7 +212,9 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
       if (result.success) {
         setWeather(result.data.weather)
         setHospital(result.data.hospital)
-        router.refresh()
+        // Don't router.refresh() here — the data is already in local state.
+        // A refresh causes a full server re-render which can race with the
+        // state update and trigger a client-side exception.
       } else {
         setFetchError((result as { success: false; error: string }).error)
       }
