@@ -207,7 +207,7 @@ export async function createSentProposal(input: {
   projectId: string
   budgetId: string
   title: string
-  depositPct: number      // 0-100, remainder becomes final payment
+  milestones: { id: string; name: string; percentPct: number; trigger: string; customDate?: string }[]
   expiresAt: string       // ISO date string
   totalCents: number      // pre-computed from budget; stored for approval snapshot
 }): Promise<ActionResult<{ id: string; publicToken: string; publicUrl: string }>> {
@@ -267,7 +267,7 @@ export async function createDraftProposal(input: {
   projectId: string
   budgetId: string
   title: string
-  depositPct: number
+  milestones: { id: string; name: string; percentPct: number; trigger: string; customDate?: string }[]
   expiresAt: string
   totalCents: number
 }): Promise<ActionResult<{ id: string; publicToken: string }>> {
@@ -322,7 +322,7 @@ export async function updateDraftProposal(
   proposalId: string,
   input: {
     title: string
-    depositPct: number
+    milestones: { id: string; name: string; percentPct: number; trigger: string; customDate?: string }[]
     expiresAt: string
     totalCents: number
   }
@@ -429,7 +429,7 @@ export async function createProposalRevision(
 function buildContent(input: {
   about: string
   deliverables: { title: string; description: string }[]
-  depositPct: number
+  milestones: { id: string; name: string; percentPct: number; trigger: string; customDate?: string }[]
   totalCents: number
 }) {
   return {
@@ -450,10 +450,7 @@ function buildContent(input: {
         type: 'terms',
         title: 'Payment terms',
         body: '',
-        milestones: [
-          { id: uid(), name: 'Deposit — on signing',  percentPct: input.depositPct,             trigger: 'on_signing' },
-          { id: uid(), name: 'Final — on delivery',   percentPct: 100 - input.depositPct,       trigger: 'on_delivery' },
-        ],
+        milestones: input.milestones,
       },
     ],
   }

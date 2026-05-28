@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition, useEffect } from 'react'
-import { Copy, Check, ExternalLink } from 'lucide-react'
+import { Copy, Check, ExternalLink, Plus, X } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,16 +12,93 @@ import {
   updateDraftProposal,
   sendDraftProposal,
 } from '@/server/actions/proposals'
+import type { MilestoneTrigger, PaymentMilestone } from '@/types'
 
 export type ProposalModalMode = 'create' | 'edit-draft' | 'revision'
+
+// ─── Local milestone state (before converting to PaymentMilestone for the server) ──
+
+type AmtType = 'pct' | 'flat'
+
+interface LocalMilestone {
+  id: string
+  amtType: AmtType
+  pctValue: string    // used when amtType === 'pct'
+  flatValue: string   // used when amtType === 'flat' (dollars)
+  trigger: MilestoneTrigger
+  customDate: string
+}
+
+const TRIGGER_OPTIONS: { value: MilestoneTrigger; label: string }[] = [
+  { value: 'on_signing',   label: 'On signing'   },
+  { value: 'on_shoot_day', label: 'On shoot day'  },
+  { value: 'on_delivery',  label: 'On delivery'   },
+  { value: 'net_30',       label: 'Net 30'        },
+  { value: 'net_60',       label: 'Net 60'        },
+  { value: 'net_90',       label: 'Net 90'        },
+  { value: 'custom_date',  label: 'Custom date'   },
+]
+
+function newId() { return crypto.randomUUID().slice(0, 8) }
+
+function defaultMilestones(): LocalMilestone[] {
+  return [
+    { id: newId(), amtType: 'pct', pctValue: '50', flatValue: '', trigger: 'on_signing',  customDate: '' },
+    { id: newId(), amtType: 'pct', pctValue: '50', flatValue: '', trigger: 'on_delivery', customDate: '' },
+  ]
+}
+
+function fromPaymentMilestones(ms: PaymentMilestone[]): LocalMilestone[] {
+  return ms.map(m => ({
+    id: m.id,
+    amtType: 'pct' as AmtType,
+    pctValue: String(m.percentPct),
+    flatValue: '',
+    trigger: m.trigger,
+    customDate: m.customDate ?? '',
+  }))
+}
+
+function toPaymentMilestones(locals: LocalMilestone[], totalCents: number): PaymentMilestone[] {
+  const totalDollars = totalCents / 100
+  return locals.map(m => {
+    let percentPct: number
+    if (m.amtType === 'flat') {
+      const flat = parseFloat(m.flatValue) || 0
+      percentPct = totalDollars > 0 ? Math.round((flat / totalDollars) * 10000) / 100 : 0
+    } else {
+      percentPct = parseFloat(m.pctValue) || 0
+    }
+    const label = TRIGGER_OPTIONS.find(t => t.value === m.trigger)?.label ?? m.trigger
+    return {
+      id: m.id,
+      name: label,
+      percentPct,
+      trigger: m.trigger,
+      ...(m.trigger === 'custom_date' && m.customDate ? { customDate: m.customDate } : {}),
+    }
+  })
+}
+
+function computeTotalPct(locals: LocalMilestone[], totalCents: number): number {
+  const totalDollars = totalCents / 100
+  return locals.reduce((sum, m) => {
+    if (m.amtType === 'flat') {
+      const flat = parseFloat(m.flatValue) || 0
+      return sum + (totalDollars > 0 ? (flat / totalDollars) * 100 : 0)
+    }
+    return sum + (parseFloat(m.pctValue) || 0)
+  }, 0)
+}
+
+// ─── Props ────────────────────────────────────────────────────────────────────
 
 interface ExistingProposal {
   id: string
   title: string
   publicToken: string
   expiresAt: string | null
-  depositPct: number
-  // kept in type for compatibility but no longer shown in modal
+  milestones?: PaymentMilestone[]
   about?: string
   deliverables?: unknown[]
 }
@@ -35,7 +112,7 @@ interface Props {
   projectName: string
   totalCents: number
   existing?: ExistingProposal
-  prefill?: { depositPct: number; about?: string; deliverables?: unknown[] }
+  prefill?: { milestones?: PaymentMilestone[]; about?: string; deliverables?: unknown[] }
   onDone: () => void
 }
 
@@ -50,6 +127,8 @@ function defaultExpiry() {
   d.setDate(d.getDate() + 30)
   return d.toISOString().split('T')[0]
 }
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export function ProposalModal({
   open,
@@ -66,8 +145,8 @@ export function ProposalModal({
   const [pending, startTransition] = useTransition()
 
   const [title,      setTitle]      = useState('')
-  const [depositPct, setDepositPct] = useState('50')
   const [expiresAt,  setExpiresAt]  = useState(defaultExpiry)
+  const [milestones, setMilestones] = useState<LocalMilestone[]>(defaultMilestones)
   const [error,      setError]      = useState('')
   const [successToken, setSuccessToken] = useState<string | null>(null)
   const [copied,       setCopied]       = useState(false)
@@ -77,12 +156,12 @@ export function ProposalModal({
     if (!open) return
     if (existing) {
       setTitle(existing.title)
-      setDepositPct(String(existing.depositPct))
       setExpiresAt(existing.expiresAt ? existing.expiresAt.split('T')[0] : defaultExpiry())
+      setMilestones(existing.milestones?.length ? fromPaymentMilestones(existing.milestones) : defaultMilestones())
     } else {
       setTitle(`${projectName} — Proposal`)
-      setDepositPct(String(prefill?.depositPct ?? 50))
       setExpiresAt(defaultExpiry())
+      setMilestones(prefill?.milestones?.length ? fromPaymentMilestones(prefill.milestones) : defaultMilestones())
     }
     setError('')
     setSuccessToken(null)
@@ -90,25 +169,51 @@ export function ProposalModal({
     setIsDraft(false)
   }, [open, existing, projectName, prefill])
 
+  // ── Milestone helpers ──────────────────────────────────────────────────────
+
+  function addMilestone() {
+    setMilestones(prev => [
+      ...prev,
+      { id: newId(), amtType: 'pct', pctValue: '0', flatValue: '', trigger: 'on_delivery', customDate: '' },
+    ])
+  }
+
+  function removeMilestone(i: number) {
+    setMilestones(prev => prev.filter((_, idx) => idx !== i))
+  }
+
+  function updateMilestone(i: number, patch: Partial<LocalMilestone>) {
+    setMilestones(prev => prev.map((m, idx) => idx === i ? { ...m, ...patch } : m))
+  }
+
+  // ── Validation ─────────────────────────────────────────────────────────────
+
   function validate() {
     if (!title.trim()) { setError('Title is required'); return false }
-    const dep = parseInt(depositPct, 10)
-    if (isNaN(dep) || dep < 0 || dep > 100) { setError('Deposit % must be 0–100'); return false }
     if (!expiresAt) { setError('Valid-through date is required'); return false }
+    const total = computeTotalPct(milestones, totalCents)
+    if (Math.abs(total - 100) > 0.5) {
+      setError(`Payment schedule must total 100% (currently ${total.toFixed(1)}%)`)
+      return false
+    }
     setError('')
     return true
   }
+
+  // ── Base input ─────────────────────────────────────────────────────────────
 
   function baseInput() {
     return {
       projectId,
       budgetId,
-      title:      title.trim(),
-      depositPct: parseInt(depositPct, 10),
+      title: title.trim(),
+      milestones: toPaymentMilestones(milestones, totalCents),
       expiresAt,
       totalCents,
     }
   }
+
+  // ── Actions ────────────────────────────────────────────────────────────────
 
   function handleSaveDraft() {
     if (!validate()) return
@@ -164,13 +269,21 @@ export function ProposalModal({
 
   function handleClose(v: boolean) {
     if (pending) return
-    if (!v && successToken) onDone()  // refresh parent after a successful save/send
+    if (!v && successToken) onDone()
     onOpenChange(v)
   }
 
+  // ── Derived ────────────────────────────────────────────────────────────────
+
+  const totalPct   = computeTotalPct(milestones, totalCents)
+  const totalOk    = Math.abs(totalPct - 100) <= 0.5
+  const totalDollars = totalCents / 100
+
+  // ─── Render ────────────────────────────────────────────────────────────────
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[480px]">
+      <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
           <DialogTitle>
             {successToken ? (isDraft ? 'Draft Saved' : 'Proposal Sent') : MODE_TITLE[mode]}
@@ -190,10 +303,8 @@ export function ProposalModal({
                 </Button>
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">Your proposal is live. Share this link with your client.</p>
-            )}
-            {!isDraft && (
               <>
+                <p className="text-sm text-muted-foreground">Your proposal is live. Share this link with your client.</p>
                 <div className="flex items-center gap-2 rounded-lg border bg-secondary/30 p-3">
                   <code className="flex-1 text-xs text-foreground break-all">{publicUrl}</code>
                   <Button size="sm" variant="outline" onClick={handleCopy}>
@@ -212,23 +323,119 @@ export function ProposalModal({
           </div>
         ) : (
           <div className="grid gap-5 py-2">
+
+            {/* Title */}
             <div className="grid gap-1.5">
               <Label htmlFor="pm-title">Proposal title</Label>
               <Input id="pm-title" value={title} onChange={e => setTitle(e.target.value)} autoFocus />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="grid gap-1.5">
-                <Label htmlFor="pm-deposit">Deposit %</Label>
-                <Input id="pm-deposit" type="number" min="0" max="100" step="5"
-                  value={depositPct} onChange={e => setDepositPct(e.target.value)} />
-                <p className="text-xs text-muted-foreground">
-                  Remainder ({100 - (parseInt(depositPct, 10) || 50)}%) due on delivery
-                </p>
+            {/* Valid through */}
+            <div className="grid gap-1.5">
+              <Label htmlFor="pm-expiry">Valid through</Label>
+              <Input id="pm-expiry" type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)} className="w-48" />
+            </div>
+
+            {/* Payment schedule */}
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between">
+                <Label>Payment schedule</Label>
+                <button
+                  type="button"
+                  onClick={addMilestone}
+                  className="flex items-center gap-1 text-xs font-medium text-violet-600 hover:text-violet-800 transition-colors"
+                >
+                  <Plus className="h-3 w-3" />
+                  Add payment
+                </button>
               </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="pm-expiry">Valid through</Label>
-                <Input id="pm-expiry" type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)} />
+
+              <div className="rounded-lg border border-border/70 overflow-hidden">
+                {milestones.map((m, i) => (
+                  <div key={m.id} className="group/row border-b last:border-0">
+                    {/* Main row */}
+                    <div className="flex items-center gap-2 px-3 py-2">
+                      {/* Amount input + type toggle */}
+                      <div className="flex items-center shrink-0">
+                        <div className="flex items-center rounded-md border border-input overflow-hidden">
+                          <span className="px-1.5 py-1 text-xs text-muted-foreground bg-muted/40 border-r border-input select-none">
+                            {m.amtType === 'pct' ? '%' : '$'}
+                          </span>
+                          <input
+                            type="number"
+                            min="0"
+                            step={m.amtType === 'pct' ? '1' : '100'}
+                            value={m.amtType === 'pct' ? m.pctValue : m.flatValue}
+                            onChange={e => updateMilestone(i, m.amtType === 'pct'
+                              ? { pctValue: e.target.value }
+                              : { flatValue: e.target.value }
+                            )}
+                            className="w-16 px-2 py-1 text-sm text-right bg-transparent focus:outline-none"
+                          />
+                        </div>
+                        {/* Toggle % / $ */}
+                        <button
+                          type="button"
+                          onClick={() => updateMilestone(i, {
+                            amtType: m.amtType === 'pct' ? 'flat' : 'pct',
+                            pctValue: m.amtType === 'flat'
+                              ? String(Math.round(((parseFloat(m.flatValue) || 0) / totalDollars) * 100))
+                              : m.pctValue,
+                            flatValue: m.amtType === 'pct'
+                              ? String(Math.round(((parseFloat(m.pctValue) || 0) / 100) * totalDollars))
+                              : m.flatValue,
+                          })}
+                          className="ml-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                          title={m.amtType === 'pct' ? 'Switch to fixed $' : 'Switch to %'}
+                        >
+                          {m.amtType === 'pct' ? '→$' : '→%'}
+                        </button>
+                      </div>
+
+                      {/* Trigger */}
+                      <select
+                        value={m.trigger}
+                        onChange={e => updateMilestone(i, { trigger: e.target.value as MilestoneTrigger })}
+                        className="flex-1 rounded-md border border-input bg-transparent px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                      >
+                        {TRIGGER_OPTIONS.map(opt => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </select>
+
+                      {/* Remove */}
+                      {milestones.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeMilestone(i)}
+                          className="shrink-0 opacity-0 group-hover/row:opacity-100 rounded p-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Custom date row */}
+                    {m.trigger === 'custom_date' && (
+                      <div className="px-3 pb-2">
+                        <Input
+                          type="date"
+                          value={m.customDate}
+                          onChange={e => updateMilestone(i, { customDate: e.target.value })}
+                          className="w-48 h-7 text-xs"
+                        />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Total indicator */}
+              <div className={`flex items-center justify-end gap-1.5 text-xs ${totalOk ? 'text-green-600' : 'text-amber-600'}`}>
+                {totalOk
+                  ? <><Check className="h-3 w-3" /> Total: 100%</>
+                  : <>Total: {totalPct.toFixed(1)}% — must equal 100%</>
+                }
               </div>
             </div>
 
@@ -242,7 +449,7 @@ export function ProposalModal({
 
         {!successToken && (
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>Cancel</Button>
+            <Button variant="outline" onClick={() => handleClose(false)} disabled={pending}>Cancel</Button>
             <Button variant="outline" onClick={handleSaveDraft} disabled={pending}>
               {pending ? 'Saving…' : 'Save Draft'}
             </Button>

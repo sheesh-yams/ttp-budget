@@ -59,16 +59,20 @@ export function NewProposalModal({
   function handleSubmit() {
     if (!title.trim()) { setError('Title is required'); return }
     const deposit = parseInt(depositPct, 10)
-    if (isNaN(deposit) || deposit < 0 || deposit > 100) { setError('Deposit % must be 0–100'); return }
+    if (isNaN(parseInt(depositPct, 10)) || parseInt(depositPct, 10) < 0 || parseInt(depositPct, 10) > 100) { setError('Deposit % must be 0–100'); return }
     if (!expiresAt) { setError('Valid-through date is required'); return }
     setError('')
 
     startTransition(async () => {
+      const deposit = parseInt(depositPct, 10) || 50
       const result = await createSentProposal({
         projectId,
         budgetId,
         title: title.trim(),
-        depositPct: deposit,
+        milestones: [
+          { id: crypto.randomUUID().slice(0, 8), name: 'On signing',  percentPct: deposit,         trigger: 'on_signing'  },
+          { id: crypto.randomUUID().slice(0, 8), name: 'On delivery', percentPct: 100 - deposit,   trigger: 'on_delivery' },
+        ],
         expiresAt,
         totalCents,
       })

@@ -8,8 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { ProposalModal, type ProposalModalMode } from './ProposalModal'
 import { NewInvoiceModal } from './NewInvoiceModal'
 import { deleteProposal } from '@/server/actions/proposals'
-import type { ProposalStatus } from '@/types'
-import type { ProposalContent } from '@/types'
+import type { ProposalStatus, ProposalContent, PaymentMilestone } from '@/types'
 
 interface ProposalRow {
   id: string
@@ -47,7 +46,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.
 function extractFromContent(content: unknown): {
   about: string
   deliverables: { title: string; description: string }[]
-  depositPct: number
+  milestones: PaymentMilestone[]
 } {
   try {
     const c = content as ProposalContent
@@ -60,13 +59,13 @@ function extractFromContent(content: unknown): {
     const deliverables = scopeSection?.type === 'scope'
       ? scopeSection.items.map(i => ({ title: i.title, description: i.description }))
       : []
-    const depositPct = termsSection?.type === 'terms' && termsSection.milestones[0]
-      ? termsSection.milestones[0].percentPct
-      : 50
+    const milestones: PaymentMilestone[] = termsSection?.type === 'terms' && termsSection.milestones?.length
+      ? termsSection.milestones
+      : []
 
-    return { about, deliverables, depositPct }
+    return { about, deliverables, milestones }
   } catch {
-    return { about: '', deliverables: [], depositPct: 50 }
+    return { about: '', deliverables: [], milestones: [] }
   }
 }
 
@@ -120,7 +119,7 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
 
   const existing = editingProposal
     ? (() => {
-        const { about, deliverables, depositPct } = extractFromContent(editingProposal.content)
+        const { about, deliverables, milestones } = extractFromContent(editingProposal.content)
         return {
           id: editingProposal.id,
           title: editingProposal.title,
@@ -128,7 +127,7 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
           expiresAt: editingProposal.expiresAt ? editingProposal.expiresAt.toISOString() : null,
           about,
           deliverables,
-          depositPct,
+          milestones,
         }
       })()
     : undefined
