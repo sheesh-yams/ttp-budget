@@ -44,9 +44,9 @@ export default async function PublicProposalPage({ params }: Props) {
     },
   })
 
-  if (!proposal || proposal.status === 'DRAFT') {
-    notFound()
-  }
+  if (!proposal) notFound()
+
+  const isDraft = proposal.status === 'DRAFT'
 
   // ── Budget data: use frozen snapshot if present, otherwise fall back to live ─
   const content = proposal.content as Record<string, unknown>
@@ -140,17 +140,20 @@ export default async function PublicProposalPage({ params }: Props) {
     declinedAt:    proposal.declinedAt?.toISOString()    ?? null,
   }
 
-  // Record view — fire and forget
-  const headersList = await headers()
-  const ip = headersList.get('x-forwarded-for') ?? 'unknown'
-  const ua = headersList.get('user-agent') ?? ''
-  void recordProposalView(proposal.id, ip, ua)
+  // Record view — fire and forget (skip for draft previews)
+  if (!isDraft) {
+    const headersList = await headers()
+    const ip = headersList.get('x-forwarded-for') ?? 'unknown'
+    const ua = headersList.get('user-agent') ?? ''
+    void recordProposalView(proposal.id, ip, ua)
+  }
 
   return (
     <ProposalPublicView
       proposal={serialisedProposal as never}
       accounts={serialisedAccounts as never}
       totalCents={totalCents}
+      isDraft={isDraft}
     />
   )
 }

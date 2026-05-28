@@ -175,7 +175,15 @@ export function ProposalModal({
         {successToken ? (
           <div className="py-2 space-y-4">
             {isDraft ? (
-              <p className="text-sm text-muted-foreground">Draft saved. Send it when ready.</p>
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">Draft saved. Preview it or send when ready.</p>
+                <Button asChild variant="outline" size="sm" className="w-full">
+                  <a href={publicUrl!} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                    Preview draft
+                  </a>
+                </Button>
+              </div>
             ) : (
               <p className="text-sm text-muted-foreground">Your proposal is live. Share this link with your client.</p>
             )}

@@ -112,11 +112,12 @@ interface Props {
   proposal: SerialProposal
   accounts: SerialAccount[]
   totalCents: number
+  isDraft?: boolean
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
+export function ProposalPublicView({ proposal, accounts, totalCents, isDraft = false }: Props) {
   const content     = proposal.content as ProposalContent
   const sections    = content?.sections ?? []
 
@@ -208,6 +209,14 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
     <div style={{ fontFamily: 'var(--font-sans, system-ui, sans-serif)', color: BODY, background: '#fff', minHeight: '100vh' }}>
       {/* Load script font for signature preview */}
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@600&display=swap');`}</style>
+
+      {/* Draft preview banner */}
+      {isDraft && (
+        <div style={{ background: '#FFF8E1', borderBottom: '1px solid #FFD54F', padding: '10px 24px', display: 'flex', alignItems: 'center', gap: 10, position: 'sticky', top: 0, zIndex: 100 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#7B5800', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Draft Preview</span>
+          <span style={{ fontSize: 13, color: '#7B5800', opacity: 0.8 }}>— This proposal has not been sent. Content may change before it goes to the client.</span>
+        </div>
+      )}
 
       {/* ════════════════════ COVER (compact) ════════════════════ */}
       <section
@@ -496,7 +505,7 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
       )}
 
       {/* ════════════════════ SIGN OFF ════════════════════ */}
-      <section style={{ padding: 'clamp(48px,7vw,96px) clamp(24px,6vw,80px)', background: V_TINT }}>
+      {!isDraft && <section style={{ padding: 'clamp(48px,7vw,96px) clamp(24px,6vw,80px)', background: V_TINT }}>
         <div style={{ maxWidth: 560, margin: '0 auto', textAlign: 'center' }}>
           <SectionHeader label="Sign Off" />
 
@@ -596,7 +605,7 @@ export function ProposalPublicView({ proposal, accounts, totalCents }: Props) {
             </div>
           )}
         </div>
-      </section>
+      </section>}
 
       {/* ════════════════════ FOOTER ════════════════════ */}
       <footer style={{ background: INK, padding: 'clamp(32px,4vw,48px) clamp(24px,6vw,80px)' }}>

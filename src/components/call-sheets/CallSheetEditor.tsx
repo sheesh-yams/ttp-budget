@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   ChevronLeft, Check, Copy, ExternalLink, RefreshCw,
-  MapPin, Cloud, Hospital, AlertTriangle, Lock, Send,
+  MapPin, Cloud, Hospital, AlertTriangle, Lock, Send, Eye,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -280,6 +280,17 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {/* Preview — always visible */}
+          <a
+            href={publicUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-md border border-input px-3 py-1.5 text-xs font-medium hover:bg-muted transition-colors"
+          >
+            <Eye className="h-3 w-3" />
+            Preview
+          </a>
+
           {isLocked ? (
             <>
               <a

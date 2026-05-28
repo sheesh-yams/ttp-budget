@@ -44,7 +44,9 @@ export default async function PublicCallSheetPage({ params }: { params: Promise<
     },
   })
 
-  if (!cs || cs.status === 'DRAFT') notFound()
+  if (!cs) notFound()
+
+  const isDraft = cs.status === 'DRAFT'
 
   const crew           = (cs.crew          as unknown as CrewDept[])      ?? []
   const schedule       = (cs.schedule      as unknown as ScheduleBlock[]) ?? []
@@ -71,6 +73,14 @@ export default async function PublicCallSheetPage({ params }: { params: Promise<
 
   return (
     <div className="min-h-screen bg-gray-50 pb-16">
+
+      {/* ── Draft preview banner ── */}
+      {isDraft && (
+        <div className="bg-amber-50 border-b border-amber-300 px-4 py-2.5 flex items-center gap-2 sticky top-0 z-50">
+          <span className="text-xs font-bold uppercase tracking-wide text-amber-800">Draft Preview</span>
+          <span className="text-xs text-amber-700 opacity-80">— This call sheet has not been sent. Content may change.</span>
+        </div>
+      )}
 
       {/* ── Hero header (full width) ── */}
       <div className="bg-[#0a0a0a] text-white px-4 pt-10 pb-8">
