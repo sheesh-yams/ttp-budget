@@ -53,15 +53,21 @@ export default async function PublicProposalPage({ params }: Props) {
   const snapshot = content?.budgetSnapshot as {
     accounts: unknown[]
     totalCents: number
+    discountCents?: number
+    discountLabel?: string
   } | undefined
 
   let serialisedAccounts: unknown[]
   let totalCents: number
+  let discountCents = 0
+  let discountLabel = 'Discount'
 
   if (snapshot?.accounts) {
     // Proposal was sent with a frozen snapshot — use it
     serialisedAccounts = snapshot.accounts
     totalCents = snapshot.totalCents
+    discountCents = snapshot.discountCents ?? 0
+    discountLabel = snapshot.discountLabel || 'Discount'
   } else {
     // Legacy / draft: fall back to live budget query
     const primaryPhase = await db.phase.findFirst({
@@ -115,10 +121,23 @@ export default async function PublicProposalPage({ params }: Props) {
       })),
     }))
 
-    totalCents = (serialisedAccounts as unknown[]).reduce<number>(
+    const rawTotal = (serialisedAccounts as unknown[]).reduce<number>(
       (sum, acc) => sum + sumAccount(acc as unknown as AccountInput),
       0
     )
+
+    // Apply discount from content (draft preview — no snapshot yet)
+    const contentDiscount = content?.discount as { type: string; label?: string; valueCents?: number; valuePct?: number } | undefined
+    if (contentDiscount) {
+      discountLabel = contentDiscount.label || 'Discount'
+      if (contentDiscount.type === 'flat' && contentDiscount.valueCents) {
+        discountCents = contentDiscount.valueCents
+      } else if (contentDiscount.type === 'pct' && contentDiscount.valuePct) {
+        discountCents = Math.round(rawTotal * (contentDiscount.valuePct / 100))
+      }
+      discountCents = Math.max(0, Math.min(discountCents, rawTotal))
+    }
+    totalCents = Math.max(0, rawTotal - discountCents)
   }
 
   // Serialise the proposal too (strip Decimal / Date edge cases)
@@ -153,6 +172,8 @@ export default async function PublicProposalPage({ params }: Props) {
       proposal={serialisedProposal as never}
       accounts={serialisedAccounts as never}
       totalCents={totalCents}
+      discountCents={discountCents}
+      discountLabel={discountLabel}
       isDraft={isDraft}
     />
   )

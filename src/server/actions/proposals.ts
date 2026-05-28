@@ -4,14 +4,14 @@ import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
 import { getWorkspaceId, getCurrentUser } from '@/lib/auth'
 import { sumAccount, type AccountInput } from '@/lib/totals'
-import type { ActionResult } from '@/types'
+import type { ActionResult, ProposalDiscount } from '@/types'
 
 function uid() { return crypto.randomUUID().slice(0, 8) }
 
 // ─── Capture a frozen snapshot of budget line items ───────────────────────────
 // Stored in content.budgetSnapshot so the public page never reads live budget data.
 
-async function captureBudgetSnapshot(budgetId: string) {
+async function captureBudgetSnapshot(budgetId: string, discount?: ProposalDiscount) {
   // Fetch budget-level markup / tax rates alongside the primary phase
   const budget = await db.budget.findUnique({
     where: { id: budgetId },
@@ -78,13 +78,28 @@ async function captureBudgetSnapshot(budgetId: string) {
     0
   )
 
-  // Apply budget-level agency fee and tax → gross total
+  // Apply budget-level agency fee, optional discount, then tax
   const agencyFeeCents = Math.round(productionCents * budgetMarkupPct)
   const preTax         = productionCents + agencyFeeCents
-  const taxCents       = Math.round(preTax * budgetTaxPct)
-  const totalCents     = preTax + taxCents
 
-  return { accounts, productionCents, budgetMarkupPct, budgetTaxPct, totalCents }
+  // Discount — applied after agency fee, before tax
+  let discountCents = 0
+  let discountLabel = ''
+  if (discount) {
+    discountLabel = discount.label || 'Discount'
+    if (discount.type === 'flat' && discount.valueCents) {
+      discountCents = discount.valueCents
+    } else if (discount.type === 'pct' && discount.valuePct) {
+      discountCents = Math.round(preTax * (discount.valuePct / 100))
+    }
+    discountCents = Math.max(0, Math.min(discountCents, preTax))
+  }
+
+  const afterDiscount = preTax - discountCents
+  const taxCents      = Math.round(afterDiscount * budgetTaxPct)
+  const totalCents    = afterDiscount + taxCents
+
+  return { accounts, productionCents, budgetMarkupPct, budgetTaxPct, discountCents, discountLabel, totalCents }
 }
 
 // ─── Create proposal from a budget ───────────────────────────────────────────
@@ -161,7 +176,8 @@ export async function sendProposal(proposalId: string): Promise<ActionResult<{ p
       where: { id: proposalId },
       select: { budgetId: true, content: true },
     })
-    const snapshot = await captureBudgetSnapshot(existing.budgetId)
+    const discount = (existing.content as { discount?: ProposalDiscount }).discount
+    const snapshot = await captureBudgetSnapshot(existing.budgetId, discount)
     const mergedContent = { ...(existing.content as object), budgetSnapshot: snapshot }
 
     const proposal = await db.proposal.update({
@@ -210,6 +226,7 @@ export async function createSentProposal(input: {
   milestones: { id: string; name: string; percentPct: number; trigger: string; customDate?: string }[]
   expiresAt: string       // ISO date string
   totalCents: number      // pre-computed from budget; stored for approval snapshot
+  discount?: ProposalDiscount
 }): Promise<ActionResult<{ id: string; publicToken: string; publicUrl: string }>> {
   try {
     const user = await getCurrentUser()
@@ -228,7 +245,7 @@ export async function createSentProposal(input: {
     const phaseDeliverables = (primaryPhase?.deliverables as { title: string; description: string }[] | null) ?? []
 
     const content = buildContent({ ...input, about: phaseAbout, deliverables: phaseDeliverables })
-    const snapshot = await captureBudgetSnapshot(input.budgetId)
+    const snapshot = await captureBudgetSnapshot(input.budgetId, input.discount)
 
     // Auto-increment version so each new send is v1, v2, v3 …
     const maxVersion = await db.proposal.aggregate({
@@ -270,6 +287,7 @@ export async function createDraftProposal(input: {
   milestones: { id: string; name: string; percentPct: number; trigger: string; customDate?: string }[]
   expiresAt: string
   totalCents: number
+  discount?: ProposalDiscount
 }): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
     const user = await getCurrentUser()
@@ -325,6 +343,7 @@ export async function updateDraftProposal(
     milestones: { id: string; name: string; percentPct: number; trigger: string; customDate?: string }[]
     expiresAt: string
     totalCents: number
+    discount?: ProposalDiscount
   }
 ): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
@@ -373,7 +392,8 @@ export async function sendDraftProposal(
       where: { id: proposalId },
       select: { budgetId: true, projectId: true, content: true },
     })
-    const snapshot = await captureBudgetSnapshot(existing.budgetId)
+    const discount2 = (existing.content as { discount?: ProposalDiscount }).discount
+    const snapshot = await captureBudgetSnapshot(existing.budgetId, discount2)
     const mergedContent = { ...(existing.content as object), budgetSnapshot: snapshot }
 
     const proposal = await db.proposal.update({
@@ -431,9 +451,11 @@ function buildContent(input: {
   deliverables: { title: string; description: string }[]
   milestones: { id: string; name: string; percentPct: number; trigger: string; customDate?: string }[]
   totalCents: number
+  discount?: ProposalDiscount
 }) {
   return {
     totalCents: input.totalCents,
+    ...(input.discount ? { discount: input.discount } : {}),
     sections: [
       { type: 'about', title: 'The project', body: input.about },
       {

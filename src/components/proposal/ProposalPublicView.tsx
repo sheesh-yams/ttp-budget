@@ -122,12 +122,14 @@ interface Props {
   proposal: SerialProposal
   accounts: SerialAccount[]
   totalCents: number
+  discountCents?: number
+  discountLabel?: string
   isDraft?: boolean
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function ProposalPublicView({ proposal, accounts, totalCents, isDraft = false }: Props) {
+export function ProposalPublicView({ proposal, accounts, totalCents, discountCents = 0, discountLabel = 'Discount', isDraft = false }: Props) {
   const content     = proposal.content as ProposalContent
   const sections    = content?.sections ?? []
 
@@ -173,13 +175,15 @@ export function ProposalPublicView({ proposal, accounts, totalCents, isDraft = f
 
   // Budget-level agency fee — read from frozen snapshot stored in content
   type BudgetSnapshot = { productionCents: number; budgetMarkupPct: number; budgetTaxPct: number }
-  const snap           = (proposal.content as { budgetSnapshot?: BudgetSnapshot }).budgetSnapshot
+  const snap            = (proposal.content as { budgetSnapshot?: BudgetSnapshot }).budgetSnapshot
   const productionCents = snap?.productionCents ?? totalCents
   const budgetMarkupPct = snap?.budgetMarkupPct ?? 0
   const budgetTaxPct    = snap?.budgetTaxPct    ?? 0
   const agencyFeeCents  = budgetMarkupPct > 0 ? Math.round(productionCents * budgetMarkupPct) : 0
   const preTaxCents     = productionCents + agencyFeeCents
-  const taxCents        = budgetTaxPct   > 0 ? Math.round(preTaxCents * budgetTaxPct) : 0
+  // Tax applies after discount (discount reduces taxable base)
+  const afterDiscountCents = Math.max(0, preTaxCents - discountCents)
+  const taxCents           = budgetTaxPct > 0 ? Math.round(afterDiscountCents * budgetTaxPct) : 0
 
   // Sign-off
   const isAlreadyApproved = proposal.status === 'APPROVED'
@@ -453,6 +457,14 @@ export function ProposalPublicView({ proposal, accounts, totalCents, isDraft = f
                     <span style={{ fontSize: 11, color: MUTED }}>({Math.round(budgetMarkupPct * 100)}%)</span>
                   </span>
                   <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', color: BODY }}>{formatMoney(agencyFeeCents)}</span>
+                </div>
+              )}
+              {discountCents > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '13px 20px', background: '#fff', borderBottom: `0.5px solid ${BORDER}` }}>
+                  <span style={{ fontSize: 13, color: MUTED }}>{discountLabel}</span>
+                  <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', color: '#dc2626' }}>
+                    -{formatMoney(discountCents)}
+                  </span>
                 </div>
               )}
               {taxCents > 0 && (

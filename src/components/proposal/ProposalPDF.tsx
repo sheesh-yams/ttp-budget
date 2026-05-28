@@ -48,6 +48,8 @@ interface Props {
   proposal: ProposalData
   accounts: Account[]
   totalCents: number
+  discountCents?: number
+  discountLabel?: string
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -166,7 +168,7 @@ function SectionLabel({ label }: { label: string }) {
 
 // ─── Main PDF component ───────────────────────────────────────────────────────
 
-export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
+export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0, discountLabel = 'Discount' }: Props) {
   const content  = proposal.content as ProposalContent
   const sections = content?.sections ?? []
 
@@ -204,7 +206,9 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
   const budgetTaxPct    = snap?.budgetTaxPct    ?? 0
   const agencyFeeCents  = budgetMarkupPct > 0 ? Math.round(productionCents * budgetMarkupPct) : 0
   const preTaxCents     = productionCents + agencyFeeCents
-  const taxCents        = budgetTaxPct   > 0 ? Math.round(preTaxCents * budgetTaxPct) : 0
+  // Tax applies after discount
+  const afterDiscountCents = Math.max(0, preTaxCents - discountCents)
+  const taxCents           = budgetTaxPct > 0 ? Math.round(afterDiscountCents * budgetTaxPct) : 0
 
   return (
     <Document>
@@ -360,6 +364,12 @@ export function ProposalPDF({ proposal, accounts, totalCents }: Props) {
                 <View style={s.subtotalRow}>
                   <Text style={s.subtotalLbl}>{`Agency Fee (${Math.round(budgetMarkupPct * 100)}%)`}</Text>
                   <Text style={s.subtotalVal}>{formatMoney(agencyFeeCents)}</Text>
+                </View>
+              )}
+              {discountCents > 0 && (
+                <View style={s.subtotalRow}>
+                  <Text style={s.subtotalLbl}>{discountLabel}</Text>
+                  <Text style={[s.subtotalVal, { color: '#dc2626' }]}>{`-${formatMoney(discountCents)}`}</Text>
                 </View>
               )}
               {taxCents > 0 && (

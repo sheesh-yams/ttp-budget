@@ -119,8 +119,16 @@ export type GlobalsMap = Record<string, number>
 // ─── Proposal content shape ───────────────────────────────────────────────────
 // Stored as JSON in Proposal.content
 
+export interface ProposalDiscount {
+  type: 'flat' | 'pct'
+  label: string
+  valueCents?: number    // used when type === 'flat'
+  valuePct?: number      // used when type === 'pct', 0–100 display (e.g. 10 = 10%)
+}
+
 export interface ProposalContent {
   totalCents?: number
+  discount?: ProposalDiscount
   cover?: {
     heroImageUrl?: string
     tagline?: string

@@ -36,14 +36,20 @@ export async function GET(
   const snapshot = proposalContent?.budgetSnapshot as {
     accounts: unknown[]
     totalCents: number
+    discountCents?: number
+    discountLabel?: string
   } | undefined
 
   let accounts: unknown[]
   let totalCents: number
+  let discountCents = 0
+  let discountLabel = 'Discount'
 
   if (snapshot?.accounts) {
     accounts = snapshot.accounts
     totalCents = snapshot.totalCents
+    discountCents = snapshot.discountCents ?? 0
+    discountLabel = snapshot.discountLabel || 'Discount'
   } else {
     const primaryPhase = await db.phase.findFirst({
       where: { budgetId: proposal.budgetId, isPrimary: true },
@@ -92,10 +98,22 @@ export async function GET(
       })),
     }))
 
-    totalCents = (accounts as unknown[]).reduce<number>(
+    const rawTotal = (accounts as unknown[]).reduce<number>(
       (sum, acc) => sum + sumAccount(acc as unknown as AccountInput),
       0
     )
+    // Apply discount from content for legacy proposals
+    const contentDiscount = proposalContent?.discount as { type: string; label?: string; valueCents?: number; valuePct?: number } | undefined
+    if (contentDiscount) {
+      discountLabel = contentDiscount.label || 'Discount'
+      if (contentDiscount.type === 'flat' && contentDiscount.valueCents) {
+        discountCents = contentDiscount.valueCents
+      } else if (contentDiscount.type === 'pct' && contentDiscount.valuePct) {
+        discountCents = Math.round(rawTotal * (contentDiscount.valuePct / 100))
+      }
+      discountCents = Math.max(0, Math.min(discountCents, rawTotal))
+    }
+    totalCents = Math.max(0, rawTotal - discountCents)
   }
 
   // Read logo file once and encode as base64 data URI
@@ -136,6 +154,8 @@ export async function GET(
         proposal: serialisedProposal,
         accounts,
         totalCents,
+        discountCents,
+        discountLabel,
       }) as Parameters<typeof renderToBuffer>[0]
     )
 
