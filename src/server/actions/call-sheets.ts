@@ -318,6 +318,7 @@ export async function updateCallSheet(
     crew: CrewDept[]
     schedule: ScheduleBlock[]
     otherContacts: OtherContact[]
+    hospitalInfo: HospitalInfo | null
     cateringInfo: string
     notes: string
   }>
@@ -345,6 +346,7 @@ export async function updateCallSheet(
         ...(input.crew               !== undefined && { crew:          JSON.parse(JSON.stringify(input.crew)) }),
         ...(input.schedule           !== undefined && { schedule:      JSON.parse(JSON.stringify(input.schedule)) }),
         ...(input.otherContacts      !== undefined && { otherContacts: JSON.parse(JSON.stringify(input.otherContacts)) }),
+        ...(input.hospitalInfo       !== undefined && !addressChanging && { hospitalInfo: input.hospitalInfo ? JSON.parse(JSON.stringify(input.hospitalInfo)) : null }),
         ...(input.cateringInfo       !== undefined && { cateringInfo:  input.cateringInfo }),
         ...(input.notes              !== undefined && { notes:            input.notes }),
         ...(addressChanging && { locationLat: null, locationLng: null, hospitalInfo: null, weather: null }),

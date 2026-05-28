@@ -143,6 +143,7 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
         pointOfContact:   pointOfContact.name.trim() ? pointOfContact : null,
         talent,
         otherContacts,
+        hospitalInfo:     hospital,
         crew,
         schedule,
         cateringInfo:     cateringInfo.trim()     || undefined,
@@ -169,7 +170,7 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
           title, shootDate, generalCall,
           locationName, locationAddress, parkingAddress, locationNotes,
           pointOfContact: pointOfContact.name.trim() ? pointOfContact : null,
-          talent, otherContacts, crew, schedule, cateringInfo, notes,
+          talent, otherContacts, hospitalInfo: hospital, crew, schedule, cateringInfo, notes,
         })
         if (!saveResult.success) { setError((saveResult as { success: false; error: string }).error); return }
       }
@@ -562,6 +563,63 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
               Click &ldquo;Fetch weather &amp; hospital&rdquo; to auto-populate forecast and nearest hospital.
             </p>
           )}
+        </Section>
+
+        {/* ── Nearest Hospital ── */}
+        <Section
+          title="Nearest Hospital"
+          icon={<Hospital className="h-4 w-4" />}
+        >
+          <p className="text-xs text-muted-foreground -mt-1">
+            Auto-populated by &ldquo;Fetch weather &amp; hospital&rdquo; above, or enter manually.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-1.5">
+              <Label htmlFor="cs-hosp-name">Hospital name</Label>
+              <Input
+                id="cs-hosp-name"
+                placeholder="Cedars-Sinai Medical Center"
+                value={hospital?.name ?? ''}
+                disabled={isLocked}
+                onChange={e => {
+                  const v = e.target.value
+                  setHospital(h => h ? { ...h, name: v } : { name: v, address: '', phone: '', distanceKm: 0, lat: 0, lng: 0 })
+                  markDirty()
+                }}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="cs-hosp-phone">Phone</Label>
+              <Input
+                id="cs-hosp-phone"
+                placeholder="+1 (310) 423-3277"
+                value={hospital?.phone ?? ''}
+                disabled={isLocked}
+                onChange={e => {
+                  const v = e.target.value
+                  setHospital(h => h ? { ...h, phone: v } : { name: '', address: '', phone: v, distanceKm: 0, lat: 0, lng: 0 })
+                  markDirty()
+                }}
+              />
+            </div>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="cs-hosp-addr">Address</Label>
+            <Input
+              id="cs-hosp-addr"
+              placeholder="8700 Beverly Blvd, Los Angeles, CA 90048"
+              value={hospital?.address ?? ''}
+              disabled={isLocked}
+              onChange={e => {
+                const v = e.target.value
+                setHospital(h => h ? { ...h, address: v } : { name: '', address: v, phone: '', distanceKm: 0, lat: 0, lng: 0 })
+                markDirty()
+              }}
+            />
+          </div>
+          {hospital?.distanceKm ? (
+            <p className="text-xs text-muted-foreground">{hospital.distanceKm} km from location (auto-fetched)</p>
+          ) : null}
         </Section>
 
         {/* ── Schedule ── */}
