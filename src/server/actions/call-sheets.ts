@@ -490,12 +490,14 @@ export async function fetchLocationData(id: string): Promise<ActionResult<{
     // ── 2 + 3. Overpass hospital + Open-Meteo weather — run in parallel ─────────
     const dateStr = cs.shootDate.toISOString().split('T')[0]
 
+    // Both amenity=hospital AND healthcare=hospital — some NYC hospitals only have the latter.
     const overpassQuery =
       `[out:json][timeout:12];` +
       `(node["amenity"="hospital"](around:25000,${lat},${lng});` +
       `way["amenity"="hospital"](around:25000,${lat},${lng});` +
-      `relation["amenity"="hospital"](around:25000,${lat},${lng}););` +
-      `out center 10;`
+      `node["healthcare"="hospital"](around:25000,${lat},${lng});` +
+      `way["healthcare"="hospital"](around:25000,${lat},${lng}););` +
+      `out center 15;`
 
     const weatherUrl =
       `https://api.open-meteo.com/v1/forecast` +
@@ -505,12 +507,33 @@ export async function fetchLocationData(id: string): Promise<ActionResult<{
       `&start_date=${dateStr}&end_date=${dateStr}` +
       `&temperature_unit=fahrenheit&windspeed_unit=mph`
 
+    // Overpass endpoints — try primary, fall back to mirror if it hangs
+    async function fetchOverpass(query: string): Promise<unknown> {
+      const endpoints = [
+        'https://overpass-api.de/api/interpreter',
+        'https://overpass.kumi.systems/api/interpreter',
+      ]
+      for (const endpoint of endpoints) {
+        try {
+          const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `data=${encodeURIComponent(query)}`,
+            // Hard client-side timeout — the [timeout:12] in the query only
+            // limits server processing; the HTTP connection itself can hang longer.
+            signal: AbortSignal.timeout(14000),
+          })
+          if (!res.ok) continue
+          return await res.json()
+        } catch {
+          // try next endpoint
+        }
+      }
+      throw new Error('All Overpass endpoints unavailable')
+    }
+
     const [ovResult, wResult] = await Promise.allSettled([
-      fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: `data=${encodeURIComponent(overpassQuery)}`,
-      }).then(r => r.json()),
+      fetchOverpass(overpassQuery),
       fetch(weatherUrl).then(r => r.json()),
     ])
 
@@ -538,7 +561,6 @@ export async function fetchLocationData(id: string): Promise<ActionResult<{
         }
         if (ovData.elements?.length) {
           const candidates = ovData.elements
-            .filter(el => el.tags?.name) // only named hospitals
             .map(el => {
               const elLat = el.lat ?? el.center?.lat ?? 0
               const elLng = el.lon ?? el.center?.lon ?? 0
