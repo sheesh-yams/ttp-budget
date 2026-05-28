@@ -626,6 +626,10 @@ model CallSheet {
   // [{ startTime: "07:00", endTime?: "08:00", label: "...", whoNeeded?: "...", notes?: "..." }]
   schedule        Json     @default("[]")
 
+  // Additional contacts (venue POC, client rep, etc.)
+  // [{ name, role, company, phone, email }]
+  otherContacts   Json     @default("[]")
+
   // Logistics
   cateringInfo    String?  @db.Text
   notes           String?  @db.Text

@@ -14,6 +14,7 @@ import { CrewEditor } from './CrewEditor'
 import { ScheduleEditor } from './ScheduleEditor'
 import { TalentEditor } from './TalentEditor'
 import { AddressAutocomplete } from '@/components/ui/AddressAutocomplete'
+import { OtherContactsEditor } from './OtherContactsEditor'
 import {
   updateCallSheet,
   sendCallSheet,
@@ -27,6 +28,7 @@ import {
   type HospitalInfo,
   type TalentMember,
   type PointOfContact,
+  type OtherContact,
 } from '@/server/actions/call-sheets'
 import type { CallSheetStatus } from '@/types'
 
@@ -56,6 +58,7 @@ export interface CallSheetData {
   notes: string | null
   weather: WeatherInfo | null
   hospitalInfo: HospitalInfo | null
+  otherContacts: OtherContact[]
   clientContact: {
     companyName: string
     contactName?: string | null
@@ -94,6 +97,7 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
     initial.pointOfContact ?? { name: '', title: '', phone: '', email: '' }
   )
   const [talent,          setTalent]          = useState<TalentMember[]>(initial.talent ?? [])
+  const [otherContacts,   setOtherContacts]   = useState<OtherContact[]>(initial.otherContacts ?? [])
   const [crew,            setCrew]            = useState<CrewDept[]>(initial.crew)
   const [schedule,        setSchedule]        = useState<ScheduleBlock[]>(initial.schedule)
   const [cateringInfo,    setCateringInfo]    = useState(initial.cateringInfo ?? '')
@@ -138,6 +142,7 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
         locationNotes:    locationNotes.trim()     || undefined,
         pointOfContact:   pointOfContact.name.trim() ? pointOfContact : null,
         talent,
+        otherContacts,
         crew,
         schedule,
         cateringInfo:     cateringInfo.trim()     || undefined,
@@ -164,7 +169,7 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
           title, shootDate, generalCall,
           locationName, locationAddress, parkingAddress, locationNotes,
           pointOfContact: pointOfContact.name.trim() ? pointOfContact : null,
-          talent, crew, schedule, cateringInfo, notes,
+          talent, otherContacts, crew, schedule, cateringInfo, notes,
         })
         if (!saveResult.success) { setError((saveResult as { success: false; error: string }).error); return }
       }
@@ -443,10 +448,10 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
           </div>
         </Section>
 
-        {/* ── Client contacts (read-only, auto-populated) ── */}
-        {initial.clientContact && (
-          <Section title="Client Contacts">
-            <div className="divide-y rounded-lg border">
+        {/* ── Client / Other Contacts ── */}
+        <Section title="Client / Other Contacts">
+          {initial.clientContact && (
+            <div className="divide-y rounded-lg border mb-3">
               <div className="flex items-center justify-between px-3 py-2 gap-3">
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-foreground">{initial.clientContact.companyName}</p>
@@ -465,8 +470,15 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
                 <p className="text-[10px] text-muted-foreground/60 italic shrink-0">from project</p>
               </div>
             </div>
-          </Section>
-        )}
+          )}
+          {!isLocked && (
+            <OtherContactsEditor
+              contacts={otherContacts}
+              onChange={v => { setOtherContacts(v); markDirty() }}
+            />
+          )}
+          {isLocked && <OtherContactsEditor contacts={otherContacts} onChange={() => {}} readonly />}
+        </Section>
 
         {/* ── Location ── */}
         <Section
@@ -540,7 +552,7 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
           {/* Weather + Hospital cards */}
           {(weather || hospital) && (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 mt-2">
-              {weather && <WeatherCard weather={weather} />}
+              {weather && <WeatherCard weather={weather} shootDate={initial.shootDate} />}
               {hospital && <HospitalCard hospital={hospital} />}
             </div>
           )}
@@ -676,21 +688,23 @@ function Section({
 // Weather card
 // =============================================================================
 
-function WeatherCard({ weather }: { weather: WeatherInfo }) {
+function WeatherCard({ weather, shootDate }: { weather: WeatherInfo; shootDate?: string }) {
   const sunrise = new Date(weather.sunrise).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
   const sunset  = new Date(weather.sunset).toLocaleTimeString('en-US',  { hour: 'numeric', minute: '2-digit' })
-  const fetchedAt = new Date(weather.fetchedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const forDate = shootDate
+    ? new Date(shootDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+    : null
 
   return (
     <div className="rounded-lg border border-sky-200 bg-sky-50 p-4">
       <div className="flex items-center gap-1.5 mb-3">
         <Cloud className="h-4 w-4 text-sky-600" />
         <p className="text-xs font-semibold text-sky-700 uppercase tracking-wide">Weather</p>
-        <span className="ml-auto text-[10px] text-sky-500">as of {fetchedAt}</span>
+        {forDate && <span className="ml-auto text-[10px] text-sky-500">Forecast for {forDate}</span>}
       </div>
       <div className="flex items-end gap-2 mb-2">
         <span className="text-3xl font-bold text-sky-900">{weather.high}°</span>
-        <span className="text-lg text-sky-600 mb-0.5">/ {weather.low}°</span>
+        <span className="text-lg text-sky-600 mb-0.5">/ {weather.low}°F</span>
       </div>
       <p className="text-sm font-medium text-sky-800 mb-3">{weather.conditions}</p>
       <div className="grid grid-cols-2 gap-1.5 text-xs text-sky-700">

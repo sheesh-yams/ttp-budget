@@ -8,6 +8,7 @@ import type {
   HospitalInfo,
   TalentMember,
   PointOfContact,
+  OtherContact,
 } from '@/server/actions/call-sheets'
 
 export async function generateMetadata({ params }: { params: Promise<{ token: string }> }) {
@@ -54,10 +55,14 @@ export default async function PublicCallSheetPage({ params }: { params: Promise<
   const hospital       = cs.hospitalInfo   as unknown as HospitalInfo | null
   const talent         = ((cs as any).talent        as unknown as TalentMember[])  ?? []
   const pointOfContact = (cs as any).pointOfContact as unknown as PointOfContact | null
+  const otherContacts  = ((cs as any).otherContacts as unknown as OtherContact[])  ?? []
   const client         = cs.project.client
 
-  const shootDate = new Date(cs.shootDate).toLocaleDateString('en-US', {
+  const shootDateDisplay = new Date(cs.shootDate).toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+  })
+  const weatherDateDisplay = new Date(cs.shootDate).toLocaleDateString('en-US', {
+    month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC',
   })
 
   const mapsUrl = cs.locationAddress
@@ -70,6 +75,11 @@ export default async function PublicCallSheetPage({ params }: { params: Promise<
   const sunset = weather
     ? new Date(weather.sunset).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
     : null
+
+  // Combine client contact + other contacts for the unified section
+  const hasAnyContacts =
+    (client && (client.contactName || client.contactEmail || client.contactPhone)) ||
+    otherContacts.length > 0
 
   return (
     <div className="min-h-screen bg-gray-50 pb-16">
@@ -97,7 +107,7 @@ export default async function PublicCallSheetPage({ params }: { params: Promise<
 
           <div className="flex items-center gap-2 text-white/70 text-sm mb-6">
             <Calendar className="h-4 w-4" />
-            {shootDate}
+            {shootDateDisplay}
           </div>
 
           <div className="rounded-2xl bg-white/10 px-6 py-5 inline-block">
@@ -114,16 +124,26 @@ export default async function PublicCallSheetPage({ params }: { params: Promise<
           {/* ── LEFT column: weather / location / contacts / hospital ── */}
           <div className="space-y-5">
 
-            {/* Weather */}
+            {/* Weather — full card with large temp */}
             {weather && (
-              <div className="rounded-xl bg-sky-50 border border-sky-200 px-4 py-3 flex items-center gap-4">
-                <Cloud className="h-5 w-5 text-sky-500 shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-sky-900">{weather.conditions} · {weather.high}° / {weather.low}°F</p>
-                  <p className="text-xs text-sky-600">
-                    💨 {weather.windMph} mph · 🌧 {weather.precipPct}% rain ·
-                    🌅 {sunrise} · 🌇 {sunset}
-                  </p>
+              <div className="rounded-xl bg-sky-50 border border-sky-200 overflow-hidden shadow-sm">
+                <div className="flex items-center gap-2 px-4 py-3 border-b border-sky-200">
+                  <Cloud className="h-4 w-4 text-sky-500" />
+                  <p className="text-xs font-semibold uppercase tracking-wide text-sky-700">Weather</p>
+                  <span className="ml-auto text-[10px] text-sky-500">{weatherDateDisplay}</span>
+                </div>
+                <div className="px-5 py-4">
+                  <div className="flex items-end gap-2 mb-1">
+                    <span className="text-4xl font-black text-sky-900">{weather.high}°</span>
+                    <span className="text-xl text-sky-500 mb-0.5">/ {weather.low}°F</span>
+                  </div>
+                  <p className="text-sm font-semibold text-sky-800 mb-4">{weather.conditions}</p>
+                  <div className="grid grid-cols-2 gap-y-1.5 gap-x-4 text-xs text-sky-700">
+                    <span>💨 {weather.windMph} mph wind</span>
+                    <span>🌧 {weather.precipPct}% rain</span>
+                    <span>🌅 Sunrise {sunrise}</span>
+                    <span>🌇 Sunset {sunset}</span>
+                  </div>
                 </div>
               </div>
             )}
@@ -175,23 +195,63 @@ export default async function PublicCallSheetPage({ params }: { params: Promise<
               </Card>
             )}
 
-            {/* Client contacts */}
-            {client && (client.contactName || client.contactEmail || client.contactPhone) && (
-              <Card title="Client" icon={<Phone className="h-4 w-4 text-muted-foreground" />}>
-                <p className="text-sm font-semibold text-foreground">{client.name}</p>
-                {client.contactName && (
-                  <p className="text-xs text-muted-foreground mb-1">{client.contactName}</p>
-                )}
-                {client.contactPhone && (
-                  <a href={`tel:${client.contactPhone}`} className="text-sm text-blue-600 hover:underline block mt-1">
-                    📞 {client.contactPhone}
-                  </a>
-                )}
-                {client.contactEmail && (
-                  <a href={`mailto:${client.contactEmail}`} className="text-sm text-blue-600 hover:underline block mt-0.5">
-                    ✉️ {client.contactEmail}
-                  </a>
-                )}
+            {/* Client / Other Contacts — unified section */}
+            {hasAnyContacts && (
+              <Card title="Client / Other Contacts" icon={<Phone className="h-4 w-4 text-muted-foreground" />}>
+                <div className="divide-y divide-border/60 -mx-4 -mb-4">
+                  {/* Client contact (from project) */}
+                  {client && (client.contactName || client.contactEmail || client.contactPhone) && (
+                    <div className="px-4 py-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-foreground">{client.name}</p>
+                          {client.contactName && (
+                            <p className="text-xs text-muted-foreground">{client.contactName}</p>
+                          )}
+                          {client.contactPhone && (
+                            <a href={`tel:${client.contactPhone}`} className="text-sm text-blue-600 hover:underline block mt-1">
+                              📞 {client.contactPhone}
+                            </a>
+                          )}
+                          {client.contactEmail && (
+                            <a href={`mailto:${client.contactEmail}`} className="text-sm text-blue-600 hover:underline block mt-0.5">
+                              ✉️ {client.contactEmail}
+                            </a>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-muted-foreground/50 shrink-0 mt-0.5">Client</span>
+                      </div>
+                    </div>
+                  )}
+                  {/* Other contacts */}
+                  {otherContacts.map((c, i) => (
+                    <div key={i} className="px-4 py-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-foreground">{c.name || '—'}</p>
+                          {(c.role || c.company) && (
+                            <p className="text-xs text-muted-foreground">
+                              {[c.role, c.company].filter(Boolean).join(' · ')}
+                            </p>
+                          )}
+                          {c.phone && (
+                            <a href={`tel:${c.phone}`} className="text-sm text-blue-600 hover:underline block mt-1">
+                              📞 {c.phone}
+                            </a>
+                          )}
+                          {c.email && (
+                            <a href={`mailto:${c.email}`} className="text-sm text-blue-600 hover:underline block mt-0.5">
+                              ✉️ {c.email}
+                            </a>
+                          )}
+                        </div>
+                        {c.role && (
+                          <span className="text-[10px] text-muted-foreground/50 shrink-0 mt-0.5">{c.role}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </Card>
             )}
 
@@ -205,14 +265,16 @@ export default async function PublicCallSheetPage({ params }: { params: Promise<
                 </div>
                 <div className="px-4 py-4">
                   <p className="text-sm font-semibold text-foreground">{hospital.name}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{hospital.address}</p>
+                  {hospital.address && (
+                    <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{hospital.address}</p>
+                  )}
                   {hospital.phone && (
                     <a href={`tel:${hospital.phone}`} className="text-sm font-medium text-blue-600 hover:underline mt-2 block">
                       📞 {hospital.phone}
                     </a>
                   )}
                   <a
-                    href={`https://maps.apple.com/?q=${encodeURIComponent(`${hospital.name} ${hospital.address}`)}`}
+                    href={`https://maps.apple.com/?q=${encodeURIComponent(`${hospital.name}${hospital.address ? ' ' + hospital.address : ''}`)}`}
                     className="text-xs text-blue-600 hover:underline mt-1 block"
                   >
                     Open in Maps →

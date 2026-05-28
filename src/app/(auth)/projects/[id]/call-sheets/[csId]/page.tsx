@@ -73,8 +73,9 @@ export default async function CallSheetPage({
     schedule:        (cs.schedule as unknown as ScheduleBlock[]) ?? [],
     cateringInfo:    cs.cateringInfo,
     notes:           cs.notes,
-    weather:         cs.weather    as unknown as WeatherInfo | null,
-    hospitalInfo:    cs.hospitalInfo as unknown as HospitalInfo | null,
+    weather:         cs.weather       as unknown as WeatherInfo | null,
+    hospitalInfo:    cs.hospitalInfo  as unknown as HospitalInfo | null,
+    otherContacts:   ((cs as any).otherContacts as unknown as import('@/server/actions/call-sheets').OtherContact[]) ?? [],
     clientContact:   project.client
       ? {
           companyName:  project.client.name,

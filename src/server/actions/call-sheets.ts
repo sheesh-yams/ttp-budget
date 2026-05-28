@@ -203,6 +203,15 @@ export interface HospitalInfo {
   lng: number
 }
 
+/** Additional contacts on the call sheet (venue POC, client rep, etc.) */
+export interface OtherContact {
+  name: string
+  role?: string     // "Venue Manager", "Client Rep", "Stylist" …
+  company?: string
+  phone?: string
+  email?: string
+}
+
 export interface WeatherInfo {
   high: number       // °F
   low: number        // °F
@@ -250,7 +259,11 @@ function wmoConditions(code: number): string {
 async function getOwnedSheet(id: string, workspaceId: string) {
   const cs = await db.callSheet.findFirst({
     where: { id, workspaceId },
-    select: { id: true, projectId: true, status: true, publicToken: true, locationAddress: true, shootDate: true, locationLat: true, locationLng: true },
+    select: {
+      id: true, projectId: true, status: true, publicToken: true,
+      locationAddress: true, shootDate: true, locationLat: true, locationLng: true,
+      weather: true,
+    },
   })
   if (!cs) throw new Error('Call sheet not found')
   return cs
@@ -304,6 +317,7 @@ export async function updateCallSheet(
     talent: TalentMember[]
     crew: CrewDept[]
     schedule: ScheduleBlock[]
+    otherContacts: OtherContact[]
     cateringInfo: string
     notes: string
   }>
@@ -327,10 +341,11 @@ export async function updateCallSheet(
         ...(input.parkingAddress     !== undefined && { parkingAddress:   input.parkingAddress }),
         ...(input.locationNotes      !== undefined && { locationNotes:    input.locationNotes }),
         ...(input.pointOfContact     !== undefined && { pointOfContact:   JSON.parse(JSON.stringify(input.pointOfContact)) }),
-        ...(input.talent             !== undefined && { talent:    JSON.parse(JSON.stringify(input.talent)) }),
-        ...(input.crew               !== undefined && { crew:     JSON.parse(JSON.stringify(input.crew)) }),
-        ...(input.schedule           !== undefined && { schedule: JSON.parse(JSON.stringify(input.schedule)) }),
-        ...(input.cateringInfo       !== undefined && { cateringInfo:     input.cateringInfo }),
+        ...(input.talent             !== undefined && { talent:        JSON.parse(JSON.stringify(input.talent)) }),
+        ...(input.crew               !== undefined && { crew:          JSON.parse(JSON.stringify(input.crew)) }),
+        ...(input.schedule           !== undefined && { schedule:      JSON.parse(JSON.stringify(input.schedule)) }),
+        ...(input.otherContacts      !== undefined && { otherContacts: JSON.parse(JSON.stringify(input.otherContacts)) }),
+        ...(input.cateringInfo       !== undefined && { cateringInfo:  input.cateringInfo }),
         ...(input.notes              !== undefined && { notes:            input.notes }),
         ...(addressChanging && { locationLat: null, locationLng: null, hospitalInfo: null, weather: null }),
       },
@@ -364,6 +379,18 @@ export async function sendCallSheet(id: string): Promise<ActionResult<{ publicTo
   try {
     const user = await getCurrentUser()
     const cs = await getOwnedSheet(id, user.workspaceId)
+
+    // Auto-refresh weather & hospital when sending so crew gets the freshest forecast.
+    // Only skip if weather was fetched within the last 3 hours (already very fresh).
+    if (cs.locationAddress) {
+      const existingWeather = cs.weather as { fetchedAt?: string } | null
+      const fetchedAt = existingWeather?.fetchedAt ? new Date(existingWeather.fetchedAt).getTime() : 0
+      const isStale = Date.now() - fetchedAt > 3 * 60 * 60 * 1000
+      if (isStale) {
+        // Fire-and-forget — don't block send if location fetch fails
+        fetchLocationData(id).catch(() => {})
+      }
+    }
 
     await db.callSheet.update({
       where: { id },
@@ -460,74 +487,16 @@ export async function fetchLocationData(id: string): Promise<ActionResult<{
       lng = parseFloat(geoData[0].lon)
     }
 
-    // ── 2. Nearest hospital via Overpass API ────────────────────────────────────
-    // Search 20 km radius; fetch up to 5 candidates and pick the closest one.
-    const overpassQuery =
-      `[out:json][timeout:8];` +
-      `(node["amenity"="hospital"](around:20000,${lat},${lng});` +
-      `way["amenity"="hospital"](around:20000,${lat},${lng}););` +
-      `out center 5;`
-
-    let hospital: HospitalInfo | null = null
-    try {
-      const ovRes = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: `data=${encodeURIComponent(overpassQuery)}`,
-      })
-      const ovData = (await ovRes.json()) as {
-        elements: Array<{
-          type: string
-          lat?: number
-          lon?: number
-          center?: { lat: number; lon: number }
-          tags?: {
-            name?: string
-            phone?: string
-            'contact:phone'?: string
-            'addr:full'?: string
-            'addr:housenumber'?: string
-            'addr:street'?: string
-            'addr:city'?: string
-            'addr:state'?: string
-          }
-        }>
-      }
-
-      if (ovData.elements.length) {
-        const candidates = ovData.elements.map(el => {
-          const elLat = el.lat ?? el.center?.lat ?? 0
-          const elLng = el.lon ?? el.center?.lon ?? 0
-          const dist = haversineKm(lat!, lng!, elLat, elLng)
-          return { el, elLat, elLng, dist }
-        })
-        candidates.sort((a, b) => a.dist - b.dist)
-
-        const { el, elLat, elLng, dist } = candidates[0]
-        const tags = el.tags ?? {}
-        const addrParts = [
-          tags['addr:housenumber'],
-          tags['addr:street'],
-          tags['addr:city'],
-          tags['addr:state'],
-        ].filter(Boolean)
-        const address = tags['addr:full'] ?? (addrParts.length ? addrParts.join(', ') : 'Address not available')
-
-        hospital = {
-          name:       tags.name ?? 'Hospital',
-          address,
-          phone:      tags.phone ?? tags['contact:phone'],
-          distanceKm: Math.round(dist * 10) / 10,
-          lat:        elLat,
-          lng:        elLng,
-        }
-      }
-    } catch {
-      // Overpass is best-effort — don't fail the whole fetch if it's down
-    }
-
-    // ── 3. Weather via Open-Meteo ───────────────────────────────────────────────
+    // ── 2 + 3. Overpass hospital + Open-Meteo weather — run in parallel ─────────
     const dateStr = cs.shootDate.toISOString().split('T')[0]
+
+    const overpassQuery =
+      `[out:json][timeout:12];` +
+      `(node["amenity"="hospital"](around:25000,${lat},${lng});` +
+      `way["amenity"="hospital"](around:25000,${lat},${lng});` +
+      `relation["amenity"="hospital"](around:25000,${lat},${lng}););` +
+      `out center 10;`
+
     const weatherUrl =
       `https://api.open-meteo.com/v1/forecast` +
       `?latitude=${lat}&longitude=${lng}` +
@@ -536,23 +505,91 @@ export async function fetchLocationData(id: string): Promise<ActionResult<{
       `&start_date=${dateStr}&end_date=${dateStr}` +
       `&temperature_unit=fahrenheit&windspeed_unit=mph`
 
-    const wRes = await fetch(weatherUrl)
-    const wData = (await wRes.json()) as {
+    const [ovResult, wResult] = await Promise.allSettled([
+      fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `data=${encodeURIComponent(overpassQuery)}`,
+      }).then(r => r.json()),
+      fetch(weatherUrl).then(r => r.json()),
+    ])
+
+    // ── Parse hospital ───────────────────────────────────────────────────────────
+    let hospital: HospitalInfo | null = null
+    if (ovResult.status === 'fulfilled') {
+      try {
+        const ovData = ovResult.value as {
+          elements: Array<{
+            type: string
+            lat?: number
+            lon?: number
+            center?: { lat: number; lon: number }
+            tags?: {
+              name?: string
+              phone?: string
+              'contact:phone'?: string
+              'addr:full'?: string
+              'addr:housenumber'?: string
+              'addr:street'?: string
+              'addr:city'?: string
+              'addr:state'?: string
+            }
+          }>
+        }
+        if (ovData.elements?.length) {
+          const candidates = ovData.elements
+            .filter(el => el.tags?.name) // only named hospitals
+            .map(el => {
+              const elLat = el.lat ?? el.center?.lat ?? 0
+              const elLng = el.lon ?? el.center?.lon ?? 0
+              return { el, elLat, elLng, dist: haversineKm(lat!, lng!, elLat, elLng) }
+            })
+          candidates.sort((a, b) => a.dist - b.dist)
+
+          if (candidates.length > 0) {
+            const { el, elLat, elLng, dist } = candidates[0]
+            const tags = el.tags ?? {}
+            const addrParts = [
+              tags['addr:housenumber'],
+              tags['addr:street'],
+              tags['addr:city'],
+              tags['addr:state'],
+            ].filter(Boolean)
+            const address = tags['addr:full'] ?? (addrParts.length ? addrParts.join(', ') : '')
+
+            hospital = {
+              name:       tags.name ?? 'Hospital',
+              address,
+              phone:      tags.phone ?? tags['contact:phone'],
+              distanceKm: Math.round(dist * 10) / 10,
+              lat:        elLat,
+              lng:        elLng,
+            }
+          }
+        }
+      } catch {
+        // best-effort
+      }
+    }
+
+    // ── Parse weather ────────────────────────────────────────────────────────────
+    if (wResult.status === 'rejected') {
+      return { success: false, error: 'Weather fetch failed — please try again' }
+    }
+    const wData = wResult.value as {
       daily: {
-        temperature_2m_max:           number[]
-        temperature_2m_min:           number[]
-        weathercode:                  number[]
-        windspeed_10m_max:            number[]
+        temperature_2m_max:            number[]
+        temperature_2m_min:            number[]
+        weathercode:                   number[]
+        windspeed_10m_max:             number[]
         precipitation_probability_max: number[]
-        sunrise:                      string[]
-        sunset:                       string[]
+        sunrise:                       string[]
+        sunset:                        string[]
       }
     }
 
     const d = wData.daily
     if (!d?.temperature_2m_max?.length) {
-      // Open-Meteo only provides forecasts up to 16 days out — beyond that the
-      // daily arrays come back empty.
       return {
         success: false,
         error: 'Weather unavailable — forecasts are only available within 16 days of the shoot date',
