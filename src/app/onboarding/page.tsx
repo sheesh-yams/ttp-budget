@@ -20,7 +20,7 @@ export default function OnboardingPage() {
     setError(null)
     startTransition(async () => {
       const result = await completeOnboarding({ name: name.trim(), contactEmail, primaryColor, accentColor })
-      if (result && !result.success) setError(result.error)
+      if (result && 'error' in result) setError(result.error)
     })
   }
 
