@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs/server'
+import { auth, currentUser } from '@clerk/nextjs/server'
 import { db } from '@/lib/db'
 import { redirect } from 'next/navigation'
 import { cache } from 'react'
@@ -7,13 +7,42 @@ export const getCurrentUser = cache(async () => {
   const { userId } = await auth()
   if (!userId) redirect('/sign-in')
 
-  const user = await db.user.findUnique({
+  let user = await db.user.findUnique({
     where: { clerkId: userId },
     include: { workspace: true },
   })
 
   if (!user) {
-    redirect('/sign-in?error=user-not-found')
+    // Race condition: OAuth providers (e.g. Google) redirect the user to the app
+    // immediately after Clerk creates their account, before the user.created webhook
+    // has a chance to insert the DB row. Instead of bouncing them to /sign-in,
+    // we create the DB user on-the-fly from the Clerk session data.
+    const clerkUser = await currentUser()
+    if (!clerkUser) redirect('/sign-in')
+
+    const email = clerkUser.emailAddresses[0]?.emailAddress
+    if (!email) redirect('/sign-in?error=no-email')
+
+    const workspace = await db.workspace.findFirst()
+    if (!workspace) redirect('/sign-in?error=no-workspace')
+
+    user = await db.user.upsert({
+      where: { clerkId: userId },
+      update: {
+        email,
+        name: [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ') || null,
+        avatarUrl: clerkUser.imageUrl ?? null,
+      },
+      create: {
+        clerkId: userId,
+        email,
+        name: [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ') || null,
+        avatarUrl: clerkUser.imageUrl ?? null,
+        workspaceId: workspace.id,
+        role: 'PRODUCER',
+      },
+      include: { workspace: true },
+    })
   }
 
   return user
