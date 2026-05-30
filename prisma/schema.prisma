@@ -2,7 +2,7 @@
 // Prisma schema. Postgres on Neon.
 //
 // Design notes:
-// - Single workspace (single-tenant), but Workspace table exists so settings live somewhere coherent.
+// - Multi-tenant: each workspace is owned by one Clerk org. clerkOrgId links them.
 // - Money stored as Int cents (avoid float drift). Convert at the edges.
 // - Soft delete via `archived_at` on the things you'd want to recover (projects, clients, rate cards).
 //   Hard delete is allowed on line items, accounts, phases — those churn too much for soft delete.
@@ -63,6 +63,9 @@ model Workspace {
   defaultProposalTerms String? @db.Text
   defaultInvoiceTerms  String? @db.Text
 
+  // Clerk organization that owns this workspace (set after org creation webhook)
+  clerkOrgId        String?  @unique
+
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -89,6 +92,7 @@ model User {
   name         String?
   avatarUrl    String?
   role         UserRole @default(PRODUCER)
+  onboarded    Boolean  @default(false)
 
   workspaceId  String
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)

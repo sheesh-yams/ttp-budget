@@ -1,8 +1,9 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
 import { db } from '@/lib/db'
-import { getWorkspaceId } from '@/lib/auth'
+import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
 
@@ -120,6 +121,46 @@ export async function updateInvoiceDefaults(
     return { success: true, data: undefined }
   } catch {
     return { success: false, error: 'Failed to save invoice defaults' }
+  }
+}
+
+// ─── Onboarding ───────────────────────────────────────────────────────────────
+
+const onboardingSchema = z.object({
+  name:         z.string().min(1).max(200),
+  contactEmail: z.string().email().max(200).optional().nullable().or(z.literal('')),
+  primaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+  accentColor:  z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+})
+
+export async function completeOnboarding(
+  input: z.infer<typeof onboardingSchema>
+): Promise<ActionResult> {
+  try {
+    const user = await getCurrentUser()
+    const data = onboardingSchema.parse(input)
+
+    await db.workspace.update({
+      where: { id: user.workspaceId },
+      data: {
+        name:         data.name,
+        contactEmail: data.contactEmail || null,
+        primaryColor: data.primaryColor ?? '#000000',
+        accentColor:  data.accentColor  ?? '#FFD400',
+      },
+    })
+
+    await db.user.update({
+      where: { id: user.id },
+      data: { onboarded: true },
+    })
+
+    revalidatePath('/', 'layout')
+    redirect('/dashboard')
+  } catch (err) {
+    // redirect() throws — let it propagate
+    if (err instanceof Error && err.message === 'NEXT_REDIRECT') throw err
+    return { success: false, error: 'Failed to complete onboarding' }
   }
 }
 

@@ -33,8 +33,19 @@ const navGroups = [
   },
 ]
 
-export function Sidebar() {
+export function Sidebar({ workspaceName }: { workspaceName: string }) {
   const pathname = usePathname()
+
+  // Split name into two lines: up to the last word boundary ≤ 18 chars, remainder on line 2.
+  // Falls back to showing the full name on one line if it's short.
+  const nameParts = (() => {
+    if (workspaceName.length <= 18) return [workspaceName, '']
+    const mid = workspaceName.lastIndexOf(' ', 18)
+    if (mid < 1) return [workspaceName.slice(0, 18), workspaceName.slice(18)]
+    return [workspaceName.slice(0, mid), workspaceName.slice(mid + 1)]
+  })()
+
+  const initial = workspaceName.trim()[0]?.toUpperCase() ?? 'W'
 
   return (
     <aside
@@ -44,20 +55,21 @@ export function Sidebar() {
       {/* ── Logo ── */}
       <div className="border-b border-white/[0.08] px-4 py-[18px]">
         <div className="flex items-center gap-2.5">
-          {/* Mint "T" mark */}
           <div
             className="flex h-[26px] w-[26px] flex-shrink-0 items-center justify-center rounded-[5px] text-[13px] font-black"
             style={{ background: '#04FFCC', color: '#003D31' }}
           >
-            T
+            {initial}
           </div>
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/90 leading-none">
-              The Third Place
+          <div className="min-w-0">
+            <p className="truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-white/90 leading-none">
+              {nameParts[0]}
             </p>
-            <p className="text-[9px] font-medium tracking-[0.08em] text-white/35 mt-[3px] leading-none">
-              Creative
-            </p>
+            {nameParts[1] && (
+              <p className="truncate text-[9px] font-medium tracking-[0.08em] text-white/35 mt-[3px] leading-none">
+                {nameParts[1]}
+              </p>
+            )}
           </div>
         </div>
       </div>

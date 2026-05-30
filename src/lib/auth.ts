@@ -15,31 +15,41 @@ export const getCurrentUser = cache(async () => {
   if (!user) {
     // Race condition: OAuth providers (e.g. Google) redirect the user to the app
     // immediately after Clerk creates their account, before the user.created webhook
-    // has a chance to insert the DB row. Instead of bouncing them to /sign-in,
-    // we create the DB user on-the-fly from the Clerk session data.
+    // has a chance to insert the DB row. Create the workspace + user on-the-fly
+    // using the same logic as the webhook so the experience is seamless.
     const clerkUser = await currentUser()
     if (!clerkUser) redirect('/sign-in')
 
     const email = clerkUser.emailAddresses[0]?.emailAddress
     if (!email) redirect('/sign-in?error=no-email')
 
-    const workspace = await db.workspace.findFirst()
-    if (!workspace) redirect('/sign-in?error=no-workspace')
+    const displayName = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ') || null
+    const defaultWorkspaceName = displayName
+      ? `${displayName}'s Workspace`
+      : `${email.split('@')[0]}'s Workspace`
+
+    // Create a fresh workspace (mirrors user.created webhook logic).
+    // If the webhook already ran and created the user, upsert hits the update branch
+    // and leaves workspaceId unchanged — the new workspace is orphaned but harmless.
+    const workspace = await db.workspace.create({
+      data: { name: defaultWorkspaceName },
+    })
 
     user = await db.user.upsert({
       where: { clerkId: userId },
       update: {
         email,
-        name: [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ') || null,
+        name: displayName,
         avatarUrl: clerkUser.imageUrl ?? null,
       },
       create: {
         clerkId: userId,
         email,
-        name: [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ') || null,
+        name: displayName,
         avatarUrl: clerkUser.imageUrl ?? null,
         workspaceId: workspace.id,
-        role: 'PRODUCER',
+        role: 'OWNER',
+        onboarded: false,
       },
       include: { workspace: true },
     })
