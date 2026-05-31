@@ -12,6 +12,21 @@ import {
 import { useEffect, useRef, useState, useTransition } from 'react'
 import { createWorkspace } from '@/server/actions/workspace'
 
+// Inline spinner — no dependency needed
+function Spinner({ className }: { className?: string }) {
+  return (
+    <svg
+      className={cn('animate-spin', className)}
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+    >
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z" />
+    </svg>
+  )
+}
+
 const navGroups = [
   {
     section: null,
@@ -99,14 +114,15 @@ export function Sidebar({ workspaceName }: { workspaceName: string }) {
 // =============================================================================
 
 function WorkspaceSwitcher({ fallbackName }: { fallbackName: string }) {
-  const router = useRouter()
-  const { organization, isLoaded: orgLoaded } = useOrganization()
+  const { organization } = useOrganization()
   const { userMemberships, setActive, isLoaded: listLoaded } = useOrganizationList({
     userMemberships: { infinite: true },
   })
 
   const [open, setOpen] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
+  // null = idle, string = orgId being switched to
+  const [switching, setSwitching] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
 
   // Close dropdown on outside click
@@ -129,16 +145,30 @@ function WorkspaceSwitcher({ fallbackName }: { fallbackName: string }) {
   })()
 
   async function switchOrg(orgId: string) {
-    if (!setActive) return
-    await setActive({ organization: orgId })
+    if (!setActive || switching) return
+    // Bug 1 fix: close dropdown immediately, show spinner on the selected row
     setOpen(false)
-    router.refresh()
+    setSwitching(orgId)
+    await setActive({ organization: orgId })
+    // Bug 1 fix: hard navigation — forces a brand-new HTTP request so Server
+    // Components read the fresh auth().orgId from the updated Clerk session cookie.
+    // router.refresh() is NOT enough — it reuses the React tree and can hit the
+    // route cache, serving stale workspace data from the previous org.
+    window.location.href = '/dashboard'
+  }
+
+  async function afterCreate(clerkOrgId: string) {
+    setShowCreate(false)
+    if (!setActive) return
+    setSwitching(clerkOrgId)
+    await setActive({ organization: clerkOrgId })
+    window.location.href = '/dashboard'
   }
 
   return (
     <div ref={ref} className="relative">
       <button
-        onClick={() => setOpen(v => !v)}
+        onClick={() => { if (!switching) setOpen(v => !v) }}
         className="flex w-full items-center gap-2.5 px-4 py-[18px] hover:bg-white/[0.035] transition-colors"
       >
         <div
@@ -157,25 +187,34 @@ function WorkspaceSwitcher({ fallbackName }: { fallbackName: string }) {
             </p>
           )}
         </div>
-        <ChevronDown
-          className="h-3 w-3 flex-shrink-0 text-white/30 transition-transform"
-          style={{ transform: open ? 'rotate(180deg)' : undefined }}
-        />
+        {switching ? (
+          <Spinner className="h-3 w-3 flex-shrink-0 text-white/40" />
+        ) : (
+          <ChevronDown
+            className="h-3 w-3 flex-shrink-0 text-white/30 transition-transform"
+            style={{ transform: open ? 'rotate(180deg)' : undefined }}
+          />
+        )}
       </button>
 
-      {/* Dropdown */}
-      {open && (
+      {/* Dropdown — hidden while a switch is in progress */}
+      {open && !switching && (
         <div
           className="absolute left-2 right-2 top-full z-50 mt-1 rounded-lg border border-white/[0.1] py-1 shadow-2xl"
           style={{ background: '#130B22' }}
         >
           {listLoaded && userMemberships?.data?.map((mem) => {
             const isActive = mem.organization.id === organization?.id
+            const isLoading = switching === mem.organization.id
             return (
               <button
                 key={mem.organization.id}
                 onClick={() => switchOrg(mem.organization.id)}
-                className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[12px] transition-colors hover:bg-white/[0.06]"
+                disabled={!!switching}
+                className={cn(
+                  'flex w-full items-center gap-2.5 px-3 py-2 text-left text-[12px] transition-colors',
+                  switching ? 'opacity-50 cursor-not-allowed' : 'hover:bg-white/[0.06]'
+                )}
               >
                 <div
                   className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-[4px] text-[10px] font-black"
@@ -186,7 +225,11 @@ function WorkspaceSwitcher({ fallbackName }: { fallbackName: string }) {
                 <span className={cn('flex-1 truncate', isActive ? 'text-white' : 'text-white/60')}>
                   {mem.organization.name}
                 </span>
-                {isActive && <Check className="h-3 w-3 flex-shrink-0 text-[#04FFCC]" />}
+                {isLoading ? (
+                  <Spinner className="h-3 w-3 flex-shrink-0 text-[#04FFCC]" />
+                ) : isActive ? (
+                  <Check className="h-3 w-3 flex-shrink-0 text-[#04FFCC]" />
+                ) : null}
               </button>
             )
           })}
@@ -207,13 +250,7 @@ function WorkspaceSwitcher({ fallbackName }: { fallbackName: string }) {
       {showCreate && (
         <CreateWorkspaceDialog
           onClose={() => setShowCreate(false)}
-          onCreated={async (clerkOrgId) => {
-            setShowCreate(false)
-            if (setActive) {
-              await setActive({ organization: clerkOrgId })
-              router.refresh()
-            }
-          }}
+          onCreated={afterCreate}
         />
       )}
     </div>
