@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { z }              from 'zod'
 import { db }             from '@/lib/db'
-import { getCurrentUser } from '@/lib/auth'
+import { getScopedDb }    from '@/lib/db-scoped'
 import {
   importPayloadSchema,
   formatZodError,
@@ -46,11 +46,11 @@ export async function importToBudget(
   rawData:  unknown
 ): Promise<ActionResult<ImportResult>> {
   try {
-    const user = await getCurrentUser()
+    const sdb = await getScopedDb()
 
-    // ── Auth: verify budget belongs to this workspace ────────────────────────
-    const budget = await db.budget.findFirst({
-      where: { id: budgetId, workspaceId: user.workspaceId },
+    // ── Auth: verify budget belongs to active workspace (extension scopes automatically)
+    const budget = await sdb.budget.findFirst({
+      where: { id: budgetId },
       select: { id: true, projectId: true },
     })
     if (!budget) return { success: false, error: 'Budget not found' }
@@ -155,11 +155,11 @@ export async function importToTemplate(
   rawData:    unknown
 ): Promise<ActionResult<ImportResult>> {
   try {
-    const user = await getCurrentUser()
+    const sdb = await getScopedDb()
 
-    // ── Auth ─────────────────────────────────────────────────────────────────
-    const template = await db.budgetTemplate.findFirst({
-      where:  { id: templateId, workspaceId: user.workspaceId },
+    // ── Auth: verify template belongs to active workspace (extension scopes automatically)
+    const template = await sdb.budgetTemplate.findFirst({
+      where:  { id: templateId },
       select: { id: true, structure: true },
     })
     if (!template) return { success: false, error: 'Template not found' }
@@ -213,7 +213,7 @@ export async function importToTemplate(
       }
     }
 
-    await db.budgetTemplate.update({
+    await sdb.budgetTemplate.update({
       where: { id: templateId },
       data:  { structure: { accounts } as object },
     })

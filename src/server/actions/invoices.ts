@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { getScopedDb } from '@/lib/db-scoped'
 import { db } from '@/lib/db'
 import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
 import { generateInvoiceNumber } from '@/lib/invoice-numbering'
@@ -37,17 +38,20 @@ export async function createInvoice(
   input: z.infer<typeof createSchema>
 ): Promise<ActionResult<{ id: string; number: string; publicToken: string }>> {
   try {
-    const user = await getCurrentUser()
+    const [scopedDb, user, workspaceId] = await Promise.all([
+      getScopedDb(),
+      getCurrentUser(),
+      getWorkspaceId(),
+    ])
     const data = createSchema.parse(input)
-    const number = await generateInvoiceNumber(user.workspaceId)
+    const number = await generateInvoiceNumber(workspaceId)
     const workspace = await db.workspace.findUnique({
-      where: { id: user.workspaceId },
+      where: { id: workspaceId },
       select: { defaultInvoiceTerms: true },
     })
 
-    const invoice = await db.invoice.create({
+    const invoice = await scopedDb.invoice.create({
       data: {
-        workspaceId: user.workspaceId,
         projectId: data.projectId,
         clientId: data.clientId,
         budgetId: data.budgetId ?? null,
@@ -65,7 +69,7 @@ export async function createInvoice(
         terms: data.terms ?? workspace?.defaultInvoiceTerms ?? null,
         poNumber: data.poNumber ?? null,
         createdById: user.id,
-      },
+      } as unknown as Parameters<typeof scopedDb.invoice.create>[0]['data'],
     })
 
     revalidatePath(`/projects/${data.projectId}`)
@@ -82,8 +86,8 @@ export async function markInvoicePaid(
   paymentRef?: string
 ): Promise<ActionResult> {
   try {
-    await getWorkspaceId()
-    await db.invoice.update({
+    const scopedDb = await getScopedDb()
+    await scopedDb.invoice.update({
       where: { id: invoiceId },
       data: { status: 'PAID', paidAt: new Date(), paymentMethod: paymentMethod ?? null, paymentRef: paymentRef ?? null },
     })
@@ -96,12 +100,12 @@ export async function markInvoicePaid(
 
 export async function sendInvoice(invoiceId: string): Promise<ActionResult<{ publicUrl: string }>> {
   try {
-    await getWorkspaceId()
-    const invoice = await db.invoice.update({
+    const scopedDb = await getScopedDb()
+    const invoice = await scopedDb.invoice.update({
       where: { id: invoiceId },
       data: { status: 'SENT', sentAt: new Date() },
     })
-    const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL}/i/${invoice.publicToken}`
+    const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL}/i/${(invoice as unknown as { publicToken: string }).publicToken}`
     return { success: true, data: { publicUrl } }
   } catch {
     return { success: false, error: 'Failed to send invoice' }
@@ -109,6 +113,7 @@ export async function sendInvoice(invoiceId: string): Promise<ActionResult<{ pub
 }
 
 export async function recordInvoiceView(invoiceId: string, ip: string, userAgent: string): Promise<void> {
+  // Public route — uses raw db (no user session)
   try {
     const now = new Date()
     await db.invoiceView.create({ data: { invoiceId, ip, userAgent, viewedAt: now } })
@@ -130,11 +135,13 @@ export async function updateInvoiceStatus(
   status: 'DRAFT' | 'SENT' | 'VIEWED' | 'PAID' | 'OVERDUE' | 'VOID'
 ): Promise<ActionResult> {
   try {
-    const invoice = await db.invoice.findUniqueOrThrow({
+    const scopedDb = await getScopedDb()
+    const invoice = await scopedDb.invoice.findFirst({
       where: { id: invoiceId },
       select: { projectId: true, totalCents: true },
     })
-    await db.invoice.update({
+    if (!invoice) return { success: false, error: 'Invoice not found' }
+    await scopedDb.invoice.update({
       where: { id: invoiceId },
       data: {
         status,
@@ -161,14 +168,15 @@ export async function recordPayment(
   ref?: string
 ): Promise<ActionResult> {
   try {
-    await getWorkspaceId()
-    const invoice = await db.invoice.findUniqueOrThrow({
+    const scopedDb = await getScopedDb()
+    const invoice = await scopedDb.invoice.findFirst({
       where: { id: invoiceId },
       select: { totalCents: true, amountPaidCents: true, projectId: true },
     })
-    const newPaid = invoice.amountPaidCents + amountCents
-    const fullyPaid = newPaid >= invoice.totalCents
-    await db.invoice.update({
+    if (!invoice) return { success: false, error: 'Invoice not found' }
+    const newPaid = (invoice.amountPaidCents as number) + amountCents
+    const fullyPaid = newPaid >= (invoice.totalCents as number)
+    await scopedDb.invoice.update({
       where: { id: invoiceId },
       data: {
         amountPaidCents: newPaid,
@@ -186,6 +194,7 @@ export async function recordPayment(
 }
 
 export async function updateOverdueInvoices(): Promise<void> {
+  // System cron — uses raw db (no user session)
   await db.invoice.updateMany({
     where: { status: { in: ['SENT', 'VIEWED'] }, dueDate: { lt: new Date() } },
     data: { status: 'OVERDUE' },

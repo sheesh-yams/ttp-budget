@@ -2,25 +2,23 @@
 
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
-import { getWorkspaceId, getCurrentUser } from '@/lib/auth'
+import { getScopedDb } from '@/lib/db-scoped'
+import { getCurrentUser } from '@/lib/auth'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import { Prisma, type RateUnit, type RateCategory } from '@prisma/client'
 
 // ─── Category mapping ─────────────────────────────────────────────────────────
-// Maps the detailed RateCategory on RateCard to the broader LineItemCategory
-// snapshot stored on LineItem. Used for crew import into call sheets.
-// NOTE: LineItemCategory is defined locally until `prisma db push + generate` runs.
 
 type LineItemCategory = 'CREW' | 'LOCATION' | 'EQUIPMENT' | 'SERVICE' | 'DELIVERABLE'
 
 function mapRateCategory(rc: RateCategory): LineItemCategory {
   switch (rc) {
     case 'CREW':            return 'CREW'
-    case 'TALENT':          return 'CREW'        // on-screen talent = crew for call sheet
+    case 'TALENT':          return 'CREW'
     case 'EQUIPMENT':       return 'EQUIPMENT'
     case 'LOCATION':        return 'LOCATION'
-    case 'POST':            return 'DELIVERABLE'  // edits, color, mix — not a person
+    case 'POST':            return 'DELIVERABLE'
     case 'TRAVEL':          return 'SERVICE'
     case 'CATERING':        return 'SERVICE'
     case 'INSURANCE':       return 'SERVICE'
@@ -33,26 +31,23 @@ function mapRateCategory(rc: RateCategory): LineItemCategory {
 
 export async function createBudget(projectId: string, templateId?: string): Promise<ActionResult<{ id: string }>> {
   try {
-    const user = await getCurrentUser()
-    const project = await db.project.findFirst({
-      where: { id: projectId, workspaceId: user.workspaceId },
-    })
+    const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+
+    // Ownership check: scoped client ensures this project belongs to the active workspace.
+    const project = await sdb.project.findFirst({ where: { id: projectId } })
     if (!project) return { success: false, error: 'Project not found' }
 
-    const budget = await db.budget.create({
+    const budget = await sdb.budget.create({
       data: {
-        workspaceId: user.workspaceId,
         projectId,
         name: 'Main Budget',
         createdById: user.id,
         phases: { create: { name: 'v1 Estimate', order: 0, isPrimary: true } },
-      },
+      } as unknown as Parameters<typeof sdb.budget.create>[0]['data'],
     })
 
     if (templateId) {
-      const template = await db.budgetTemplate.findFirst({
-        where: { id: templateId, workspaceId: user.workspaceId },
-      })
+      const template = await sdb.budgetTemplate.findFirst({ where: { id: templateId } })
       if (template) {
         await materialiseTemplate(budget.id, template.structure as TemplateStructure)
       }
@@ -78,7 +73,7 @@ const addAccountSchema = z.object({
 
 export async function addAccount(input: z.infer<typeof addAccountSchema>): Promise<ActionResult<{ id: string }>> {
   try {
-    await getWorkspaceId()
+    await getScopedDb() // auth + workspace check
     const data = addAccountSchema.parse(input)
     const account = await db.account.create({ data: data as Prisma.AccountUncheckedCreateInput })
     return { success: true, data: { id: account.id } }
@@ -108,17 +103,17 @@ export async function upsertLineItem(
   input: z.infer<typeof lineItemSchema>
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    await getWorkspaceId()
+    const sdb = await getScopedDb()
     const data = lineItemSchema.parse(input)
 
     let item
     if (id) {
       item = await db.lineItem.update({ where: { id }, data })
     } else {
-      // Snapshot lineItemCategory from the rate card at creation time
       let lineItemCategory: LineItemCategory | undefined
       if (data.rateCardId) {
-        const rc = await db.rateCard.findUnique({
+        // Scoped lookup ensures rate card belongs to the active workspace.
+        const rc = await sdb.rateCard.findFirst({
           where: { id: data.rateCardId },
           select: { category: true },
         })
@@ -147,7 +142,7 @@ export async function upsertLineItem(
 
 export async function deleteLineItem(id: string): Promise<ActionResult> {
   try {
-    await getWorkspaceId()
+    await getScopedDb() // auth + workspace check
     await db.lineItem.delete({ where: { id } })
     return { success: true, data: undefined }
   } catch {
@@ -159,7 +154,7 @@ export async function deleteLineItem(id: string): Promise<ActionResult> {
 
 export async function updateAccount(id: string, input: { name: string; code?: string | null }): Promise<ActionResult> {
   try {
-    await getWorkspaceId()
+    await getScopedDb() // auth + workspace check
     await db.account.update({ where: { id }, data: input })
     return { success: true, data: undefined }
   } catch {
@@ -173,9 +168,7 @@ export async function reorderAccounts(
   accounts: { id: string; order: number; code?: string | null }[]
 ): Promise<ActionResult> {
   try {
-    await getWorkspaceId()
-    // Always assign sequential 100/200/300 codes when reordering so the
-    // display order stays in sync — even if accounts had no codes before.
+    await getScopedDb() // auth + workspace check
     await db.$transaction(
       accounts.map(({ id, order }, i) =>
         db.account.update({
@@ -194,7 +187,7 @@ export async function reorderAccounts(
 
 export async function deleteAccount(id: string): Promise<ActionResult> {
   try {
-    await getWorkspaceId()
+    await getScopedDb() // auth + workspace check
     await db.account.delete({ where: { id } })
     return { success: true, data: undefined }
   } catch {
@@ -206,7 +199,7 @@ export async function deleteAccount(id: string): Promise<ActionResult> {
 
 export async function moveLineItem(itemId: string, targetAccountId: string): Promise<ActionResult> {
   try {
-    await getWorkspaceId()
+    await getScopedDb() // auth + workspace check
     const count = await db.lineItem.count({ where: { accountId: targetAccountId } })
     await db.lineItem.update({
       where: { id: itemId },
@@ -222,7 +215,7 @@ export async function moveLineItem(itemId: string, targetAccountId: string): Pro
 
 export async function reorderLineItems(items: { id: string; order: number }[]): Promise<ActionResult> {
   try {
-    await getWorkspaceId()
+    await getScopedDb() // auth + workspace check
     await db.$transaction(
       items.map(({ id, order }) => db.lineItem.update({ where: { id }, data: { order } }))
     )
@@ -236,7 +229,7 @@ export async function reorderLineItems(items: { id: string; order: number }[]): 
 
 export async function duplicatePhase(phaseId: string, newName: string): Promise<ActionResult<{ id: string }>> {
   try {
-    await getWorkspaceId()
+    await getScopedDb() // auth + workspace check
 
     const source = await db.phase.findUnique({
       where: { id: phaseId },
@@ -285,7 +278,7 @@ export async function updatePhaseOverview(
   data: { description: string | null; deliverables: DeliverableInput[] }
 ): Promise<ActionResult> {
   try {
-    await getWorkspaceId()
+    await getScopedDb() // auth + workspace check
     await db.phase.update({
       where: { id: phaseId },
       data: {
@@ -304,8 +297,8 @@ export async function updatePhaseOverview(
 
 export async function updateBudgetGlobals(budgetId: string, globals: Record<string, number>): Promise<ActionResult> {
   try {
-    await getWorkspaceId()
-    await db.budget.update({ where: { id: budgetId }, data: { globals } })
+    const sdb = await getScopedDb()
+    await sdb.budget.update({ where: { id: budgetId }, data: { globals } })
     return { success: true, data: undefined }
   } catch {
     return { success: false, error: 'Failed to update globals' }
@@ -316,10 +309,9 @@ export async function updateBudgetGlobals(budgetId: string, globals: Record<stri
 
 export async function searchRateCards(query: string): Promise<ActionResult<unknown[]>> {
   try {
-    const workspaceId = await getWorkspaceId()
-    const rates = await db.rateCard.findMany({
+    const sdb = await getScopedDb()
+    const rates = await sdb.rateCard.findMany({
       where: {
-        workspaceId,
         archivedAt: null,
         OR: [
           { role: { contains: query, mode: 'insensitive' } },
@@ -342,8 +334,8 @@ export async function updateBudgetRates(
   { markupPct, taxPct }: { markupPct: number | null; taxPct: number | null }
 ): Promise<ActionResult> {
   try {
-    await getWorkspaceId()
-    await db.budget.update({ where: { id: budgetId }, data: { markupPct, taxPct } })
+    const sdb = await getScopedDb()
+    await sdb.budget.update({ where: { id: budgetId }, data: { markupPct, taxPct } })
     return { success: true, data: undefined }
   } catch {
     return { success: false, error: 'Failed to update budget rates' }
@@ -351,6 +343,9 @@ export async function updateBudgetRates(
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
+// These use raw `db` intentionally: they work on Phase/Account/LineItem (no
+// workspaceId column) and are always called after workspace ownership has been
+// validated by the calling exported function via getScopedDb().
 
 type TemplateStructure = {
   accounts: Array<{
@@ -374,7 +369,6 @@ async function materialiseTemplate(budgetId: string, structure: TemplateStructur
   const phase = await db.phase.findFirst({ where: { budgetId } })
   if (!phase) return
 
-  // Pre-fetch rate card categories for all items in the structure
   const rateCardIds = structure.accounts
     .flatMap(a => [...a.items, ...(a.children?.flatMap(c => c.items) ?? [])])
     .map(i => i.rateCardId)
@@ -397,8 +391,6 @@ async function materialiseTemplate(budgetId: string, structure: TemplateStructur
           quantity: item.qty,
           unit: item.unit,
           rateCents: item.rateCents,
-          // Template stores markupPct as a percentage (e.g. 20 for 20%).
-          // The DB and lineTotal() expect a decimal (0.20). Divide by 100.
           markupPct: item.markupPct != null ? item.markupPct / 100 : null,
           notes: item.notes ?? null,
           tags: item.tags ?? [],
@@ -432,7 +424,6 @@ type AccountNode = {
   children?: AccountNode[]
 }
 
-/** Batch-fetch rate cards by ID and return a map of id → LineItemCategory. */
 async function buildRateCategoryMap(ids: string[]): Promise<Map<string, LineItemCategory>> {
   if (!ids.length) return new Map()
   const cards = await db.rateCard.findMany({
@@ -449,11 +440,10 @@ export async function insertPackageIntoPhase(
   structure: TemplateStructure
 ): Promise<ActionResult> {
   try {
-    await getWorkspaceId()
+    await getScopedDb() // auth + workspace check
     const phase = await db.phase.findUnique({ where: { id: phaseId } })
     if (!phase) return { success: false, error: 'Phase not found' }
 
-    // Pre-fetch rate card categories
     const rateCardIds = structure.accounts
       .flatMap(a => a.items)
       .map(i => i.rateCardId)
@@ -477,8 +467,6 @@ export async function insertPackageIntoPhase(
             quantity:    item.qty,
             unit:        item.unit,
             rateCents:   item.rateCents,
-            // Template stores markupPct as a percentage (e.g. 20 for 20%).
-            // The DB and lineTotal() expect a decimal (0.20). Divide by 100.
             markupPct:   item.markupPct != null ? item.markupPct / 100 : null,
             notes:       item.notes ?? null,
             tags:        [],
@@ -514,7 +502,6 @@ async function cloneAccounts(accounts: AccountNode[], phaseId: string, parentId:
           quantityFormula:  item.quantityFormula,
           tags:             item.tags,
           order:            item.order,
-          // Preserve snapshotted category when duplicating a phase
           ...(item.lineItemCategory ? { lineItemCategory: item.lineItemCategory } : {}),
         },
       })
@@ -529,7 +516,7 @@ async function cloneAccounts(accounts: AccountNode[], phaseId: string, parentId:
 
 export async function renamePhase(phaseId: string, name: string): Promise<ActionResult> {
   try {
-    await getWorkspaceId()
+    await getScopedDb() // auth + workspace check
     await db.phase.update({ where: { id: phaseId }, data: { name: name.trim() } })
     revalidatePath('/')
     return { success: true, data: undefined }
@@ -540,8 +527,8 @@ export async function renamePhase(phaseId: string, name: string): Promise<Action
 
 export async function makePhasePrimary(phaseId: string): Promise<ActionResult> {
   try {
-    await getWorkspaceId()
-    const phase = await db.phase.findUniqueOrThrow({ where: { id: phaseId }, select: { budgetId: true } })
+    await getScopedDb() // auth + workspace check
+    const phase = await db.phase.findFirstOrThrow({ where: { id: phaseId }, select: { budgetId: true } })
     await db.$transaction([
       db.phase.updateMany({ where: { budgetId: phase.budgetId }, data: { isPrimary: false } }),
       db.phase.update({ where: { id: phaseId }, data: { isPrimary: true } }),
@@ -555,8 +542,8 @@ export async function makePhasePrimary(phaseId: string): Promise<ActionResult> {
 
 export async function deletePhase(phaseId: string): Promise<ActionResult> {
   try {
-    await getWorkspaceId()
-    const phase = await db.phase.findUniqueOrThrow({ where: { id: phaseId }, select: { budgetId: true, isPrimary: true } })
+    await getScopedDb() // auth + workspace check
+    const phase = await db.phase.findFirstOrThrow({ where: { id: phaseId }, select: { budgetId: true, isPrimary: true } })
     if (phase.isPrimary) return { success: false, error: 'Cannot delete the primary phase' }
     const count = await db.phase.count({ where: { budgetId: phase.budgetId } })
     if (count <= 1) return { success: false, error: 'Cannot delete the only phase' }

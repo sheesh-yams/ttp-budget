@@ -1,14 +1,15 @@
 import { db } from '@/lib/db'
-import { getCurrentUser } from '@/lib/auth'
+import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
 import { SettingsForm } from '@/components/settings/SettingsForm'
+import { DangerZone } from '@/components/settings/DangerZone'
 
 export const metadata = { title: 'Settings — TTP Budget' }
 
 export default async function SettingsPage() {
-  const user = await getCurrentUser()
+  const [user, workspaceId] = await Promise.all([getCurrentUser(), getWorkspaceId()])
 
   const workspace = await db.workspace.findUniqueOrThrow({
-    where: { id: user.workspaceId },
+    where: { id: workspaceId },
     select: {
       name:                    true,
       legalName:               true,
@@ -52,6 +53,11 @@ export default async function SettingsPage() {
       </div>
 
       <SettingsForm workspace={settings} />
+
+      <DangerZone
+        workspaceName={workspace.name}
+        userRole={user.role as string}
+      />
     </div>
   )
 }

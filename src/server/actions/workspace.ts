@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { db } from '@/lib/db'
 import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
+import { auth, clerkClient } from '@clerk/nextjs/server'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
 
@@ -124,6 +125,40 @@ export async function updateInvoiceDefaults(
   }
 }
 
+// ─── Create new workspace ─────────────────────────────────────────────────────
+
+export async function createWorkspace(
+  name: string
+): Promise<ActionResult<{ clerkOrgId: string }>> {
+  try {
+    const trimmed = name.trim()
+    if (!trimmed) return { success: false, error: 'Workspace name is required' }
+
+    const user = await getCurrentUser()
+    const clerk = await clerkClient()
+
+    // Create Clerk org — user automatically becomes OWNER member
+    const org = await clerk.organizations.createOrganization({
+      name: trimmed,
+      createdBy: user.clerkId,
+    })
+
+    // Create DB workspace linked to this Clerk org
+    await db.workspace.create({
+      data: {
+        name: trimmed,
+        clerkOrgId: org.id,
+      } as unknown as Parameters<typeof db.workspace.create>[0]['data'],
+    })
+
+    revalidatePath('/', 'layout')
+    return { success: true, data: { clerkOrgId: org.id } }
+  } catch (err) {
+    console.error('[createWorkspace]', err)
+    return { success: false, error: 'Failed to create workspace' }
+  }
+}
+
 // ─── Onboarding ───────────────────────────────────────────────────────────────
 
 const onboardingSchema = z.object({
@@ -161,6 +196,58 @@ export async function completeOnboarding(
     // redirect() throws — let it propagate
     if (err instanceof Error && err.message === 'NEXT_REDIRECT') throw err
     return { success: false, error: 'Failed to complete onboarding' }
+  }
+}
+
+// ─── Danger zone ──────────────────────────────────────────────────────────────
+
+/** PRODUCER: leave the active workspace (removes Clerk org membership). */
+export async function leaveWorkspace(): Promise<ActionResult> {
+  try {
+    const { orgId, userId } = await auth()
+    if (!orgId || !userId) return { success: false, error: 'No active workspace' }
+
+    const clerk = await clerkClient()
+    // Clerk deleteOrganizationMembership requires the membership ID, so find it first
+    const memberships = await clerk.organizations.getOrganizationMembershipList({ organizationId: orgId })
+    const membership = memberships.data.find(m => m.publicUserData?.userId === userId)
+    if (!membership) return { success: false, error: 'Membership not found' }
+
+    await clerk.organizations.deleteOrganizationMembership({ organizationId: orgId, userId })
+    redirect('/sign-in')
+  } catch (err) {
+    if (err instanceof Error && err.message === 'NEXT_REDIRECT') throw err
+    console.error('[leaveWorkspace]', err)
+    return { success: false, error: 'Failed to leave workspace' }
+  }
+}
+
+/** OWNER: permanently delete the active workspace + all its data. */
+export async function deleteWorkspace(confirmName: string): Promise<ActionResult> {
+  try {
+    const { orgId } = await auth()
+    if (!orgId) return { success: false, error: 'No active workspace' }
+
+    const user = await getCurrentUser()
+    if (user.role !== 'OWNER') return { success: false, error: 'Only the owner can delete a workspace' }
+
+    const workspace = await db.workspace.findFirst({ where: { clerkOrgId: orgId }, select: { id: true, name: true } })
+    if (!workspace) return { success: false, error: 'Workspace not found' }
+    if (workspace.name.trim().toLowerCase() !== confirmName.trim().toLowerCase()) {
+      return { success: false, error: 'Workspace name does not match' }
+    }
+
+    const clerk = await clerkClient()
+    // Delete Clerk org first (removes all memberships)
+    await clerk.organizations.deleteOrganization(orgId)
+    // Cascade-delete all workspace data
+    await db.workspace.delete({ where: { id: workspace.id } })
+
+    redirect('/sign-in')
+  } catch (err) {
+    if (err instanceof Error && err.message === 'NEXT_REDIRECT') throw err
+    console.error('[deleteWorkspace]', err)
+    return { success: false, error: 'Failed to delete workspace' }
   }
 }
 

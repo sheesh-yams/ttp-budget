@@ -2,17 +2,18 @@
 
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
-import { getWorkspaceId, getCurrentUser } from '@/lib/auth'
+import { getScopedDb } from '@/lib/db-scoped'
+import { getCurrentUser } from '@/lib/auth'
 import { sumAccount, type AccountInput } from '@/lib/totals'
 import type { ActionResult, ProposalDiscount } from '@/types'
 
 function uid() { return crypto.randomUUID().slice(0, 8) }
 
 // ─── Capture a frozen snapshot of budget line items ───────────────────────────
-// Stored in content.budgetSnapshot so the public page never reads live budget data.
+// Internal helper — always called from exported functions that have already
+// validated workspace ownership via getScopedDb(). Uses raw db intentionally.
 
 async function captureBudgetSnapshot(budgetId: string, discount?: ProposalDiscount) {
-  // Fetch budget-level markup / tax rates alongside the primary phase
   const budget = await db.budget.findUnique({
     where: { id: budgetId },
     select: { markupPct: true, taxPct: true },
@@ -72,17 +73,14 @@ async function captureBudgetSnapshot(budgetId: string, discount?: ProposalDiscou
     })),
   }))
 
-  // Production subtotal (per-line base + per-line markups)
   const productionCents = accounts.reduce(
     (sum, acc) => sum + sumAccount(acc as unknown as AccountInput),
     0
   )
 
-  // Apply budget-level agency fee, optional discount, then tax
   const agencyFeeCents = Math.round(productionCents * budgetMarkupPct)
   const preTax         = productionCents + agencyFeeCents
 
-  // Discount — applied after agency fee, before tax
   let discountCents = 0
   let discountLabel = ''
   if (discount) {
@@ -110,7 +108,7 @@ export async function createProposal(
   title: string
 ): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
-    const user = await getCurrentUser()
+    const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
 
     const defaultContent = {
       sections: [
@@ -129,15 +127,14 @@ export async function createProposal(
       ],
     }
 
-    const proposal = await db.proposal.create({
+    const proposal = await sdb.proposal.create({
       data: {
-        workspaceId: user.workspaceId,
         projectId,
         budgetId,
         title,
         content: defaultContent as object,
         createdById: user.id,
-      },
+      } as unknown as Parameters<typeof sdb.proposal.create>[0]['data'],
     })
 
     revalidatePath(`/projects/${projectId}`)
@@ -155,8 +152,8 @@ export async function updateProposalContent(
   content: Record<string, unknown>
 ): Promise<ActionResult> {
   try {
-    await getWorkspaceId()
-    await db.proposal.update({
+    const sdb = await getScopedDb()
+    await sdb.proposal.update({
       where: { id: proposalId },
       data: { content: content as object, updatedAt: new Date() },
     })
@@ -171,20 +168,21 @@ export async function updateProposalContent(
 
 export async function sendProposal(proposalId: string): Promise<ActionResult<{ publicUrl: string }>> {
   try {
-    await getWorkspaceId()
-    const existing = await db.proposal.findUniqueOrThrow({
+    const sdb = await getScopedDb()
+    const existing = await sdb.proposal.findFirst({
       where: { id: proposalId },
       select: { budgetId: true, content: true },
     })
+    if (!existing) return { success: false, error: 'Proposal not found' }
     const discount = (existing.content as { discount?: ProposalDiscount }).discount
-    const snapshot = await captureBudgetSnapshot(existing.budgetId, discount)
+    const snapshot = await captureBudgetSnapshot(existing.budgetId as string, discount)
     const mergedContent = { ...(existing.content as object), budgetSnapshot: snapshot }
 
-    const proposal = await db.proposal.update({
+    const proposal = await sdb.proposal.update({
       where: { id: proposalId },
       data: { status: 'SENT', sentAt: new Date(), content: mergedContent as object },
     })
-    const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL}/p/${proposal.publicToken}`
+    const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL}/p/${(proposal as unknown as { publicToken: string }).publicToken}`
     revalidatePath(`/proposals/${proposalId}/edit`)
     return { success: true, data: { publicUrl } }
   } catch {
@@ -192,7 +190,7 @@ export async function sendProposal(proposalId: string): Promise<ActionResult<{ p
   }
 }
 
-// ─── Record view (called from public page, no auth) ───────────────────────────
+// ─── Record view (called from public page — no auth, uses raw db) ─────────────
 
 export async function recordProposalView(
   proposalId: string,
@@ -201,9 +199,7 @@ export async function recordProposalView(
 ): Promise<void> {
   try {
     const now = new Date()
-    await db.proposalView.create({
-      data: { proposalId, ip, userAgent, viewedAt: now },
-    })
+    await db.proposalView.create({ data: { proposalId, ip, userAgent, viewedAt: now } })
     await db.proposal.update({
       where: { id: proposalId },
       data: { viewCount: { increment: 1 }, lastViewedAt: now, status: 'VIEWED' },
@@ -224,14 +220,13 @@ export async function createSentProposal(input: {
   budgetId: string
   title: string
   milestones: { id: string; name: string; percentPct: number; trigger: string; customDate?: string }[]
-  expiresAt: string       // ISO date string
-  totalCents: number      // pre-computed from budget; stored for approval snapshot
+  expiresAt: string
+  totalCents: number
   discount?: ProposalDiscount
 }): Promise<ActionResult<{ id: string; publicToken: string; publicUrl: string }>> {
   try {
-    const user = await getCurrentUser()
+    const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
 
-    // Read description + deliverables from the primary phase
     const primaryPhase = await db.phase.findFirst({
       where: { budgetId: input.budgetId, isPrimary: true },
       select: { description: true, deliverables: true },
@@ -247,16 +242,14 @@ export async function createSentProposal(input: {
     const content = buildContent({ ...input, about: phaseAbout, deliverables: phaseDeliverables })
     const snapshot = await captureBudgetSnapshot(input.budgetId, input.discount)
 
-    // Auto-increment version so each new send is v1, v2, v3 …
-    const maxVersion = await db.proposal.aggregate({
+    const maxVersion = await sdb.proposal.aggregate({
       where: { projectId: input.projectId },
       _max: { version: true },
     })
-    const nextVersion = (maxVersion._max.version ?? 0) + 1
+    const nextVersion = ((maxVersion._max as unknown as { version: number | null }).version ?? 0) + 1
 
-    const proposal = await db.proposal.create({
+    const proposal = await sdb.proposal.create({
       data: {
-        workspaceId: user.workspaceId,
         projectId: input.projectId,
         budgetId: input.budgetId,
         title: input.title,
@@ -266,19 +259,19 @@ export async function createSentProposal(input: {
         expiresAt: new Date(input.expiresAt),
         version: nextVersion,
         createdById: user.id,
-      },
+      } as unknown as Parameters<typeof sdb.proposal.create>[0]['data'],
     })
 
     revalidatePath(`/projects/${input.projectId}`)
-    const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/p/${proposal.publicToken}`
-    return { success: true, data: { id: proposal.id, publicToken: proposal.publicToken, publicUrl } }
+    const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/p/${(proposal as unknown as { publicToken: string }).publicToken}`
+    return { success: true, data: { id: proposal.id, publicToken: (proposal as unknown as { publicToken: string }).publicToken, publicUrl } }
   } catch (err) {
     console.error(err)
     return { success: false, error: 'Failed to create proposal' }
   }
 }
 
-// ─── Create a DRAFT proposal (same as createSentProposal but stays DRAFT) ────
+// ─── Create a DRAFT proposal ──────────────────────────────────────────────────
 
 export async function createDraftProposal(input: {
   projectId: string
@@ -290,7 +283,7 @@ export async function createDraftProposal(input: {
   discount?: ProposalDiscount
 }): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
-    const user = await getCurrentUser()
+    const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
 
     const primaryPhase = await db.phase.findFirst({
       where: { budgetId: input.budgetId, isPrimary: true },
@@ -306,16 +299,14 @@ export async function createDraftProposal(input: {
 
     const content = buildContent({ ...input, about: phaseAbout, deliverables: phaseDeliverables })
 
-    // Auto-increment version so each new proposal is v1, v2, v3 …
-    const maxVersion = await db.proposal.aggregate({
+    const maxVersion = await sdb.proposal.aggregate({
       where: { projectId: input.projectId },
       _max: { version: true },
     })
-    const nextVersion = (maxVersion._max.version ?? 0) + 1
+    const nextVersion = ((maxVersion._max as unknown as { version: number | null }).version ?? 0) + 1
 
-    const proposal = await db.proposal.create({
+    const proposal = await sdb.proposal.create({
       data: {
-        workspaceId: user.workspaceId,
         projectId: input.projectId,
         budgetId: input.budgetId,
         title: input.title,
@@ -324,17 +315,17 @@ export async function createDraftProposal(input: {
         expiresAt: new Date(input.expiresAt),
         version: nextVersion,
         createdById: user.id,
-      },
+      } as unknown as Parameters<typeof sdb.proposal.create>[0]['data'],
     })
     revalidatePath(`/projects/${input.projectId}`)
-    return { success: true, data: { id: proposal.id, publicToken: proposal.publicToken } }
+    return { success: true, data: { id: proposal.id, publicToken: (proposal as unknown as { publicToken: string }).publicToken } }
   } catch (err) {
     console.error(err)
     return { success: false, error: 'Failed to save draft' }
   }
 }
 
-// ─── Update an existing DRAFT proposal in-place ───────────────────────────────
+// ─── Update an existing DRAFT proposal ───────────────────────────────────────
 
 export async function updateDraftProposal(
   proposalId: string,
@@ -347,23 +338,24 @@ export async function updateDraftProposal(
   }
 ): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
-    await getWorkspaceId()
-    const existing = await db.proposal.findUniqueOrThrow({
+    const sdb = await getScopedDb()
+    const existing = await sdb.proposal.findFirst({
       where: { id: proposalId },
       select: { budgetId: true },
     })
+    if (!existing) return { success: false, error: 'Proposal not found' }
     const primaryPhase = await db.phase.findFirst({
-      where: { budgetId: existing.budgetId, isPrimary: true },
+      where: { budgetId: existing.budgetId as string, isPrimary: true },
       select: { description: true, deliverables: true },
     }) ?? await db.phase.findFirst({
-      where: { budgetId: existing.budgetId },
+      where: { budgetId: existing.budgetId as string },
       orderBy: { order: 'asc' },
       select: { description: true, deliverables: true },
     })
     const phaseAbout = primaryPhase?.description ?? ''
     const phaseDeliverables = (primaryPhase?.deliverables as { title: string; description: string }[] | null) ?? []
     const content = buildContent({ ...input, about: phaseAbout, deliverables: phaseDeliverables })
-    const proposal = await db.proposal.update({
+    const proposal = await sdb.proposal.update({
       where: { id: proposalId },
       data: {
         title: input.title,
@@ -372,8 +364,8 @@ export async function updateDraftProposal(
         updatedAt: new Date(),
       },
     })
-    revalidatePath(`/projects/${proposal.projectId}`)
-    return { success: true, data: { id: proposal.id, publicToken: proposal.publicToken } }
+    revalidatePath(`/projects/${(proposal as unknown as { projectId: string }).projectId}`)
+    return { success: true, data: { id: proposal.id, publicToken: (proposal as unknown as { publicToken: string }).publicToken } }
   } catch (err) {
     console.error(err)
     return { success: false, error: 'Failed to update draft' }
@@ -386,22 +378,22 @@ export async function sendDraftProposal(
   proposalId: string
 ): Promise<ActionResult<{ publicToken: string }>> {
   try {
-    await getWorkspaceId()
-    // Fetch current content so we can merge the snapshot in
-    const existing = await db.proposal.findUniqueOrThrow({
+    const sdb = await getScopedDb()
+    const existing = await sdb.proposal.findFirst({
       where: { id: proposalId },
       select: { budgetId: true, projectId: true, content: true },
     })
+    if (!existing) return { success: false, error: 'Proposal not found' }
     const discount2 = (existing.content as { discount?: ProposalDiscount }).discount
-    const snapshot = await captureBudgetSnapshot(existing.budgetId, discount2)
+    const snapshot = await captureBudgetSnapshot(existing.budgetId as string, discount2)
     const mergedContent = { ...(existing.content as object), budgetSnapshot: snapshot }
 
-    const proposal = await db.proposal.update({
+    const proposal = await sdb.proposal.update({
       where: { id: proposalId },
       data: { status: 'SENT', sentAt: new Date(), content: mergedContent as object },
     })
-    revalidatePath(`/projects/${proposal.projectId}`)
-    return { success: true, data: { publicToken: proposal.publicToken } }
+    revalidatePath(`/projects/${existing.projectId}`)
+    return { success: true, data: { publicToken: (proposal as unknown as { publicToken: string }).publicToken } }
   } catch {
     return { success: false, error: 'Failed to send proposal' }
   }
@@ -413,31 +405,29 @@ export async function createProposalRevision(
   proposalId: string
 ): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
-    const user = await getCurrentUser()
-    const source = await db.proposal.findUniqueOrThrow({
-      where: { id: proposalId },
-    })
-    // Find the highest version for this project
-    const maxVersion = await db.proposal.aggregate({
-      where: { projectId: source.projectId },
+    const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+    const source = await sdb.proposal.findFirst({ where: { id: proposalId } })
+    if (!source) return { success: false, error: 'Proposal not found' }
+
+    const maxVersion = await sdb.proposal.aggregate({
+      where: { projectId: (source as unknown as { projectId: string }).projectId },
       _max: { version: true },
     })
-    const nextVersion = (maxVersion._max.version ?? 1) + 1
-    const proposal = await db.proposal.create({
+    const nextVersion = ((maxVersion._max as unknown as { version: number | null }).version ?? 1) + 1
+    const proposal = await sdb.proposal.create({
       data: {
-        workspaceId: source.workspaceId,
-        projectId:   source.projectId,
-        budgetId:    source.budgetId,
-        title:       source.title,
-        content:     source.content as object,
+        projectId:   (source as unknown as { projectId: string }).projectId,
+        budgetId:    (source as unknown as { budgetId: string }).budgetId,
+        title:       (source as unknown as { title: string }).title,
+        content:     (source as unknown as { content: object }).content,
         status:      'DRAFT',
         version:     nextVersion,
-        expiresAt:   source.expiresAt,
+        expiresAt:   (source as unknown as { expiresAt: Date | null }).expiresAt,
         createdById: user.id,
-      },
+      } as unknown as Parameters<typeof sdb.proposal.create>[0]['data'],
     })
-    revalidatePath(`/projects/${source.projectId}`)
-    return { success: true, data: { id: proposal.id, publicToken: proposal.publicToken } }
+    revalidatePath(`/projects/${(source as unknown as { projectId: string }).projectId}`)
+    return { success: true, data: { id: proposal.id, publicToken: (proposal as unknown as { publicToken: string }).publicToken } }
   } catch (err) {
     console.error(err)
     return { success: false, error: 'Failed to create revision' }
@@ -485,10 +475,10 @@ export async function updateProposalStatus(
   status: string
 ): Promise<ActionResult> {
   try {
-    await getWorkspaceId()
-    await db.proposal.update({
+    const sdb = await getScopedDb()
+    await sdb.proposal.update({
       where: { id: proposalId },
-      data:  { status: status as Parameters<typeof db.proposal.update>[0]['data']['status'] },
+      data:  { status: status as Parameters<typeof sdb.proposal.update>[0]['data']['status'] },
     })
     revalidatePath('/proposals')
     return { success: true, data: undefined }
@@ -501,13 +491,14 @@ export async function updateProposalStatus(
 
 export async function deleteProposal(proposalId: string): Promise<ActionResult> {
   try {
-    await getWorkspaceId()
-    const proposal = await db.proposal.findUniqueOrThrow({
+    const sdb = await getScopedDb()
+    const proposal = await sdb.proposal.findFirst({
       where: { id: proposalId },
       select: { projectId: true },
     })
-    await db.proposal.delete({ where: { id: proposalId } })
-    revalidatePath(`/projects/${proposal.projectId}`)
+    if (!proposal) return { success: false, error: 'Proposal not found' }
+    await sdb.proposal.delete({ where: { id: proposalId } })
+    revalidatePath(`/projects/${(proposal as unknown as { projectId: string }).projectId}`)
     return { success: true, data: undefined }
   } catch {
     return { success: false, error: 'Failed to delete proposal' }
@@ -521,8 +512,8 @@ export async function updateProposalBranding(
   brandOverrides: Record<string, unknown>
 ): Promise<ActionResult> {
   try {
-    await getWorkspaceId()
-    await db.proposal.update({
+    const sdb = await getScopedDb()
+    await sdb.proposal.update({
       where: { id: proposalId },
       data: { brandOverrides: brandOverrides as object },
     })

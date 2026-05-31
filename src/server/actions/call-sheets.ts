@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
-import { getCurrentUser } from '@/lib/auth'
+import { getScopedDb } from '@/lib/db-scoped'
+import type { ScopedDb } from '@/lib/db-scoped'
 import { Prisma } from '@prisma/client'
 import type { ActionResult } from '@/types'
 
@@ -15,19 +16,19 @@ export async function importCrewFromBudget(
   budgetId: string
 ): Promise<ActionResult<{ added: number; crew: CrewDept[] }>> {
   try {
-    const user = await getCurrentUser()
+    const sdb = await getScopedDb()
 
-    // Verify call sheet belongs to workspace
-    const cs = await db.callSheet.findFirst({
-      where: { id: callSheetId, workspaceId: user.workspaceId },
+    // Verify call sheet belongs to active workspace (extension scopes automatically)
+    const cs = await sdb.callSheet.findFirst({
+      where: { id: callSheetId },
       select: { id: true, projectId: true, crew: true, status: true },
     })
     if (!cs) return { success: false, error: 'Call sheet not found' }
     if (cs.status === 'FINAL') return { success: false, error: 'Cannot edit a finalized call sheet' }
 
     // Verify budget belongs to same workspace
-    const budget = await db.budget.findFirst({
-      where: { id: budgetId, workspaceId: user.workspaceId },
+    const budget = await sdb.budget.findFirst({
+      where: { id: budgetId },
       select: { id: true },
     })
     if (!budget) return { success: false, error: 'Budget not found' }
@@ -138,7 +139,7 @@ export async function importCrewFromBudget(
         .map(([dept, members]) => ({ dept, members })),
     ]
 
-    await db.callSheet.update({
+    await sdb.callSheet.update({
       where: { id: callSheetId },
       data: { crew: JSON.parse(JSON.stringify(newCrew)) },
     })
@@ -255,10 +256,10 @@ function wmoConditions(code: number): string {
   return 'Unknown'
 }
 
-/** Verify a call sheet belongs to the current user's workspace, return it or throw. */
-async function getOwnedSheet(id: string, workspaceId: string) {
-  const cs = await db.callSheet.findFirst({
-    where: { id, workspaceId },
+/** Verify a call sheet belongs to the active workspace, return it or throw. */
+async function getOwnedSheet(id: string, sdb: ScopedDb) {
+  const cs = await sdb.callSheet.findFirst({
+    where: { id },
     select: {
       id: true, projectId: true, status: true, publicToken: true,
       locationAddress: true, shootDate: true, locationLat: true, locationLng: true,
@@ -278,21 +279,20 @@ export async function createCallSheet(
   input: { title: string; shootDate: string; generalCall?: string }
 ): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
-    const user = await getCurrentUser()
-    const project = await db.project.findFirst({
-      where: { id: projectId, workspaceId: user.workspaceId },
+    const sdb = await getScopedDb()
+    const project = await sdb.project.findFirst({
+      where: { id: projectId },
       select: { id: true },
     })
     if (!project) return { success: false, error: 'Project not found' }
 
-    const cs = await db.callSheet.create({
+    const cs = await sdb.callSheet.create({
       data: {
-        workspaceId: user.workspaceId,
         projectId,
         title: input.title,
         shootDate: new Date(input.shootDate),
         generalCall: input.generalCall ?? '07:00',
-      },
+      } as unknown as Parameters<typeof sdb.callSheet.create>[0]['data'],
       select: { id: true, publicToken: true },
     })
 
@@ -324,14 +324,14 @@ export async function updateCallSheet(
   }>
 ): Promise<ActionResult<void>> {
   try {
-    const user = await getCurrentUser()
-    const cs = await getOwnedSheet(id, user.workspaceId)
+    const sdb = await getScopedDb()
+    const cs = await getOwnedSheet(id, sdb)
     if (cs.status === 'FINAL') return { success: false, error: 'Cannot edit a finalized call sheet' }
 
     // Clear cached geo + weather when the address changes
     const addressChanging = input.locationAddress !== undefined && input.locationAddress !== cs.locationAddress
 
-    await db.callSheet.update({
+    await sdb.callSheet.update({
       where: { id },
       data: {
         ...(input.title              !== undefined && { title:            input.title }),
@@ -363,9 +363,9 @@ export async function updateCallSheet(
 
 export async function deleteCallSheet(id: string): Promise<ActionResult<void>> {
   try {
-    const user = await getCurrentUser()
-    const cs = await getOwnedSheet(id, user.workspaceId)
-    await db.callSheet.delete({ where: { id } })
+    const sdb = await getScopedDb()
+    const cs = await getOwnedSheet(id, sdb)
+    await sdb.callSheet.delete({ where: { id } })
     revalidatePath(`/projects/${cs.projectId}`)
     return { success: true, data: undefined }
   } catch (e) {
@@ -379,8 +379,8 @@ export async function deleteCallSheet(id: string): Promise<ActionResult<void>> {
 
 export async function sendCallSheet(id: string): Promise<ActionResult<{ publicToken: string }>> {
   try {
-    const user = await getCurrentUser()
-    const cs = await getOwnedSheet(id, user.workspaceId)
+    const sdb = await getScopedDb()
+    const cs = await getOwnedSheet(id, sdb)
 
     // Auto-refresh weather & hospital when sending so crew gets the freshest forecast.
     // Only skip if weather was fetched within the last 3 hours (already very fresh).
@@ -394,7 +394,7 @@ export async function sendCallSheet(id: string): Promise<ActionResult<{ publicTo
       }
     }
 
-    await db.callSheet.update({
+    await sdb.callSheet.update({
       where: { id },
       data: { status: 'SENT', sentAt: new Date() },
     })
@@ -409,10 +409,10 @@ export async function sendCallSheet(id: string): Promise<ActionResult<{ publicTo
 
 export async function finalizeCallSheet(id: string): Promise<ActionResult<void>> {
   try {
-    const user = await getCurrentUser()
-    const cs = await getOwnedSheet(id, user.workspaceId)
+    const sdb = await getScopedDb()
+    const cs = await getOwnedSheet(id, sdb)
 
-    await db.callSheet.update({
+    await sdb.callSheet.update({
       where: { id },
       data: { status: 'FINAL' },
     })
@@ -427,10 +427,10 @@ export async function finalizeCallSheet(id: string): Promise<ActionResult<void>>
 
 export async function reopenCallSheet(id: string): Promise<ActionResult<void>> {
   try {
-    const user = await getCurrentUser()
-    const cs = await getOwnedSheet(id, user.workspaceId)
+    const sdb = await getScopedDb()
+    const cs = await getOwnedSheet(id, sdb)
 
-    await db.callSheet.update({
+    await sdb.callSheet.update({
       where: { id },
       data: { status: 'DRAFT' },
     })
@@ -454,8 +454,8 @@ export async function fetchLocationData(id: string): Promise<ActionResult<{
   lng: number
 }>> {
   try {
-    const user = await getCurrentUser()
-    const cs = await getOwnedSheet(id, user.workspaceId)
+    const sdb = await getScopedDb()
+    const cs = await getOwnedSheet(id, sdb)
 
     if (!cs.locationAddress) return { success: false, error: 'No location address set — fill in the shoot address first' }
 
@@ -631,7 +631,7 @@ export async function fetchLocationData(id: string): Promise<ActionResult<{
     }
 
     // ── 4. Persist everything ────────────────────────────────────────────────────
-    await db.callSheet.update({
+    await sdb.callSheet.update({
       where: { id },
       data: {
         locationLat:  lat,
