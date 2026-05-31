@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Webhook } from 'svix'
 import { headers } from 'next/headers'
-import { WebhookEvent } from '@clerk/nextjs/server'
+import { WebhookEvent, clerkClient } from '@clerk/nextjs/server'
 import { db } from '@/lib/db'
 
 export async function POST(req: NextRequest) {
@@ -36,8 +36,9 @@ export async function POST(req: NextRequest) {
   }
 
   // ── user.created ────────────────────────────────────────────────────────────
-  // Each new Clerk user gets their own fresh Workspace. They become OWNER and
-  // must complete onboarding before accessing the app.
+  // Each new Clerk user gets their own fresh Workspace + a corresponding Clerk
+  // org. The org makes them addressable via organizationMembership events (so
+  // they can invite teammates) and is the source of truth for auth().orgId.
   if (evt.type === 'user.created') {
     const { id, email_addresses, first_name, last_name, image_url } = evt.data
     const email = email_addresses[0]?.email_address
@@ -52,34 +53,66 @@ export async function POST(req: NextRequest) {
         ? `${displayName}'s Workspace`
         : `${email.split('@')[0]}'s Workspace`
 
-    const workspace = await db.workspace.create({
-      data: { name: defaultWorkspaceName },
-    })
+    try {
+      const clerk = await clerkClient()
 
-    await db.user.upsert({
-      where: { clerkId: id },
-      update: {
-        email,
-        name: displayName,
-        avatarUrl: image_url ?? null,
-      },
-      create: {
-        clerkId: id,
-        email,
-        name: displayName,
-        avatarUrl: image_url ?? null,
-        workspaceId: workspace.id,
-        role: 'OWNER',
-        onboarded: false,
-      },
-    })
+      // Create a Clerk org for this user's personal workspace.
+      const org = await clerk.organizations.createOrganization({
+        name: defaultWorkspaceName,
+        createdBy: id,
+      })
+
+      // Persist workspace + user in one transaction.
+      await db.$transaction(async (tx) => {
+        const workspace = await tx.workspace.create({
+          data: { name: defaultWorkspaceName, clerkOrgId: org.id },
+        })
+
+        await tx.user.upsert({
+          where: { clerkId: id },
+          update: {
+            email,
+            name: displayName,
+            avatarUrl: image_url ?? null,
+          },
+          create: {
+            clerkId: id,
+            email,
+            name: displayName,
+            avatarUrl: image_url ?? null,
+            workspaceId: workspace.id,
+            role: 'OWNER',
+            onboarded: false,
+          },
+        })
+      })
+    } catch (err) {
+      console.error('user.created webhook error:', err)
+      return NextResponse.json({ error: 'Failed to create workspace' }, { status: 500 })
+    }
   }
 
   // ── organization.created ────────────────────────────────────────────────────
-  // When the owner creates a Clerk org, link it to their workspace so invited
-  // members can be routed to the right workspace via organizationMembership.created.
+  // Fires when any Clerk org is created — including ones our own code creates.
+  // This is the fallback linker for orgs created via the Clerk dashboard or
+  // other out-of-band paths. For orgs created by our createWorkspace() action
+  // or the user.created handler, the DB workspace already has clerkOrgId set
+  // before this event arrives.
   if (evt.type === 'organization.created') {
     const { id: orgId, created_by: createdByClerkId } = evt.data
+
+    // Guard 1: If any workspace already claims this Clerk org (e.g. createWorkspace
+    // server action wrote it before this event landed), do nothing. Without this
+    // guard there's a race where the webhook overwrites the HOME workspace's
+    // clerkOrgId with the new org's ID, corrupting the lookup for all future
+    // workspace switches.
+    const alreadyLinked = await db.workspace.findUnique({
+      where: { clerkOrgId: orgId },
+      select: { id: true },
+    })
+    if (alreadyLinked) {
+      return NextResponse.json({ received: true })
+    }
 
     if (createdByClerkId) {
       const owner = await db.user.findUnique({
@@ -88,9 +121,10 @@ export async function POST(req: NextRequest) {
       })
 
       if (owner) {
-        // Use update with ignore on unique conflict in case webhook fires twice.
-        await db.workspace.update({
-          where: { id: owner.workspaceId },
+        // Guard 2: Only update home workspace if it has no org yet (idempotent).
+        // This handles the "org created via Clerk dashboard" case only.
+        await db.workspace.updateMany({
+          where: { id: owner.workspaceId, clerkOrgId: null },
           data: { clerkOrgId: orgId },
         })
       }
@@ -98,10 +132,8 @@ export async function POST(req: NextRequest) {
   }
 
   // ── organizationMembership.created ─────────────────────────────────────────
-  // A user has been added to a Clerk org (either the creator, or an invited member).
-  // If they're the org creator their workspace already matches — skip.
-  // Otherwise attach them to the org's workspace as PRODUCER; invited users
-  // skip the onboarding wizard (they inherit the owner's workspace settings).
+  // A user has been added to a Clerk org (either the creator, or an invited
+  // member). Attach invited users to the org's workspace as PRODUCER.
   if (evt.type === 'organizationMembership.created') {
     const { organization, public_user_data } = evt.data
     const memberClerkId = public_user_data?.user_id
@@ -114,7 +146,6 @@ export async function POST(req: NextRequest) {
     })
 
     if (!workspace) {
-      // organization.created hasn't processed yet — nothing to do.
       return NextResponse.json({ received: true })
     }
 
@@ -129,7 +160,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (existingUser) {
-      // Invited user who signed up fresh and got a blank workspace — move them.
+      // Invited user who signed up fresh — move them to the org's workspace.
       await db.user.update({
         where: { clerkId: memberClerkId },
         data: {
@@ -139,7 +170,7 @@ export async function POST(req: NextRequest) {
         },
       })
     } else {
-      // Brand-new user (sign-up + invite completed in one flow).
+      // Brand-new user (sign-up + invite in one flow).
       const memberData = public_user_data as {
         identifier?: string
         first_name?: string | null

@@ -130,6 +130,7 @@ export async function updateInvoiceDefaults(
 export async function createWorkspace(
   name: string
 ): Promise<ActionResult<{ clerkOrgId: string }>> {
+  let clerkOrgId: string | null = null
   try {
     const trimmed = name.trim()
     if (!trimmed) return { success: false, error: 'Workspace name is required' }
@@ -137,11 +138,36 @@ export async function createWorkspace(
     const user = await getCurrentUser()
     const clerk = await clerkClient()
 
-    // Create Clerk org — user automatically becomes OWNER member
+    // Create Clerk org — user automatically becomes OWNER member.
+    // NOTE: This triggers an organization.created webhook. We guard against that
+    // webhook corrupting the home workspace's clerkOrgId (see route.ts guard).
     const org = await clerk.organizations.createOrganization({
       name: trimmed,
       createdBy: user.clerkId,
     })
+    clerkOrgId = org.id
+
+    // Check if the organization.created webhook already claimed this org ID on
+    // the home workspace (race condition: webhook can arrive before we write).
+    const alreadyClaimed = await db.workspace.findUnique({
+      where: { clerkOrgId: org.id },
+      select: { id: true, name: true },
+    })
+
+    if (alreadyClaimed) {
+      // The webhook incorrectly stole this orgId. Release it from the wrong
+      // workspace so we can assign it to the new one correctly.
+      if (alreadyClaimed.name !== trimmed) {
+        await db.workspace.update({
+          where: { id: alreadyClaimed.id },
+          data: { clerkOrgId: null } as unknown as Parameters<typeof db.workspace.update>[0]['data'],
+        })
+      } else {
+        // Workspace already created correctly (e.g. double-submit) — return it.
+        revalidatePath('/', 'layout')
+        return { success: true, data: { clerkOrgId: org.id } }
+      }
+    }
 
     // Create DB workspace linked to this Clerk org
     await db.workspace.create({
@@ -155,6 +181,17 @@ export async function createWorkspace(
     return { success: true, data: { clerkOrgId: org.id } }
   } catch (err) {
     console.error('[createWorkspace]', err)
+    // If the DB write failed due to a unique constraint race, try to recover
+    // by finding any workspace already linked to this org.
+    if (clerkOrgId) {
+      const recovered = await db.workspace.findUnique({
+        where: { clerkOrgId },
+        select: { id: true, name: true },
+      }).catch(() => null)
+      if (recovered) {
+        return { success: true, data: { clerkOrgId } }
+      }
+    }
     return { success: false, error: 'Failed to create workspace' }
   }
 }
