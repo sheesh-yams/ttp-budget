@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { db } from '@/lib/db'
+import { getScopedDb } from '@/lib/db-scoped'
 import { getCurrentUser } from '@/lib/auth'
 import { z } from 'zod'
 import type { ActionResult, TemplateKind, TemplateStructure } from '@/types'
@@ -28,12 +28,9 @@ export async function createTemplate(
   input: z.infer<typeof templateMetaSchema>
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    const user = await getCurrentUser()
+    const db = await getScopedDb()
     const data = templateMetaSchema.parse(input)
-    // kind/tags/structure fields will be fully typed after `prisma db push && prisma generate`
-    // until then we cast through unknown to satisfy the pre-migration client types
     const createData = {
-      workspaceId: user.workspaceId,
       name:        data.name,
       description: data.description ?? null,
       kind:        data.kind,
@@ -56,6 +53,7 @@ export async function updateTemplateMeta(
   input: z.infer<typeof templateMetaSchema>
 ): Promise<ActionResult> {
   try {
+    const db = await getScopedDb()
     const data = templateMetaSchema.parse(input)
     const updateData = {
       name:        data.name,
@@ -80,6 +78,7 @@ export async function saveTemplateStructure(
   structure: TemplateStructure
 ): Promise<ActionResult> {
   try {
+    const db = await getScopedDb()
     await db.budgetTemplate.update({
       where: { id },
       data:  { structure: structure as object },
@@ -95,6 +94,7 @@ export async function saveTemplateStructure(
 
 export async function deleteTemplate(id: string): Promise<ActionResult> {
   try {
+    const db = await getScopedDb()
     await db.budgetTemplate.delete({ where: { id } })
     revalidatePath('/templates')
     return { success: true, data: undefined }
@@ -115,9 +115,8 @@ export async function listPackages(): Promise<ActionResult<Array<{
   itemCount: number
 }>>> {
   try {
-    const user = await getCurrentUser()
+    const db = await getScopedDb()
     const whereClause = {
-      workspaceId: user.workspaceId,
       kind: 'PACKAGE',
     } as unknown as Parameters<typeof db.budgetTemplate.findMany>[0]['where']
     const packages = await db.budgetTemplate.findMany({

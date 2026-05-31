@@ -6,7 +6,7 @@ import { useUser, useOrganization, useOrganizationList, useClerk } from '@clerk/
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, Users, FolderOpen, FileText,
-  Receipt, List, LayoutGrid, Settings,
+  Receipt, List, LayoutGrid, Settings, BookOpen,
   ChevronDown, Check, Plus, LogOut,
 } from 'lucide-react'
 import { useEffect, useRef, useState, useTransition } from 'react'
@@ -46,6 +46,7 @@ const navGroups = [
     items: [
       { label: 'Rate cards', href: '/rates',     icon: List },
       { label: 'Templates',  href: '/templates', icon: LayoutGrid },
+      { label: 'Library',    href: '/library',   icon: BookOpen },
       { label: 'Settings',   href: '/settings',  icon: Settings },
     ],
   },

@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { db } from '@/lib/db'
+import { getScopedDb } from '@/lib/db-scoped'
 import { getCurrentUser } from '@/lib/auth'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
@@ -21,13 +21,13 @@ export async function upsertRateCard(
   input: z.infer<typeof rateCardSchema>
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    const user = await getCurrentUser()
+    const [db, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const data = rateCardSchema.parse(input)
     const searchTokens = `${data.role} ${data.category} ${data.notes ?? ''}`.toLowerCase()
     const payload = { ...data, searchTokens }
     const card = id
       ? await db.rateCard.update({ where: { id }, data: payload })
-      : await db.rateCard.create({ data: { ...payload, workspaceId: user.workspaceId } as Prisma.RateCardUncheckedCreateInput })
+      : await db.rateCard.create({ data: payload } as unknown as { data: Prisma.RateCardUncheckedCreateInput })
     revalidatePath('/rates')
     return { success: true, data: { id: card.id } }
   } catch {
@@ -37,6 +37,7 @@ export async function upsertRateCard(
 
 export async function toggleFavorite(id: string, isFavorite: boolean): Promise<ActionResult> {
   try {
+    const db = await getScopedDb()
     await db.rateCard.update({ where: { id }, data: { isFavorite } })
     revalidatePath('/rates')
     return { success: true, data: undefined }
@@ -47,6 +48,7 @@ export async function toggleFavorite(id: string, isFavorite: boolean): Promise<A
 
 export async function archiveRateCard(id: string): Promise<ActionResult> {
   try {
+    const db = await getScopedDb()
     await db.rateCard.update({ where: { id }, data: { archivedAt: new Date() } })
     revalidatePath('/rates')
     return { success: true, data: undefined }

@@ -3,6 +3,7 @@ import { Webhook } from 'svix'
 import { headers } from 'next/headers'
 import { WebhookEvent, clerkClient } from '@clerk/nextjs/server'
 import { db } from '@/lib/db'
+import { seedWorkspaceFromGlobals } from '@/lib/workspace-seeder'
 
 export async function POST(req: NextRequest) {
   const WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET
@@ -63,10 +64,12 @@ export async function POST(req: NextRequest) {
       })
 
       // Persist workspace + user in one transaction.
+      let newWorkspaceId: string
       await db.$transaction(async (tx) => {
         const workspace = await tx.workspace.create({
           data: { name: defaultWorkspaceName, clerkOrgId: org.id },
         })
+        newWorkspaceId = workspace.id
 
         await tx.user.upsert({
           where: { clerkId: id },
@@ -86,6 +89,14 @@ export async function POST(req: NextRequest) {
           },
         })
       })
+
+      // Seed global rate cards + templates into the new workspace.
+      // Non-blocking: a seeder failure must NOT prevent account creation.
+      try {
+        await seedWorkspaceFromGlobals(newWorkspaceId!)
+      } catch (seedErr) {
+        console.error('[workspace-seeder] Failed to seed new workspace (non-fatal):', seedErr)
+      }
     } catch (err) {
       console.error('user.created webhook error:', err)
       return NextResponse.json({ error: 'Failed to create workspace' }, { status: 500 })

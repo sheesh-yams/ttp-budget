@@ -7,6 +7,7 @@ import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
 import { auth, clerkClient } from '@clerk/nextjs/server'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
+import { seedWorkspaceFromGlobals, reseedWorkspaceFromGlobals } from '@/lib/workspace-seeder'
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -170,12 +171,20 @@ export async function createWorkspace(
     }
 
     // Create DB workspace linked to this Clerk org
-    await db.workspace.create({
+    const newWorkspace = await db.workspace.create({
       data: {
         name: trimmed,
         clerkOrgId: org.id,
       } as unknown as Parameters<typeof db.workspace.create>[0]['data'],
     })
+
+    // Seed global rate cards + templates. Non-blocking — failure here must NOT
+    // prevent the workspace from being returned to the client.
+    try {
+      await seedWorkspaceFromGlobals(newWorkspace.id)
+    } catch (seedErr) {
+      console.error('[workspace-seeder] Failed to seed new workspace (non-fatal):', seedErr)
+    }
 
     revalidatePath('/', 'layout')
     return { success: true, data: { clerkOrgId: org.id } }
@@ -285,6 +294,21 @@ export async function deleteWorkspace(confirmName: string): Promise<ActionResult
     if (err instanceof Error && err.message === 'NEXT_REDIRECT') throw err
     console.error('[deleteWorkspace]', err)
     return { success: false, error: 'Failed to delete workspace' }
+  }
+}
+
+// ─── Re-seed workspace library ────────────────────────────────────────────────
+
+/** Additive re-seed: adds any missing featured globals. Never modifies existing rows. */
+export async function reseedWorkspace(): Promise<ActionResult<{ ratesAdded: number; templatesAdded: number }>> {
+  try {
+    const workspaceId = await getWorkspaceId()
+    const result = await reseedWorkspaceFromGlobals(workspaceId)
+    revalidatePath('/rates')
+    revalidatePath('/templates')
+    return { success: true, data: result }
+  } catch {
+    return { success: false, error: 'Failed to re-seed workspace library' }
   }
 }
 

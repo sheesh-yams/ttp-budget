@@ -578,6 +578,39 @@ model InvoiceView {
 }
 
 // =============================================================
+// GLOBAL LIBRARY — rate card + template catalog
+// Seeded by admins; copied into new workspaces on creation.
+// Edits to workspace copies never touch these globals.
+// =============================================================
+
+model GlobalRateCard {
+  id               String       @id @default(cuid())
+  role             String       // "Videographer", "Gaffer", "1st AC"
+  category         RateCategory
+  defaultUnit      RateUnit
+  defaultRateCents Int          // money in cents
+  notes            String?      @db.Text
+  isFeatured       Boolean      @default(false) // featured = seeded into every new workspace
+  searchTokens     String?      // pre-computed lowercase tokens
+  sortOrder        Int          @default(0)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+}
+
+model GlobalTemplate {
+  id           String       @id @default(cuid())
+  name         String       // "Music Video — Standard Crew"
+  description  String?      @db.Text
+  shootType    ShootType
+  templateKind TemplateKind @default(FULL) // FULL = seeds entire budget; PACKAGE = add-on building block
+  structure    Json         // same shape as BudgetTemplate.structure
+  isFeatured   Boolean      @default(false)
+  sortOrder    Int          @default(0)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+}
+
+// =============================================================
 // CALL SHEETS
 // =============================================================
 

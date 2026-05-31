@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { db } from '@/lib/db'
+import { getScopedDb } from '@/lib/db-scoped'
 import { getCurrentUser } from '@/lib/auth'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
@@ -21,11 +21,11 @@ export async function upsertClient(
   input: z.infer<typeof clientSchema>
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    const user = await getCurrentUser()
+    const [db, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const data = clientSchema.parse(input)
     const client = id
       ? await db.client.update({ where: { id }, data })
-      : await db.client.create({ data: { ...data, workspaceId: user.workspaceId } as Prisma.ClientUncheckedCreateInput })
+      : await db.client.create({ data } as unknown as { data: Prisma.ClientUncheckedCreateInput })
     revalidatePath('/clients')
     return { success: true, data: { id: client.id } }
   } catch {
@@ -35,6 +35,7 @@ export async function upsertClient(
 
 export async function archiveClient(id: string): Promise<ActionResult> {
   try {
+    const db = await getScopedDb()
     await db.client.update({ where: { id }, data: { archivedAt: new Date() } })
     revalidatePath('/clients')
     return { success: true, data: undefined }
@@ -59,7 +60,7 @@ export async function upsertProject(
   input: z.infer<typeof projectSchema>
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    const user = await getCurrentUser()
+    const [db, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const data = projectSchema.parse(input)
     const payload = {
       ...data,
@@ -68,7 +69,7 @@ export async function upsertProject(
     }
     const project = id
       ? await db.project.update({ where: { id }, data: payload })
-      : await db.project.create({ data: { ...payload, workspaceId: user.workspaceId, createdById: user.id } as Prisma.ProjectUncheckedCreateInput })
+      : await db.project.create({ data: { ...payload, createdById: user.id } } as unknown as { data: Prisma.ProjectUncheckedCreateInput })
     revalidatePath('/projects')
     revalidatePath('/dashboard')
     return { success: true, data: { id: project.id } }
@@ -83,6 +84,7 @@ export async function updateProjectStatus(
   status: 'LEAD' | 'ACTIVE' | 'WRAPPED' | 'ARCHIVED'
 ): Promise<ActionResult> {
   try {
+    const db = await getScopedDb()
     await db.project.update({ where: { id }, data: { status } })
     revalidatePath('/dashboard')
     revalidatePath(`/projects/${id}`)

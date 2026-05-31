@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
 import { SettingsForm } from '@/components/settings/SettingsForm'
 import { DangerZone } from '@/components/settings/DangerZone'
+import { WorkspaceDataSection } from '@/components/settings/WorkspaceDataSection'
 
 export const metadata = { title: 'Settings — TTP Budget' }
 
@@ -53,6 +54,8 @@ export default async function SettingsPage() {
       </div>
 
       <SettingsForm workspace={settings} />
+
+      <WorkspaceDataSection />
 
       <DangerZone
         workspaceName={workspace.name}

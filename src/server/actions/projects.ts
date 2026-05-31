@@ -1,8 +1,8 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { db } from '@/lib/db'
-import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
+import { getScopedDb } from '@/lib/db-scoped'
+import { getCurrentUser } from '@/lib/auth'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import { Prisma } from '@prisma/client'
@@ -25,17 +25,14 @@ export async function createProjectWithBudget(
   input: z.infer<typeof createProjectSchema>
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    const user = await getCurrentUser()
+    const [db, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const data = createProjectSchema.parse(input)
 
     // Resolve or create client
     let clientId = data.clientId
     if (!clientId && data.clientName?.trim()) {
       const newClient = await db.client.create({
-        data: {
-          workspaceId: user.workspaceId,
-          name: data.clientName.trim(),
-        } as Prisma.ClientUncheckedCreateInput,
+        data: { name: data.clientName.trim() } as unknown as Prisma.ClientUncheckedCreateInput,
       })
       clientId = newClient.id
     }
@@ -46,13 +43,12 @@ export async function createProjectWithBudget(
     // Create project
     const project = await db.project.create({
       data: {
-        workspaceId: user.workspaceId,
         clientId,
         name: data.name,
         shootType: data.shootType,
         status: 'LEAD',
         createdById: user.id,
-      } as Prisma.ProjectUncheckedCreateInput,
+      } as unknown as Prisma.ProjectUncheckedCreateInput,
     })
 
     // Create budget (materialises template if provided)
@@ -82,14 +78,14 @@ export async function updateProject(
     name: string
     status: typeof PROJECT_STATUSES[number]
     shootType: typeof SHOOT_TYPES[number]
-    shootStartDate: string | null  // YYYY-MM-DD or null
+    shootStartDate: string | null
     shootEndDate: string | null
   }
 ): Promise<ActionResult> {
   try {
-    const workspaceId = await getWorkspaceId()
+    const db = await getScopedDb()
     await db.project.update({
-      where: { id: projectId, workspaceId },
+      where: { id: projectId },
       data: {
         name:           input.name.trim(),
         status:         input.status,
