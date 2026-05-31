@@ -28,7 +28,7 @@ export function WorkspaceDataSection() {
       <div className="mb-5 border-b border-border pb-4">
         <h2 className="text-base font-semibold text-foreground">Workspace data</h2>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          Manage your workspace's rate cards and template library.
+          Manage your workspace&apos;s rate cards and template library.
         </p>
       </div>
 
