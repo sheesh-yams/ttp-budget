@@ -9,7 +9,8 @@ interface Props {
 
 export async function generateMetadata({ params }: Props) {
   const { id } = await params
-  const tpl = await db.budgetTemplate.findUnique({ where: { id }, select: { name: true } })
+  const workspaceId = await getWorkspaceId()
+  const tpl = await db.budgetTemplate.findFirst({ where: { id, workspaceId }, select: { name: true } })
   return { title: tpl?.name ?? 'Template' }
 }
 

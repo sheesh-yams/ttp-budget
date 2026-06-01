@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import { db } from '@/lib/db'
-import { getCurrentUser } from '@/lib/auth'
+import { getWorkspaceId } from '@/lib/auth'
 import { CallSheetEditor } from '@/components/call-sheets/CallSheetEditor'
 import type { CrewDept, ScheduleBlock, WeatherInfo, HospitalInfo, TalentMember, PointOfContact } from '@/server/actions/call-sheets'
 
@@ -23,14 +23,14 @@ export default async function CallSheetPage({
   params: Promise<{ id: string; csId: string }>
 }) {
   const { id: projectId, csId } = await params
-  const user = await getCurrentUser()
+  const workspaceId = await getWorkspaceId()
 
   const [cs, project, budget] = await Promise.all([
     db.callSheet.findFirst({
-      where: { id: csId, workspaceId: user.workspaceId },
+      where: { id: csId, workspaceId },
     }),
     db.project.findFirst({
-      where: { id: projectId, workspaceId: user.workspaceId },
+      where: { id: projectId, workspaceId },
       select: {
         id: true,
         name: true,
@@ -45,7 +45,7 @@ export default async function CallSheetPage({
       },
     }),
     db.budget.findFirst({
-      where: { projectId, workspaceId: user.workspaceId },
+      where: { projectId, workspaceId },
       orderBy: { createdAt: 'asc' },
       select: { id: true },
     }),

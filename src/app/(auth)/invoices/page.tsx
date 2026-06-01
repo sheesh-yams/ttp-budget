@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { Receipt } from 'lucide-react'
 import { db } from '@/lib/db'
-import { getCurrentUser } from '@/lib/auth'
+import { getWorkspaceId } from '@/lib/auth'
 import { formatMoney } from '@/lib/money'
 import { InvoicesTable } from '@/components/invoices/InvoicesTable'
 
@@ -10,10 +10,10 @@ export const metadata = { title: 'Invoices — TTP Budget' }
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function InvoicesPage() {
-  const user = await getCurrentUser()
+  const workspaceId = await getWorkspaceId()
 
   const invoices = await db.invoice.findMany({
-    where: { workspaceId: user.workspaceId },
+    where: { workspaceId },
     orderBy: { createdAt: 'desc' },
     select: {
       id: true,

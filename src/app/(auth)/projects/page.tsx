@@ -1,12 +1,11 @@
 import { db } from '@/lib/db'
-import { getCurrentUser } from '@/lib/auth'
+import { getWorkspaceId } from '@/lib/auth'
 import { ProjectsPageClient } from '@/components/projects/ProjectsPageClient'
 
 export const metadata = { title: 'Projects — TTP Budget' }
 
 export default async function ProjectsPage() {
-  const user = await getCurrentUser()
-  const { workspaceId } = user
+  const workspaceId = await getWorkspaceId()
 
   const [projects, clients, templates] = await Promise.all([
     db.project.findMany({

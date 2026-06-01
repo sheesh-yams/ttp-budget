@@ -1,15 +1,15 @@
 import { db } from '@/lib/db'
-import { getCurrentUser } from '@/lib/auth'
+import { getWorkspaceId } from '@/lib/auth'
 import { ClientsPageClient } from '@/components/clients/ClientsPageClient'
 import { sumAccount, type AccountInput } from '@/lib/totals'
 
 export const metadata = { title: 'Clients — TTP Budget' }
 
 export default async function ClientsPage() {
-  const user = await getCurrentUser()
+  const workspaceId = await getWorkspaceId()
 
   const clients = await db.client.findMany({
-    where: { workspaceId: user.workspaceId, archivedAt: null },
+    where: { workspaceId, archivedAt: null },
     orderBy: { name: 'asc' },
     include: {
       projects: {

@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ChevronLeft, Calendar, User } from 'lucide-react'
 import { db } from '@/lib/db'
-import { getCurrentUser } from '@/lib/auth'
+import { getWorkspaceId } from '@/lib/auth'
 import { BudgetEditor } from '@/components/projects/BudgetEditor'
 import { ProjectProposals } from '@/components/projects/ProjectProposals'
 import { ProjectInvoices } from '@/components/projects/ProjectInvoices'
@@ -34,7 +34,8 @@ const STATUS_COLORS: Record<string, string> = {
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const project = await db.project.findUnique({ where: { id }, select: { name: true } })
+  const workspaceId = await getWorkspaceId()
+  const project = await db.project.findFirst({ where: { id, workspaceId }, select: { name: true } })
   return { title: project ? `${project.name} — TTP Budget` : 'Project' }
 }
 
@@ -44,10 +45,10 @@ export default async function ProjectDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const user = await getCurrentUser()
+  const workspaceId = await getWorkspaceId()
 
   const project = await db.project.findFirst({
-    where: { id, workspaceId: user.workspaceId },
+    where: { id, workspaceId },
     include: {
       client: true,
       budgets: {
