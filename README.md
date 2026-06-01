@@ -18,13 +18,42 @@ Inspired by Saturation.io but stripped down to the parts that matter for an agen
 | PDF          | @react-pdf/renderer                  |
 | Hosting      | Vercel                               |
 
+## Multi-tenant Architecture
+
+The app is fully multi-tenant. Every user signs up into their own **workspace**, backed by a **Clerk Organization**. The workspace owns all data — rate cards, templates, clients, projects, budgets, proposals, invoices, call sheets.
+
+- `auth().orgId` → `Workspace.clerkOrgId` is the source of truth for which workspace is active
+- All server actions use `getScopedDb()` — a Prisma `$extends()` wrapper that auto-injects `workspaceId` into every query on scoped models. A query cannot return data from another workspace.
+- Users can create additional workspaces and switch between them via the sidebar dropdown. Switching does a hard navigation (`window.location.href`) to guarantee a fresh auth context.
+- **Onboarding gate** — new users go through a one-time setup wizard before reaching the app. `user.onboarded` is set on completion.
+- **Danger zone** (Settings) — workspace owner can permanently delete the workspace with name confirmation. Non-owner members can leave.
+
+### Row-level security scoped models
+`Client`, `Project`, `RateCard`, `BudgetTemplate`, `Budget`, `Proposal`, `Invoice`, `CallSheet`
+
+Non-scoped (shared or workspace-metadata): `Workspace`, `User`, `Phase`, `Account`, `LineItem`, `ProposalView`, `InvoiceView`
+
+## Global Library
+
+Every new workspace is seeded with a **global library** of rate cards and budget templates so users have useful defaults on day one.
+
+- **`GlobalRateCard`** and **`GlobalTemplate`** tables hold the master catalog. These are never workspace-scoped.
+- On workspace creation (both `user.created` webhook and the "New workspace" sidebar button), `seedWorkspaceFromGlobals()` copies all `isFeatured` globals into the new workspace atomically.
+- Seeded copies are **fully owned by the workspace** — editing or deleting them never touches the globals, and future global updates do not propagate to existing workspaces.
+- **`/library` page** — read-only catalog where users can browse the full global library at any time and selectively pull individual rate cards or templates into their workspace. Shows "✓ In workspace" with a link to where it landed; never creates duplicates.
+- **Reset library** (Settings → Workspace data) — additive re-seed that adds any missing featured items without modifying existing rows. Useful after deletions or when new globals are added.
+- **`scripts/seed-existing-workspaces.ts`** — one-time backfill script for empty test workspaces. Dry-run by default (`--seed` to apply). Skips workspaces that already have rate cards.
+
 ## Data Model — at a glance
 
 ```
+GlobalRateCard  ─┐
+GlobalTemplate  ─┘  (global catalog; seeded into new workspaces on creation)
+
 Workspace (1)
-  ├── Users (you + producers, via Clerk)
-  ├── RateCards (master rate list — drives line-item autocomplete)
-  ├── BudgetTemplates (saved budget skeletons, full or package, by shoot type)
+  ├── Users (you + producers, via Clerk org membership)
+  ├── RateCards (workspace-owned copies, seeded from global library)
+  ├── BudgetTemplates (workspace-owned copies, seeded from global library)
   ├── Clients
   │     └── Projects
   │           ├── Budgets
@@ -69,10 +98,12 @@ Rate cards are the **source of defaults** but never retroactively change histori
 | `/proposals` | All proposals — Kanban view + full list table |
 | `/invoices` | Invoice list with metrics |
 | `/invoices/[id]/edit` | Invoice editor |
-| `/rates` | Master rate card |
+| `/rates` | Workspace rate card list |
 | `/templates` | Budget templates — full templates & add-on packages |
 | `/templates/[id]` | Template detail + structure editor |
-| `/settings` | Branding, payment instructions, team |
+| `/library` | Global library catalog — browse + add to workspace |
+| `/settings` | Branding, payment instructions, workspace data, danger zone |
+| `/onboarding` | First-time setup wizard (redirected automatically for new users) |
 
 ### Public (no auth, tokenized)
 | Route | Description |
@@ -194,7 +225,13 @@ Both budgets and templates accept `.csv` or `.json` import files.
 ```
 ttp-budget/
 ├── prisma/
-│   └── schema.prisma
+│   ├── schema.prisma
+│   └── seed.ts                              # Populates GlobalRateCard + GlobalTemplate; preserves TTP workspace data
+├── scripts/
+│   ├── backfill-clerk-orgs.ts              # One-time: create Clerk orgs for workspaces that lack one
+│   ├── dedupe-workspaces.ts                # Find + remove duplicate workspaces by name/owner
+│   ├── fix-workspace-links.ts              # Audit + repair Clerk org ↔ DB workspace mapping
+│   └── seed-existing-workspaces.ts         # Backfill empty workspaces with global library (--seed flag)
 ├── src/
 │   ├── app/
 │   │   ├── (auth)/
@@ -207,6 +244,8 @@ ttp-budget/
 │   │   │   ├── invoices/
 │   │   │   ├── rates/
 │   │   │   ├── templates/[id]/
+│   │   │   ├── library/                     # Global library catalog — browse + add to workspace
+│   │   │   ├── onboarding/                  # First-time setup wizard
 │   │   │   └── settings/
 │   │   ├── (public)/
 │   │   │   ├── p/[token]/page.tsx           # Proposal public view (draft-aware)
@@ -216,7 +255,7 @@ ttp-budget/
 │   │       ├── pdf/proposal/[id]/
 │   │       ├── pdf/invoice/[id]/
 │   │       ├── proposals/[id]/approve/
-│   │       └── webhooks/clerk/
+│   │       └── webhooks/clerk/              # user.created, organization.created, organizationMembership.created
 │   ├── components/
 │   │   ├── ui/                              # shadcn primitives
 │   │   ├── budget/
@@ -227,6 +266,11 @@ ttp-budget/
 │   │   │   ├── TalentEditor.tsx             # Flat talent list
 │   │   │   ├── ScheduleEditor.tsx           # Time blocks with start/end/whoNeeded
 │   │   │   └── ProjectCallSheets.tsx        # Call sheets section on project page
+│   │   ├── library/
+│   │   │   └── LibraryPageClient.tsx        # Tabbed rate cards + templates catalog with add buttons
+│   │   ├── layout/
+│   │   │   ├── Sidebar.tsx                  # Workspace switcher, nav, user footer + sign-out
+│   │   │   └── TopBar.tsx
 │   │   ├── proposals/
 │   │   │   └── ProposalsKanban.tsx
 │   │   ├── projects/
@@ -239,10 +283,15 @@ ttp-budget/
 │   │   ├── proposal/
 │   │   │   ├── ProposalPublicView.tsx       # Web render (draft-aware, sign-off hidden for drafts)
 │   │   │   └── ProposalPDF.tsx
+│   │   ├── settings/
+│   │   │   ├── DangerZone.tsx               # Leave / Delete workspace
+│   │   │   └── WorkspaceDataSection.tsx     # Reset workspace library button
 │   │   └── invoice/
 │   ├── lib/
 │   │   ├── db.ts
-│   │   ├── auth.ts
+│   │   ├── db-scoped.ts                     # getScopedDb() — Prisma $extends() for row-level security
+│   │   ├── auth.ts                          # getCurrentUser, getWorkspaceId (orgId-first), getActiveWorkspace
+│   │   ├── workspace-seeder.ts              # seedWorkspaceFromGlobals + reseedWorkspaceFromGlobals
 │   │   ├── money.ts                         # cents ↔ display, parseQtyFormula, fmtUnit
 │   │   ├── totals.ts
 │   │   ├── importSchema.ts
@@ -253,13 +302,14 @@ ttp-budget/
 │           ├── budgets.ts
 │           ├── call-sheets.ts               # CRUD + importCrewFromBudget + fetchLocationData
 │           ├── import.ts
+│           ├── library.ts                   # copyGlobalRateCardToWorkspace, copyGlobalTemplateToWorkspace
 │           ├── proposals.ts                 # createDraft, createSent, send, update — all use milestones[]
 │           ├── invoices.ts
 │           ├── rates.ts
 │           ├── templates.ts
 │           ├── clients.ts
 │           ├── projects.ts
-│           └── workspace.ts
+│           └── workspace.ts                 # createWorkspace, leaveWorkspace, deleteWorkspace, reseedWorkspace
 ├── .env.example
 ├── next.config.js
 ├── tailwind.config.ts
@@ -292,17 +342,40 @@ npm run dev          # localhost:3000
 # After schema changes:
 npx prisma db push
 npx prisma generate
+
+# Populate global library (idempotent — safe to run multiple times):
+npm run db:seed
+
+# Maintenance scripts:
+npx tsx scripts/fix-workspace-links.ts            # audit Clerk org ↔ DB workspace mapping
+npx tsx scripts/fix-workspace-links.ts --fix      # repair orphan orgs + stale links
+npx tsx scripts/seed-existing-workspaces.ts       # preview empty workspaces
+npx tsx scripts/seed-existing-workspaces.ts --seed  # seed them
 ```
+
+## Clerk Webhook Setup
+
+The `/api/webhooks/clerk` endpoint must be registered in the Clerk dashboard. Required events:
+
+| Event | Purpose |
+|-------|---------|
+| `user.created` | Creates the DB workspace + user, creates a Clerk org, seeds rate cards + templates |
+| `organization.created` | Fallback linker for orgs created outside the app (dashboard, etc.) |
+| `organizationMembership.created` | Attaches invited members to the org's workspace |
+
+The webhook uses `svix` signature verification. Set `CLERK_WEBHOOK_SECRET` from the Clerk dashboard endpoint page.
 
 ## Engineering Conventions
 
 - **Money:** always integer cents. Never floats. `$1,500 → 150000`.
 - **Percentages:** always decimals stored as `Decimal(6,4)`. Exception: `PaymentMilestone.percentPct` is stored as display percent (50 = 50%) in JSON.
-- **Server actions:** every mutation calls `getCurrentUser()` first and verifies workspace ownership before touching any DB row.
-- **Return type:** all actions return `ActionResult<T>` — `{ success: true; data: T } | { success: false; error: string }`.
-- **ESLint:** the project does not include `@typescript-eslint` plugin. Never add `// eslint-disable-next-line @typescript-eslint/...` comments — they cause build failures. Use proper casts instead (`as unknown as T`).
+- **Row-level security:** all server actions use `getScopedDb()` (from `src/lib/db-scoped.ts`), a Prisma `$extends()` wrapper that auto-injects `workspaceId` on every query for scoped models. Webhook handlers and the workspace seeder use raw `db` — those run without an active Clerk session.
+- **Return type:** all actions return `ActionResult<T>` — `{ success: true; data: T } | { success: false; error: string }`. Narrow with `'error' in result` (not `!result.success`) inside `startTransition` callbacks.
+- **ESLint:** the project does not include `@typescript-eslint` plugin. **Never** add `// eslint-disable-next-line @typescript-eslint/...` comments — they cause Vercel build failures. Use proper casts instead (`as unknown as T`).
 - **JSON fields:** all Prisma JSON field writes must go through `JSON.parse(JSON.stringify(value))` to avoid Decimal serialization issues.
+- **Workspace switching:** use `window.location.href = '/dashboard'` after `setActive()` — not `router.refresh()`. `router.refresh()` can hit the Next.js route cache and serve stale auth context from the previous org.
 - **`router.refresh()`** syncs server-rendered data after mutations. For client state that needs to update immediately (e.g. crew list after import), update React state directly from the action's return value — don't rely solely on refresh.
 - **Schema changes:** `prisma db push` (no migrations folder). Run locally; Vercel runs `prisma generate` on deploy.
 - **Quantity formula:** `quantityFormula = "AxB"` encodes headcount (A) × days (B). Use `parseQtyFormula()` from `money.ts` everywhere it's displayed. `fmtUnit(days, unit)` formats the unit column ("2 Days", "Week", "Flat").
 - **Call sheet draft preview:** public `/cs/[token]` and `/p/[token]` both render for DRAFT status with a sticky amber banner. View analytics are skipped for drafts. The sign-off section is hidden on draft proposals.
+- **Global library isolation:** `GlobalRateCard` and `GlobalTemplate` are seeded once by the app. Workspace copies are independent — never update globals from workspace data, and never propagate global changes to existing workspaces.
