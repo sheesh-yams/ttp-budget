@@ -81,8 +81,9 @@ function LogoUpload({
       setUploading(false)
       if (result.success) {
         onUploaded(result.data.url)
-      } else if (!result.success) {
-        setError(result.error)
+      } else {
+        const r = result as { success: false; error: string }
+        setError(r.error)
       }
     })
   }
@@ -95,8 +96,9 @@ function LogoUpload({
       setUploading(false)
       if (result.success) {
         onRemoved()
-      } else if (!result.success) {
-        setError(result.error)
+      } else {
+        const r = result as { success: false; error: string }
+        setError(r.error)
       }
     })
   }
