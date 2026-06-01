@@ -8,6 +8,7 @@ import { auth, clerkClient } from '@clerk/nextjs/server'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import { seedWorkspaceFromGlobals, reseedWorkspaceFromGlobals } from '@/lib/workspace-seeder'
+import { put, del } from '@vercel/blob'
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -26,8 +27,6 @@ const companySchema = z.object({
 })
 
 const brandingSchema = z.object({
-  logoUrl:      z.string().max(500).optional().nullable(),
-  logoDarkUrl:  z.string().max(500).optional().nullable(),
   primaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
   accentColor:  z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
 })
@@ -87,8 +86,6 @@ export async function updateBrandingSettings(
     await db.workspace.update({
       where: { id: workspaceId },
       data: {
-        logoUrl:      data.logoUrl || null,
-        logoDarkUrl:  data.logoDarkUrl || null,
         primaryColor: data.primaryColor ?? '#5D00A4',
         accentColor:  data.accentColor  ?? '#04FFCC',
       },
@@ -294,6 +291,85 @@ export async function deleteWorkspace(confirmName: string): Promise<ActionResult
     if (err instanceof Error && err.message === 'NEXT_REDIRECT') throw err
     console.error('[deleteWorkspace]', err)
     return { success: false, error: 'Failed to delete workspace' }
+  }
+}
+
+// ─── Logo upload ──────────────────────────────────────────────────────────────
+
+/**
+ * Upload a logo image to Vercel Blob and save the URL to the workspace.
+ * variant: 'light' → logoUrl, 'dark' → logoDarkUrl
+ */
+export async function uploadWorkspaceLogo(
+  formData: FormData,
+  variant: 'light' | 'dark',
+): Promise<ActionResult<{ url: string }>> {
+  try {
+    const workspaceId = await getWorkspaceId()
+
+    const file = formData.get('file')
+    if (!(file instanceof File)) return { success: false, error: 'No file provided' }
+    if (!file.type.startsWith('image/')) return { success: false, error: 'File must be an image' }
+    if (file.size > 5 * 1024 * 1024) return { success: false, error: 'File must be under 5 MB' }
+
+    // Fetch the current logo URL so we can delete the old blob (best-effort)
+    const workspace = await db.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { logoUrl: true, logoDarkUrl: true },
+    })
+    const oldUrl = variant === 'light' ? workspace?.logoUrl : workspace?.logoDarkUrl
+
+    // Upload to Vercel Blob
+    const ext      = file.name.split('.').pop() ?? 'png'
+    const blobPath = `logos/${workspaceId}/${variant}.${ext}`
+    const { url }  = await put(blobPath, file, { access: 'public', addRandomSuffix: false })
+
+    // Persist URL to workspace
+    await db.workspace.update({
+      where: { id: workspaceId },
+      data:  variant === 'light' ? { logoUrl: url } : { logoDarkUrl: url },
+    })
+
+    // Delete old blob (best-effort — don't fail the action if this errors)
+    if (oldUrl && oldUrl !== url) {
+      del(oldUrl).catch(() => undefined)
+    }
+
+    revalidatePath('/settings')
+    revalidatePath('/', 'layout')
+    return { success: true, data: { url } }
+  } catch {
+    return { success: false, error: 'Failed to upload logo' }
+  }
+}
+
+/**
+ * Remove a logo — deletes the blob and clears the DB field.
+ */
+export async function removeWorkspaceLogo(
+  variant: 'light' | 'dark',
+): Promise<ActionResult> {
+  try {
+    const workspaceId = await getWorkspaceId()
+
+    const workspace = await db.workspace.findUnique({
+      where:  { id: workspaceId },
+      select: { logoUrl: true, logoDarkUrl: true },
+    })
+    const url = variant === 'light' ? workspace?.logoUrl : workspace?.logoDarkUrl
+
+    await db.workspace.update({
+      where: { id: workspaceId },
+      data:  variant === 'light' ? { logoUrl: null } : { logoDarkUrl: null },
+    })
+
+    if (url) del(url).catch(() => undefined)
+
+    revalidatePath('/settings')
+    revalidatePath('/', 'layout')
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to remove logo' }
   }
 }
 

@@ -1,15 +1,18 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useTransition } from 'react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Upload, X } from 'lucide-react'
 import {
   updateCompanySettings,
   updateBrandingSettings,
   updateInvoiceDefaults,
   updateProposalDefaults,
+  uploadWorkspaceLogo,
+  removeWorkspaceLogo,
 } from '@/server/actions/workspace'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -39,6 +42,137 @@ export interface WorkspaceSettings {
   checkMailingAddress:     string | null
   defaultInvoiceTerms:     string | null
   defaultProposalTerms:    string | null
+}
+
+// ─── Logo upload component ────────────────────────────────────────────────────
+
+function LogoUpload({
+  variant,
+  currentUrl,
+  onUploaded,
+  onRemoved,
+  label,
+  hint,
+  darkBg,
+}: {
+  variant: 'light' | 'dark'
+  currentUrl: string | null
+  onUploaded: (url: string) => void
+  onRemoved: () => void
+  label: string
+  hint?: string
+  darkBg?: boolean
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [, startTransition] = useTransition()
+
+  async function handleFile(file: File) {
+    setError(null)
+    if (!file.type.startsWith('image/')) { setError('Must be an image file'); return }
+    if (file.size > 5 * 1024 * 1024) { setError('File must be under 5 MB'); return }
+
+    setUploading(true)
+    const fd = new FormData()
+    fd.append('file', file)
+    startTransition(async () => {
+      const result = await uploadWorkspaceLogo(fd, variant)
+      setUploading(false)
+      if (result.success) {
+        onUploaded(result.data.url)
+      } else {
+        setError(result.error)
+      }
+    })
+  }
+
+  async function handleRemove() {
+    setError(null)
+    setUploading(true)
+    startTransition(async () => {
+      const result = await removeWorkspaceLogo(variant)
+      setUploading(false)
+      if (result.success) {
+        onRemoved()
+      } else {
+        setError(result.error)
+      }
+    })
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault()
+    const file = e.dataTransfer.files[0]
+    if (file) handleFile(file)
+  }
+
+  return (
+    <div>
+      <label className="mb-1 block text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">{label}</label>
+      {hint && <p className="mb-2 text-xs text-muted-foreground">{hint}</p>}
+
+      {currentUrl ? (
+        <div
+          className="relative flex items-center justify-center rounded-lg border p-4"
+          style={{ background: darkBg ? '#0A0612' : '#fff', minHeight: 80 }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={currentUrl} alt={label} className="max-h-14 max-w-full object-contain" />
+          <button
+            type="button"
+            onClick={handleRemove}
+            disabled={uploading}
+            className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors disabled:opacity-40"
+            title="Remove logo"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+          {uploading && (
+            <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/30">
+              <span className="text-xs text-white">Removing…</span>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div
+          onDragOver={e => e.preventDefault()}
+          onDrop={handleDrop}
+          onClick={() => inputRef.current?.click()}
+          className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-input bg-muted/30 px-4 py-6 text-center transition-colors hover:border-ring hover:bg-muted/50"
+          style={{ minHeight: 80 }}
+        >
+          {uploading ? (
+            <p className="text-xs text-muted-foreground">Uploading…</p>
+          ) : (
+            <>
+              <Upload className="h-5 w-5 text-muted-foreground" />
+              <p className="text-xs text-muted-foreground">Click or drag &amp; drop · PNG, SVG, JPG · max 5 MB</p>
+            </>
+          )}
+        </div>
+      )}
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }}
+      />
+      {!currentUrl && (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading}
+          className="mt-2 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground disabled:opacity-40"
+        >
+          Browse files
+        </button>
+      )}
+      {error && <p className="mt-1.5 text-xs text-red-500">{error}</p>}
+    </div>
+  )
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -132,8 +266,8 @@ export function SettingsForm({ workspace }: { workspace: WorkspaceSettings }) {
   const companySave = useSave()
 
   // ── Branding ───────────────────────────────────────────────────────────────
-  const [logoUrl, setLogoUrl]         = useState(str(workspace.logoUrl))
-  const [logoDarkUrl, setLogoDarkUrl] = useState(str(workspace.logoDarkUrl))
+  const [logoUrl, setLogoUrl]         = useState<string | null>(workspace.logoUrl)
+  const [logoDarkUrl, setLogoDarkUrl] = useState<string | null>(workspace.logoDarkUrl)
   const [primaryColor, setPrimary]    = useState(workspace.primaryColor || '#5D00A4')
   const [accentColor, setAccent]      = useState(workspace.accentColor  || '#04FFCC')
   const brandingSave = useSave()
@@ -167,7 +301,6 @@ export function SettingsForm({ workspace }: { workspace: WorkspaceSettings }) {
 
   function saveBranding() {
     brandingSave.save(() => updateBrandingSettings({
-      logoUrl: logoUrl || null, logoDarkUrl: logoDarkUrl || null,
       primaryColor, accentColor,
     }))
   }
@@ -295,33 +428,26 @@ export function SettingsForm({ workspace }: { workspace: WorkspaceSettings }) {
             </div>
 
             <div className="border-t pt-5">
-              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Logo URLs</p>
-              <div className="space-y-4">
-                <Field label="Logo (light backgrounds)" hint="Used on the internal app and proposal body.">
-                  <Input value={logoUrl} onChange={e => setLogoUrl(e.target.value)} placeholder="https://…" className="mt-1" />
-                </Field>
-                <Field label="Logo (dark backgrounds)" hint="Used on proposal/invoice headers and PDFs.">
-                  <Input value={logoDarkUrl} onChange={e => setLogoDarkUrl(e.target.value)} placeholder="https://…" className="mt-1" />
-                </Field>
+              <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Logos</p>
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                <LogoUpload
+                  variant="light"
+                  currentUrl={logoUrl}
+                  onUploaded={url => setLogoUrl(url)}
+                  onRemoved={() => setLogoUrl(null)}
+                  label="Logo (light backgrounds)"
+                  hint="Used on the internal app and proposal body."
+                />
+                <LogoUpload
+                  variant="dark"
+                  currentUrl={logoDarkUrl}
+                  onUploaded={url => setLogoDarkUrl(url)}
+                  onRemoved={() => setLogoDarkUrl(null)}
+                  label="Logo (dark backgrounds)"
+                  hint="Used on proposal/invoice headers and PDFs."
+                  darkBg
+                />
               </div>
-              {(logoUrl || logoDarkUrl) && (
-                <div className="mt-4 grid grid-cols-2 gap-4">
-                  {logoUrl && (
-                    <div className="rounded-lg border bg-white p-4 text-center">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={logoUrl} alt="Logo light" className="mx-auto max-h-12 object-contain" />
-                      <p className="mt-2 text-xs text-muted-foreground">Light</p>
-                    </div>
-                  )}
-                  {logoDarkUrl && (
-                    <div className="rounded-lg border p-4 text-center" style={{ background: '#0A0612' }}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={logoDarkUrl} alt="Logo dark" className="mx-auto max-h-12 object-contain" />
-                      <p className="mt-2 text-xs text-white/40">Dark</p>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
           </div>
           <SaveButton state={brandingSave.state} onClick={saveBranding} />

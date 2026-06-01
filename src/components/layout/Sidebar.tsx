@@ -13,10 +13,11 @@ import { useEffect, useRef, useState, useTransition } from 'react'
 import { createWorkspace } from '@/server/actions/workspace'
 
 // Inline spinner — no dependency needed
-function Spinner({ className }: { className?: string }) {
+function Spinner({ className, style }: { className?: string; style?: React.CSSProperties }) {
   return (
     <svg
       className={cn('animate-spin', className)}
+      style={style}
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
       viewBox="0 0 24 24"
@@ -52,7 +53,7 @@ const navGroups = [
   },
 ]
 
-export function Sidebar({ workspaceName }: { workspaceName: string }) {
+export function Sidebar({ workspaceName, logoUrl }: { workspaceName: string; logoUrl?: string | null }) {
   const pathname = usePathname()
 
   return (
@@ -62,7 +63,7 @@ export function Sidebar({ workspaceName }: { workspaceName: string }) {
     >
       {/* ── Workspace switcher ── */}
       <div className="border-b border-white/[0.08]">
-        <WorkspaceSwitcher fallbackName={workspaceName} />
+        <WorkspaceSwitcher fallbackName={workspaceName} logoUrl={logoUrl} />
       </div>
 
       {/* ── Nav ── */}
@@ -85,14 +86,14 @@ export function Sidebar({ workspaceName }: { workspaceName: string }) {
                   className={cn(
                     'flex items-center gap-2.5 border-l-2 px-3.5 py-[9px] text-[12.5px] font-medium transition-colors',
                     active
-                      ? 'border-[#04FFCC] text-white'
+                      ? 'border-[var(--brand-accent,#04FFCC)] text-white'
                       : 'border-transparent text-white/45 hover:bg-white/[0.035] hover:text-white/75'
                   )}
-                  style={active ? { background: 'rgba(4,255,204,0.07)' } : undefined}
+                  style={active ? { background: 'color-mix(in srgb, var(--brand-accent,#04FFCC) 12%, transparent)' } : undefined}
                 >
                   <Icon
                     className="h-[15px] w-[15px] flex-shrink-0"
-                    style={{ color: active ? '#04FFCC' : undefined }}
+                    style={{ color: active ? 'var(--brand-accent,#04FFCC)' : undefined }}
                   />
                   {label}
                 </Link>
@@ -114,7 +115,7 @@ export function Sidebar({ workspaceName }: { workspaceName: string }) {
 // WorkspaceSwitcher
 // =============================================================================
 
-function WorkspaceSwitcher({ fallbackName }: { fallbackName: string }) {
+function WorkspaceSwitcher({ fallbackName, logoUrl }: { fallbackName: string; logoUrl?: string | null }) {
   const { organization } = useOrganization()
   const { userMemberships, setActive, isLoaded: listLoaded } = useOrganizationList({
     userMemberships: { infinite: true },
@@ -173,10 +174,14 @@ function WorkspaceSwitcher({ fallbackName }: { fallbackName: string }) {
         className="flex w-full items-center gap-2.5 px-4 py-[18px] hover:bg-white/[0.035] transition-colors"
       >
         <div
-          className="flex h-[26px] w-[26px] flex-shrink-0 items-center justify-center rounded-[5px] text-[13px] font-black"
-          style={{ background: '#04FFCC', color: '#003D31' }}
+          className="flex h-[26px] w-[26px] flex-shrink-0 items-center justify-center rounded-[5px] text-[13px] font-black overflow-hidden"
+          style={{ background: 'var(--brand-accent,#04FFCC)', color: 'var(--brand-accent-dark,#003D31)' }}
         >
-          {initial}
+          {logoUrl
+            // eslint-disable-next-line @next/next/no-img-element
+            ? <img src={logoUrl} alt={displayName} className="h-full w-full object-contain p-0.5" />
+            : initial
+          }
         </div>
         <div className="min-w-0 flex-1 text-left">
           <p className="truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-white/90 leading-none">
@@ -219,7 +224,7 @@ function WorkspaceSwitcher({ fallbackName }: { fallbackName: string }) {
               >
                 <div
                   className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-[4px] text-[10px] font-black"
-                  style={{ background: '#04FFCC', color: '#003D31' }}
+                  style={{ background: 'var(--brand-accent,#04FFCC)', color: 'var(--brand-accent-dark,#003D31)' }}
                 >
                   {mem.organization.name[0]?.toUpperCase()}
                 </div>
@@ -227,9 +232,9 @@ function WorkspaceSwitcher({ fallbackName }: { fallbackName: string }) {
                   {mem.organization.name}
                 </span>
                 {isLoading ? (
-                  <Spinner className="h-3 w-3 flex-shrink-0 text-[#04FFCC]" />
+                  <Spinner className="h-3 w-3 flex-shrink-0" style={{ color: 'var(--brand-accent,#04FFCC)' }} />
                 ) : isActive ? (
-                  <Check className="h-3 w-3 flex-shrink-0 text-[#04FFCC]" />
+                  <Check className="h-3 w-3 flex-shrink-0" style={{ color: 'var(--brand-accent,#04FFCC)' }} />
                 ) : null}
               </button>
             )
@@ -366,7 +371,7 @@ function UserFooter() {
       ) : (
         <div
           className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white"
-          style={{ background: '#5D00A4' }}
+          style={{ background: 'var(--brand-primary,#5D00A4)' }}
         >
           {initials}
         </div>
