@@ -6,6 +6,7 @@ const isPublicRoute = createRouteMatcher([
   '/sign-up(.*)',
   '/p/(.*)',   // public proposal pages
   '/i/(.*)',   // public invoice pages
+  '/cs/(.*)',  // public call sheet pages
   '/api/webhooks/(.*)',
   '/api/pdf/(.*)', // PDF streams are token-authenticated at the route level
 ])

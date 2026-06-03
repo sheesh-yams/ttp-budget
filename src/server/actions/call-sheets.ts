@@ -394,9 +394,17 @@ export async function sendCallSheet(id: string): Promise<ActionResult<{ publicTo
       }
     }
 
+    // Call sheets expire 14 days after the shoot date (or from now if shoot date passed)
+    const shootBase = cs.shootDate > new Date() ? cs.shootDate : new Date()
+    const tokenExpiry = new Date(shootBase.getTime() + 14 * 24 * 60 * 60 * 1000)
+
     await sdb.callSheet.update({
       where: { id },
-      data: { status: 'SENT', sentAt: new Date() },
+      data: {
+        status: 'SENT',
+        sentAt: new Date(),
+        publicTokenExpiresAt: tokenExpiry,
+      } as unknown as Parameters<typeof sdb.callSheet.update>[0]['data'],
     })
 
     revalidatePath(`/projects/${cs.projectId}`)

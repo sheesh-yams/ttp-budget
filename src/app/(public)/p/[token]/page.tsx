@@ -4,6 +4,9 @@ import { ProposalPublicView } from '@/components/proposal/ProposalPublicView'
 import { recordProposalView } from '@/server/actions/proposals'
 import { sumAccount, type AccountInput } from '@/lib/totals'
 import { headers } from 'next/headers'
+import { checkRateLimit } from '@/lib/rate-limit'
+import { ExpiredLinkPage } from '@/components/public/ExpiredLinkPage'
+import { RateLimitedPage } from '@/components/public/RateLimitedPage'
 
 interface Props {
   params: Promise<{ token: string }>
@@ -25,6 +28,12 @@ export async function generateMetadata({ params }: Props) {
 export default async function PublicProposalPage({ params }: Props) {
   const { token } = await params
 
+  // ── Rate limiting ─────────────────────────────────────────────────────────
+  const reqHeaders = await headers()
+  const ip = reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  const { allowed } = await checkRateLimit(`proposal:${ip}`)
+  if (!allowed) return <RateLimitedPage />
+
   // ── Fetch proposal (no budget nesting — we fetch accounts separately) ──────
   const proposal = await db.proposal.findUnique({
     where: { publicToken: token },
@@ -45,6 +54,12 @@ export default async function PublicProposalPage({ params }: Props) {
   })
 
   if (!proposal) notFound()
+
+  // ── Expiry check ──────────────────────────────────────────────────────────
+  const proposalExpiry = (proposal as unknown as { publicTokenExpiresAt: Date | null }).publicTokenExpiresAt
+  if (proposalExpiry && proposalExpiry < new Date()) {
+    return <ExpiredLinkPage type="proposal" />
+  }
 
   const isDraft = proposal.status === 'DRAFT'
 

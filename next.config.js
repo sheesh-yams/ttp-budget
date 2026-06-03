@@ -38,6 +38,21 @@ try {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  async headers() {
+    return [
+      {
+        // Match all three public document routes
+        source: '/:prefix(p|i|cs)/:token*',
+        headers: [
+          { key: 'X-Robots-Tag',    value: 'noindex, nofollow, noarchive, nosnippet' },
+          { key: 'Referrer-Policy', value: 'no-referrer' },
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Cache-Control',   value: 'private, no-store' },
+        ],
+      },
+    ]
+  },
   // Do NOT externalise @react-pdf/renderer. When it's external, Node's require()
   // loads its internal React separately from webpack's bundled React, creating two
   // React instances whose Symbol.for("react.element") values don't match in the

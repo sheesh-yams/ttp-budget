@@ -446,7 +446,8 @@ model Proposal {
   // Status & lifecycle
   status        ProposalStatus @default(DRAFT)
   sentAt        DateTime?
-  expiresAt     DateTime?
+  expiresAt     DateTime?      // client signature deadline (business logic)
+  publicTokenExpiresAt DateTime? // when the public /p/[token] URL stops working (null = never)
   firstViewedAt DateTime?
   lastViewedAt  DateTime?
   viewCount     Int      @default(0)
@@ -544,6 +545,7 @@ model Invoice {
 
   status        InvoiceStatus @default(DRAFT)
   sentAt        DateTime?
+  publicTokenExpiresAt DateTime? // when the public /i/[token] URL stops working (null = never)
   firstViewedAt DateTime?
   lastViewedAt  DateTime?
   viewCount     Int      @default(0)
@@ -672,6 +674,7 @@ model CallSheet {
   notes           String?  @db.Text
 
   sentAt          DateTime?
+  publicTokenExpiresAt DateTime? // when the public /cs/[token] URL stops working (null = never)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

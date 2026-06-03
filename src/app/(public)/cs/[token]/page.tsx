@@ -1,6 +1,10 @@
 import { notFound } from 'next/navigation'
 import { MapPin, Phone, Clock, Hospital, Cloud, Calendar, User } from 'lucide-react'
 import { db } from '@/lib/db'
+import { headers } from 'next/headers'
+import { checkRateLimit } from '@/lib/rate-limit'
+import { ExpiredLinkPage } from '@/components/public/ExpiredLinkPage'
+import { RateLimitedPage } from '@/components/public/RateLimitedPage'
 import type {
   CrewDept,
   ScheduleBlock,
@@ -25,6 +29,12 @@ function startOf(block: ScheduleBlock): string {
 export default async function PublicCallSheetPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params
 
+  // ── Rate limiting ─────────────────────────────────────────────────────────
+  const reqHeaders = await headers()
+  const ip = reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  const { allowed } = await checkRateLimit(`callsheet:${ip}`)
+  if (!allowed) return <RateLimitedPage />
+
   const cs = await db.callSheet.findUnique({
     where: { publicToken: token },
     include: {
@@ -46,6 +56,12 @@ export default async function PublicCallSheetPage({ params }: { params: Promise<
   })
 
   if (!cs) notFound()
+
+  // ── Expiry check ──────────────────────────────────────────────────────────
+  const csExpiry = (cs as unknown as { publicTokenExpiresAt: Date | null }).publicTokenExpiresAt
+  if (csExpiry && csExpiry < new Date()) {
+    return <ExpiredLinkPage type="call-sheet" />
+  }
 
   const isDraft = cs.status === 'DRAFT'
 

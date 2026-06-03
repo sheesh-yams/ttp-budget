@@ -103,7 +103,11 @@ export async function sendInvoice(invoiceId: string): Promise<ActionResult<{ pub
     const scopedDb = await getScopedDb()
     const invoice = await scopedDb.invoice.update({
       where: { id: invoiceId },
-      data: { status: 'SENT', sentAt: new Date() },
+      data: {
+        status: 'SENT',
+        sentAt: new Date(),
+        publicTokenExpiresAt: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
+      } as unknown as Parameters<typeof scopedDb.invoice.update>[0]['data'],
     })
     const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL}/i/${(invoice as unknown as { publicToken: string }).publicToken}`
     return { success: true, data: { publicUrl } }

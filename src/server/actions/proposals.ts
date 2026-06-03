@@ -178,9 +178,15 @@ export async function sendProposal(proposalId: string): Promise<ActionResult<{ p
     const snapshot = await captureBudgetSnapshot(existing.budgetId as string, discount)
     const mergedContent = { ...(existing.content as object), budgetSnapshot: snapshot }
 
+    const now = new Date()
     const proposal = await sdb.proposal.update({
       where: { id: proposalId },
-      data: { status: 'SENT', sentAt: new Date(), content: mergedContent as object },
+      data: {
+        status:  'SENT',
+        sentAt:  now,
+        content: mergedContent as object,
+        publicTokenExpiresAt: new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000),
+      } as unknown as Parameters<typeof sdb.proposal.update>[0]['data'],
     })
     const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL}/p/${(proposal as unknown as { publicToken: string }).publicToken}`
     revalidatePath(`/proposals/${proposalId}/edit`)
@@ -257,6 +263,7 @@ export async function createSentProposal(input: {
         status: 'SENT',
         sentAt: new Date(),
         expiresAt: new Date(input.expiresAt),
+        publicTokenExpiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) as unknown as undefined,
         version: nextVersion,
         createdById: user.id,
       } as unknown as Parameters<typeof sdb.proposal.create>[0]['data'],
@@ -390,7 +397,12 @@ export async function sendDraftProposal(
 
     const proposal = await sdb.proposal.update({
       where: { id: proposalId },
-      data: { status: 'SENT', sentAt: new Date(), content: mergedContent as object },
+      data: {
+        status:  'SENT',
+        sentAt:  new Date(),
+        content: mergedContent as object,
+        publicTokenExpiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+      } as unknown as Parameters<typeof sdb.proposal.update>[0]['data'],
     })
     revalidatePath(`/projects/${existing.projectId}`)
     return { success: true, data: { publicToken: (proposal as unknown as { publicToken: string }).publicToken } }
