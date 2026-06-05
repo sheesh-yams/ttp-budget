@@ -2,43 +2,51 @@
  * rate-limit.ts
  *
  * Sliding-window rate limiter for public document routes.
- * Uses Upstash Redis — requires UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN.
  *
- * If those env vars are not set (e.g. local dev without Upstash), the limiter
- * is disabled and all requests are allowed through (graceful degradation).
+ * Uses an in-memory Map — resets on each serverless cold start, so it limits
+ * within a single Lambda instance rather than globally. For the threat model
+ * here (scraping / enumeration) this is sufficient; most attacks come from a
+ * single IP and will hit the same warm instance repeatedly.
  *
- * To enable:
- *   1. Create a free Upstash Redis database at https://console.upstash.com
- *   2. Add UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN to .env.local
- *      and to your Vercel project environment variables.
+ * To upgrade to a globally-consistent limiter later, swap `checkRateLimit`
+ * for an Upstash call in middleware.ts — the interface here stays the same.
+ *
+ * Limit: 60 requests per IP per 60-second window.
  */
 
-import { Ratelimit } from '@upstash/ratelimit'
-import { Redis }     from '@upstash/redis'
+const WINDOW_MS = 60_000   // 1 minute
+const MAX_REQS  = 60       // requests per window
 
-// Null when env vars aren't configured — graceful no-op in dev
-let _limiter: Ratelimit | null = null
+interface Entry { count: number; reset: number }
 
-if (
-  process.env.UPSTASH_REDIS_REST_URL &&
-  process.env.UPSTASH_REDIS_REST_TOKEN
-) {
-  _limiter = new Ratelimit({
-    redis:     Redis.fromEnv(),
-    limiter:   Ratelimit.slidingWindow(60, '1 m'), // 60 requests per IP per minute
-    analytics: true,
-    prefix:    'ttp:public',
-  })
-}
+// Module-level map — persists for the lifetime of the Lambda warm instance
+const store = new Map<string, Entry>()
+
+// Periodically prune stale entries to avoid memory growth on long-lived instances
+setInterval(() => {
+  const now = Date.now()
+  for (const [key, entry] of store) {
+    if (entry.reset < now) store.delete(key)
+  }
+}, 5 * 60_000) // every 5 minutes
 
 /**
  * Check rate limit for a given identifier (usually the client IP).
- * Returns { allowed: true } when either the limiter is disabled or the
- * request is within limits. Returns { allowed: false } when rate-limited.
+ * Returns `{ allowed: true }` when within limits, `{ allowed: false }` when over.
  */
 export async function checkRateLimit(identifier: string): Promise<{ allowed: boolean }> {
-  if (!_limiter) return { allowed: true }
+  const now   = Date.now()
+  const entry = store.get(identifier)
 
-  const { success } = await _limiter.limit(identifier)
-  return { allowed: success }
+  if (!entry || entry.reset < now) {
+    store.set(identifier, { count: 1, reset: now + WINDOW_MS })
+    return { allowed: true }
+  }
+
+  if (entry.count >= MAX_REQS) {
+    return { allowed: false }
+  }
+
+  entry.count++
+  return { allowed: true }
 }
