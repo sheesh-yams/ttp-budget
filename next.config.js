@@ -65,7 +65,7 @@ const nextConfig = {
   //
   // 'canvas' is an optional native dep of react-pdf that must stay external to
   // avoid a webpack build error on platforms where it isn't installed.
-  serverExternalPackages: [],
+  serverExternalPackages: ['@upstash/redis', '@upstash/ratelimit'],
   webpack(config, { isServer }) {
     if (isServer) {
       // canvas is an optional native dep inside react-pdf; not installed on Vercel,
