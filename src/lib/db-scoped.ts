@@ -34,6 +34,7 @@ const SCOPED_MODELS = new Set([
   'Proposal',
   'Invoice',
   'CallSheet',
+  'ActualSheet',
 ])
 
 // Operations that read data — inject workspaceId into `where`

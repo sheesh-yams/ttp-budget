@@ -252,7 +252,17 @@ export default async function ProjectDetailPage({
 
       {/* Budget section */}
       <section>
-        <h2 className="mb-3 text-base font-semibold text-foreground">Budget</h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-foreground">Budget</h2>
+          {budget && (
+            <Link
+              href={`/projects/${project.id}/actuals`}
+              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+            >
+              View actuals →
+            </Link>
+          )}
+        </div>
         {!budget ? (
           <NoBudget projectId={project.id} />
         ) : (
