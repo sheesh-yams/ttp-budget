@@ -102,3 +102,47 @@ export async function updateProject(
     return { success: false, error: 'Failed to update project' }
   }
 }
+
+// ─── Archive project ──────────────────────────────────────────────────────────
+
+export async function archiveProject(projectId: string): Promise<ActionResult> {
+  try {
+    const db = await getScopedDb()
+    await db.project.update({
+      where: { id: projectId },
+      data: {
+        status:     'ARCHIVED',
+        archivedAt: new Date(),
+      },
+    })
+    revalidatePath(`/projects/${projectId}`)
+    revalidatePath('/projects')
+    revalidatePath('/dashboard')
+    return { success: true, data: undefined }
+  } catch (err) {
+    console.error(err)
+    return { success: false, error: 'Failed to archive project' }
+  }
+}
+
+// ─── Unarchive project ────────────────────────────────────────────────────────
+
+export async function unarchiveProject(projectId: string): Promise<ActionResult> {
+  try {
+    const db = await getScopedDb()
+    await db.project.update({
+      where: { id: projectId },
+      data: {
+        status:     'ACTIVE',
+        archivedAt: null,
+      },
+    })
+    revalidatePath(`/projects/${projectId}`)
+    revalidatePath('/projects')
+    revalidatePath('/dashboard')
+    return { success: true, data: undefined }
+  } catch (err) {
+    console.error(err)
+    return { success: false, error: 'Failed to unarchive project' }
+  }
+}
