@@ -35,6 +35,8 @@ const SCOPED_MODELS = new Set([
   'Invoice',
   'CallSheet',
   'ActualSheet',
+  'Contact',          // Rolodex — has workspaceId
+  // ProjectMember intentionally omitted — no workspaceId; access control via Project
 ])
 
 // Operations that read data — inject workspaceId into `where`
