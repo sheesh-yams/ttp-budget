@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
-import { getProjectMembers } from '@/server/actions/project-members'
+import { getProjectMembers, seedTeamFromBudget } from '@/server/actions/project-members'
 import { ProjectTeam } from '@/components/projects/ProjectTeam'
 
 export async function generateMetadata({
@@ -32,6 +32,9 @@ export default async function ProjectTeamPage({
     select: { id: true, name: true },
   })
   if (!project) notFound()
+
+  // Auto-seed team from CREW rate cards if team is empty (no-op if already seeded)
+  await seedTeamFromBudget(id)
 
   const members = await getProjectMembers(id)
 

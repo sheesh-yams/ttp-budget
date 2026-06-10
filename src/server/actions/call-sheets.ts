@@ -282,16 +282,31 @@ export async function createCallSheet(
     const sdb = await getScopedDb()
     const project = await sdb.project.findFirst({
       where: { id: projectId },
-      select: { id: true },
+      select: { id: true, workspaceId: true },
     })
     if (!project) return { success: false, error: 'Project not found' }
+
+    // Pre-populate crew from CREW rate cards (empty name slots so crew know who's needed)
+    const rateCards = await db.rateCard.findMany({
+      where: { workspaceId: (project as unknown as { workspaceId: string }).workspaceId, category: 'CREW', archivedAt: null },
+      select: { role: true },
+      orderBy: { role: 'asc' },
+    })
+
+    const initialCrew: CrewDept[] = rateCards.length > 0
+      ? [{
+          dept:    'Crew',
+          members: rateCards.map(rc => ({ name: '', role: rc.role, callTime: '', phone: '', email: '' })),
+        }]
+      : []
 
     const cs = await sdb.callSheet.create({
       data: {
         projectId,
-        title: input.title,
-        shootDate: new Date(input.shootDate),
+        title:       input.title,
+        shootDate:   new Date(input.shootDate),
         generalCall: input.generalCall ?? '07:00',
+        crew:        initialCrew as unknown as Prisma.InputJsonValue,
       } as unknown as Parameters<typeof sdb.callSheet.create>[0]['data'],
       select: { id: true, publicToken: true },
     })

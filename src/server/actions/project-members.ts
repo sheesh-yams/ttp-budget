@@ -134,6 +134,55 @@ export async function updateProjectMember(
   }
 }
 
+// Seed team from CREW rate cards — called when team is empty on first load.
+// Creates one ProjectMember row per CREW rate card role with name='Unassigned'.
+// No-op if the team already has members.
+export async function seedTeamFromBudget(projectId: string): Promise<ActionResult<{ count: number }>> {
+  try {
+    const workspaceId = await getWorkspaceId()
+
+    // Access control
+    const project = await db.project.findFirst({
+      where: { id: projectId, workspaceId },
+      select: { id: true },
+    })
+    if (!project) return { success: false, error: 'Project not found' }
+
+    // Only seed if team is empty
+    const existingCount = await db.projectMember.count({ where: { projectId } })
+    if (existingCount > 0) return { success: true, data: { count: 0 } }
+
+    // Get CREW rate cards for this workspace
+    const rateCards = await db.rateCard.findMany({
+      where: { workspaceId, category: 'CREW', archivedAt: null },
+      select: { role: true, defaultRateCents: true, defaultUnit: true },
+      orderBy: { role: 'asc' },
+    })
+    if (rateCards.length === 0) return { success: true, data: { count: 0 } }
+
+    await db.projectMember.createMany({
+      data: rateCards.map((rc, i) => ({
+        projectId,
+        contactId:  null,
+        name:       'Unassigned',
+        role:       rc.role,
+        department: null,
+        email:      null,
+        phone:      null,
+        rateCents:  rc.defaultRateCents,
+        rateUnit:   rc.defaultUnit,
+        callTime:   null,
+        order:      i,
+      })),
+    })
+
+    revalidatePath(`/projects/${projectId}/team`)
+    return { success: true, data: { count: rateCards.length } }
+  } catch {
+    return { success: false, error: 'Failed to seed team' }
+  }
+}
+
 export async function removeProjectMember(
   id: string,
   projectId: string
