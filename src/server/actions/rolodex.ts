@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { getScopedDb } from '@/lib/db-scoped'
+import { db } from '@/lib/db'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import { Prisma } from '@prisma/client'
@@ -156,6 +157,174 @@ export async function archiveContact(id: string): Promise<ActionResult> {
     return { success: true, data: undefined }
   } catch {
     return { success: false, error: 'Failed to archive contact' }
+  }
+}
+
+// ── Duplicate detection + merge ───────────────────────────────────────────────
+
+export interface DuplicateContact {
+  id:           string
+  name:         string
+  primaryRole:  string
+  email:        string | null
+  phone:        string | null
+  projectCount: number
+}
+
+export interface DuplicateGroup {
+  matchReason: 'phone' | 'email' | 'name'
+  matchValue:  string
+  contacts:    DuplicateContact[]
+}
+
+export async function findDuplicateContacts(): Promise<DuplicateGroup[]> {
+  try {
+    const db = await getScopedDb()
+    const contacts = await db.contact.findMany({
+      where: { archivedAt: null },
+      select: {
+        id:           true,
+        name:         true,
+        primaryRole:  true,
+        email:        true,
+        phone:        true,
+        projectMembers: { select: { id: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    })
+
+    const mapped: DuplicateContact[] = contacts.map(c => ({
+      id:           c.id,
+      name:         c.name,
+      primaryRole:  c.primaryRole,
+      email:        c.email,
+      phone:        c.phone,
+      projectCount: c.projectMembers.length,
+    }))
+
+    const groups: DuplicateGroup[] = []
+    const seenPairs = new Set<string>()
+
+    function addGroup(reason: DuplicateGroup['matchReason'], value: string, ids: string[]) {
+      // Deduplicate: sort ids to create a canonical key
+      const key = `${reason}:${[...ids].sort().join(',')}`
+      if (seenPairs.has(key)) return
+      seenPairs.add(key)
+      const dupeContacts = mapped.filter(c => ids.includes(c.id))
+      if (dupeContacts.length >= 2) {
+        groups.push({ matchReason: reason, matchValue: value, contacts: dupeContacts })
+      }
+    }
+
+    // Layer 1 — Phone (normalize: strip non-digits, must be ≥7 digits)
+    const byPhone = new Map<string, string[]>()
+    for (const c of mapped) {
+      if (!c.phone) continue
+      const normalized = c.phone.replace(/\D/g, '')
+      if (normalized.length < 7) continue
+      const existing = byPhone.get(normalized) ?? []
+      existing.push(c.id)
+      byPhone.set(normalized, existing)
+    }
+    for (const [val, ids] of byPhone) {
+      if (ids.length >= 2) addGroup('phone', val, ids)
+    }
+
+    // Layer 2 — Email (normalize: lowercase + trim)
+    const byEmail = new Map<string, string[]>()
+    for (const c of mapped) {
+      if (!c.email) continue
+      const normalized = c.email.toLowerCase().trim()
+      const existing = byEmail.get(normalized) ?? []
+      existing.push(c.id)
+      byEmail.set(normalized, existing)
+    }
+    for (const [val, ids] of byEmail) {
+      if (ids.length >= 2) addGroup('email', val, ids)
+    }
+
+    // Layer 3 — Name (normalize: lowercase + collapse whitespace)
+    const byName = new Map<string, string[]>()
+    for (const c of mapped) {
+      const normalized = c.name.toLowerCase().replace(/\s+/g, ' ').trim()
+      const existing = byName.get(normalized) ?? []
+      existing.push(c.id)
+      byName.set(normalized, existing)
+    }
+    for (const [val, ids] of byName) {
+      if (ids.length >= 2) addGroup('name', val, ids)
+    }
+
+    return groups
+  } catch {
+    return []
+  }
+}
+
+// Merge duplicateId into primaryId:
+// - Fills any null/empty fields on primary from duplicate
+// - Merges secondaryRoles arrays
+// - Re-points all ProjectMember rows from duplicate → primary
+// - Archives the duplicate
+export async function mergeContacts(
+  primaryId:   string,
+  duplicateId: string,
+): Promise<ActionResult> {
+  try {
+    const db = await getScopedDb()
+
+    const [primary, duplicate] = await Promise.all([
+      db.contact.findFirst({ where: { id: primaryId } }),
+      db.contact.findFirst({ where: { id: duplicateId } }),
+    ])
+
+    if (!primary || !duplicate) {
+      return { success: false, error: 'One or both contacts not found' }
+    }
+
+    // Merge fields: primary wins; fall back to duplicate for nulls/empty
+    const mergedSecondaryRoles = [
+      ...new Set([
+        ...(Array.isArray(primary.secondaryRoles)   ? primary.secondaryRoles   as string[] : []),
+        ...(Array.isArray(duplicate.secondaryRoles) ? duplicate.secondaryRoles as string[] : []),
+      ]),
+    ]
+
+    const mergedData = {
+      email:            primary.email            || duplicate.email,
+      phone:            primary.phone            || duplicate.phone,
+      instagram:        primary.instagram        || duplicate.instagram,
+      website:          primary.website          || duplicate.website,
+      notes:            primary.notes && duplicate.notes
+                          ? `${primary.notes}\n\n${duplicate.notes}`
+                          : (primary.notes || duplicate.notes),
+      avatarUrl:        primary.avatarUrl        || duplicate.avatarUrl,
+      defaultRateCents: primary.defaultRateCents ?? duplicate.defaultRateCents,
+      secondaryRoles:   mergedSecondaryRoles as unknown as Prisma.InputJsonValue,
+    }
+
+    await db.contact.update({
+      where: { id: primaryId },
+      data:  mergedData,
+    })
+
+    // Re-point project members (ProjectMember has no workspaceId — use raw db)
+    await db.projectMember.updateMany({
+      where: { contactId: duplicateId },
+      data:  { contactId: primaryId },
+    })
+
+    // Archive the duplicate
+    await db.contact.update({
+      where: { id: duplicateId },
+      data:  { archivedAt: new Date() },
+    })
+
+    revalidatePath('/rolodex')
+    return { success: true, data: undefined }
+  } catch (e) {
+    console.error('mergeContacts error:', e)
+    return { success: false, error: 'Failed to merge contacts' }
   }
 }
 

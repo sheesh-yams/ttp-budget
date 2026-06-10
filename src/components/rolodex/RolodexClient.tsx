@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Search, LayoutGrid, List, Plus, Users, Download, ChevronDown } from 'lucide-react'
+import { Search, LayoutGrid, List, Plus, Users, Download, ChevronDown, GitMerge } from 'lucide-react'
 import { ContactCard } from './ContactCard'
 import { ContactModal } from './ContactModal'
 import { ImportFromCallSheetsModal } from './ImportFromCallSheetsModal'
+import { MergeDuplicatesModal } from './MergeDuplicatesModal'
 import { archiveContact, type ContactRow } from '@/server/actions/rolodex'
 import { formatMoney } from '@/lib/money'
 
@@ -30,6 +31,7 @@ export function RolodexClient({ contacts: initial, crewRoles }: Props) {
   const [roleFilter, setRoleFilter] = useState('')
   const [creating,   setCreating]   = useState(false)
   const [importing,  setImporting]  = useState(false)
+  const [merging,    setMerging]    = useState(false)
 
   // Build role filter options: union of existing contact primaryRoles + CREW rate card roles
   const roleOptions = useMemo(() => {
@@ -104,6 +106,15 @@ export function RolodexClient({ contacts: initial, crewRoles }: Props) {
           >
             <Download className="h-3.5 w-3.5" />
             Import from call sheets
+          </button>
+
+          {/* Merge duplicates */}
+          <button
+            onClick={() => setMerging(true)}
+            className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+          >
+            <GitMerge className="h-3.5 w-3.5" />
+            Merge duplicates
           </button>
         </div>
 
@@ -264,6 +275,12 @@ export function RolodexClient({ contacts: initial, crewRoles }: Props) {
         <ImportFromCallSheetsModal
           onClose={() => setImporting(false)}
           onImported={handleImported}
+        />
+      )}
+      {merging && (
+        <MergeDuplicatesModal
+          onClose={() => setMerging(false)}
+          onMerged={() => window.location.reload()}
         />
       )}
     </div>
