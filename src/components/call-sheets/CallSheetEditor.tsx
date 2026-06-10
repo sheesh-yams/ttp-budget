@@ -31,6 +31,7 @@ import {
   type OtherContact,
 } from '@/server/actions/call-sheets'
 import type { CallSheetStatus } from '@/types'
+import type { RolodexContact } from './RolodexNameInput'
 
 // =============================================================================
 // Types
@@ -81,7 +82,13 @@ const STATUS_CONFIG: Record<CallSheetStatus, { label: string; color: string }> =
 // Component
 // =============================================================================
 
-export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
+export function CallSheetEditor({
+  initial,
+  rolodexContacts = [],
+}: {
+  initial: CallSheetData
+  rolodexContacts?: RolodexContact[]
+}) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
 
@@ -636,6 +643,7 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
           <TalentEditor
             talent={talent}
             readonly={isLocked}
+            rolodexContacts={rolodexContacts}
             onChange={t => { setTalent(t); markDirty() }}
           />
         </Section>
@@ -663,6 +671,7 @@ export function CallSheetEditor({ initial }: { initial: CallSheetData }) {
           <CrewEditor
             crew={crew}
             readonly={isLocked}
+            rolodexContacts={rolodexContacts}
             onChange={c => { setCrew(c); markDirty() }}
           />
         </Section>

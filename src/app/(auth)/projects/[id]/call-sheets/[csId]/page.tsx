@@ -25,7 +25,7 @@ export default async function CallSheetPage({
   const { id: projectId, csId } = await params
   const workspaceId = await getWorkspaceId()
 
-  const [cs, project, budget] = await Promise.all([
+  const [cs, project, budget, rolodexContacts] = await Promise.all([
     db.callSheet.findFirst({
       where: { id: csId, workspaceId },
     }),
@@ -48,6 +48,11 @@ export default async function CallSheetPage({
       where: { projectId, workspaceId },
       orderBy: { createdAt: 'asc' },
       select: { id: true },
+    }),
+    db.contact.findMany({
+      where: { workspaceId, archivedAt: null },
+      select: { id: true, name: true, primaryRole: true, email: true, phone: true },
+      orderBy: { name: 'asc' },
     }),
   ])
 
@@ -88,7 +93,7 @@ export default async function CallSheetPage({
 
   return (
     <div className="pb-24">
-      <CallSheetEditor initial={initial} />
+      <CallSheetEditor initial={initial} rolodexContacts={rolodexContacts} />
     </div>
   )
 }

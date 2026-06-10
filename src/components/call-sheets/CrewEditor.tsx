@@ -4,6 +4,7 @@ import { Plus, X, ChevronDown, ChevronRight, BookUser, Check } from 'lucide-reac
 import { useState } from 'react'
 import type { CrewDept, CrewMember } from '@/server/actions/call-sheets'
 import { createContact } from '@/server/actions/rolodex'
+import { RolodexNameInput, type RolodexContact } from './RolodexNameInput'
 
 // ── Add-to-Rolodex button ──────────────────────────────────────────────────────
 
@@ -53,12 +54,13 @@ function RolodexBtn({ name, role, phone, email }: { name: string; role: string; 
 }
 
 interface Props {
-  crew: CrewDept[]
-  onChange: (crew: CrewDept[]) => void
-  readonly?: boolean
+  crew:            CrewDept[]
+  onChange:        (crew: CrewDept[]) => void
+  readonly?:       boolean
+  rolodexContacts?: RolodexContact[]
 }
 
-export function CrewEditor({ crew, onChange, readonly = false }: Props) {
+export function CrewEditor({ crew, onChange, readonly = false, rolodexContacts = [] }: Props) {
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
 
   function toggleCollapse(i: number) {
@@ -100,6 +102,25 @@ export function CrewEditor({ crew, onChange, readonly = false }: Props) {
       ? {
           ...d,
           members: d.members.map((m, mIdx) => mIdx === memberIdx ? { ...m, [field]: value } : m),
+        }
+      : d
+    ))
+  }
+
+  function selectFromRolodex(deptIdx: number, memberIdx: number, contact: RolodexContact) {
+    onChange(crew.map((d, idx) => idx === deptIdx
+      ? {
+          ...d,
+          members: d.members.map((m, mIdx) => mIdx === memberIdx
+            ? {
+                ...m,
+                name:     contact.name,
+                role:     m.role || contact.primaryRole,
+                phone:    m.phone || contact.phone || '',
+                email:    m.email || contact.email || '',
+              }
+            : m
+          ),
         }
       : d
     ))
@@ -185,10 +206,11 @@ export function CrewEditor({ crew, onChange, readonly = false }: Props) {
                     key={memberIdx}
                     className="group/member grid grid-cols-[1fr_1fr_72px_1fr_1fr_24px_24px] gap-2 px-3 py-1.5 border-b last:border-0 items-center"
                   >
-                    <input
-                      placeholder="Name"
+                    <RolodexNameInput
                       value={m.name}
-                      onChange={e => updateMember(deptIdx, memberIdx, 'name', e.target.value)}
+                      contacts={rolodexContacts}
+                      onChange={v => updateMember(deptIdx, memberIdx, 'name', v)}
+                      onSelect={c => selectFromRolodex(deptIdx, memberIdx, c)}
                       className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none border-b border-transparent focus:border-input"
                     />
                     <input
