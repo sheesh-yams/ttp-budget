@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Eye, Send, ExternalLink, ChevronDown, CheckCircle, XCircle, Clock, GripVertical, TrendingDown } from 'lucide-react'
+import { Eye, Send, ExternalLink, ChevronDown, CheckCircle, XCircle, Clock, GripVertical, TrendingDown, Trophy } from 'lucide-react'
 import { format } from 'date-fns'
 import { updateProposalStatus } from '@/server/actions/proposals'
 
@@ -167,18 +167,21 @@ function ProposalCard({
   card,
   isDragging,
   onStatusChange,
+  onMarkWon,
   onDragStart,
   onDragEnd,
 }: {
   card:           ProposalCardData
   isDragging:     boolean
   onStatusChange: (proposalId: string, newStatus: string) => void
+  onMarkWon:      (proposalId: string) => void
   onDragStart:    (e: React.DragEvent<HTMLDivElement>) => void
   onDragEnd:      (e: React.DragEvent<HTMLDivElement>) => void
 }) {
   const { proposal } = card
-  const terminal = isTerminal(proposal.status, proposal.expiresAt)
-  const eff      = effectiveStatus(proposal.status, proposal.expiresAt)
+  const terminal  = isTerminal(proposal.status, proposal.expiresAt)
+  const eff       = effectiveStatus(proposal.status, proposal.expiresAt)
+  const canMarkWon = ['SENT', 'VIEWED', 'CHANGES_NEEDED'].includes(proposal.status)
 
   return (
     <div
@@ -276,7 +279,7 @@ function ProposalCard({
         )}
       </Link>
 
-      {/* Footer: status + external link — stopPropagation prevents Link navigation */}
+      {/* Footer: status + actions — stopPropagation prevents Link navigation */}
       <div
         className="flex items-center justify-between border-t border-border/60 px-3 py-2"
         onClick={e => e.stopPropagation()}
@@ -286,15 +289,27 @@ function ProposalCard({
           expiresAt={proposal.expiresAt}
           onChange={(newStatus) => onStatusChange(proposal.id, newStatus)}
         />
-        <a
-          href={`/p/${proposal.publicToken}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-muted-foreground/40 hover:text-violet-600 transition-colors"
-          title="Open public link"
-        >
-          <ExternalLink className="h-3.5 w-3.5" />
-        </a>
+        <div className="flex items-center gap-1">
+          {canMarkWon && (
+            <button
+              type="button"
+              onClick={() => onMarkWon(proposal.id)}
+              className="rounded p-1 text-muted-foreground/40 hover:text-green-600 hover:bg-green-50 transition-colors"
+              title="Mark as Won"
+            >
+              <Trophy className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <a
+            href={`/p/${proposal.publicToken}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded p-1 text-muted-foreground/40 hover:text-violet-600 transition-colors"
+            title="Open public link"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+        </div>
       </div>
     </div>
   )
@@ -322,6 +337,10 @@ export function ProposalsKanban({ cards: initialCards }: { cards: ProposalCardDa
       await updateProposalStatus(proposalId, newStatus)
       router.refresh()
     })
+  }
+
+  function handleMarkWon(proposalId: string) {
+    handleStatusChange(proposalId, 'APPROVED')
   }
 
   // Group into columns
@@ -431,6 +450,7 @@ export function ProposalsKanban({ cards: initialCards }: { cards: ProposalCardDa
                         card={card}
                         isDragging={draggedId === card.proposal.id}
                         onStatusChange={handleStatusChange}
+                        onMarkWon={handleMarkWon}
                         onDragStart={e => {
                           // Set drag image to the whole card element
                           const cardEl = e.currentTarget.closest('[data-card]') as HTMLElement

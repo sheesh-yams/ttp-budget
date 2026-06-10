@@ -488,15 +488,30 @@ export async function updateProposalStatus(
 ): Promise<ActionResult> {
   try {
     const sdb = await getScopedDb()
+    const proposal = await sdb.proposal.findFirst({
+      where: { id: proposalId },
+      select: { projectId: true },
+    })
     await sdb.proposal.update({
       where: { id: proposalId },
       data:  { status: status as Parameters<typeof sdb.proposal.update>[0]['data']['status'] },
     })
     revalidatePath('/proposals')
+    if (proposal) revalidatePath(`/projects/${proposal.projectId}`)
     return { success: true, data: undefined }
   } catch {
     return { success: false, error: 'Failed to update status' }
   }
+}
+
+// Convenience wrapper — marks a proposal as won (APPROVED)
+export async function markProposalWon(proposalId: string): Promise<ActionResult> {
+  return updateProposalStatus(proposalId, 'APPROVED')
+}
+
+// Convenience wrapper — marks a proposal as lost
+export async function markProposalLost(proposalId: string): Promise<ActionResult> {
+  return updateProposalStatus(proposalId, 'LOST')
 }
 
 // ─── Delete a proposal ───────────────────────────────────────────────────────

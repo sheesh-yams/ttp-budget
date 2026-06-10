@@ -2,12 +2,12 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, ExternalLink, Eye, Clock, Send, FileText, Pencil, Receipt, CheckCircle, Trash2, TrendingDown } from 'lucide-react'
+import { Plus, ExternalLink, Eye, Clock, Send, FileText, Pencil, Receipt, CheckCircle, Trash2, TrendingDown, Trophy } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ProposalModal, type ProposalModalMode } from './ProposalModal'
 import { NewInvoiceModal } from './NewInvoiceModal'
-import { deleteProposal } from '@/server/actions/proposals'
+import { deleteProposal, markProposalWon } from '@/server/actions/proposals'
 import type { ProposalStatus, ProposalContent, PaymentMilestone, ProposalDiscount } from '@/types'
 
 interface ProposalRow {
@@ -85,6 +85,19 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
   // Delete confirm state
   const [deleteTarget, setDeleteTarget] = useState<Props['proposals'][0] | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
+
+  // Mark as won state
+  const [wonLoading, setWonLoading] = useState<string | null>(null)
+
+  async function handleMarkWon(proposalId: string) {
+    setWonLoading(proposalId)
+    try {
+      await markProposalWon(proposalId)
+      router.refresh()
+    } finally {
+      setWonLoading(null)
+    }
+  }
 
   const canCreateProposal = !!budgetId
 
@@ -189,6 +202,7 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
                 const canEdit     = p.status === 'DRAFT'
                 const canInvoice  = ['SENT', 'VIEWED', 'APPROVED'].includes(p.status) && !!budgetId
                 const canDelete   = p.status !== 'APPROVED'
+                const canMarkWon  = ['SENT', 'VIEWED', 'CHANGES_NEEDED'].includes(p.status)
 
                 return (
                   <tr key={p.id} className="border-b last:border-0 hover:bg-muted/30">
@@ -215,6 +229,18 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
                     </td>
                     <td className="px-2 py-2.5">
                       <div className="flex items-center gap-0.5 justify-end">
+                        {/* Mark as Won */}
+                        {canMarkWon && (
+                          <button
+                            type="button"
+                            onClick={() => handleMarkWon(p.id)}
+                            disabled={wonLoading === p.id}
+                            className="rounded p-1 text-muted-foreground hover:bg-green-50 hover:text-green-600 inline-flex disabled:opacity-50"
+                            title="Mark as Won"
+                          >
+                            <Trophy className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                         {/* Edit DRAFT in-place */}
                         {canEdit && (
                           <button

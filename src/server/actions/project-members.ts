@@ -134,10 +134,14 @@ export async function updateProjectMember(
   }
 }
 
-// Seed team from CREW rate cards — called when team is empty on first load.
-// Creates one ProjectMember row per CREW rate card role with name='Unassigned'.
+// Seed team from a proposal's budget crew — called when team is empty on first load.
+// Priority: 1) won proposal (APPROVED), 2) latest sent/viewed proposal.
+// Falls back to workspace CREW rate cards if no proposals found.
 // No-op if the team already has members.
-export async function seedTeamFromBudget(projectId: string): Promise<ActionResult<{ count: number }>> {
+// Returns count + proposalTitle (null if fell back to rate cards).
+export async function seedTeamFromBudget(
+  projectId: string
+): Promise<ActionResult<{ count: number; proposalTitle: string | null }>> {
   try {
     const workspaceId = await getWorkspaceId()
 
@@ -150,15 +154,103 @@ export async function seedTeamFromBudget(projectId: string): Promise<ActionResul
 
     // Only seed if team is empty
     const existingCount = await db.projectMember.count({ where: { projectId } })
-    if (existingCount > 0) return { success: true, data: { count: 0 } }
+    if (existingCount > 0) return { success: true, data: { count: 0, proposalTitle: null } }
 
-    // Get CREW rate cards for this workspace
+    // ── Find the best proposal to seed from ──────────────────────────────────
+    // 1st priority: won (APPROVED) proposal
+    let proposal = await db.proposal.findFirst({
+      where: { projectId, workspaceId, status: 'APPROVED' },
+      select: { id: true, title: true, budgetId: true },
+      orderBy: { updatedAt: 'desc' },
+    })
+
+    // 2nd priority: latest SENT or VIEWED proposal
+    if (!proposal) {
+      proposal = await db.proposal.findFirst({
+        where: { projectId, workspaceId, status: { in: ['SENT', 'VIEWED'] } },
+        select: { id: true, title: true, budgetId: true },
+        orderBy: { updatedAt: 'desc' },
+      })
+    }
+
+    // ── If we have a proposal, pull CREW line items from its budget ───────────
+    if (proposal) {
+      const phases = await db.phase.findMany({
+        where: { budgetId: proposal.budgetId },
+        select: {
+          isPrimary: true,
+          accounts: {
+            select: {
+              name: true,
+              lineItems: {
+                where: { lineItemCategory: 'CREW' },
+                select: {
+                  description: true,
+                  rateCents:   true,
+                  unit:        true,
+                  order:       true,
+                },
+                orderBy: { order: 'asc' },
+              },
+            },
+          },
+        },
+        orderBy: { order: 'asc' },
+      })
+
+      // Prefer the primary phase; fall back to first phase
+      const phase =
+        phases.find((p) => p.isPrimary) ?? phases[0]
+
+      if (phase) {
+        const members: {
+          projectId: string
+          contactId: null
+          name: string
+          role: string
+          department: string | null
+          email: null
+          phone: null
+          rateCents: number | null
+          rateUnit: import('@prisma/client').RateUnit
+          callTime: null
+          order: number
+        }[] = []
+
+        let globalOrder = 0
+        for (const account of phase.accounts) {
+          for (const item of account.lineItems) {
+            members.push({
+              projectId,
+              contactId:  null,
+              name:       'Unassigned',
+              role:       item.description,
+              department: account.name,
+              email:      null,
+              phone:      null,
+              rateCents:  item.rateCents,
+              rateUnit:   item.unit,
+              callTime:   null,
+              order:      globalOrder++,
+            })
+          }
+        }
+
+        if (members.length > 0) {
+          await db.projectMember.createMany({ data: members })
+          revalidatePath(`/projects/${projectId}/team`)
+          return { success: true, data: { count: members.length, proposalTitle: proposal.title } }
+        }
+      }
+    }
+
+    // ── Fallback: workspace CREW rate cards ──────────────────────────────────
     const rateCards = await db.rateCard.findMany({
       where: { workspaceId, category: 'CREW', archivedAt: null },
       select: { role: true, defaultRateCents: true, defaultUnit: true },
       orderBy: { role: 'asc' },
     })
-    if (rateCards.length === 0) return { success: true, data: { count: 0 } }
+    if (rateCards.length === 0) return { success: true, data: { count: 0, proposalTitle: null } }
 
     await db.projectMember.createMany({
       data: rateCards.map((rc, i) => ({
@@ -177,7 +269,7 @@ export async function seedTeamFromBudget(projectId: string): Promise<ActionResul
     })
 
     revalidatePath(`/projects/${projectId}/team`)
-    return { success: true, data: { count: rateCards.length } }
+    return { success: true, data: { count: rateCards.length, proposalTitle: null } }
   } catch {
     return { success: false, error: 'Failed to seed team' }
   }

@@ -33,8 +33,12 @@ export default async function ProjectTeamPage({
   })
   if (!project) notFound()
 
-  // Auto-seed team from CREW rate cards if team is empty (no-op if already seeded)
-  await seedTeamFromBudget(id)
+  // Auto-seed team from proposal crew if team is empty (no-op if already seeded)
+  const seedResult = await seedTeamFromBudget(id)
+  const proposalTitle =
+    seedResult.success && seedResult.data.count > 0
+      ? seedResult.data.proposalTitle
+      : null
 
   const members = await getProjectMembers(id)
 
@@ -47,7 +51,7 @@ export default async function ProjectTeamPage({
         </p>
       </div>
 
-      <ProjectTeam projectId={id} members={members} />
+      <ProjectTeam projectId={id} members={members} seedProposalTitle={proposalTitle} />
     </div>
   )
 }

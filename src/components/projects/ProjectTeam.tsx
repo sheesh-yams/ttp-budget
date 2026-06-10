@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { Plus, Mail, Phone, Clock, Edit2, Trash2, BookUser } from 'lucide-react'
+import { Plus, Mail, Phone, Clock, Edit2, Trash2, BookUser, FileText } from 'lucide-react'
 import Link from 'next/link'
 import { removeProjectMember, updateProjectMember, type ProjectMemberRow, type MemberFormData } from '@/server/actions/project-members'
 import { AddMemberModal } from './AddMemberModal'
@@ -30,11 +30,12 @@ const DEPARTMENTS = [
 ]
 
 interface Props {
-  projectId: string
-  members:   ProjectMemberRow[]
+  projectId:         string
+  members:           ProjectMemberRow[]
+  seedProposalTitle?: string | null
 }
 
-export function ProjectTeam({ projectId, members: initial }: Props) {
+export function ProjectTeam({ projectId, members: initial, seedProposalTitle }: Props) {
   const [members,   setMembers]   = useState(initial)
   const [adding,    setAdding]    = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -152,6 +153,14 @@ export function ProjectTeam({ projectId, members: initial }: Props) {
             </div>
           ))}
         </div>
+      )}
+
+      {/* Proposal attribution — shown once on initial seed */}
+      {seedProposalTitle && (
+        <p className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <FileText className="h-3.5 w-3.5 shrink-0" />
+          Crew populated based on <span className="font-medium text-foreground">{seedProposalTitle}</span>
+        </p>
       )}
 
       {/* Add member modal */}
