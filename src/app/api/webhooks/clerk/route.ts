@@ -143,10 +143,23 @@ export async function POST(req: NextRequest) {
   }
 
   // ── organizationMembership.created ─────────────────────────────────────────
-  // A user has been added to a Clerk org (either the creator, or an invited
-  // member). Attach invited users to the org's workspace as PRODUCER.
+  // A user has been added to a Clerk org — via our invite flow, via the Clerk
+  // Dashboard, or as the org creator. Sync the DB user to the correct workspace
+  // and role every time, and auto-mark any matching pending invitation accepted.
   if (evt.type === 'organizationMembership.created') {
-    const { organization, public_user_data } = evt.data
+    const evtData = evt.data as unknown as {
+      organization:    { id: string }
+      public_user_data: {
+        user_id?:    string
+        identifier?: string
+        first_name?: string | null
+        last_name?:  string | null
+        image_url?:  string | null
+      }
+      role: string   // Clerk org role — 'org:admin' | 'org:member'
+    }
+
+    const { organization, public_user_data, role: clerkRole } = evtData
     const memberClerkId = public_user_data?.user_id
     if (!memberClerkId || !organization?.id) {
       return NextResponse.json({ received: true })
@@ -155,53 +168,68 @@ export async function POST(req: NextRequest) {
     const workspace = await db.workspace.findUnique({
       where: { clerkOrgId: organization.id },
     })
+    if (!workspace) return NextResponse.json({ received: true })
 
-    if (!workspace) {
-      return NextResponse.json({ received: true })
-    }
+    // Map Clerk org role → DB role.
+    // org:admin = OWNER (workspace creator or manually promoted).
+    // Everything else (org:member, etc.) = PRODUCER.
+    // Exception: if the joining user IS the workspace creator (their workspaceId
+    // already matches), preserve their existing OWNER role — don't downgrade them.
+    const memberEmail = (public_user_data?.identifier ?? '').toLowerCase()
+    const dbRole = clerkRole === 'org:admin' ? 'OWNER' : 'PRODUCER'
 
     const existingUser = await db.user.findUnique({
       where: { clerkId: memberClerkId },
-      select: { workspaceId: true },
+      select: { id: true, workspaceId: true },
     })
 
     if (existingUser?.workspaceId === workspace.id) {
-      // Already attached — org creator's own membership event.
+      // Already in the right workspace — this is the org-creator's own membership
+      // event. Don't touch their role (they're the OWNER who created this workspace).
       return NextResponse.json({ received: true })
     }
 
     if (existingUser) {
-      // Invited user who signed up fresh — move them to the org's workspace.
+      // User exists but in a different workspace (their own personal one).
+      // Move them to this workspace with the correct role.
       await db.user.update({
         where: { clerkId: memberClerkId },
-        data: {
-          workspaceId: workspace.id,
-          role: 'PRODUCER',
-          onboarded: true,
-        },
+        data: { workspaceId: workspace.id, role: dbRole, onboarded: true },
       })
     } else {
-      // Brand-new user (sign-up + invite in one flow).
-      const memberData = public_user_data as {
-        identifier?: string
-        first_name?: string | null
-        last_name?: string | null
-        image_url?: string | null
-      }
-      const email = memberData.identifier ?? ''
-      const name = [memberData.first_name, memberData.last_name].filter(Boolean).join(' ') || null
-
+      // Brand-new user (sign-up + invite completed in one flow).
+      const name = [public_user_data?.first_name, public_user_data?.last_name]
+        .filter(Boolean).join(' ') || null
       await db.user.create({
         data: {
-          clerkId: memberClerkId,
-          email,
+          clerkId:     memberClerkId,
+          email:       memberEmail,
           name,
-          avatarUrl: memberData.image_url ?? null,
+          avatarUrl:   public_user_data?.image_url ?? null,
           workspaceId: workspace.id,
-          role: 'PRODUCER',
-          onboarded: true,
+          role:        dbRole,
+          onboarded:   true,
         },
       })
+    }
+
+    // Auto-mark any matching pending invitation as accepted.
+    // This handles members added via Clerk Dashboard (not our acceptInvitation flow)
+    // so the Team page doesn't keep showing a stale "Pending" row.
+    if (memberEmail) {
+      const dbi = db as unknown as {
+        workspaceInvitation: {
+          updateMany: (args: object) => Promise<{ count: number }>
+        }
+      }
+      await dbi.workspaceInvitation.updateMany({
+        where: {
+          workspaceId: workspace.id,
+          email:       { equals: memberEmail, mode: 'insensitive' },
+          acceptedAt:  null,
+        },
+        data: { acceptedAt: new Date() },
+      }).catch(() => undefined) // non-fatal — invitation cleanup should never block membership
     }
   }
 
