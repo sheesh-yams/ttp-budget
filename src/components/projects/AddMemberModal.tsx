@@ -250,7 +250,7 @@ function ConfirmPane({
       if (result.success) {
         onAdded()
         onClose()
-      } else {
+      } else if ('error' in result) {
         setError(result.error)
       }
     })
@@ -425,7 +425,7 @@ function ManualPane({
       if (result.success) {
         onAdded()
         onClose()
-      } else {
+      } else if ('error' in result) {
         setError(result.error)
       }
     })

@@ -106,7 +106,7 @@ export function ContactModal({ contact, onClose, onSaved }: Props) {
       if (result.success) {
         onSaved?.(result.data.id)
         onClose()
-      } else {
+      } else if ('error' in result) {
         setError(result.error)
       }
     })
