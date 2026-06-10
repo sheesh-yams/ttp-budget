@@ -1,8 +1,56 @@
 'use client'
 
-import { Plus, X, ChevronDown, ChevronRight } from 'lucide-react'
+import { Plus, X, ChevronDown, ChevronRight, BookUser, Check } from 'lucide-react'
 import { useState } from 'react'
 import type { CrewDept, CrewMember } from '@/server/actions/call-sheets'
+import { createContact } from '@/server/actions/rolodex'
+
+// ── Add-to-Rolodex button ──────────────────────────────────────────────────────
+
+function RolodexBtn({ name, role, phone, email }: { name: string; role: string; phone?: string; email?: string }) {
+  const [state, setState] = useState<'idle' | 'loading' | 'done'>('idle')
+  if (!name.trim()) return <span className="w-6" />
+
+  async function handleClick(e: React.MouseEvent) {
+    e.preventDefault()
+    if (state !== 'idle') return
+    setState('loading')
+    await createContact({
+      name: name.trim(),
+      primaryRole: role.trim() || 'Crew',
+      secondaryRoles: [],
+      email: email?.trim() || null,
+      phone: phone?.trim() || null,
+      instagram: null,
+      website: null,
+      notes: null,
+      avatarUrl: null,
+      defaultRateCents: null,
+      defaultRateUnit: 'DAY',
+    })
+    setState('done')
+    setTimeout(() => setState('idle'), 2000)
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={state === 'loading'}
+      title={state === 'done' ? 'Added to Rolodex' : 'Add to Rolodex'}
+      className={`opacity-0 group-hover/member:opacity-100 rounded p-0.5 transition-all ${
+        state === 'done'
+          ? 'text-green-600 opacity-100'
+          : 'text-muted-foreground hover:text-primary hover:bg-primary/10'
+      }`}
+    >
+      {state === 'done'
+        ? <Check className="h-3 w-3" />
+        : <BookUser className="h-3 w-3" />
+      }
+    </button>
+  )
+}
 
 interface Props {
   crew: CrewDept[]
@@ -122,19 +170,20 @@ export function CrewEditor({ crew, onChange, readonly = false }: Props) {
             {!isCollapsed && (
               <div>
                 {/* Column headers */}
-                <div className="grid grid-cols-[1fr_1fr_72px_1fr_1fr_24px] gap-2 px-3 py-1.5 border-b bg-muted/20 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                <div className="grid grid-cols-[1fr_1fr_72px_1fr_1fr_24px_24px] gap-2 px-3 py-1.5 border-b bg-muted/20 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                   <span>Name</span>
                   <span>Role</span>
                   <span>Call</span>
                   <span>Phone</span>
                   <span>Email</span>
                   <span />
+                  <span />
                 </div>
 
                 {dept.members.map((m, memberIdx) => (
                   <div
                     key={memberIdx}
-                    className="group/member grid grid-cols-[1fr_1fr_72px_1fr_1fr_24px] gap-2 px-3 py-1.5 border-b last:border-0 items-center"
+                    className="group/member grid grid-cols-[1fr_1fr_72px_1fr_1fr_24px_24px] gap-2 px-3 py-1.5 border-b last:border-0 items-center"
                   >
                     <input
                       placeholder="Name"
@@ -174,6 +223,12 @@ export function CrewEditor({ crew, onChange, readonly = false }: Props) {
                     >
                       <X className="h-3 w-3" />
                     </button>
+                    <RolodexBtn
+                      name={m.name}
+                      role={m.role}
+                      phone={m.phone}
+                      email={m.email}
+                    />
                   </div>
                 ))}
 
