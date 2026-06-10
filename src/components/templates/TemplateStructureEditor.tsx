@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback, useTransition } from 'react'
+import { useConfirm } from '@/components/ui/confirm-dialog'
 import { Plus, Trash2, Search, Star, ChevronDown, ChevronRight, GripVertical, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -260,6 +261,7 @@ function AccountSection({ account, onUpdate, onDelete }: AccountSectionProps) {
   const [nameInput, setNameInput] = useState(account.name)
   const [addingItem, setAddingItem] = useState(false)
   const [editingItem, setEditingItem] = useState<TemplateItem | null>(null)
+  const { confirm: confirmDialog, ConfirmDialog } = useConfirm()
 
   function saveName() {
     if (nameInput.trim()) onUpdate({ ...account, name: nameInput.trim() })
@@ -285,6 +287,7 @@ function AccountSection({ account, onUpdate, onDelete }: AccountSectionProps) {
 
   return (
     <div className="rounded-xl border border-border overflow-hidden">
+      {ConfirmDialog}
       {/* Account header */}
       <div className="flex items-center gap-2 bg-secondary/40 px-4 py-2.5 border-b border-border">
         <GripVertical className="h-4 w-4 text-muted-foreground/40 flex-shrink-0" />
@@ -324,7 +327,10 @@ function AccountSection({ account, onUpdate, onDelete }: AccountSectionProps) {
           {account.items.length} {account.items.length === 1 ? 'item' : 'items'}
         </span>
         <button
-          onClick={() => { if (confirm(`Delete "${account.name}"?`)) onDelete() }}
+          onClick={async () => {
+            const ok = await confirmDialog(`"${account.name}" and all its items will be removed.`, { title: 'Delete section?' })
+            if (ok) onDelete()
+          }}
           className="ml-2 rounded p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-colors"
         >
           <Trash2 className="h-3.5 w-3.5" />

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition, useCallback } from 'react'
+import { useConfirm } from '@/components/ui/confirm-dialog'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -91,6 +92,7 @@ export function CallSheetEditor({
 }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
+  const { confirm: confirmDialog, ConfirmDialog } = useConfirm()
 
   // ── Form state ───────────────────────────────────────────────────────────────
   const [title,           setTitle]           = useState(initial.title)
@@ -192,8 +194,12 @@ export function CallSheetEditor({
     })
   }
 
-  function handleFinalize() {
-    if (!confirm('Finalize this call sheet? It will be locked for editing.')) return
+  async function handleFinalize() {
+    const ok = await confirmDialog('This call sheet will be locked for editing.', {
+      title: 'Finalize call sheet?',
+      confirmLabel: 'Finalize',
+    })
+    if (!ok) return
     startTransition(async () => {
       const result = await finalizeCallSheet(initial.id)
       if (result.success) { setStatus('FINAL'); router.refresh() }
@@ -269,6 +275,7 @@ export function CallSheetEditor({
 
   return (
     <div className="max-w-3xl mx-auto">
+      {ConfirmDialog}
       {/* Back */}
       <Link
         href={`/projects/${initial.projectId}`}

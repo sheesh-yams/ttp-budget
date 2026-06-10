@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { Plus, Mail, Phone, Clock, Edit2, Trash2, BookUser, FileText } from 'lucide-react'
+import { useConfirm } from '@/components/ui/confirm-dialog'
 import Link from 'next/link'
 import { removeProjectMember, updateProjectMember, type ProjectMemberRow, type MemberFormData } from '@/server/actions/project-members'
 import { AddMemberModal } from './AddMemberModal'
@@ -189,9 +190,11 @@ function MemberRow({
   onRemoved: () => void
 }) {
   const [removing, startTransition] = useTransition()
+  const { confirm, ConfirmDialog } = useConfirm()
 
-  function handleRemove() {
-    if (!confirm(`Remove ${member.name} from this project?`)) return
+  async function handleRemove() {
+    const ok = await confirm(`Remove ${member.name} from this project?`, { confirmLabel: 'Remove' })
+    if (!ok) return
     startTransition(async () => {
       await removeProjectMember(member.id, projectId)
       onRemoved()
@@ -202,7 +205,9 @@ function MemberRow({
   const initials = name.trim().split(/\s+/).map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()
 
   return (
-    <tr className="group bg-card hover:bg-muted/20 transition-colors">
+    <>
+      {ConfirmDialog}
+      <tr className="group bg-card hover:bg-muted/20 transition-colors">
       <td className="px-4 py-3">
         <div className="flex items-center gap-3">
           <div
@@ -261,6 +266,7 @@ function MemberRow({
         </div>
       </td>
     </tr>
+    </>
   )
 }
 

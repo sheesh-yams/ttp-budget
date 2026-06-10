@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition, useEffect } from 'react'
+import { useConfirm } from '@/components/ui/confirm-dialog'
 import {
   Plus, Trash2, ChevronRight, ChevronDown, Package,
   Upload, GripVertical, Check, X, Pencil, Star, Copy,
@@ -66,6 +67,7 @@ export function BudgetEditor({ budget, projectId }: Props) {
   const router = useRouter()
   const [, startRatesTransition] = useTransition()
   const [, startPhaseTransition] = useTransition()
+  const { confirm: confirmDialog, ConfirmDialog } = useConfirm()
   const [activePhase, setActivePhase] = useState(
     budget.phases.find(p => p.isPrimary)?.id ?? budget.phases[0]?.id
   )
@@ -147,9 +149,13 @@ export function BudgetEditor({ budget, projectId }: Props) {
     })
   }
 
-  function handleDeletePhase(phaseId: string) {
+  async function handleDeletePhase(phaseId: string) {
     const phase = budget.phases.find(p => p.id === phaseId)
-    if (!confirm(`Delete "${phase?.name ?? 'this phase'}"? All line items in it will be lost.`)) return
+    const ok = await confirmDialog(
+      `All line items in "${phase?.name ?? 'this phase'}" will be permanently lost.`,
+      { title: `Delete phase?` }
+    )
+    if (!ok) return
     startPhaseTransition(async () => {
       const result = await deletePhase(phaseId)
       if (result.success) {
@@ -165,6 +171,7 @@ export function BudgetEditor({ budget, projectId }: Props) {
 
   return (
     <div className="pb-20">
+      {ConfirmDialog}
       <Tabs value={activePhase} onValueChange={setActivePhase}>
         {/* ── Phase tabs row ── */}
         <div className="mb-3 flex items-center gap-2">
@@ -575,6 +582,7 @@ function AccountRows({
   const [editingName, setEditingName]   = useState(false)
   const [nameValue, setNameValue]       = useState(account.name)
   const [editState, setEditState]       = useState<EditItemState | null>(null)
+  const { confirm: confirmDialog, ConfirmDialog } = useConfirm()
 
   const totalCents = sumAccount(account as unknown as AccountInput)
   const indent     = depth * 20
@@ -591,12 +599,13 @@ function AccountRows({
   }
 
   // ── Account delete ────────────────────────────────────────────────────────
-  function handleDeleteAccount() {
+  async function handleDeleteAccount() {
     const itemCount = items.length
     const msg = itemCount > 0
-      ? `Delete "${account.name}" and its ${itemCount} line item${itemCount !== 1 ? 's' : ''}?`
-      : `Delete "${account.name}"?`
-    if (!confirm(msg)) return
+      ? `This will also delete its ${itemCount} line item${itemCount !== 1 ? 's' : ''}.`
+      : `"${account.name}" will be permanently removed.`
+    const ok = await confirmDialog(msg, { title: `Delete "${account.name}"?` })
+    if (!ok) return
     startTransition(async () => {
       await deleteAccount(account.id)
       onAccountDeleted()
@@ -646,8 +655,9 @@ function AccountRows({
   }
 
   // ── Item delete ───────────────────────────────────────────────────────────
-  function handleDeleteItem(id: string) {
-    if (!confirm('Delete this line item?')) return
+  async function handleDeleteItem(id: string) {
+    const ok = await confirmDialog('This line item will be permanently removed.')
+    if (!ok) return
     startTransition(async () => {
       await deleteLineItem(id)
       onMutated()
@@ -663,6 +673,7 @@ function AccountRows({
 
   return (
     <>
+      {ConfirmDialog}
       {/* ── Account header row ─────────────────────────────────────────────── */}
       <tr
         className={[

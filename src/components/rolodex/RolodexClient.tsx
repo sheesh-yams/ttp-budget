@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import { useConfirm } from '@/components/ui/confirm-dialog'
 import { Search, LayoutGrid, List, Plus, Users, Download, ChevronDown, GitMerge } from 'lucide-react'
 import { ContactCard } from './ContactCard'
 import { ContactModal } from './ContactModal'
@@ -304,6 +305,7 @@ function ContactListRow({
 }) {
   const [editing,   setEditing]   = useState(false)
   const [archiving, setArchiving] = useState(false)
+  const { confirm: confirmDialog, ConfirmDialog } = useConfirm()
 
   const name = contact.name
   const initials = (() => {
@@ -314,7 +316,11 @@ function ContactListRow({
   })()
 
   async function handleArchive() {
-    if (!confirm(`Archive ${contact.name}?`)) return
+    const ok = await confirmDialog(
+      `${contact.name} will be hidden from the Rolodex. Their project history is preserved.`,
+      { title: 'Archive contact?', confirmLabel: 'Archive' }
+    )
+    if (!ok) return
     setArchiving(true)
     await archiveContact(contact.id)
     onArchived()
@@ -323,6 +329,7 @@ function ContactListRow({
 
   return (
     <>
+      {ConfirmDialog}
       <tr className="group bg-card hover:bg-muted/30 transition-colors">
         <td className="px-4 py-3">
           <div className="flex items-center gap-3">

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import { useConfirm } from '@/components/ui/confirm-dialog'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Plus, ExternalLink, Trash2, Clock } from 'lucide-react'
@@ -36,9 +37,11 @@ export function ProjectCallSheets({ callSheets, projectId, projectName, shootSta
   const [, startTransition] = useTransition()
   const [modalOpen, setModalOpen] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const { confirm: confirmDialog, ConfirmDialog } = useConfirm()
 
-  function handleDelete(id: string) {
-    if (!confirm('Delete this call sheet?')) return
+  async function handleDelete(id: string) {
+    const ok = await confirmDialog('This call sheet will be permanently deleted.')
+    if (!ok) return
     setDeletingId(id)
     startTransition(async () => {
       await deleteCallSheet(id)
@@ -49,6 +52,7 @@ export function ProjectCallSheets({ callSheets, projectId, projectName, shootSta
 
   return (
     <div>
+      {ConfirmDialog}
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-base font-semibold text-foreground">Call Sheets</h2>
         <Button size="sm" variant="outline" onClick={() => setModalOpen(true)}>

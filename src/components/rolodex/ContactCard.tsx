@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Mail, Phone, Instagram, Globe, Edit2, Archive } from 'lucide-react'
+import { useConfirm } from '@/components/ui/confirm-dialog'
 import { archiveContact, type ContactRow } from '@/server/actions/rolodex'
 import { ContactModal } from './ContactModal'
 import { formatMoney } from '@/lib/money'
@@ -33,6 +34,7 @@ interface Props {
 export function ContactCard({ contact, crewRoles = [], onArchived }: Props) {
   const [editing,   setEditing]   = useState(false)
   const [archiving, setArchiving] = useState(false)
+  const { confirm: confirmDialog, ConfirmDialog } = useConfirm()
 
   const secondaryRoles = Array.isArray(contact.secondaryRoles)
     ? contact.secondaryRoles as string[]
@@ -41,7 +43,11 @@ export function ContactCard({ contact, crewRoles = [], onArchived }: Props) {
   const projectCount = contact.projectMembers?.length ?? 0
 
   async function handleArchive() {
-    if (!confirm(`Archive ${contact.name}? They'll be hidden from the Rolodex but their project history is preserved.`)) return
+    const ok = await confirmDialog(
+      `${contact.name} will be hidden from the Rolodex. Their project history is preserved.`,
+      { title: 'Archive contact?', confirmLabel: 'Archive' }
+    )
+    if (!ok) return
     setArchiving(true)
     await archiveContact(contact.id)
     onArchived?.()
@@ -50,6 +56,7 @@ export function ContactCard({ contact, crewRoles = [], onArchived }: Props) {
 
   return (
     <>
+      {ConfirmDialog}
       <div className="group relative rounded-xl border bg-card shadow-sm hover:shadow-md transition-shadow overflow-hidden">
         {/* Action buttons — revealed on hover */}
         <div className="absolute top-2.5 right-2.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
