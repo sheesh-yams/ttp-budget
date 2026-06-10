@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Eye, Send, ExternalLink, ChevronDown, CheckCircle, XCircle, Clock, GripVertical, TrendingDown, Trophy } from 'lucide-react'
+import { Eye, Send, ExternalLink, ChevronDown, CheckCircle, XCircle, Clock, GripVertical, TrendingDown } from 'lucide-react'
 import { format } from 'date-fns'
 import { updateProposalStatus } from '@/server/actions/proposals'
 
@@ -46,8 +46,8 @@ const COLUMNS: {
   { id: 'SENT',           label: 'Sent',           dotColor: '#3B82F6', headerBg: '#EFF6FF', accentColor: '#3B82F6', droppable: true  },
   { id: 'VIEWED',         label: 'Viewed',         dotColor: '#7C3AED', headerBg: '#F5F3FF', accentColor: '#7C3AED', droppable: true  },
   { id: 'CHANGES_NEEDED', label: 'Changes Needed', dotColor: '#F59E0B', headerBg: '#FFFBEB', accentColor: '#F59E0B', droppable: true  },
-  { id: 'WON',            label: 'Won',            dotColor: '#10B981', headerBg: '#ECFDF5', accentColor: '#10B981', droppable: false },
-  { id: 'LOST',           label: 'Lost',           dotColor: '#9F1239', headerBg: '#FFF1F2', accentColor: '#E11D48', droppable: false },
+  { id: 'WON',            label: 'Won',            dotColor: '#10B981', headerBg: '#ECFDF5', accentColor: '#10B981', droppable: true  },
+  { id: 'LOST',           label: 'Lost',           dotColor: '#9F1239', headerBg: '#FFF1F2', accentColor: '#E11D48', droppable: true  },
 ]
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
@@ -57,14 +57,14 @@ const STATUS_STYLES: Record<string, { label: string; bg: string; text: string }>
   SENT:           { label: 'Sent',           bg: '#DBEAFE', text: '#1E40AF' },
   VIEWED:         { label: 'Viewed',         bg: '#EDE9FE', text: '#5B21B6' },
   CHANGES_NEEDED: { label: 'Changes Needed', bg: '#FEF3C7', text: '#92400E' },
-  APPROVED:       { label: 'Approved',       bg: '#D1FAE5', text: '#065F46' },
+  APPROVED:       { label: 'Won',            bg: '#D1FAE5', text: '#065F46' },
   DECLINED:       { label: 'Declined',       bg: '#FEE2E2', text: '#991B1B' },
   EXPIRED:        { label: 'Expired',        bg: '#FEF3C7', text: '#78350F' },
   LOST:           { label: 'Lost',           bg: '#FFF1F2', text: '#9F1239' },
 }
 
-// Working stages shown in the status dropdown; LOST is the "close as lost" action
-const ACTIVE_STATUSES = ['DRAFT', 'SENT', 'VIEWED', 'CHANGES_NEEDED', 'LOST']
+// All stages available in the status dropdown
+const ACTIVE_STATUSES = ['DRAFT', 'SENT', 'VIEWED', 'CHANGES_NEEDED', 'APPROVED', 'LOST']
 
 function isTerminal(status: string, expiresAt: Date | string | null): boolean {
   if (['APPROVED', 'DECLINED', 'LOST'].includes(status)) return true
@@ -167,21 +167,18 @@ function ProposalCard({
   card,
   isDragging,
   onStatusChange,
-  onMarkWon,
   onDragStart,
   onDragEnd,
 }: {
   card:           ProposalCardData
   isDragging:     boolean
   onStatusChange: (proposalId: string, newStatus: string) => void
-  onMarkWon:      (proposalId: string) => void
   onDragStart:    (e: React.DragEvent<HTMLDivElement>) => void
   onDragEnd:      (e: React.DragEvent<HTMLDivElement>) => void
 }) {
   const { proposal } = card
-  const terminal  = isTerminal(proposal.status, proposal.expiresAt)
-  const eff       = effectiveStatus(proposal.status, proposal.expiresAt)
-  const canMarkWon = ['SENT', 'VIEWED', 'CHANGES_NEEDED'].includes(proposal.status)
+  const terminal = isTerminal(proposal.status, proposal.expiresAt)
+  const eff      = effectiveStatus(proposal.status, proposal.expiresAt)
 
   return (
     <div
@@ -279,7 +276,7 @@ function ProposalCard({
         )}
       </Link>
 
-      {/* Footer: status + actions — stopPropagation prevents Link navigation */}
+      {/* Footer: status + external link — stopPropagation prevents Link navigation */}
       <div
         className="flex items-center justify-between border-t border-border/60 px-3 py-2"
         onClick={e => e.stopPropagation()}
@@ -289,27 +286,15 @@ function ProposalCard({
           expiresAt={proposal.expiresAt}
           onChange={(newStatus) => onStatusChange(proposal.id, newStatus)}
         />
-        <div className="flex items-center gap-1">
-          {canMarkWon && (
-            <button
-              type="button"
-              onClick={() => onMarkWon(proposal.id)}
-              className="rounded p-1 text-muted-foreground/40 hover:text-green-600 hover:bg-green-50 transition-colors"
-              title="Mark as Won"
-            >
-              <Trophy className="h-3.5 w-3.5" />
-            </button>
-          )}
-          <a
-            href={`/p/${proposal.publicToken}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded p-1 text-muted-foreground/40 hover:text-violet-600 transition-colors"
-            title="Open public link"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-          </a>
-        </div>
+        <a
+          href={`/p/${proposal.publicToken}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-muted-foreground/40 hover:text-violet-600 transition-colors"
+          title="Open public link"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+        </a>
       </div>
     </div>
   )
@@ -337,10 +322,6 @@ export function ProposalsKanban({ cards: initialCards }: { cards: ProposalCardDa
       await updateProposalStatus(proposalId, newStatus)
       router.refresh()
     })
-  }
-
-  function handleMarkWon(proposalId: string) {
-    handleStatusChange(proposalId, 'APPROVED')
   }
 
   // Group into columns
@@ -398,7 +379,9 @@ export function ProposalsKanban({ cards: initialCards }: { cards: ProposalCardDa
                 e.preventDefault()
                 const proposalId = e.dataTransfer.getData('proposalId')
                 if (proposalId && col.droppable) {
-                  handleStatusChange(proposalId, col.id) // col.id === target status
+                  // WON column maps to APPROVED status; LOST stays LOST
+                  const targetStatus = col.id === 'WON' ? 'APPROVED' : col.id
+                  handleStatusChange(proposalId, targetStatus)
                 }
                 setDragOverCol(null)
                 setDraggedId(null)
@@ -450,7 +433,6 @@ export function ProposalsKanban({ cards: initialCards }: { cards: ProposalCardDa
                         card={card}
                         isDragging={draggedId === card.proposal.id}
                         onStatusChange={handleStatusChange}
-                        onMarkWon={handleMarkWon}
                         onDragStart={e => {
                           // Set drag image to the whole card element
                           const cardEl = e.currentTarget.closest('[data-card]') as HTMLElement
