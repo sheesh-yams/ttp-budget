@@ -3,7 +3,23 @@ import { format } from 'date-fns'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 const FROM = process.env.RESEND_FROM_EMAIL ?? 'proposals@thethirdplace.co'
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://ttp-budget-3lvh.vercel.app'
+
+// Resolve the public app URL without ever using a localhost value.
+// NEXT_PUBLIC_APP_URL may be set to localhost in dev env files that leaked
+// into Vercel — fall through to VERCEL_URL (set automatically on every deploy)
+// before using the hardcoded fallback.
+function resolveAppUrl(): string {
+  const configured = process.env.NEXT_PUBLIC_APP_URL
+  if (configured && !configured.includes('localhost') && !configured.includes('127.0.0.1')) {
+    return configured.replace(/\/$/, '')
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`
+  }
+  return 'https://ttp-budget-3lvh.vercel.app'
+}
+
+const APP_URL = resolveAppUrl()
 
 interface ProposalApprovedPayload {
   to: string
