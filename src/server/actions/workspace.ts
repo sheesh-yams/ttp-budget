@@ -54,6 +54,20 @@ export async function updateCompanySettings(
   try {
     const workspaceId = await getWorkspaceId()
     const data = companySchema.parse(input)
+
+    // Guard: workspace names must be globally unique (case-insensitive).
+    // Exclude the current workspace so renaming to the same name is a no-op.
+    const duplicate = await db.workspace.findFirst({
+      where: {
+        name: { equals: data.name, mode: 'insensitive' },
+        NOT: { id: workspaceId },
+      },
+      select: { id: true },
+    })
+    if (duplicate) {
+      return { success: false, error: 'A workspace with that name already exists. Please choose a different name.' }
+    }
+
     await db.workspace.update({
       where: { id: workspaceId },
       data: {
@@ -132,6 +146,16 @@ export async function createWorkspace(
   try {
     const trimmed = name.trim()
     if (!trimmed) return { success: false, error: 'Workspace name is required' }
+
+    // Guard: workspace names must be globally unique (case-insensitive).
+    // Prevents confusion from two workspaces with the same name in the switcher.
+    const duplicate = await db.workspace.findFirst({
+      where: { name: { equals: trimmed, mode: 'insensitive' } },
+      select: { id: true },
+    })
+    if (duplicate) {
+      return { success: false, error: `A workspace named "${trimmed}" already exists. Please choose a different name.` }
+    }
 
     const user = await getCurrentUser()
     const clerk = await clerkClient()
@@ -218,6 +242,19 @@ export async function completeOnboarding(
     const user = await getCurrentUser()
     const data = onboardingSchema.parse(input)
 
+    // Guard: workspace names must be globally unique (case-insensitive).
+    // Exclude the user's own workspace so submitting without changing the name works.
+    const duplicate = await db.workspace.findFirst({
+      where: {
+        name: { equals: data.name, mode: 'insensitive' },
+        NOT: { id: user.workspaceId },
+      },
+      select: { id: true },
+    })
+    if (duplicate) {
+      return { success: false, error: 'A workspace with that name already exists. Please choose a different name.' }
+    }
+
     await db.workspace.update({
       where: { id: user.workspaceId },
       data: {
@@ -265,14 +302,19 @@ export async function leaveWorkspace(): Promise<ActionResult> {
   }
 }
 
-/** OWNER: permanently delete the active workspace + all its data. */
+/**
+ * OWNER ONLY: permanently delete the active workspace + all its data.
+ * Producers are blocked at both the UI layer (DangerZone hides the button)
+ * and here at the server action layer so it can never be bypassed.
+ */
 export async function deleteWorkspace(confirmName: string): Promise<ActionResult> {
   try {
     const { orgId } = await auth()
     if (!orgId) return { success: false, error: 'No active workspace' }
 
     const user = await getCurrentUser()
-    if (user.role !== 'OWNER') return { success: false, error: 'Only the owner can delete a workspace' }
+    // Server-side role guard — this is the authoritative check.
+    if (user.role !== 'OWNER') return { success: false, error: 'Only workspace owners can delete a workspace.' }
 
     const workspace = await db.workspace.findFirst({ where: { clerkOrgId: orgId }, select: { id: true, name: true } })
     if (!workspace) return { success: false, error: 'Workspace not found' }

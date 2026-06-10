@@ -22,8 +22,9 @@ export function DangerZone({
       </div>
 
       <div className="space-y-5">
+        {/* Producers can leave; Owners can delete. These are mutually exclusive. */}
         {!isOwner && <LeaveSection />}
-        {isOwner && <DeleteSection workspaceName={workspaceName} />}
+        {isOwner  && <DeleteSection workspaceName={workspaceName} />}
       </div>
     </div>
   )
