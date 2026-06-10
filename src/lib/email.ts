@@ -3,6 +3,7 @@ import { format } from 'date-fns'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 const FROM = process.env.RESEND_FROM_EMAIL ?? 'proposals@thethirdplace.co'
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://ttp-budget-3lvh.vercel.app'
 
 interface ProposalApprovedPayload {
   to: string
@@ -41,6 +42,78 @@ interface InvoiceSentPayload {
   amountCents: number
   dueDate: Date
   invoiceUrl: string
+}
+
+interface InvitationPayload {
+  to: string
+  invitedByName: string
+  workspaceName: string
+  role: 'OWNER' | 'PRODUCER'
+  token: string
+  expiresAt: Date
+}
+
+export async function sendInvitationEmail(payload: InvitationPayload) {
+  const { to, invitedByName, workspaceName, role, token, expiresAt } = payload
+  const acceptUrl = `${APP_URL}/invite/${token}`
+  const roleLabel = role === 'OWNER' ? 'Owner' : 'Producer'
+
+  await resend.emails.send({
+    from: FROM,
+    to,
+    subject: `${invitedByName} invited you to join ${workspaceName}`,
+    html: `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#F7F4FA;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F7F4FA;padding:40px 0">
+    <tr><td align="center">
+      <table width="520" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #E8E3EF">
+        <!-- Header -->
+        <tr>
+          <td style="background:#0A0612;padding:28px 32px">
+            <p style="margin:0;font-size:13px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#04FFCC">TTP Budget</p>
+          </td>
+        </tr>
+        <!-- Body -->
+        <tr>
+          <td style="padding:36px 32px">
+            <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#0A0612">You're invited</h1>
+            <p style="margin:0 0 24px;font-size:15px;color:#555">
+              <strong>${invitedByName}</strong> invited you to join <strong>${workspaceName}</strong> on TTP Budget.
+            </p>
+            <table cellpadding="0" cellspacing="0" style="background:#F7F4FA;border-radius:8px;padding:16px 20px;margin-bottom:28px;width:100%">
+              <tr>
+                <td style="font-size:12px;color:#888;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;padding-bottom:4px">Workspace</td>
+                <td style="font-size:14px;color:#1a1a1a;text-align:right">${workspaceName}</td>
+              </tr>
+              <tr>
+                <td style="font-size:12px;color:#888;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;padding-top:8px">Your role</td>
+                <td style="font-size:14px;color:#1a1a1a;text-align:right;padding-top:8px">${roleLabel}</td>
+              </tr>
+            </table>
+            <a href="${acceptUrl}" style="display:inline-block;background:#5D00A4;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;padding:13px 28px;border-radius:8px">
+              Accept invitation →
+            </a>
+            <p style="margin:24px 0 0;font-size:12px;color:#aaa">
+              This invitation expires ${format(expiresAt, 'MMMM d, yyyy')}. If you weren't expecting this, you can safely ignore it.
+            </p>
+          </td>
+        </tr>
+        <!-- Footer -->
+        <tr>
+          <td style="border-top:1px solid #F0EBF7;padding:16px 32px">
+            <p style="margin:0;font-size:11px;color:#ccc">TTP Budget · Production budgeting for creative teams</p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
+    `,
+  })
 }
 
 export async function sendInvoiceEmail(payload: InvoiceSentPayload) {

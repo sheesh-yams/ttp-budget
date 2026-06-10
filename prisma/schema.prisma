@@ -79,6 +79,7 @@ model Workspace {
   invoices          Invoice[]
   callSheets        CallSheet[]
   actualSheets      ActualSheet[]
+  invitations       WorkspaceInvitation[]
 }
 
 enum UserRole {
@@ -736,4 +737,27 @@ model ActualEntry {
   updatedAt DateTime @updatedAt
 
   @@index([actualSheetId])
+}
+
+// =============================================================
+// WORKSPACE INVITATIONS — email-based invite with token
+// =============================================================
+
+model WorkspaceInvitation {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  email         String
+  role          UserRole  @default(PRODUCER)
+  token         String    @unique @default(cuid())  // sent in the invite URL /invite/[token]
+  invitedByName String?   // display name of the person who sent the invite
+
+  expiresAt     DateTime  // typically NOW + 7 days
+  acceptedAt    DateTime? // null = still pending
+
+  createdAt     DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([token])
 }

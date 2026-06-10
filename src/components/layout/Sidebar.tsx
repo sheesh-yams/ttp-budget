@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, Users, FolderOpen, FileText,
   Receipt, List, LayoutGrid, Settings, BookOpen,
-  ChevronDown, Check, Plus, LogOut,
+  ChevronDown, Check, Plus, LogOut, UsersRound,
 } from 'lucide-react'
 import { useEffect, useRef, useState, useTransition } from 'react'
 import { createWorkspace } from '@/server/actions/workspace'
@@ -48,6 +48,7 @@ const navGroups = [
       { label: 'Rate cards', href: '/rates',     icon: List },
       { label: 'Templates',  href: '/templates', icon: LayoutGrid },
       { label: 'Library',    href: '/library',   icon: BookOpen },
+      { label: 'Team',       href: '/team',      icon: UsersRound },
       { label: 'Settings',   href: '/settings',  icon: Settings },
     ],
   },
