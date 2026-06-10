@@ -236,7 +236,7 @@ export function TeamPageClient({ members, pendingInvitations }: Props) {
             )}
             {inviteSuccess && (
               <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
-                ✓ Invitation sent! They'll receive an email with a link to join.
+                ✓ Invitation sent! They&rsquo;ll receive an email with a link to join.
               </p>
             )}
 

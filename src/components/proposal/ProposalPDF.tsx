@@ -219,6 +219,7 @@ export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0,
           <View style={s.coverTop}>
             <View style={s.logoBox}>
               {proposal.logoSrc ? (
+                // eslint-disable-next-line jsx-a11y/alt-text
                 <Image src={proposal.logoSrc} style={s.logoImg} />
               ) : (
                 <>
