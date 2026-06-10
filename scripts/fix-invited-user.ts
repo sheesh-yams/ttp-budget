@@ -19,7 +19,7 @@ const db = new PrismaClient()
 // ── Config — edit before running ──────────────────────────────────────────────
 const INVITED_USER_EMAIL  = 'sara.reza@gmail.com'   // update to Sara's actual email if different
 const INVITED_USER_NAME   = 'Sara Reza'              // used as fallback search if email doesn't match
-const TARGET_WORKSPACE_ID = 'cmq89lp7f0000gfgg6mevwd5u' // hardcode the correct workspace ID
+const TARGET_WORKSPACE_ID = 'ttp-workspace' // the real workspace — confirmed by diagnose-workspaces.ts
 // ──────────────────────────────────────────────────────────────────────────────
 
 async function main() {

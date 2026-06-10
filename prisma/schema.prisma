@@ -80,6 +80,7 @@ model Workspace {
   callSheets        CallSheet[]
   actualSheets      ActualSheet[]
   invitations       WorkspaceInvitation[]
+  contacts          Contact[]
 }
 
 enum UserRole {
@@ -184,6 +185,7 @@ model Project {
   invoices       Invoice[]
   callSheets     CallSheet[]
   actualSheets   ActualSheet[]
+  projectMembers ProjectMember[]
 
   @@index([workspaceId])
   @@index([clientId])
@@ -737,6 +739,81 @@ model ActualEntry {
   updatedAt DateTime @updatedAt
 
   @@index([actualSheetId])
+}
+
+// =============================================================
+// ROLODEX — contact directory + project crew roster
+// =============================================================
+
+// A person in the workspace's contact directory (Rolodex).
+// UI and full CRUD comes in Phase 2; schema is here now so ProjectMember can FK into it.
+model Contact {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  name         String
+  email        String?
+  phone        String?
+  instagram    String?   // handle, no @
+  website      String?
+  notes        String?   @db.Text
+  avatarUrl    String?
+
+  // Primary role is what they're known as; secondaryRoles is a JSON String[]
+  // of other hats they wear (e.g. ["Gaffer", "Grip"]).
+  primaryRole     String            // e.g. "Director of Photography"
+  secondaryRoles  Json @default("[]") // String[]
+
+  // Rate defaults — can be overridden per-project in ProjectMember
+  defaultRateCents Int?
+  defaultRateUnit  RateUnit @default(DAY)
+
+  archivedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  projectMembers ProjectMember[]
+
+  @@index([workspaceId])
+  @@index([workspaceId, archivedAt])
+}
+
+// A crew/talent member assigned to a specific project.
+// Can be linked to a Contact in the Rolodex or entered ad-hoc.
+model ProjectMember {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // Optional link to the Rolodex contact. Null = ad-hoc entry not in the directory.
+  contactId   String?
+  contact     Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  // Their role ON THIS PROJECT (may differ from contact.primaryRole)
+  role        String
+  // Department for call-sheet grouping (e.g. "Camera", "G&E", "Production")
+  department  String?
+
+  // Denormalised name + contact info — copied from Contact at insert time,
+  // or entered manually. Stays correct even if the Contact is later edited.
+  name        String
+  email       String?
+  phone       String?
+
+  // Rate for THIS project (overrides contact.defaultRate when set)
+  rateCents   Int?
+  rateUnit    RateUnit @default(DAY)
+
+  // Call sheet scheduling
+  callTime    String?  // HH:MM, e.g. "07:00"
+
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([contactId])
 }
 
 // =============================================================

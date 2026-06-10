@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { ChevronLeft, Calendar, User } from 'lucide-react'
+import { Calendar, User, TrendingUp } from 'lucide-react'
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { BudgetEditor } from '@/components/projects/BudgetEditor'
@@ -8,7 +8,6 @@ import { ProjectProposals } from '@/components/projects/ProjectProposals'
 import { ProjectInvoices } from '@/components/projects/ProjectInvoices'
 import { ProjectHeaderActions } from '@/components/projects/ProjectHeaderActions'
 import { ProposalOverview } from '@/components/projects/ProposalOverview'
-import { ProjectCallSheets } from '@/components/call-sheets/ProjectCallSheets'
 import { createBudget } from '@/server/actions/budgets'
 import { Button } from '@/components/ui/button'
 import { formatMoney } from '@/lib/money'
@@ -81,42 +80,31 @@ export default async function ProjectDetailPage({
       proposals: {
         orderBy: { createdAt: 'desc' },
         select: {
-          id: true,
-          title: true,
-          status: true,
-          publicToken: true,
-          version: true,
-          createdAt: true,
-          expiresAt: true,
+          id:            true,
+          title:         true,
+          status:        true,
+          publicToken:   true,
+          version:       true,
+          createdAt:     true,
+          expiresAt:     true,
           signatureName: true,
-          approvedAt: true,
-          content: true,
+          approvedAt:    true,
+          content:       true,
         },
       },
       invoices: {
         orderBy: { createdAt: 'desc' },
         select: {
-          id: true,
-          number: true,
-          title: true,
-          status: true,
-          kind: true,
-          totalCents: true,
+          id:              true,
+          number:          true,
+          title:           true,
+          status:          true,
+          kind:            true,
+          totalCents:      true,
           amountPaidCents: true,
-          dueDate: true,
-          publicToken: true,
-          sentAt: true,
-        },
-      },
-      callSheets: {
-        orderBy: { shootDate: 'asc' },
-        select: {
-          id: true,
-          title: true,
-          shootDate: true,
-          generalCall: true,
-          status: true,
-          publicToken: true,
+          dueDate:         true,
+          publicToken:     true,
+          sentAt:          true,
         },
       },
     },
@@ -138,6 +126,43 @@ export default async function ProjectDetailPage({
     }
   }
 
+  // ── Actuals summary (lightweight — just revenue override + sum of entries) ──
+  let actualsSummary: {
+    billedCents: number
+    spentCents:  number
+    profitCents: number
+    marginPct:   number
+    hasSheet:    boolean
+    actualsId:   string | null
+  } | null = null
+
+  if (budget) {
+    const sheet = await db.actualSheet.findFirst({
+      where: { budgetId: budget.id, workspaceId },
+      select: {
+        id:                  true,
+        revenueOverrideCents: true,
+        entries: { select: { actualCents: true } },
+      },
+    })
+
+    if (sheet) {
+      const billedCents = sheet.revenueOverrideCents ?? grandTotalCents
+      const spentCents  = sheet.entries.reduce((s, e) => s + e.actualCents, 0)
+      const profitCents = billedCents - spentCents
+      const marginPct   = billedCents > 0 ? (profitCents / billedCents) * 100 : 0
+
+      actualsSummary = {
+        billedCents,
+        spentCents,
+        profitCents,
+        marginPct,
+        hasSheet:  true,
+        actualsId: sheet.id,
+      }
+    }
+  }
+
   // Serialise project for client component (dates → strings)
   const serialisedProject = {
     id:             project.id,
@@ -150,15 +175,6 @@ export default async function ProjectDetailPage({
 
   return (
     <div>
-      {/* Breadcrumb */}
-      <Link
-        href="/projects"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ChevronLeft className="h-4 w-4" />
-        All projects
-      </Link>
-
       {/* Project header */}
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
@@ -181,7 +197,7 @@ export default async function ProjectDetailPage({
                   month: 'short', day: 'numeric', year: 'numeric',
                 })}
                 {project.shootEndDate && project.shootEndDate.getTime() !== project.shootStartDate.getTime() && (
-                  <> – {new Date(project.shootEndDate).toLocaleDateString('en-US', {
+                  <> &ndash; {new Date(project.shootEndDate).toLocaleDateString('en-US', {
                     month: 'short', day: 'numeric',
                   })}</>
                 )}
@@ -191,18 +207,63 @@ export default async function ProjectDetailPage({
         </div>
 
         <div className="flex items-start gap-3">
-          {budget && grandTotalCents > 0 && (
+          {budget && grandTotalCents > 0 && !actualsSummary && (
             <div className="rounded-xl border bg-card px-5 py-3 text-right shadow-sm">
               <p className="text-xs text-muted-foreground">Budget total</p>
               <p className="text-2xl font-semibold tabular text-foreground">{formatMoney(grandTotalCents)}</p>
             </div>
           )}
-          {/* Edit project button (client component) */}
           <ProjectHeaderActions project={serialisedProject} />
         </div>
       </div>
 
-      {/* Proposals section */}
+      {/* ── Actuals summary bar ──────────────────────────────────────────────── */}
+      {actualsSummary && (
+        <section className="mb-6">
+          <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
+            <div className="grid grid-cols-4 divide-x">
+              <ActualsStat
+                label="Billed"
+                value={formatMoney(actualsSummary.billedCents)}
+                sub={null}
+                color="text-foreground"
+              />
+              <ActualsStat
+                label="Spent"
+                value={formatMoney(actualsSummary.spentCents)}
+                sub={null}
+                color="text-foreground"
+              />
+              <ActualsStat
+                label="Profit"
+                value={formatMoney(actualsSummary.profitCents)}
+                sub={null}
+                color={actualsSummary.profitCents >= 0 ? 'text-green-500' : 'text-red-500'}
+              />
+              <ActualsStat
+                label="Margin"
+                value={`${actualsSummary.marginPct.toFixed(1)}%`}
+                sub={null}
+                color={marginColor(actualsSummary.marginPct)}
+              />
+            </div>
+            <div className="border-t px-4 py-2 flex items-center justify-between bg-muted/30">
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <TrendingUp className="h-3.5 w-3.5" />
+                Actuals are being tracked for this project
+              </span>
+              <Link
+                href={`/projects/${project.id}/actuals`}
+                className="text-xs text-primary hover:underline underline-offset-2 transition-colors"
+              >
+                Edit actuals →
+              </Link>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ── Proposals ────────────────────────────────────────────────────────── */}
       <section className="mb-8">
         <ProjectProposals
           proposals={project.proposals as never}
@@ -214,27 +275,14 @@ export default async function ProjectDetailPage({
         />
       </section>
 
-      {/* Invoices section */}
+      {/* ── Invoices ─────────────────────────────────────────────────────────── */}
       {project.invoices.length > 0 && (
         <section className="mb-8">
           <ProjectInvoices invoices={project.invoices as never} />
         </section>
       )}
 
-      {/* Call Sheets section */}
-      <section className="mb-8">
-        <ProjectCallSheets
-          callSheets={project.callSheets.map(cs => ({
-            ...cs,
-            shootDate: cs.shootDate.toISOString(),
-          }))}
-          projectId={project.id}
-          projectName={project.name}
-          shootStartDate={project.shootStartDate?.toISOString() ?? null}
-        />
-      </section>
-
-      {/* Proposal Overview section — editable description + deliverables per budget version */}
+      {/* ── Deliverables / Proposal Overview ─────────────────────────────────── */}
       {budget && (() => {
         const primaryPhase = budget.phases.find(p => p.isPrimary) ?? budget.phases[0]
         if (!primaryPhase) return null
@@ -250,16 +298,24 @@ export default async function ProjectDetailPage({
         )
       })()}
 
-      {/* Budget section */}
+      {/* ── Budget ───────────────────────────────────────────────────────────── */}
       <section>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-semibold text-foreground">Budget</h2>
-          {budget && (
+          {budget && !actualsSummary && (
             <Link
               href={`/projects/${project.id}/actuals`}
               className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
             >
-              View actuals →
+              Track actuals →
+            </Link>
+          )}
+          {budget && actualsSummary && (
+            <Link
+              href={`/projects/${project.id}/actuals`}
+              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+            >
+              Edit actuals →
             </Link>
           )}
         </div>
@@ -271,6 +327,35 @@ export default async function ProjectDetailPage({
       </section>
     </div>
   )
+}
+
+// ─── Actuals stat card ────────────────────────────────────────────────────────
+
+function ActualsStat({
+  label,
+  value,
+  sub,
+  color,
+}: {
+  label: string
+  value: string
+  sub:   string | null
+  color: string
+}) {
+  return (
+    <div className="px-5 py-4">
+      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">{label}</p>
+      <p className={`text-xl font-semibold tabular ${color}`}>{value}</p>
+      {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
+    </div>
+  )
+}
+
+function marginColor(pct: number): string {
+  if (pct >= 30) return 'text-green-500'
+  if (pct >= 20) return 'text-yellow-500'
+  if (pct >= 10) return 'text-orange-500'
+  return 'text-red-500'
 }
 
 // ─── Empty state when no budget yet ──────────────────────────────────────────

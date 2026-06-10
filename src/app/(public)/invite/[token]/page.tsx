@@ -85,15 +85,20 @@ export default async function InvitePage({
         ) : (
           /* ── Not signed in: prompt to sign in / sign up ── */
           <div className="space-y-2.5">
+            {/*
+              Use force_redirect_url so Clerk honours the destination through
+              Google / social OAuth flows. redirect_url is best-effort and is
+              often dropped after the OAuth callback round-trip.
+            */}
             <Link
-              href={`/sign-up?redirect_url=${encodeURIComponent(inviteUrl)}`}
+              href={`/sign-up?force_redirect_url=${encodeURIComponent(inviteUrl)}`}
               className="flex w-full items-center justify-center rounded-xl py-3 text-[14px] font-semibold transition-opacity hover:opacity-90"
               style={{ background: '#04FFCC', color: '#003D31' }}
             >
               Create account to accept
             </Link>
             <Link
-              href={`/sign-in?redirect_url=${encodeURIComponent(inviteUrl)}`}
+              href={`/sign-in?force_redirect_url=${encodeURIComponent(inviteUrl)}`}
               className="flex w-full items-center justify-center rounded-xl border border-white/[0.12] py-3 text-[14px] font-medium text-white/70 transition-colors hover:text-white"
             >
               Sign in instead
