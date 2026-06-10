@@ -158,3 +158,143 @@ export async function archiveContact(id: string): Promise<ActionResult> {
     return { success: false, error: 'Failed to archive contact' }
   }
 }
+
+// ── Crew roles — sourced from CREW rate cards ─────────────────────────────────
+// Used to populate role dropdowns in ContactModal and the Rolodex filter.
+
+export async function getCrewRoles(): Promise<string[]> {
+  try {
+    const db = await getScopedDb()
+    const cards = await db.rateCard.findMany({
+      where: { category: 'CREW', archivedAt: null },
+      select: { role: true },
+      orderBy: { role: 'asc' },
+    })
+    // Deduplicate (rate cards can have multiple rows with the same role)
+    return [...new Set(cards.map(c => c.role))].sort()
+  } catch {
+    return []
+  }
+}
+
+// ── Call sheet → Rolodex import ───────────────────────────────────────────────
+
+export interface ImportableMember {
+  name:       string
+  role:       string
+  phone:      string | null
+  email:      string | null
+  department: string | null  // crew dept from call sheet
+  source:     string         // call sheet title for display
+  alreadyInRolodex:   boolean
+  existingContactId:  string | null
+}
+
+// Aggregates every crew + talent member across all call sheets in the workspace,
+// cross-references against existing contacts (by name, case-insensitive),
+// and deduplicates so each unique name appears once.
+export async function getCallSheetCrewForImport(): Promise<ImportableMember[]> {
+  try {
+    const db = await getScopedDb()
+
+    // Fetch call sheets (crew + talent JSON + title)
+    const callSheets = await db.callSheet.findMany({
+      select: { title: true, crew: true, talent: true },
+      orderBy: { shootDate: 'desc' },
+    })
+
+    // Fetch existing contact names for duplicate detection
+    const existing = await db.contact.findMany({
+      where: { archivedAt: null },
+      select: { id: true, name: true },
+    })
+    const existingMap = new Map(
+      existing.map(c => [c.name.toLowerCase().trim(), c.id])
+    )
+
+    // Collect members — key by lowercase name to deduplicate
+    const seen = new Map<string, ImportableMember>()
+
+    for (const cs of callSheets) {
+      // Crew groups: [{ dept, members: [{ name, role, callTime, phone, email }] }]
+      const crewGroups = (cs.crew as { dept?: string; members?: { name?: string; role?: string; phone?: string; email?: string }[] }[]) ?? []
+      for (const group of crewGroups) {
+        for (const m of group.members ?? []) {
+          if (!m.name?.trim()) continue
+          const key = m.name.trim().toLowerCase()
+          if (!seen.has(key)) {
+            const existingId = existingMap.get(key) ?? null
+            seen.set(key, {
+              name:               m.name.trim(),
+              role:               m.role?.trim() ?? '',
+              phone:              m.phone?.trim() || null,
+              email:              m.email?.trim() || null,
+              department:         group.dept?.trim() || null,
+              source:             cs.title,
+              alreadyInRolodex:   !!existingId,
+              existingContactId:  existingId,
+            })
+          }
+        }
+      }
+
+      // Talent: [{ name, role, callTime, phone, email }]
+      const talent = (cs.talent as { name?: string; role?: string; phone?: string; email?: string }[]) ?? []
+      for (const t of talent) {
+        if (!t.name?.trim()) continue
+        const key = t.name.trim().toLowerCase()
+        if (!seen.has(key)) {
+          const existingId = existingMap.get(key) ?? null
+          seen.set(key, {
+            name:               t.name.trim(),
+            role:               t.role?.trim() ?? 'Talent',
+            phone:              t.phone?.trim() || null,
+            email:              t.email?.trim() || null,
+            department:         'Talent',
+            source:             cs.title,
+            alreadyInRolodex:   !!existingId,
+            existingContactId:  existingId,
+          })
+        }
+      }
+    }
+
+    return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name))
+  } catch {
+    return []
+  }
+}
+
+// Bulk-create contacts from selected call sheet crew.
+// Skips members that are already in the Rolodex (matched by alreadyInRolodex flag).
+export async function bulkImportContacts(
+  members: ImportableMember[]
+): Promise<ActionResult<{ count: number }>> {
+  try {
+    const db = await getScopedDb()
+    const toCreate = members.filter(m => !m.alreadyInRolodex)
+
+    for (const m of toCreate) {
+      await db.contact.create({
+        data: {
+          name:            m.name,
+          primaryRole:     m.role || 'Crew',
+          secondaryRoles:  [] as unknown as Prisma.InputJsonValue,
+          email:           m.email,
+          phone:           m.phone,
+          instagram:       null,
+          website:         null,
+          notes:           null,
+          avatarUrl:       null,
+          defaultRateCents: null,
+          defaultRateUnit: 'DAY',
+        },
+      } as unknown as { data: Prisma.ContactUncheckedCreateInput })
+    }
+
+    revalidatePath('/rolodex')
+    return { success: true, data: { count: toCreate.length } }
+  } catch {
+    return { success: false, error: 'Failed to import contacts' }
+  }
+}

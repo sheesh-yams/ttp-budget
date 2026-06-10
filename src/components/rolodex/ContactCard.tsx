@@ -25,11 +25,12 @@ function Initials({ name }: { name: string }) {
 }
 
 interface Props {
-  contact:   ContactRow
+  contact:    ContactRow
+  crewRoles?: string[]
   onArchived?: () => void
 }
 
-export function ContactCard({ contact, onArchived }: Props) {
+export function ContactCard({ contact, crewRoles = [], onArchived }: Props) {
   const [editing,   setEditing]   = useState(false)
   const [archiving, setArchiving] = useState(false)
 
@@ -167,6 +168,7 @@ export function ContactCard({ contact, onArchived }: Props) {
       {editing && (
         <ContactModal
           contact={contact}
+          crewRoles={crewRoles}
           onClose={() => setEditing(false)}
         />
       )}

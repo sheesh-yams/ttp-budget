@@ -14,11 +14,12 @@ const RATE_UNITS = [
 
 interface Props {
   contact?: ContactRow | null  // null = create mode
+  crewRoles?: string[]         // CREW rate card roles for primaryRole suggestions
   onClose: () => void
   onSaved?: (id: string) => void
 }
 
-export function ContactModal({ contact, onClose, onSaved }: Props) {
+export function ContactModal({ contact, crewRoles = [], onClose, onSaved }: Props) {
   const isEdit = !!contact
   const [isPending, startTransition] = useTransition()
   const [error, setError]   = useState('')
@@ -155,12 +156,18 @@ export function ContactModal({ contact, onClose, onSaved }: Props) {
               </label>
               <input
                 type="text"
+                list="crew-roles-datalist"
                 value={primaryRole}
                 onChange={e => setPrimaryRole(e.target.value)}
                 placeholder="Director of Photography"
                 required
                 className="w-full rounded-lg border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-primary/40"
               />
+              {crewRoles.length > 0 && (
+                <datalist id="crew-roles-datalist">
+                  {crewRoles.map(r => <option key={r} value={r} />)}
+                </datalist>
+              )}
             </div>
           </div>
 

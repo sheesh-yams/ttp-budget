@@ -1,10 +1,10 @@
-import { getContacts } from '@/server/actions/rolodex'
+import { getContacts, getCrewRoles } from '@/server/actions/rolodex'
 import { RolodexClient } from '@/components/rolodex/RolodexClient'
 
 export const metadata = { title: 'Rolodex — TTP Budget' }
 
 export default async function RolodexPage() {
-  const contacts = await getContacts()
+  const [contacts, crewRoles] = await Promise.all([getContacts(), getCrewRoles()])
 
   return (
     <div>
@@ -15,7 +15,7 @@ export default async function RolodexPage() {
         </p>
       </div>
 
-      <RolodexClient contacts={contacts} />
+      <RolodexClient contacts={contacts} crewRoles={crewRoles} />
     </div>
   )
 }
