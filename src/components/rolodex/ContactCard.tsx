@@ -45,7 +45,7 @@ export function ContactCard({ contact, crewRoles = [], onArchived }: Props) {
   async function handleArchive() {
     const ok = await confirmDialog(
       `${contact.name} will be hidden from the Rolodex. Their project history is preserved.`,
-      { title: 'Archive contact?', confirmLabel: 'Archive' }
+      { title: 'Archive contact?', confirmLabel: 'Archive', key: 'rolodex-archive-contact' }
     )
     if (!ok) return
     setArchiving(true)

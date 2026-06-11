@@ -40,7 +40,7 @@ export function ProjectCallSheets({ callSheets, projectId, projectName, shootSta
   const { confirm: confirmDialog, ConfirmDialog } = useConfirm()
 
   async function handleDelete(id: string) {
-    const ok = await confirmDialog('This call sheet will be permanently deleted.')
+    const ok = await confirmDialog('This call sheet will be permanently deleted.', { key: 'call-sheet-delete' })
     if (!ok) return
     setDeletingId(id)
     startTransition(async () => {

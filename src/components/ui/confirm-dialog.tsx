@@ -3,17 +3,15 @@
 /**
  * useConfirm — in-app replacement for window.confirm()
  *
- * Browser's native confirm() can be silenced by the user clicking
- * "Don't show again", which makes it always return false and breaks
- * every delete/action guarded by it. This hook renders a proper
- * React dialog instead, portalled to document.body so it works
- * inside any DOM context (table rows, overflow:hidden containers, etc.)
+ * Supports a "Don't show again" checkbox. Pass a stable `key` string
+ * to enable it — the preference is stored in localStorage per key,
+ * so suppressing one dialog type never affects another.
  *
  * Usage:
  *   const { confirm, ConfirmDialog } = useConfirm()
  *
  *   async function handleDelete() {
- *     if (!await confirm('Delete this item?')) return
+ *     if (!await confirm('Delete this item?', { key: 'delete-line-item' })) return
  *     // proceed…
  *   }
  *
@@ -29,33 +27,61 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { AlertTriangle } from 'lucide-react'
 
-interface ConfirmState {
-  message:     string
-  title?:      string
+const STORAGE_PREFIX = 'ttp_confirm_skip:'
+
+function isSkipped(key: string) {
+  try { return localStorage.getItem(STORAGE_PREFIX + key) === '1' } catch { return false }
+}
+function setSkipped(key: string) {
+  try { localStorage.setItem(STORAGE_PREFIX + key, '1') } catch { /* noop */ }
+}
+
+interface ConfirmOptions {
+  title?:        string
   confirmLabel?: string
-  resolve:     (value: boolean) => void
+  /**
+   * Stable key for "Don't show again" persistence.
+   * When provided, a checkbox appears and the preference is saved
+   * to localStorage so the dialog is skipped on future calls.
+   */
+  key?:          string
+}
+
+interface ConfirmState {
+  message:       string
+  title?:        string
+  confirmLabel?: string
+  key?:          string
+  resolve:       (value: boolean) => void
 }
 
 export function useConfirm() {
-  const [state, setState] = useState<ConfirmState | null>(null)
+  const [state, setState]   = useState<ConfirmState | null>(null)
   const [mounted, setMounted] = useState(false)
-  // Keep a ref so callbacks always have the latest state
+  const [skipNext, setSkipNext] = useState(false)
   const stateRef = useRef(state)
   stateRef.current = state
 
-  // Avoid SSR mismatch — only portal after hydration
   useEffect(() => { setMounted(true) }, [])
 
   const confirm = useCallback((
     message: string,
-    options?: { title?: string; confirmLabel?: string }
+    options?: ConfirmOptions
   ): Promise<boolean> => {
+    // If user previously said "don't show again" for this key, auto-confirm
+    if (options?.key && isSkipped(options.key)) {
+      return Promise.resolve(true)
+    }
     return new Promise<boolean>(resolve => {
-      setState({ message, title: options?.title, confirmLabel: options?.confirmLabel, resolve })
+      setSkipNext(false)
+      setState({ message, title: options?.title, confirmLabel: options?.confirmLabel, key: options?.key, resolve })
     })
   }, [])
 
   function handleConfirm() {
+    if (stateRef.current?.key && skipNext) {
+      setSkipped(stateRef.current.key)
+    }
     stateRef.current?.resolve(true)
     setState(null)
   }
@@ -93,7 +119,20 @@ export function useConfirm() {
           </div>
         </div>
 
-        <div className="mt-5 flex gap-2.5 justify-end">
+        {/* Don't show again — only when a key is provided */}
+        {state.key && (
+          <label className="mt-4 flex cursor-pointer items-center gap-2 text-[12px] text-muted-foreground select-none">
+            <input
+              type="checkbox"
+              checked={skipNext}
+              onChange={e => setSkipNext(e.target.checked)}
+              className="h-3.5 w-3.5 rounded accent-primary cursor-pointer"
+            />
+            Don&apos;t show again
+          </label>
+        )}
+
+        <div className="mt-4 flex gap-2.5 justify-end">
           <button
             type="button"
             onClick={handleCancel}
@@ -113,7 +152,6 @@ export function useConfirm() {
     </div>
   ) : null
 
-  // Portal to body so it works inside table rows, overflow:hidden containers, etc.
   const ConfirmDialog = mounted && dialog ? createPortal(dialog, document.body) : null
 
   return { confirm, ConfirmDialog }

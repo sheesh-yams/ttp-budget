@@ -153,7 +153,7 @@ export function BudgetEditor({ budget, projectId }: Props) {
     const phase = budget.phases.find(p => p.id === phaseId)
     const ok = await confirmDialog(
       `All line items in "${phase?.name ?? 'this phase'}" will be permanently lost.`,
-      { title: `Delete phase?` }
+      { title: `Delete phase?`, key: 'budget-delete-phase' }
     )
     if (!ok) return
     startPhaseTransition(async () => {
@@ -604,7 +604,7 @@ function AccountRows({
     const msg = itemCount > 0
       ? `This will also delete its ${itemCount} line item${itemCount !== 1 ? 's' : ''}.`
       : `"${account.name}" will be permanently removed.`
-    const ok = await confirmDialog(msg, { title: `Delete "${account.name}"?` })
+    const ok = await confirmDialog(msg, { title: `Delete "${account.name}"?`, key: 'budget-delete-account' })
     if (!ok) return
     startTransition(async () => {
       await deleteAccount(account.id)
@@ -656,7 +656,7 @@ function AccountRows({
 
   // ── Item delete ───────────────────────────────────────────────────────────
   async function handleDeleteItem(id: string) {
-    const ok = await confirmDialog('This line item will be permanently removed.')
+    const ok = await confirmDialog('This line item will be permanently removed.', { key: 'budget-delete-line-item' })
     if (!ok) return
     startTransition(async () => {
       await deleteLineItem(id)

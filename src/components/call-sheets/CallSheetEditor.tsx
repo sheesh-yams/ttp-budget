@@ -198,6 +198,7 @@ export function CallSheetEditor({
     const ok = await confirmDialog('This call sheet will be locked for editing.', {
       title: 'Finalize call sheet?',
       confirmLabel: 'Finalize',
+      key: 'call-sheet-finalize',
     })
     if (!ok) return
     startTransition(async () => {

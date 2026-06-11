@@ -328,7 +328,7 @@ function AccountSection({ account, onUpdate, onDelete }: AccountSectionProps) {
         </span>
         <button
           onClick={async () => {
-            const ok = await confirmDialog(`"${account.name}" and all its items will be removed.`, { title: 'Delete section?' })
+            const ok = await confirmDialog(`"${account.name}" and all its items will be removed.`, { title: 'Delete section?', key: 'template-delete-section' })
             if (ok) onDelete()
           }}
           className="ml-2 rounded p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-colors"

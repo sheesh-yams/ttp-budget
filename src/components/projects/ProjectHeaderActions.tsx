@@ -30,7 +30,7 @@ export function ProjectHeaderActions({ project }: Props) {
   async function handleArchive() {
     const ok = await confirmDialog(
       `"${project.name}" will be archived and hidden from your active projects. You can restore it at any time.`,
-      { title: 'Archive project?', confirmLabel: 'Archive' }
+      { title: 'Archive project?', confirmLabel: 'Archive', key: 'project-archive' }
     )
     if (!ok) return
     setBusy(true)

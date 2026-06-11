@@ -193,7 +193,7 @@ function MemberRow({
   const { confirm, ConfirmDialog } = useConfirm()
 
   async function handleRemove() {
-    const ok = await confirm(`Remove ${member.name} from this project?`, { confirmLabel: 'Remove' })
+    const ok = await confirm(`Remove ${member.name} from this project?`, { confirmLabel: 'Remove', key: 'team-remove-member' })
     if (!ok) return
     startTransition(async () => {
       await removeProjectMember(member.id, projectId)
