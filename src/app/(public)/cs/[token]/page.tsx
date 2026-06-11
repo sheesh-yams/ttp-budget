@@ -5,6 +5,7 @@ import { headers } from 'next/headers'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { ExpiredLinkPage } from '@/components/public/ExpiredLinkPage'
 import { RateLimitedPage } from '@/components/public/RateLimitedPage'
+import { PrintTrigger } from '@/components/public/PrintTrigger'
 import type {
   CrewDept,
   ScheduleBlock,
@@ -26,8 +27,15 @@ function startOf(block: ScheduleBlock): string {
   return block.startTime ?? block.time ?? ''
 }
 
-export default async function PublicCallSheetPage({ params }: { params: Promise<{ token: string }> }) {
-  const { token } = await params
+export default async function PublicCallSheetPage({
+  params,
+  searchParams,
+}: {
+  params:       Promise<{ token: string }>
+  searchParams: Promise<{ print?: string }>
+}) {
+  const [{ token }, sp] = await Promise.all([params, searchParams])
+  const autoPrint = sp.print === '1'
 
   // ── Rate limiting ─────────────────────────────────────────────────────────
   const reqHeaders = await headers()
@@ -99,6 +107,9 @@ export default async function PublicCallSheetPage({ params }: { params: Promise<
 
   return (
     <div className="min-h-screen bg-gray-50 pb-16">
+
+      {/* Auto-trigger print dialog when ?print=1 is set */}
+      {autoPrint && <PrintTrigger />}
 
       {/* ── Draft preview banner ── */}
       {isDraft && (

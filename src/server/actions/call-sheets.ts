@@ -487,29 +487,53 @@ export async function fetchLocationData(id: string): Promise<ActionResult<{
     let lng = cs.locationLng
 
     if (!lat || !lng) {
-      // Strip suite/unit/floor before geocoding — Nominatim can't resolve them
-      // and they cause "address not found" errors for otherwise valid addresses.
-      const geocodeAddr = cs.locationAddress
+      /** Try a single Nominatim query; returns [lat, lng] or null. */
+      async function nominatim(q: string): Promise<[number, number] | null> {
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`,
+            {
+              headers: {
+                'User-Agent': 'TTP-Budget/1.0 (budget.thethirdplace.co)',
+                'Accept-Language': 'en',
+              },
+            }
+          )
+          const data = (await res.json()) as Array<{ lat: string; lon: string }>
+          return data.length ? [parseFloat(data[0].lat), parseFloat(data[0].lon)] : null
+        } catch {
+          return null
+        }
+      }
+
+      // Pass 1 — strip suite/unit/floor which Nominatim can't resolve
+      const stripped = cs.locationAddress
         .replace(/\b(suite|ste|apt|apartment|unit|floor|fl|room|rm|#)\.?\s*[\w-]+/gi, '')
         .replace(/\s{2,}/g, ' ')
         .replace(/,\s*,/g, ',')
         .trim()
 
-      const geoRes = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(geocodeAddr)}`,
-        {
-          headers: {
-            'User-Agent': 'TTP-Budget/1.0 (budget.thethirdplace.co)',
-            'Accept-Language': 'en',
-          },
-        }
-      )
-      const geoData = (await geoRes.json()) as Array<{ lat: string; lon: string }>
-      if (!geoData.length) {
-        return { success: false, error: 'Could not find that address — try including city and state' }
+      let coords = await nominatim(stripped)
+
+      // Pass 2 — if that failed, extract only city + state/province + postal code
+      // e.g. "123 Main St, Suite 4, Los Angeles, CA 90001" → "Los Angeles, CA 90001"
+      if (!coords) {
+        const cityStateZip = cs.locationAddress
+          .split(',')
+          .map(s => s.trim())
+          .filter(s => /\d{5}|[A-Z]{2}/.test(s) || s.length > 3)
+          .slice(-3)   // last 3 comma segments are usually city, state, zip
+          .join(', ')
+        if (cityStateZip) coords = await nominatim(cityStateZip)
       }
-      lat = parseFloat(geoData[0].lat)
-      lng = parseFloat(geoData[0].lon)
+
+      if (!coords) {
+        return {
+          success: false,
+          error: 'Could not geocode this address — check that it includes a city and state, or try a nearby landmark',
+        }
+      }
+      ;[lat, lng] = coords
     }
 
     // ── 2 + 3. Overpass hospital + Open-Meteo weather — run in parallel ─────────

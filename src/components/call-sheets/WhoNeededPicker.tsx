@@ -103,10 +103,13 @@ export function WhoNeededPicker({ value, crew, talent, onChange }: Props) {
     return () => document.removeEventListener('mousedown', handle)
   }, [open])
 
-  // Close on scroll
+  // Close when the PAGE scrolls — but NOT when the user scrolls inside the dropdown itself
   useEffect(() => {
     if (!open) return
-    function handle() { setOpen(false) }
+    function handle(e: Event) {
+      if (portalRef.current?.contains(e.target as Node)) return
+      setOpen(false)
+    }
     window.addEventListener('scroll', handle, true)
     return () => window.removeEventListener('scroll', handle, true)
   }, [open])

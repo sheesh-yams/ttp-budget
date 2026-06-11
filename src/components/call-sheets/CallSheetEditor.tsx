@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   ChevronLeft, Check, Copy, ExternalLink, RefreshCw,
-  MapPin, Cloud, Hospital, AlertTriangle, Lock, Send, Eye,
+  MapPin, Cloud, Hospital, AlertTriangle, Lock, Send, Eye, Download,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -313,6 +313,17 @@ export function CallSheetEditor({
           >
             <Eye className="h-3 w-3" />
             Preview
+          </a>
+
+          {/* Download PDF — opens the public page with ?print=1 which auto-triggers window.print() */}
+          <a
+            href={`${publicUrl}?print=1`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-md border border-input px-3 py-1.5 text-xs font-medium hover:bg-muted transition-colors"
+          >
+            <Download className="h-3 w-3" />
+            Download PDF
           </a>
 
           {isLocked ? (
