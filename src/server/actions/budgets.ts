@@ -96,6 +96,9 @@ const lineItemSchema = z.object({
   quantityFormula: z.string().optional().nullable(),
   tags: z.array(z.string()).optional(),
   order: z.number().optional(),
+  // Explicit category — user can override or set manually; auto-populated from
+  // rate card category on create when not provided.
+  lineItemCategory: z.enum(['CREW', 'LOCATION', 'EQUIPMENT', 'SERVICE', 'DELIVERABLE']).optional().nullable(),
 })
 
 export async function upsertLineItem(
@@ -108,20 +111,32 @@ export async function upsertLineItem(
 
     let item
     if (id) {
-      item = await db.lineItem.update({ where: { id }, data })
+      // On update, apply explicit category if provided; otherwise leave existing
+      const { lineItemCategory: explicitCat, ...rest } = data
+      item = await db.lineItem.update({
+        where: { id },
+        data: {
+          ...rest,
+          ...(explicitCat !== undefined ? { lineItemCategory: explicitCat } : {}),
+        },
+      })
     } else {
-      let lineItemCategory: LineItemCategory | undefined
-      if (data.rateCardId) {
-        // Scoped lookup ensures rate card belongs to the active workspace.
+      // On create: explicit category takes priority; fall back to rate card lookup
+      let lineItemCategory: LineItemCategory | undefined =
+        data.lineItemCategory ?? undefined
+
+      if (!lineItemCategory && data.rateCardId) {
         const rc = await sdb.rateCard.findFirst({
           where: { id: data.rateCardId },
           select: { category: true },
         })
         if (rc) lineItemCategory = mapRateCategory(rc.category)
       }
+
+      const { lineItemCategory: _omit, ...createData } = data
       item = await db.lineItem.create({
         data: {
-          ...(data as Prisma.LineItemUncheckedCreateInput),
+          ...(createData as Prisma.LineItemUncheckedCreateInput),
           ...(lineItemCategory ? { lineItemCategory } : {}),
         },
       })

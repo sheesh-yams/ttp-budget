@@ -4,13 +4,22 @@ import { ProjectsPageClient } from '@/components/projects/ProjectsPageClient'
 
 export const metadata = { title: 'Projects — TTP Budget' }
 
-export default async function ProjectsPage() {
-  const workspaceId = await getWorkspaceId()
+export default async function ProjectsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ archived?: string }>
+}) {
+  const { archived } = await searchParams
+  const showArchived = archived === '1'
+  const workspaceId  = await getWorkspaceId()
 
   const [projects, clients, templates] = await Promise.all([
     db.project.findMany({
-      where: { workspaceId, status: { not: 'ARCHIVED' } },
-      orderBy: { createdAt: 'desc' },
+      where: {
+        workspaceId,
+        status: showArchived ? 'ARCHIVED' : { not: 'ARCHIVED' },
+      },
+      orderBy: showArchived ? { archivedAt: 'desc' } : { createdAt: 'desc' },
       include: {
         client: { select: { name: true } },
         _count: { select: { budgets: true, proposals: true, invoices: true } },
@@ -33,6 +42,7 @@ export default async function ProjectsPage() {
       projects={projects}
       clients={clients}
       templates={templates}
+      showArchived={showArchived}
     />
   )
 }

@@ -4,14 +4,15 @@ import { useState, useTransition, useEffect } from 'react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import {
   Plus, Trash2, ChevronRight, ChevronDown, Package,
-  Upload, GripVertical, Check, X, Pencil, Star, Copy,
+  Upload, GripVertical, Pencil, Star, Copy,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { AddLineItemModal } from './AddLineItemModal'
+import { LineItemModal } from './LineItemModal'
+import type { EditableLineItem } from './LineItemModal'
 import { InsertPackageModal } from './InsertPackageModal'
 import { BudgetSummaryBar } from './BudgetSummaryBar'
 import { BulkImportModal } from '@/components/budget/BulkImportModal'
@@ -42,16 +43,6 @@ const UNITS: { value: RateUnit; label: string }[] = [
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type LineItemRow = AccountWithItems['lineItems'][number]
-
-type EditItemState = {
-  item: LineItemRow
-  description: string
-  quantity: string
-  days: string       // multiplier: stored qty = quantity × days
-  unit: RateUnit
-  rate: string
-  notes: string
-}
 
 // Drag item carries its source account so we can detect cross-account drops
 type DragItem = { id: string; accountId: string }
@@ -525,11 +516,11 @@ function PhaseView({
       </div>
 
       {addingToAccount && (
-        <AddLineItemModal
+        <LineItemModal
           open
           onOpenChange={v => { if (!v) setAddingToAccount(null) }}
           accountId={addingToAccount}
-          onAdded={onMutated}
+          onSaved={onMutated}
         />
       )}
       <InsertPackageModal
@@ -577,11 +568,11 @@ function AccountRows({
   onItemDragOverHeader: () => void
   onItemDrop: () => void
 }) {
-  const [collapsed, setCollapsed]       = useState(false)
-  const [, startTransition]             = useTransition()
-  const [editingName, setEditingName]   = useState(false)
-  const [nameValue, setNameValue]       = useState(account.name)
-  const [editState, setEditState]       = useState<EditItemState | null>(null)
+  const [collapsed, setCollapsed]           = useState(false)
+  const [, startTransition]                 = useTransition()
+  const [editingName, setEditingName]       = useState(false)
+  const [nameValue, setNameValue]           = useState(account.name)
+  const [editModalItem, setEditModalItem]   = useState<EditableLineItem | null>(null)
   const { confirm: confirmDialog, ConfirmDialog } = useConfirm()
 
   const totalCents = sumAccount(account as unknown as AccountInput)
@@ -612,45 +603,20 @@ function AccountRows({
     })
   }
 
-  // ── Item inline edit ──────────────────────────────────────────────────────
-  function startEditItem(item: LineItemRow) {
-    // Restore A × B from saved formula (e.g. "3x2" → quantity:"3", days:"2")
-    const formula = item.quantityFormula
-    const match   = formula?.match(/^(\d+(?:\.\d+)?)[x×](\d+(?:\.\d+)?)$/)
-    setEditState({
-      item,
-      description: item.description,
-      quantity:    match ? match[1] : String(Number(item.quantity)),
-      days:        match ? match[2] : '1',
-      unit:        item.unit,
-      rate:        centsToRate(item.rateCents),
-      notes:       item.notes ?? '',
-    })
-  }
-
-  function saveEditItem() {
-    if (!editState) return
-    const perUnit   = parseFloat(editState.quantity)
-    const daysVal   = Math.max(1, parseInt(editState.days) || 1)
-    const baseQty   = isNaN(perUnit) || perUnit <= 0 ? Number(editState.item.quantity) : perUnit
-    const quantity  = baseQty * daysVal
-    const rateCents = rateToCents(editState.rate)
-    // Persist formula so re-opening shows A × B, not (A*B) × 1
-    const quantityFormula = daysVal > 1 ? `${baseQty}x${daysVal}` : null
-    startTransition(async () => {
-      await upsertLineItem(editState.item.id, {
-        accountId:       account.id,
-        description:     editState.description.trim() || editState.item.description,
-        quantity,
-        unit:            editState.unit,
-        rateCents:       isNaN(rateCents) ? editState.item.rateCents : rateCents,
-        rateCardId:      editState.item.rateCardId ?? null,
-        markupPct:       editState.item.markupPct ? Number(editState.item.markupPct) : null,
-        notes:           editState.notes.trim() || null,
-        quantityFormula,
-      })
-      setEditState(null)
-      onMutated()
+  // ── Item edit — opens the full LineItemModal ──────────────────────────────
+  function openEditModal(item: LineItemRow) {
+    setEditModalItem({
+      id:              item.id,
+      accountId:       account.id,
+      description:     item.description,
+      quantity:        Number(item.quantity),
+      unit:            item.unit,
+      rateCents:       item.rateCents,
+      rateCardId:      item.rateCardId ?? null,
+      markupPct:       item.markupPct != null ? Number(item.markupPct) : null,
+      notes:           item.notes ?? null,
+      quantityFormula: item.quantityFormula ?? null,
+      lineItemCategory: item.lineItemCategory as ('CREW' | 'LOCATION' | 'EQUIPMENT' | 'SERVICE' | 'DELIVERABLE') ?? null,
     })
   }
 
@@ -674,6 +640,12 @@ function AccountRows({
   return (
     <>
       {ConfirmDialog}
+      <LineItemModal
+        open={!!editModalItem}
+        onOpenChange={v => { if (!v) setEditModalItem(null) }}
+        editItem={editModalItem}
+        onSaved={() => { setEditModalItem(null); onMutated() }}
+      />
       {/* ── Account header row ─────────────────────────────────────────────── */}
       <tr
         className={[
@@ -787,25 +759,17 @@ function AccountRows({
 
       {/* ── Line item rows ─────────────────────────────────────────────────── */}
       {!collapsed && items.map(item => {
-        const isEditing = editState?.item.id === item.id
-        const es        = isEditing ? editState! : null
         const isBeingDragged = dragItem?.id === item.id
         const isDropBefore   =
           dropZone?.accountId === account.id &&
           dropZone.beforeItemId === item.id &&
           !isBeingDragged
 
-        const editDays     = isEditing ? (parseInt(es!.days) || 1) : 1
-        const displayTotal = isEditing
-          ? lineTotal((parseFloat(es!.quantity) || 0) * editDays, rateToCents(es!.rate))
-          : lineTotal(Number(item.quantity), item.rateCents, Number(item.markupPct) || null)
-
         return (
           <tr
             key={item.id}
             className={[
-              'group/item border-b transition-colors',
-              isEditing        ? 'bg-muted/30'     : 'hover:bg-muted/20',
+              'group/item border-b transition-colors hover:bg-muted/20',
               isBeingDragged   ? 'opacity-40'       : '',
               isDropBefore     ? 'border-t-2 border-t-violet-400' : '',
             ].join(' ')}
@@ -827,38 +791,30 @@ function AccountRows({
               <GripVertical className="h-3.5 w-3.5 text-muted-foreground/25 mx-auto" />
             </td>
 
-            {/* Description */}
+            {/* Description — click to open edit modal */}
             <td className="px-4 py-1.5" style={{ paddingLeft: `${indent + 36}px` }}>
-              {isEditing ? (
-                <input
-                  autoFocus
-                  className="w-full max-w-lg rounded border border-border bg-background px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-primary/40"
-                  value={es!.description}
-                  onChange={e => setEditState(s => s && { ...s, description: e.target.value })}
-                  onKeyDown={e => { if (e.key === 'Escape') setEditState(null) }}
-                />
-              ) : (
-                <span className="text-foreground/90">
+              <button
+                type="button"
+                onClick={() => openEditModal(item)}
+                className="group/desc text-left hover:text-primary transition-colors"
+              >
+                <span className="text-foreground/90 group-hover/desc:underline underline-offset-2 decoration-dotted">
                   {item.description}
-                  {item.notes && (
-                    <span className="ml-2 text-xs text-muted-foreground">({item.notes})</span>
-                  )}
                 </span>
-              )}
+                {item.lineItemCategory && (
+                  <span className="ml-2 inline-block rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-primary/8 text-primary/70">
+                    {item.lineItemCategory}
+                  </span>
+                )}
+                {item.notes && (
+                  <span className="ml-2 text-xs text-muted-foreground">({item.notes})</span>
+                )}
+              </button>
             </td>
 
-            {/* QTY — headcount (A from A×B formula). Dimmed when 1 (implied). */}
+            {/* QTY */}
             <td className="px-2 py-1.5 text-right">
-              {isEditing ? (
-                <input
-                  type="number" min="1" step="1"
-                  title="Headcount — how many people of this role"
-                  className="w-14 rounded border border-border bg-background px-1 py-1 text-right text-sm tabular outline-none focus:ring-1 focus:ring-primary/40"
-                  value={es!.quantity}
-                  onChange={e => setEditState(s => s && { ...s, quantity: e.target.value })}
-                  onKeyDown={e => { if (e.key === 'Escape') setEditState(null) }}
-                />
-              ) : (() => {
+              {(() => {
                 const [hc] = parseQtyFormula(Number(item.quantity), item.quantityFormula)
                 return (
                   <span className={`tabular ${hc === 1 ? 'text-foreground/25' : 'text-foreground/70'}`}>
@@ -868,34 +824,9 @@ function AccountRows({
               })()}
             </td>
 
-            {/* Unit — billing period (B days/weeks + unit type).
-                Edit: [days input] [unit dropdown] together in this cell. */}
+            {/* Unit */}
             <td className="px-3 py-1.5 text-right">
-              {isEditing ? (
-                <div className="flex items-center justify-end gap-1">
-                  <input
-                    type="number" min="1" step="1"
-                    title="Days / weeks on set"
-                    className="w-12 rounded border border-border bg-background px-1 py-1 text-right text-sm tabular outline-none focus:ring-1 focus:ring-primary/40"
-                    value={es!.days}
-                    onChange={e => setEditState(s => s && { ...s, days: e.target.value })}
-                    onKeyDown={e => { if (e.key === 'Escape') setEditState(null) }}
-                  />
-                  <Select
-                    value={es!.unit}
-                    onValueChange={v => setEditState(s => s && { ...s, unit: v as RateUnit })}
-                  >
-                    <SelectTrigger className="h-7 text-xs w-20">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {UNITS.map(u => (
-                        <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : (() => {
+              {(() => {
                 const [, days] = parseQtyFormula(Number(item.quantity), item.quantityFormula)
                 return (
                   <span className="text-xs text-muted-foreground">
@@ -907,62 +838,31 @@ function AccountRows({
 
             {/* Rate */}
             <td className="px-3 py-1.5 text-right">
-              {isEditing ? (
-                <input
-                  type="number" min="0" step="50"
-                  className="w-full rounded border border-border bg-background px-2 py-1 text-right text-sm tabular outline-none focus:ring-1 focus:ring-primary/40"
-                  value={es!.rate}
-                  onChange={e => setEditState(s => s && { ...s, rate: e.target.value })}
-                  onKeyDown={e => { if (e.key === 'Escape') setEditState(null) }}
-                />
-              ) : (
-                <span className="tabular text-foreground/70">{formatMoney(item.rateCents)}</span>
-              )}
+              <span className="tabular text-foreground/70">{formatMoney(item.rateCents)}</span>
             </td>
 
             {/* Total */}
             <td className="px-3 py-1.5 text-right tabular font-medium">
-              {formatMoney(displayTotal)}
+              {formatMoney(lineTotal(Number(item.quantity), item.rateCents, Number(item.markupPct) || null))}
             </td>
 
             {/* Actions */}
             <td className="px-2">
               <div className="flex items-center justify-end gap-0.5">
-                {isEditing ? (
-                  <>
-                    <button
-                      type="button" title="Save"
-                      className="rounded p-0.5 text-green-600 hover:bg-green-50"
-                      onClick={saveEditItem}
-                    >
-                      <Check className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button" title="Cancel"
-                      className="rounded p-0.5 text-muted-foreground hover:bg-muted"
-                      onClick={() => setEditState(null)}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      type="button" title="Edit"
-                      className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/item:opacity-100"
-                      onClick={() => startEditItem(item)}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button" title="Delete"
-                      className="rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      onClick={() => handleDeleteItem(item.id)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </>
-                )}
+                <button
+                  type="button" title="Edit"
+                  className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/item:opacity-100"
+                  onClick={() => openEditModal(item)}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button" title="Delete"
+                  className="rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => handleDeleteItem(item.id)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
               </div>
             </td>
           </tr>
