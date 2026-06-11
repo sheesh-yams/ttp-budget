@@ -1,210 +1,229 @@
 'use client'
 
-import { useState } from 'react'
-import Link from 'next/link'
-import { Plus, FolderOpen, Calendar, Archive, ArchiveRestore, ArrowLeft } from 'lucide-react'
+import { useCallback } from 'react'
+import { useRouter, usePathname, useSearchParams } from 'next/navigation'
+import { Plus, FolderOpen, LayoutGrid, List, ArrowUpDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { NewProjectModal } from './NewProjectModal'
-import { archiveProject, unarchiveProject } from '@/server/actions/projects'
-import type { Client, BudgetTemplate, ProjectStatus, ShootType } from '@prisma/client'
-
-const STATUS_COLORS: Record<ProjectStatus, string> = {
-  LEAD:     'bg-yellow-100 text-yellow-800',
-  ACTIVE:   'bg-green-100 text-green-800',
-  WRAPPED:  'bg-blue-100 text-blue-800',
-  ARCHIVED: 'bg-gray-100 text-gray-500',
-}
-
-const SHOOT_LABELS: Record<ShootType, string> = {
-  MUSIC_VIDEO:    'Music Video',
-  BRAND_CAMPAIGN: 'Brand Campaign',
-  PRODUCT_SHOOT:  'Product Shoot',
-  EVENT_RECAP:    'Event Recap',
-  SOCIAL_CONTENT: 'Social Content',
-  INFLUENCER:     'Influencer',
-  DOCUMENTARY:    'Documentary',
-  OTHER:          'Other',
-}
-
-interface Project {
-  id: string
-  name: string
-  status: ProjectStatus
-  shootType: ShootType
-  shootStartDate: Date | null
-  client: { name: string }
-  _count: { budgets: number; proposals: number; invoices: number }
-}
+import { ProjectMetricsStrip } from './ProjectMetricsStrip'
+import { ProjectStatusPills } from './ProjectStatusPills'
+import { ProjectCard } from './ProjectCard'
+import { ProjectsAttentionSidebar } from './ProjectsAttentionSidebar'
+import { useState } from 'react'
+import type {
+  ProjectForCard,
+  ProjectMetrics,
+  AttentionItem,
+  UpcomingShoot,
+  StatusCounts,
+  ViewMode,
+  SortKey,
+} from './projects-types'
+import type { Client, BudgetTemplate } from '@prisma/client'
 
 interface Props {
-  projects: Project[]
-  clients: Pick<Client, 'id' | 'name'>[]
-  templates: Pick<BudgetTemplate, 'id' | 'name' | 'shootType' | 'description'>[]
-  showArchived?: boolean
+  projects:      ProjectForCard[]
+  metrics:       ProjectMetrics
+  attentionItems: AttentionItem[]
+  upcomingShoots: UpcomingShoot[]
+  statusCounts:  StatusCounts
+  clients:       Pick<Client, 'id' | 'name'>[]
+  templates:     Pick<BudgetTemplate, 'id' | 'name' | 'shootType' | 'description'>[]
+  initialStatus: string
+  initialView:   ViewMode
+  initialSort:   string
 }
 
-export function ProjectsPageClient({ projects, clients, templates, showArchived = false }: Props) {
+const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: 'recent', label: 'Recently updated' },
+  { key: 'name',   label: 'Name A–Z' },
+  { key: 'shoot',  label: 'Shoot date' },
+]
+
+export function ProjectsPageClient({
+  projects,
+  metrics,
+  attentionItems,
+  upcomingShoots,
+  statusCounts,
+  clients,
+  templates,
+  initialStatus,
+  initialView,
+  initialSort,
+}: Props) {
+  const router       = useRouter()
+  const pathname     = usePathname()
+  const searchParams = useSearchParams()
+
   const [modalOpen, setModalOpen] = useState(false)
-  // IDs removed optimistically while archive/restore is in flight
-  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set())
 
-  const visible = projects.filter(p => !hiddenIds.has(p.id))
+  // ── URL-driven state ───────────────────────────────────────────────────────
+  const status = initialStatus
+  const view   = initialView
+  const sort   = initialSort as SortKey
 
-  async function handleArchive(e: React.MouseEvent, id: string) {
-    e.preventDefault()
-    e.stopPropagation()
-    setHiddenIds(prev => new Set([...prev, id]))
-    await archiveProject(id)
+  const navigate = useCallback(
+    (updates: Record<string, string | null>) => {
+      const params = new URLSearchParams(searchParams.toString())
+      for (const [k, v] of Object.entries(updates)) {
+        if (v === null || v === '') params.delete(k)
+        else params.set(k, v)
+      }
+      router.push(`${pathname}?${params.toString()}`)
+    },
+    [pathname, router, searchParams],
+  )
+
+  function setView(v: ViewMode) {
+    navigate({ view: v === 'grid' ? null : v })
+  }
+  function setSort(s: SortKey) {
+    navigate({ sort: s === 'recent' ? null : s })
   }
 
-  async function handleRestore(e: React.MouseEvent, id: string) {
-    e.preventDefault()
-    e.stopPropagation()
-    setHiddenIds(prev => new Set([...prev, id]))
-    await unarchiveProject(id)
-  }
+  // ── Filter + sort ─────────────────────────────────────────────────────────
+  const filtered = projects.filter(p => {
+    if (!status || status === 'all') return p.status !== 'ARCHIVED'
+    return p.status === status.toUpperCase()
+  })
+
+  const sorted = [...filtered].sort((a, b) => {
+    if (sort === 'name') {
+      return a.name.localeCompare(b.name)
+    }
+    if (sort === 'shoot') {
+      const da = a.shootStartDate ? new Date(a.shootStartDate).getTime() : Infinity
+      const db = b.shootStartDate ? new Date(b.shootStartDate).getTime() : Infinity
+      return da - db
+    }
+    // recent: by updatedAt desc (server already sent in this order, but re-sort client side for safety)
+    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  })
+
+  const showArchived = status === 'archived'
 
   return (
-    <div>
-      {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          {showArchived ? (
-            <>
-              <div className="mb-1 flex items-center gap-2">
-                <Link
-                  href="/projects"
-                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <ArrowLeft className="h-3 w-3" />
-                  Active projects
-                </Link>
-              </div>
-              <h1 className="text-2xl font-semibold text-foreground">Archived projects</h1>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {visible.length} {visible.length === 1 ? 'project' : 'projects'}
-              </p>
-            </>
-          ) : (
-            <>
-              <h1 className="text-2xl font-semibold text-foreground">Projects</h1>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {visible.length} {visible.length === 1 ? 'project' : 'projects'}
-                {' · '}
-                <Link
-                  href="/projects?archived=1"
-                  className="text-muted-foreground/60 hover:text-muted-foreground underline underline-offset-2 transition-colors"
-                >
-                  View archived
-                </Link>
-              </p>
-            </>
-          )}
-        </div>
+    <div className="min-h-screen bg-gray-50/50">
+      <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
 
-        {!showArchived && (
+        {/* ── Header ──────────────────────────────────────────────────────── */}
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Projects</h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {sorted.length} {sorted.length === 1 ? 'project' : 'projects'}
+              {status && status !== 'all' ? ` · ${status.charAt(0).toUpperCase() + status.slice(1)}` : ''}
+            </p>
+          </div>
           <Button onClick={() => setModalOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
             New project
           </Button>
-        )}
-      </div>
-
-      {/* Empty state */}
-      {visible.length === 0 && (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-20 text-center">
-          <FolderOpen className="mb-3 h-10 w-10 text-muted-foreground/40" />
-          {showArchived ? (
-            <>
-              <p className="font-medium text-foreground">No archived projects</p>
-              <p className="mt-1 text-sm text-muted-foreground">Projects you archive will appear here.</p>
-              <Link href="/projects">
-                <Button variant="outline" className="mt-4" size="sm">
-                  <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
-                  Back to active
-                </Button>
-              </Link>
-            </>
-          ) : (
-            <>
-              <p className="font-medium text-foreground">No projects yet</p>
-              <p className="mt-1 text-sm text-muted-foreground">Create your first project to get started.</p>
-              <Button className="mt-4" onClick={() => setModalOpen(true)}>
-                <Plus className="mr-2 h-4 w-4" />
-                New project
-              </Button>
-            </>
-          )}
         </div>
-      )}
 
-      {/* Project grid */}
-      {visible.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {visible.map(project => (
-            <div key={project.id} className="group relative">
-              <Link
-                href={`/projects/${project.id}`}
-                className="flex flex-col rounded-xl border bg-card p-4 shadow-sm transition-shadow hover:shadow-md h-full"
+        {/* ── Metrics strip ────────────────────────────────────────────────── */}
+        <ProjectMetricsStrip metrics={metrics} />
+
+        {/* ── Filters + view toggle ─────────────────────────────────────────  */}
+        <div className="flex flex-wrap items-center gap-3 justify-between">
+          <ProjectStatusPills statusCounts={statusCounts} current={status} />
+
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Sort picker */}
+            <div className="relative">
+              <select
+                value={sort}
+                onChange={e => setSort(e.target.value as SortKey)}
+                className="appearance-none pl-8 pr-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg text-gray-700 cursor-pointer hover:border-gray-300 transition-colors focus:outline-none focus:ring-2"
+                style={{ '--tw-ring-color': 'var(--brand-primary)' } as React.CSSProperties}
               >
-                {/* Status + type */}
-                <div className="mb-3 flex items-center gap-2">
-                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_COLORS[project.status]}`}>
-                    {project.status}
-                  </span>
-                  <span className="text-[11px] text-muted-foreground">
-                    {SHOOT_LABELS[project.shootType]}
-                  </span>
-                </div>
+                {SORT_OPTIONS.map(o => (
+                  <option key={o.key} value={o.key}>{o.label}</option>
+                ))}
+              </select>
+              <ArrowUpDown className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+            </div>
 
-                {/* Name */}
-                <h2 className="flex-1 text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
-                  {project.name}
-                </h2>
-
-                {/* Client */}
-                <p className="mt-1 text-xs text-muted-foreground">{project.client.name}</p>
-
-                {/* Shoot date */}
-                {project.shootStartDate && (
-                  <div className="mt-3 flex items-center gap-1 text-[11px] text-muted-foreground">
-                    <Calendar className="h-3 w-3" />
-                    {new Date(project.shootStartDate).toLocaleDateString('en-US', {
-                      month: 'short', day: 'numeric', year: 'numeric',
-                    })}
-                  </div>
-                )}
-
-                {/* Counts */}
-                <div className="mt-3 flex gap-3 border-t pt-3 text-[11px] text-muted-foreground">
-                  <span>{project._count.budgets} budget{project._count.budgets !== 1 ? 's' : ''}</span>
-                  <span>{project._count.proposals} proposal{project._count.proposals !== 1 ? 's' : ''}</span>
-                  <span>{project._count.invoices} invoice{project._count.invoices !== 1 ? 's' : ''}</span>
-                </div>
-              </Link>
-
-              {/* Archive / Restore button — hover reveal */}
+            {/* View toggle */}
+            <div className="flex items-center bg-white border border-gray-200 rounded-lg p-0.5">
               <button
-                type="button"
-                title={showArchived ? 'Restore project' : 'Archive project'}
-                onClick={e => showArchived ? handleRestore(e, project.id) : handleArchive(e, project.id)}
+                onClick={() => setView('grid')}
                 className={[
-                  'absolute top-3 right-3 rounded-md p-1.5 shadow-sm border transition-all',
-                  'opacity-0 group-hover:opacity-100',
-                  showArchived
-                    ? 'bg-background/90 text-muted-foreground hover:text-green-600 hover:border-green-200'
-                    : 'bg-background/90 text-muted-foreground hover:text-destructive hover:border-destructive/30',
+                  'p-1.5 rounded-md transition-colors',
+                  view === 'grid'
+                    ? 'text-white shadow-sm'
+                    : 'text-gray-400 hover:text-gray-700',
                 ].join(' ')}
+                style={view === 'grid' ? { background: 'var(--brand-primary)' } : undefined}
+                title="Grid view"
               >
-                {showArchived
-                  ? <ArchiveRestore className="h-3.5 w-3.5" />
-                  : <Archive className="h-3.5 w-3.5" />
-                }
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setView('list')}
+                className={[
+                  'p-1.5 rounded-md transition-colors',
+                  view === 'list'
+                    ? 'text-white shadow-sm'
+                    : 'text-gray-400 hover:text-gray-700',
+                ].join(' ')}
+                style={view === 'list' ? { background: 'var(--brand-primary)' } : undefined}
+                title="List view"
+              >
+                <List className="w-4 h-4" />
               </button>
             </div>
-          ))}
+          </div>
         </div>
-      )}
+
+        {/* ── Main content + sidebar ────────────────────────────────────────── */}
+        <div className="flex gap-6 items-start">
+
+          {/* Left: project grid / list */}
+          <div className="flex-1 min-w-0">
+            {sorted.length === 0 ? (
+              <EmptyState
+                isArchived={showArchived}
+                onNewProject={() => setModalOpen(true)}
+              />
+            ) : view === 'list' ? (
+              <div className="flex flex-col gap-2">
+                {sorted.map(p => (
+                  <ProjectCard key={p.id} project={p} view="list" />
+                ))}
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {sorted.map(p => (
+                  <ProjectCard key={p.id} project={p} view="grid" />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Right: attention sidebar (hidden below 1280px — shown as sticky panel) */}
+          <div className="hidden xl:block w-80 flex-shrink-0 sticky top-6">
+            <ProjectsAttentionSidebar
+              attentionItems={attentionItems}
+              upcomingShoots={upcomingShoots}
+              metrics={metrics}
+            />
+          </div>
+        </div>
+
+        {/* ── Attention sidebar: mobile/tablet drawer (below xl) ─────────── */}
+        {(attentionItems.length > 0 || upcomingShoots.length > 0) && (
+          <div className="xl:hidden">
+            <ProjectsAttentionSidebar
+              attentionItems={attentionItems}
+              upcomingShoots={upcomingShoots}
+              metrics={metrics}
+            />
+          </div>
+        )}
+
+      </div>
 
       <NewProjectModal
         open={modalOpen}
@@ -212,6 +231,44 @@ export function ProjectsPageClient({ projects, clients, templates, showArchived 
         clients={clients}
         templates={templates}
       />
+    </div>
+  )
+}
+
+// ── Empty states ────────────────────────────────────────────────────────────────
+
+function EmptyState({
+  isArchived,
+  onNewProject,
+}: {
+  isArchived: boolean
+  onNewProject: () => void
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-gray-200 py-24 text-center bg-white">
+      <div
+        className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
+        style={{ background: 'var(--brand-primary-light)' }}
+      >
+        <FolderOpen className="w-8 h-8" style={{ color: 'var(--brand-primary)' }} />
+      </div>
+      {isArchived ? (
+        <>
+          <p className="text-base font-semibold text-gray-900">No archived projects</p>
+          <p className="text-sm text-gray-500 mt-1">Projects you archive will appear here.</p>
+        </>
+      ) : (
+        <>
+          <p className="text-base font-semibold text-gray-900">No projects yet</p>
+          <p className="text-sm text-gray-500 mt-1 max-w-xs">
+            Create your first project to start tracking proposals, invoices, and call sheets.
+          </p>
+          <Button className="mt-5" onClick={onNewProject}>
+            <Plus className="mr-2 h-4 w-4" />
+            New project
+          </Button>
+        </>
+      )}
     </div>
   )
 }
