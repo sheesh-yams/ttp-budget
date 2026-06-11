@@ -289,10 +289,13 @@ export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved
           <div className="grid grid-cols-3 gap-3">
             <div className="grid gap-1.5">
               <Label>Category</Label>
-              <Select value={category} onValueChange={v => setCategory(v as LineItemCategory | '')}>
+              <Select
+                value={category || '__none__'}
+                onValueChange={v => setCategory(v === '__none__' ? '' : v as LineItemCategory)}
+              >
                 <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
+                  <SelectItem value="__none__">None</SelectItem>
                   {CATEGORIES.map(c => (
                     <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
                   ))}
