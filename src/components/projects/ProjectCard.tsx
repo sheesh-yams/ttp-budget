@@ -17,6 +17,7 @@ import {
   computeProgress,
   statusLabel,
   statusColor,
+  statusBadgeStyle,
   shootTypeLabel,
 } from './projects-types'
 
@@ -102,13 +103,16 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
   const isArchived = project.status === 'ARCHIVED'
 
   if (view === 'list') {
+    const listBadge = statusBadgeStyle(project.status)
     return (
       <div className="group relative bg-white border border-gray-100 rounded-xl px-4 py-3 flex items-center gap-4 hover:shadow-sm transition-all">
-        {/* Status dot */}
-        <div
-          className="w-2 h-2 rounded-full flex-shrink-0"
-          style={{ background: statusColor(project.status) }}
-        />
+        {/* Status badge */}
+        <span
+          className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
+          style={listBadge}
+        >
+          {statusLabel(project.status)}
+        </span>
 
         {/* Name + client */}
         <Link href={`/projects/${project.id}`} className="flex-1 min-w-0">
@@ -172,6 +176,8 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
   }
 
   // ── Grid card ────────────────────────────────────────────────────────────────
+  const badge = statusBadgeStyle(project.status)
+
   return (
     <div className="group relative bg-white border border-gray-100 rounded-2xl overflow-hidden hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
       {/* Colour bar */}
@@ -185,8 +191,8 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
         <div className="flex items-start justify-between gap-2 mb-3">
           <div className="flex flex-wrap items-center gap-1.5 min-w-0">
             <span
-              className="text-xs font-semibold px-2 py-0.5 rounded-full text-white"
-              style={{ background: statusColor(project.status) }}
+              className="text-xs font-semibold px-2 py-0.5 rounded-full"
+              style={badge}
             >
               {statusLabel(project.status)}
             </span>
@@ -201,7 +207,7 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
           </button>
         </div>
 
-        {/* Project name */}
+        {/* Project name + client */}
         <Link href={`/projects/${project.id}`} className="block group/link">
           <h3 className="font-bold text-gray-900 text-base leading-snug group-hover/link:text-[var(--brand-primary)] transition-colors line-clamp-2 mb-0.5">
             {project.name}
@@ -209,30 +215,25 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
           <p className="text-xs text-gray-400">{project.client.name}</p>
         </Link>
 
-        {/* Progress */}
-        <div className="mt-3 mb-2">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs text-gray-400">Progress</span>
-            <span className="text-xs font-semibold text-gray-600">{progress}%</span>
-          </div>
-          <ProgressBar progress={progress} />
-        </div>
-
-        {/* Shoot date */}
-        {shootDate && (
-          <div className="flex items-center gap-1.5 text-xs text-gray-500 mt-2">
+        {/* Shoot date — prominent, right under the name */}
+        {shootDate ? (
+          <div className="flex items-center gap-1.5 mt-2.5 mb-3">
             <Calendar className="w-3.5 h-3.5 flex-shrink-0 text-gray-400" />
-            <span>
-              {shootDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            <span className="text-xs font-medium text-gray-700">
+              {shootDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
             </span>
             {shootLabel && (
               <span
-                className="px-1.5 py-0.5 rounded text-xs font-medium"
+                className="text-xs font-semibold px-1.5 py-0.5 rounded"
                 style={{
-                  background: shootLabel === 'today' || shootLabel.startsWith('in')
+                  background: shootLabel === 'today'
+                    ? '#dcfce7'
+                    : shootLabel.startsWith('in')
                     ? 'var(--brand-primary-light)'
                     : '#f3f4f6',
-                  color: shootLabel === 'today' || shootLabel.startsWith('in')
+                  color: shootLabel === 'today'
+                    ? '#15803d'
+                    : shootLabel.startsWith('in')
                     ? 'var(--brand-primary)'
                     : '#6b7280',
                 }}
@@ -241,7 +242,20 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
               </span>
             )}
           </div>
+        ) : (
+          <div className="mt-2.5 mb-3">
+            <span className="text-xs text-gray-300">No shoot date</span>
+          </div>
         )}
+
+        {/* Progress */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs text-gray-400">Progress</span>
+            <span className="text-xs font-semibold text-gray-600">{progress}%</span>
+          </div>
+          <ProgressBar progress={progress} />
+        </div>
       </div>
 
       {/* Bottom stats bar */}
@@ -309,18 +323,15 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
 function ProgressBar({ progress }: { progress: number }) {
+  // Always brand-primary (purple) so the bar is visually consistent with
+  // the rest of the brand. Green only when the project is essentially done
+  // (paid invoice or wrapped) — a clear signal that no more action is needed.
+  const barColor = progress >= 85 ? '#10b981' : 'var(--brand-primary)'
   return (
     <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
       <div
         className="h-full rounded-full transition-all duration-500"
-        style={{
-          width: `${progress}%`,
-          background: progress >= 85
-            ? '#10b981'   // emerald - paid/wrapped
-            : progress >= 50
-            ? 'var(--brand-primary)'
-            : 'var(--brand-accent)',
-        }}
+        style={{ width: `${progress}%`, background: barColor }}
       />
     </div>
   )

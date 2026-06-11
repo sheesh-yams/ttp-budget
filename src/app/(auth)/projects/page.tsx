@@ -16,9 +16,13 @@ export default async function ProjectsPage({
     getWorkspaceId(),
   ])
 
-  const sdb      = await getScopedDb()
-  const now      = new Date()
-  const msPerDay = 86_400_000
+  const sdb         = await getScopedDb()
+  const now         = new Date()
+  const msPerDay    = 86_400_000
+  // Use start-of-today so projects with shootStartDate = today are included.
+  // Prisma stores dates as UTC midnight; comparing against `now` (mid-day) would
+  // exclude shoots that are actually today.
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
 
   // ── Quarter bounds ────────────────────────────────────────────────────────────
   const qMonth         = Math.floor(now.getMonth() / 3) * 3
@@ -171,10 +175,12 @@ export default async function ProjectsPage({
   )
 
   // ── Metrics ───────────────────────────────────────────────────────────────────
-  const activeProjects      = allProjects.filter(p => p.status === 'ACTIVE')
+  // "Open" = LEAD + ACTIVE (anything you're actively working or pitching)
+  const openProjects        = allProjects.filter(p => p.status === 'LEAD' || p.status === 'ACTIVE')
   const upcomingShootCutoff = new Date(now.getTime() + 30 * msPerDay)
   const upcomingShootCount  = allProjects.filter(
-    p => p.shootStartDate && p.shootStartDate >= now && p.shootStartDate <= upcomingShootCutoff,
+    // Use startOfToday so projects with shootDate = today are included
+    p => p.shootStartDate && p.shootStartDate >= startOfToday && p.shootStartDate <= upcomingShootCutoff,
   ).length
 
   const overdueCount = outstandingInvoices.filter(
@@ -201,7 +207,7 @@ export default async function ProjectsPage({
   const metrics: ProjectMetrics = {
     pipelineValueCents,
     pipelineCount:            pipelineProposals.length,
-    activeCount:              activeProjects.length,
+    activeCount:              openProjects.length,
     upcomingShootCount,
     outstandingCents,
     overdueCount,
@@ -259,8 +265,8 @@ export default async function ProjectsPage({
     // 3. Shoot in next 4 days with no SENT or FINAL call sheet
     if (
       project.shootStartDate &&
-      project.shootStartDate >= now &&
-      project.shootStartDate <= new Date(now.getTime() + FOUR_DAYS)
+      project.shootStartDate >= startOfToday &&
+      project.shootStartDate <= new Date(startOfToday.getTime() + FOUR_DAYS)
     ) {
       const hasSentSheet = project.callSheets.some(
         cs => cs.status === 'SENT' || cs.status === 'FINAL',
@@ -300,10 +306,10 @@ export default async function ProjectsPage({
     }
   }
 
-  // ── Upcoming shoots (next 28 days) ────────────────────────────────────────────
-  const upcomingCutoff = new Date(now.getTime() + 28 * msPerDay)
+  // ── Upcoming shoots (next 28 days, inclusive of today) ───────────────────────
+  const upcomingCutoff = new Date(startOfToday.getTime() + 28 * msPerDay)
   const upcomingShoots: UpcomingShoot[] = allProjects
-    .filter(p => p.shootStartDate && p.shootStartDate >= now && p.shootStartDate <= upcomingCutoff)
+    .filter(p => p.shootStartDate && p.shootStartDate >= startOfToday && p.shootStartDate <= upcomingCutoff)
     .sort((a, b) => (a.shootStartDate!.getTime()) - (b.shootStartDate!.getTime()))
     .map(p => ({
       projectId:   p.id,
@@ -337,7 +343,7 @@ export default async function ProjectsPage({
       templates={templates}
       initialStatus={resolvedParams.status ?? 'all'}
       initialView={resolvedParams.view === 'list' ? 'list' : 'grid'}
-      initialSort={resolvedParams.sort ?? 'recent'}
+      initialSort={resolvedParams.sort ?? 'shoot'}
     />
   )
 }

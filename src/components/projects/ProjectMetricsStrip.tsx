@@ -33,9 +33,9 @@ export function ProjectMetricsStrip({ metrics }: Props) {
           icon={<TrendingUp className="w-4 h-4" />}
         />
 
-        {/* Active projects */}
+        {/* Open projects (LEAD + ACTIVE) */}
         <MetricCard
-          label="Active Projects"
+          label="Open Projects"
           value={String(metrics.activeCount)}
           sub={
             metrics.upcomingShootCount > 0

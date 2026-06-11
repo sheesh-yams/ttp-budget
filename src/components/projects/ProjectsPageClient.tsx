@@ -35,9 +35,9 @@ interface Props {
 }
 
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: 'shoot',  label: 'Shoot date ↑' },
   { key: 'recent', label: 'Recently updated' },
   { key: 'name',   label: 'Name A–Z' },
-  { key: 'shoot',  label: 'Shoot date' },
 ]
 
 export function ProjectsPageClient({
@@ -79,7 +79,8 @@ export function ProjectsPageClient({
     navigate({ view: v === 'grid' ? null : v })
   }
   function setSort(s: SortKey) {
-    navigate({ sort: s === 'recent' ? null : s })
+    // 'shoot' is the default — remove the param to keep URLs clean
+    navigate({ sort: s === 'shoot' ? null : s })
   }
 
   // ── Filter + sort ─────────────────────────────────────────────────────────

@@ -111,14 +111,40 @@ export function computeProgress(project: ProjectForCard): number {
   return 5
 }
 
-/** Return a color token (CSS var name) for a given status */
+/** Return a color token for the status colour bar / dot (always opaque) */
 export function statusColor(status: string): string {
   switch (status) {
     case 'LEAD':     return 'var(--brand-accent)'
     case 'ACTIVE':   return 'var(--brand-primary)'
-    case 'WRAPPED':  return '#6b7280'   // gray-500
-    case 'ARCHIVED': return '#9ca3af'   // gray-400
+    case 'WRAPPED':  return '#6b7280'
+    case 'ARCHIVED': return '#9ca3af'
     default:         return 'var(--brand-primary)'
+  }
+}
+
+/**
+ * Badge background + text colour — contrast-safe.
+ *
+ * For LEAD (mint accent), we use a light tint bg + dark accent text so the
+ * badge is readable regardless of how light the brand accent is.
+ * `color-mix` blends the CSS variable with white at build time in the browser,
+ * so it automatically adapts when the workspace brand colour changes.
+ */
+export function statusBadgeStyle(status: string): { background: string; color: string } {
+  switch (status) {
+    case 'LEAD':
+      return {
+        background: 'color-mix(in srgb, var(--brand-accent) 18%, white)',
+        color:      'var(--brand-accent-dark)',
+      }
+    case 'ACTIVE':
+      return { background: 'var(--brand-primary)', color: '#ffffff' }
+    case 'WRAPPED':
+      return { background: '#6b7280', color: '#ffffff' }
+    case 'ARCHIVED':
+      return { background: '#e5e7eb', color: '#6b7280' }
+    default:
+      return { background: 'var(--brand-primary)', color: '#ffffff' }
   }
 }
 
