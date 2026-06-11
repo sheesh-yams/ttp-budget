@@ -490,13 +490,48 @@ export async function updateProposalStatus(
     const sdb = await getScopedDb()
     const proposal = await sdb.proposal.findFirst({
       where: { id: proposalId },
-      select: { projectId: true },
+      select: {
+        projectId: true,
+        project: { select: { status: true } },
+      },
     })
+
     await sdb.proposal.update({
       where: { id: proposalId },
       data:  { status: status as Parameters<typeof sdb.proposal.update>[0]['data']['status'] },
     })
+
+    // ── Auto-advance project status based on proposal outcome ─────────────────
+    if (proposal) {
+      const projectStatus = (proposal.project as unknown as { status: string }).status
+
+      if (status === 'APPROVED' && projectStatus === 'LEAD') {
+        // Won proposal → promote project Lead → Active
+        await sdb.project.update({
+          where: { id: proposal.projectId },
+          data:  { status: 'ACTIVE' },
+        })
+      } else if (['LOST', 'DECLINED', 'EXPIRED'].includes(status) && projectStatus === 'ACTIVE') {
+        // Proposal lost/declined — drop back to Lead only if no other
+        // approved proposals remain on this project
+        const otherApproved = await sdb.proposal.count({
+          where: {
+            projectId: proposal.projectId,
+            id:        { not: proposalId },
+            status:    'APPROVED',
+          },
+        })
+        if (otherApproved === 0) {
+          await sdb.project.update({
+            where: { id: proposal.projectId },
+            data:  { status: 'LEAD' },
+          })
+        }
+      }
+    }
+
     revalidatePath('/proposals')
+    revalidatePath('/projects')
     if (proposal) revalidatePath(`/projects/${proposal.projectId}`)
     return { success: true, data: undefined }
   } catch {
