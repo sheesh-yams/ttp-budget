@@ -219,6 +219,15 @@ export function CallSheetEditor({
   // ── Fetch location data ───────────────────────────────────────────────────────
 
   async function handleFetchLocation() {
+    // If hospital info is already populated, confirm before overwriting
+    if (hospital) {
+      const ok = await confirmDialog(
+        `"${hospital.name}" is already set as the nearest hospital. Re-fetching will replace it with a new search.`,
+        { title: 'Overwrite hospital info?', confirmLabel: 'Re-fetch', key: 'refetch-hospital' },
+      )
+      if (!ok) return
+    }
+
     setFetchError('')
     setFetching(true)
     try {
