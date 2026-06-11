@@ -1,10 +1,12 @@
 'use client'
 
-import { useState, useTransition } from 'react'
-import { Plus, Mail, Phone, Clock, Edit2, Trash2, BookUser, FileText } from 'lucide-react'
+import { useState, useTransition, useRef, useEffect } from 'react'
+import { Plus, Mail, Phone, Clock, Edit2, Trash2, BookUser, FileText, Search, X } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import Link from 'next/link'
+import { createPortal } from 'react-dom'
 import { removeProjectMember, updateProjectMember, type ProjectMemberRow, type MemberFormData } from '@/server/actions/project-members'
+import { searchContacts, type ContactSearchResult } from '@/server/actions/rolodex'
 import { AddMemberModal } from './AddMemberModal'
 
 const UNIT_SHORT: Record<string, string> = {
@@ -284,21 +286,77 @@ function EditRow({
   onCancel:  () => void
 }) {
   const [isPending, startTransition] = useTransition()
+  const [name,       setName]       = useState(member.name)
+  const [contactId,  setContactId]  = useState<string | null>(member.contactId ?? null)
   const [role,       setRole]       = useState(member.role)
   const [department, setDepartment] = useState(member.department ?? '')
   const [email,      setEmail]      = useState(member.email ?? '')
   const [phone,      setPhone]      = useState(member.phone ?? '')
   const [callTime,   setCallTime]   = useState(member.callTime ?? '')
   const [rateCents,  setRateCents]  = useState(member.rateCents != null ? String(member.rateCents / 100) : '')
-  const [rateUnit, setRateUnit] = useState<MemberFormData['rateUnit']>(
+  const [rateUnit,   setRateUnit]   = useState<MemberFormData['rateUnit']>(
     (member.rateUnit as MemberFormData['rateUnit']) ?? 'DAY'
   )
+
+  // Rolodex name search
+  const [nameResults,   setNameResults]   = useState<ContactSearchResult[]>([])
+  const [nameOpen,      setNameOpen]      = useState(false)
+  const [namePos,       setNamePos]       = useState<{ top: number; left: number; width: number } | null>(null)
+  const [mounted,       setMounted]       = useState(false)
+  const nameInputRef   = useRef<HTMLInputElement>(null)
+  const namePortalRef  = useRef<HTMLDivElement>(null)
+  const nameDebounce   = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => setMounted(true), [])
+
+  // Close name dropdown on outside click
+  useEffect(() => {
+    if (!nameOpen) return
+    function handle(e: MouseEvent) {
+      const t = e.target as Node
+      if (nameInputRef.current?.contains(t)) return
+      if (namePortalRef.current?.contains(t)) return
+      setNameOpen(false)
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [nameOpen])
+
+  function handleNameChange(v: string) {
+    setName(v)
+    setContactId(null) // unlink contact when manually editing
+    if (nameDebounce.current) clearTimeout(nameDebounce.current)
+    if (!v.trim()) { setNameResults([]); setNameOpen(false); return }
+    nameDebounce.current = setTimeout(async () => {
+      const results = await searchContacts(v)
+      setNameResults(results)
+      if (results.length > 0 && nameInputRef.current) {
+        const rect = nameInputRef.current.getBoundingClientRect()
+        setNamePos({ top: rect.bottom + 4, left: rect.left, width: Math.max(rect.width, 240) })
+        setNameOpen(true)
+      }
+    }, 200)
+  }
+
+  function selectContact(c: ContactSearchResult) {
+    setName(c.name)
+    setContactId(c.id)
+    if (!role.trim() || role === 'Unassigned') setRole(c.primaryRole)
+    if (!email.trim()) setEmail(c.email ?? '')
+    if (!phone.trim()) setPhone(c.phone ?? '')
+    if (!rateCents.trim() && c.defaultRateCents != null) {
+      setRateCents(String(c.defaultRateCents / 100))
+      setRateUnit((c.defaultRateUnit as MemberFormData['rateUnit']) ?? 'DAY')
+    }
+    setNameResults([])
+    setNameOpen(false)
+  }
 
   function handleSave() {
     startTransition(async () => {
       const data: MemberFormData = {
-        contactId:  member.contactId,
-        name:       member.name,
+        contactId,
+        name:       name.trim() || member.name,
         role:       role.trim(),
         department: department.trim() || null,
         email:      email.trim() || null,
@@ -313,9 +371,87 @@ function EditRow({
     })
   }
 
+  const nameDropdown = mounted && nameOpen && namePos && nameResults.length > 0
+    ? createPortal(
+        <div
+          ref={namePortalRef}
+          style={{ position: 'fixed', top: namePos.top, left: namePos.left, width: namePos.width, zIndex: 9999 }}
+          className="rounded-lg border bg-card shadow-xl overflow-hidden"
+        >
+          {/* Header */}
+          <div
+            className="flex items-center gap-1.5 px-2.5 py-1.5"
+            style={{ background: 'var(--brand-primary, #5D00A4)' }}
+          >
+            <BookUser className="h-3 w-3 text-white/70" />
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-white">Rolodex</span>
+          </div>
+          {nameResults.map((c, i) => (
+            <button
+              key={c.id}
+              type="button"
+              onMouseDown={e => { e.preventDefault(); selectContact(c) }}
+              className={`flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-muted/60 transition-colors ${i > 0 ? 'border-t border-border/30' : ''}`}
+            >
+              <div
+                className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                style={{ background: 'var(--brand-primary, #5D00A4)' }}
+              >
+                {c.name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-foreground leading-tight">{c.name}</p>
+                <p className="text-[10px] text-muted-foreground">{c.primaryRole}</p>
+              </div>
+              {c.defaultRateCents != null && (
+                <span className="text-[10px] text-muted-foreground shrink-0">
+                  ${(c.defaultRateCents / 100).toLocaleString()}/{c.defaultRateUnit.toLowerCase()}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>,
+        document.body
+      )
+    : null
+
   return (
     <tr className="bg-primary/4">
       <td colSpan={5} className="px-4 py-3">
+        {/* Name row — full width with Rolodex search */}
+        <div className="mb-2">
+          <label className="mb-1 block text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+            Name
+            {contactId && (
+              <span className="ml-2 normal-case text-[9px] font-normal text-primary/70 inline-flex items-center gap-0.5">
+                <BookUser className="h-2.5 w-2.5" /> Linked to Rolodex
+              </span>
+            )}
+          </label>
+          <div className="relative">
+            <Search className="pointer-events-none absolute inset-y-0 left-2 my-auto h-3 w-3 text-muted-foreground" />
+            <input
+              ref={nameInputRef}
+              value={name}
+              onChange={e => handleNameChange(e.target.value)}
+              placeholder="Type to search Rolodex…"
+              className="w-full rounded border bg-background pl-6 pr-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-primary/40"
+            />
+            {contactId && (
+              <button
+                type="button"
+                title="Unlink from Rolodex"
+                onClick={() => setContactId(null)}
+                className="absolute inset-y-0 right-1.5 my-auto text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+          {nameDropdown}
+        </div>
+
+        {/* Other fields grid */}
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
           <div>
             <label className="mb-1 block text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Role</label>

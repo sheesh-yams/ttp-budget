@@ -1,12 +1,15 @@
 'use client'
 
 import { Plus, X, ChevronUp, ChevronDown } from 'lucide-react'
-import type { ScheduleBlock } from '@/server/actions/call-sheets'
+import type { ScheduleBlock, CrewDept, TalentMember } from '@/server/actions/call-sheets'
+import { WhoNeededPicker } from './WhoNeededPicker'
 
 interface Props {
   schedule: ScheduleBlock[]
   onChange: (schedule: ScheduleBlock[]) => void
   readonly?: boolean
+  crew?:     CrewDept[]
+  talent?:   TalentMember[]
 }
 
 /** Normalise a block so startTime is always defined (backward-compat with old `time` field). */
@@ -21,7 +24,7 @@ function addMinutes(hhmm: string, mins: number): string {
   return `${String(Math.floor(total / 60) % 24).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
 }
 
-export function ScheduleEditor({ schedule, onChange, readonly = false }: Props) {
+export function ScheduleEditor({ schedule, onChange, readonly = false, crew = [], talent = [] }: Props) {
   function add() {
     const last = schedule.at(-1)
     const lastEnd = last?.endTime ?? startOf(last ?? { startTime: '07:00', label: '' })
@@ -144,11 +147,11 @@ export function ScheduleEditor({ schedule, onChange, readonly = false }: Props) 
             />
 
             {/* Who's needed */}
-            <input
-              placeholder="Who&apos;s needed…"
+            <WhoNeededPicker
               value={block.whoNeeded ?? ''}
-              onChange={e => update(i, 'whoNeeded', e.target.value)}
-              className="flex-1 rounded-md border border-input bg-transparent px-2 py-1.5 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              crew={crew}
+              talent={talent}
+              onChange={v => update(i, 'whoNeeded', v)}
             />
 
             {/* Remove */}

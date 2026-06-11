@@ -642,6 +642,8 @@ export function CallSheetEditor({
           <ScheduleEditor
             schedule={schedule}
             readonly={isLocked}
+            crew={crew}
+            talent={talent}
             onChange={s => { setSchedule(s); markDirty() }}
           />
         </Section>
