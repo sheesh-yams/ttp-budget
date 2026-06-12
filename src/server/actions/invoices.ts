@@ -7,6 +7,7 @@ import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
 import { generateInvoiceNumber } from '@/lib/invoice-numbering'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
+import { logAuditEvent } from '@/lib/audit'
 
 const createSchema = z.object({
   projectId: z.string(),
@@ -86,12 +87,28 @@ export async function markInvoicePaid(
   paymentRef?: string
 ): Promise<ActionResult> {
   try {
-    const scopedDb = await getScopedDb()
+    const [scopedDb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+    const invoice = await scopedDb.invoice.findFirst({
+      where: { id: invoiceId },
+      select: { workspaceId: true, totalCents: true },
+    })
     await scopedDb.invoice.update({
       where: { id: invoiceId },
       data: { status: 'PAID', paidAt: new Date(), paymentMethod: paymentMethod ?? null, paymentRef: paymentRef ?? null },
     })
     revalidatePath('/dashboard')
+
+    if (invoice) {
+      await logAuditEvent({
+        workspaceId: invoice.workspaceId,
+        actorId:     user.id,
+        action:      'invoice.paid',
+        entityType:  'Invoice',
+        entityId:    invoiceId,
+        metadata:    { totalCents: invoice.totalCents, paymentMethod: paymentMethod ?? null },
+      })
+    }
+
     return { success: true, data: undefined }
   } catch {
     return { success: false, error: 'Failed to mark as paid' }
@@ -100,7 +117,11 @@ export async function markInvoicePaid(
 
 export async function sendInvoice(invoiceId: string): Promise<ActionResult<{ publicUrl: string }>> {
   try {
-    const scopedDb = await getScopedDb()
+    const [scopedDb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+    const existing = await scopedDb.invoice.findFirst({
+      where: { id: invoiceId },
+      select: { workspaceId: true },
+    })
     const invoice = await scopedDb.invoice.update({
       where: { id: invoiceId },
       data: {
@@ -110,6 +131,17 @@ export async function sendInvoice(invoiceId: string): Promise<ActionResult<{ pub
       } as unknown as Parameters<typeof scopedDb.invoice.update>[0]['data'],
     })
     const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL}/i/${(invoice as unknown as { publicToken: string }).publicToken}`
+
+    if (existing) {
+      await logAuditEvent({
+        workspaceId: existing.workspaceId,
+        actorId:     user.id,
+        action:      'invoice.sent',
+        entityType:  'Invoice',
+        entityId:    invoiceId,
+      })
+    }
+
     return { success: true, data: { publicUrl } }
   } catch {
     return { success: false, error: 'Failed to send invoice' }

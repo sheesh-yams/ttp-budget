@@ -7,6 +7,7 @@ import { getWorkspaceId, getCurrentUser, getActiveWorkspace } from '@/lib/auth'
 import { sendInvitationEmail } from '@/lib/email'
 import type { ActionResult } from '@/types'
 import type { UserRole } from '@prisma/client'
+import { logAuditEvent } from '@/lib/audit'
 
 // WorkspaceInvitation is a new model — types are generated after `prisma generate`.
 // Until then, cast db to include the accessor.
@@ -158,6 +159,15 @@ export async function inviteTeamMember(
     })
 
     revalidatePath('/team')
+
+    await logAuditEvent({
+      workspaceId,
+      actorId:    currentUser.id,
+      action:     'member.invited',
+      entityType: 'Member',
+      metadata:   { email: normalizedEmail, role },
+    })
+
     return { success: true, data: undefined }
   } catch (err) {
     console.error('[inviteTeamMember]', err)
@@ -225,6 +235,14 @@ export async function acceptInvitation(token: string): Promise<ActionResult<{ wo
     await dbi.workspaceInvitation.update({
       where: { token },
       data:  { acceptedAt: new Date() },
+    })
+
+    await logAuditEvent({
+      workspaceId: workspace.id,
+      actorId:     null,       // Clerk userId available but not our DB User.id yet
+      action:      'member.joined',
+      entityType:  'Member',
+      metadata:    { email: invitation.email, role: invitation.role },
     })
 
     return { success: true, data: { workspaceName: workspace.name } }

@@ -7,6 +7,7 @@ import type { ScopedDb } from '@/lib/db-scoped'
 import { getCurrentUser } from '@/lib/auth'
 import { sumAccount, type AccountInput } from '@/lib/totals'
 import type { ActionResult, ProposalDiscount } from '@/types'
+import { logAuditEvent } from '@/lib/audit'
 
 function uid() { return crypto.randomUUID().slice(0, 8) }
 
@@ -172,10 +173,10 @@ export async function updateProposalContent(
 
 export async function sendProposal(proposalId: string): Promise<ActionResult<{ publicUrl: string }>> {
   try {
-    const sdb = await getScopedDb()
+    const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const existing = await sdb.proposal.findFirst({
       where: { id: proposalId },
-      select: { budgetId: true, content: true },
+      select: { budgetId: true, content: true, workspaceId: true },
     })
     if (!existing) return { success: false, error: 'Proposal not found' }
     const discount = (existing.content as { discount?: ProposalDiscount }).discount
@@ -194,6 +195,15 @@ export async function sendProposal(proposalId: string): Promise<ActionResult<{ p
     })
     const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL}/p/${(proposal as unknown as { publicToken: string }).publicToken}`
     revalidatePath(`/proposals/${proposalId}/edit`)
+
+    await logAuditEvent({
+      workspaceId: (existing as unknown as { workspaceId: string }).workspaceId,
+      actorId:     user.id,
+      action:      'proposal.sent',
+      entityType:  'Proposal',
+      entityId:    proposalId,
+    })
+
     return { success: true, data: { publicUrl } }
   } catch {
     return { success: false, error: 'Failed to send proposal' }
@@ -494,11 +504,12 @@ export async function updateProposalStatus(
   status: string
 ): Promise<ActionResult> {
   try {
-    const sdb = await getScopedDb()
+    const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const proposal = await sdb.proposal.findFirst({
       where: { id: proposalId },
       select: {
-        projectId: true,
+        projectId:   true,
+        workspaceId: true,
         project: { select: { status: true } },
       },
     })
@@ -540,6 +551,18 @@ export async function updateProposalStatus(
     revalidatePath('/proposals')
     revalidatePath('/projects')
     if (proposal) revalidatePath(`/projects/${proposal.projectId}`)
+
+    // Audit notable status transitions
+    if (proposal && (status === 'LOST' || status === 'APPROVED')) {
+      await logAuditEvent({
+        workspaceId: (proposal as unknown as { workspaceId: string }).workspaceId,
+        actorId:     user.id,
+        action:      status === 'LOST' ? 'proposal.lost' : 'proposal.approved',
+        entityType:  'Proposal',
+        entityId:    proposalId,
+      })
+    }
+
     return { success: true, data: undefined }
   } catch {
     return { success: false, error: 'Failed to update status' }

@@ -4,6 +4,7 @@ import { db } from '@/lib/db'
 import { z } from 'zod'
 import { headers } from 'next/headers'
 import { sendProposalApprovedEmail } from '@/lib/email'
+import { logAuditEvent } from '@/lib/audit'
 
 const schema = z.object({
   signatureName: z.string().min(2).max(120),
@@ -80,6 +81,21 @@ export async function POST(
   // Bust server cache so the Kanban reflects APPROVED → Closed immediately
   revalidatePath('/proposals')
   revalidatePath(`/projects/${proposal.projectId}`)
+
+  // Audit: public client approval — actorId = 'public' (no user session)
+  await logAuditEvent({
+    workspaceId: proposal.workspaceId,
+    actorId:     'public',
+    action:      'proposal.approved',
+    entityType:  'Proposal',
+    entityId:    proposal.id,
+    metadata: {
+      signatureName:     signatureName,
+      signatureIp:       ip,
+      approvedTotalCents: approvedTotal ?? undefined,
+      publicToken:       proposalToken,
+    },
+  })
 
   return NextResponse.json({ status: 'approved', approvedAt: now })
 }

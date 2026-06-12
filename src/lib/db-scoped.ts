@@ -46,6 +46,8 @@ const SCOPED_MODELS = new Set([
   'Account',
   'LineItem',
   'ProjectMember',
+  // A9: audit log — workspaceId plain column (no FK), same injection pattern
+  'AuditEvent',
 ])
 
 // Operations that read data — inject workspaceId into `where`

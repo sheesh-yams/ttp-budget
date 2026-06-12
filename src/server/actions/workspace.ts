@@ -9,6 +9,7 @@ import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import { seedWorkspaceFromGlobals, reseedWorkspaceFromGlobals } from '@/lib/workspace-seeder'
 import { put, del } from '@vercel/blob'
+import { logAuditEvent } from '@/lib/audit'
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -303,9 +304,18 @@ export async function leaveWorkspace(): Promise<ActionResult> {
 }
 
 /**
- * OWNER ONLY: permanently delete the active workspace + all its data.
- * Producers are blocked at both the UI layer (DangerZone hides the button)
- * and here at the server action layer so it can never be bypassed.
+ * OWNER ONLY: soft-delete the active workspace.
+ *
+ * What happens immediately:
+ *   1. Clerk org is deleted → all members lose access (auth().orgId → null).
+ *   2. DB workspace gets `deletedAt = now()` — invisible to getScopedDb() and
+ *      getWorkspaceId() (which now filters `deletedAt: null`).
+ *
+ * Hard purge: a Vercel Cron job (`/api/cron/purge-workspaces`) deletes workspaces
+ * where `deletedAt < now() - 30 days`. Data is fully restorable during grace.
+ *
+ * Producers are blocked at both the UI layer (DangerZone hides the button) and
+ * here at the server action layer so it can never be bypassed.
  */
 export async function deleteWorkspace(confirmName: string): Promise<ActionResult> {
   try {
@@ -316,17 +326,34 @@ export async function deleteWorkspace(confirmName: string): Promise<ActionResult
     // Server-side role guard — this is the authoritative check.
     if (user.role !== 'OWNER') return { success: false, error: 'Only workspace owners can delete a workspace.' }
 
-    const workspace = await db.workspace.findFirst({ where: { clerkOrgId: orgId }, select: { id: true, name: true } })
+    const workspace = await db.workspace.findFirst({
+      where: { clerkOrgId: orgId, deletedAt: null } as Parameters<typeof db.workspace.findFirst>[0]['where'],
+      select: { id: true, name: true },
+    })
     if (!workspace) return { success: false, error: 'Workspace not found' }
     if (workspace.name.trim().toLowerCase() !== confirmName.trim().toLowerCase()) {
       return { success: false, error: 'Workspace name does not match' }
     }
 
     const clerk = await clerkClient()
-    // Delete Clerk org first (removes all memberships)
+    // 1. Delete the Clerk org — all members lose access immediately.
     await clerk.organizations.deleteOrganization(orgId)
-    // Cascade-delete all workspace data
-    await db.workspace.delete({ where: { id: workspace.id } })
+
+    // 2. Soft-delete the DB record. Hard-purge happens after 30 days via cron.
+    await db.workspace.update({
+      where: { id: workspace.id },
+      data:  { deletedAt: new Date(), clerkOrgId: null } as Parameters<typeof db.workspace.update>[0]['data'],
+    })
+
+    // 3. Write audit event (best-effort — after the main operation).
+    await logAuditEvent({
+      workspaceId: workspace.id,
+      actorId:     user.id,
+      action:      'workspace.delete_requested',
+      entityType:  'Workspace',
+      entityId:    workspace.id,
+      metadata:    { workspaceName: workspace.name },
+    })
 
     redirect('/sign-in')
   } catch (err) {

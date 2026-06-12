@@ -1,13 +1,16 @@
 import { db } from '@/lib/db'
 import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
+import { getRecentAuditEvents } from '@/lib/audit'
 import { SettingsForm } from '@/components/settings/SettingsForm'
 import { DangerZone } from '@/components/settings/DangerZone'
 import { WorkspaceDataSection } from '@/components/settings/WorkspaceDataSection'
+import { ActivityFeed } from '@/components/settings/ActivityFeed'
 
 export const metadata = { title: 'Settings — TTP Budget' }
 
 export default async function SettingsPage() {
   const [user, workspaceId] = await Promise.all([getCurrentUser(), getWorkspaceId()])
+  const auditEvents = await getRecentAuditEvents(workspaceId, 10)
 
   const workspace = await db.workspace.findUniqueOrThrow({
     where: { id: workspaceId },
@@ -56,6 +59,14 @@ export default async function SettingsPage() {
       <SettingsForm workspace={settings} />
 
       <WorkspaceDataSection />
+
+      <section className="mt-8">
+        <h2 className="text-base font-semibold text-foreground mb-1">Recent activity</h2>
+        <p className="text-sm text-muted-foreground mb-3">
+          Last 10 workspace events — read-only audit log.
+        </p>
+        <ActivityFeed events={auditEvents} />
+      </section>
 
       <DangerZone
         workspaceName={workspace.name}

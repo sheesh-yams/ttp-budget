@@ -72,8 +72,8 @@ export const getWorkspaceId = cache(async () => {
   const { orgId } = await auth()
 
   if (orgId) {
-    const workspace = await db.workspace.findUnique({
-      where: { clerkOrgId: orgId },
+    const workspace = await db.workspace.findFirst({
+      where: { clerkOrgId: orgId, deletedAt: null } as Parameters<typeof db.workspace.findFirst>[0]['where'],
       select: { id: true },
     })
     if (workspace) return workspace.id

@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/purge-workspaces",
+      "schedule": "0 3 * * *"
+    }
+  ]
+}

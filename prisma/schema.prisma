@@ -66,6 +66,9 @@ model Workspace {
   // Clerk organization that owns this workspace (set after org creation webhook)
   clerkOrgId        String?  @unique
 
+  // Soft-delete: set at deletion request; hard-purged after 30-day grace via Vercel Cron.
+  deletedAt         DateTime?
+
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -864,4 +867,30 @@ model WorkspaceInvitation {
 
   @@index([workspaceId])
   @@index([token])
+}
+
+// =============================================================
+// AUDIT LOG — workspace activity feed
+// =============================================================
+
+// Plain workspaceId column (no FK) so audit events survive workspace soft-delete
+// during the 30-day grace period. Hard-purge cron job deletes events first.
+model AuditEvent {
+  id          String   @id @default(cuid())
+  workspaceId String   // plain column — no FK constraint
+
+  // Who did it. Null = system/cron. 'public' = unauthenticated (e.g. client approval).
+  actorId     String?
+
+  action      String   // 'proposal.sent', 'proposal.approved', 'invoice.paid', etc.
+  entityType  String?  // 'Proposal', 'Invoice', 'CallSheet', 'Workspace', 'Member'
+  entityId    String?
+
+  // Arbitrary context: { token, ip, totalCents, email, role } etc.
+  metadata    Json?
+
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([workspaceId, createdAt(sort: Desc)])
 }

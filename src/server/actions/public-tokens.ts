@@ -2,6 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { getScopedDb } from '@/lib/db-scoped'
+import { getCurrentUser } from '@/lib/auth'
+import { logAuditEvent } from '@/lib/audit'
 import type { ActionResult } from '@/types'
 
 function days(n: number) {
@@ -14,8 +16,8 @@ export async function regenerateProposalToken(
   proposalId: string
 ): Promise<ActionResult<{ token: string }>> {
   try {
-    const sdb = await getScopedDb()
-    const existing = await sdb.proposal.findFirst({ where: { id: proposalId }, select: { id: true } })
+    const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+    const existing = await sdb.proposal.findFirst({ where: { id: proposalId }, select: { id: true, workspaceId: true } })
     if (!existing) return { success: false, error: 'Proposal not found' }
 
     const updated = await sdb.proposal.update({
@@ -28,6 +30,15 @@ export async function regenerateProposalToken(
     })
 
     revalidatePath(`/projects`)
+
+    await logAuditEvent({
+      workspaceId: (existing as unknown as { workspaceId: string }).workspaceId,
+      actorId:     user.id,
+      action:      'token.regenerated',
+      entityType:  'Proposal',
+      entityId:    proposalId,
+    })
+
     return { success: true, data: { token: (updated as unknown as { publicToken: string }).publicToken } }
   } catch {
     return { success: false, error: 'Failed to regenerate link' }
@@ -40,8 +51,8 @@ export async function regenerateInvoiceToken(
   invoiceId: string
 ): Promise<ActionResult<{ token: string }>> {
   try {
-    const sdb = await getScopedDb()
-    const existing = await sdb.invoice.findFirst({ where: { id: invoiceId }, select: { id: true } })
+    const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+    const existing = await sdb.invoice.findFirst({ where: { id: invoiceId }, select: { id: true, workspaceId: true } })
     if (!existing) return { success: false, error: 'Invoice not found' }
 
     const updated = await sdb.invoice.update({
@@ -54,6 +65,15 @@ export async function regenerateInvoiceToken(
     })
 
     revalidatePath(`/invoices`)
+
+    await logAuditEvent({
+      workspaceId: (existing as unknown as { workspaceId: string }).workspaceId,
+      actorId:     user.id,
+      action:      'token.regenerated',
+      entityType:  'Invoice',
+      entityId:    invoiceId,
+    })
+
     return { success: true, data: { token: (updated as unknown as { publicToken: string }).publicToken } }
   } catch {
     return { success: false, error: 'Failed to regenerate link' }
@@ -66,8 +86,8 @@ export async function regenerateCallSheetToken(
   callSheetId: string
 ): Promise<ActionResult<{ token: string }>> {
   try {
-    const sdb = await getScopedDb()
-    const existing = await sdb.callSheet.findFirst({ where: { id: callSheetId }, select: { id: true } })
+    const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+    const existing = await sdb.callSheet.findFirst({ where: { id: callSheetId }, select: { id: true, workspaceId: true } })
     if (!existing) return { success: false, error: 'Call sheet not found' }
 
     const updated = await sdb.callSheet.update({
@@ -80,6 +100,15 @@ export async function regenerateCallSheetToken(
     })
 
     revalidatePath(`/projects`)
+
+    await logAuditEvent({
+      workspaceId: (existing as unknown as { workspaceId: string }).workspaceId,
+      actorId:     user.id,
+      action:      'token.regenerated',
+      entityType:  'CallSheet',
+      entityId:    callSheetId,
+    })
+
     return { success: true, data: { token: (updated as unknown as { publicToken: string }).publicToken } }
   } catch {
     return { success: false, error: 'Failed to regenerate link' }
