@@ -1,12 +1,13 @@
 'use client'
 
-import { Plus, X, ChevronDown, ChevronRight, BookUser, Check } from 'lucide-react'
+import { Plus, X, ChevronDown, ChevronRight, BookUser, Check, Link2 } from 'lucide-react'
 import { useState } from 'react'
 import type { CrewDept, CrewMember } from '@/server/actions/call-sheets'
-import { createContact } from '@/server/actions/rolodex'
+import { createContact, patchContactField } from '@/server/actions/rolodex'
+import { useConfirm } from '@/components/ui/confirm-dialog'
 import { RolodexNameInput, type RolodexContact } from './RolodexNameInput'
 
-// ── Add-to-Rolodex button ──────────────────────────────────────────────────────
+// ── Add-to-Rolodex button (free-text rows only) ────────────────────────────────
 
 function RolodexBtn({ name, role, phone, email }: { name: string; role: string; phone?: string; email?: string }) {
   const [state, setState] = useState<'idle' | 'loading' | 'done'>('idle')
@@ -53,6 +54,36 @@ function RolodexBtn({ name, role, phone, email }: { name: string; role: string; 
   )
 }
 
+// ── Linked-contact badge (rows with contactId) ────────────────────────────────
+// Shows a chain icon indicating this row is linked to a Rolodex contact.
+// Clicking it syncs the row's current phone + email back to the contact.
+
+interface LinkedBtnProps {
+  member: CrewMember
+  onSyncRequest: (contactId: string, contactName: string, phone: string | null, email: string | null) => void
+}
+
+function LinkedBtn({ member, onSyncRequest }: LinkedBtnProps) {
+  return (
+    <button
+      type="button"
+      onClick={e => {
+        e.preventDefault()
+        onSyncRequest(
+          member.contactId!,
+          member.name,
+          member.phone?.trim() || null,
+          member.email?.trim() || null,
+        )
+      }}
+      title="Linked to Rolodex — click to sync phone/email"
+      className="rounded p-0.5 text-emerald-600 hover:bg-emerald-50 transition-colors opacity-0 group-hover/member:opacity-100"
+    >
+      <Link2 className="h-3 w-3" />
+    </button>
+  )
+}
+
 interface Props {
   crew:            CrewDept[]
   onChange:        (crew: CrewDept[]) => void
@@ -62,6 +93,7 @@ interface Props {
 
 export function CrewEditor({ crew, onChange, readonly = false, rolodexContacts = [] }: Props) {
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
+  const { confirm, ConfirmDialog } = useConfirm()
 
   function toggleCollapse(i: number) {
     setCollapsed(prev => {
@@ -114,16 +146,32 @@ export function CrewEditor({ crew, onChange, readonly = false, rolodexContacts =
           members: d.members.map((m, mIdx) => mIdx === memberIdx
             ? {
                 ...m,
-                name:     contact.name,
-                role:     m.role || contact.primaryRole,
-                phone:    m.phone || contact.phone || '',
-                email:    m.email || contact.email || '',
+                name:      contact.name,
+                role:      m.role || contact.primaryRole,
+                phone:     m.phone || contact.phone || '',
+                email:     m.email || contact.email || '',
+                contactId: contact.id,
               }
             : m
           ),
         }
       : d
     ))
+  }
+
+  async function handleSyncRequest(
+    contactId: string,
+    contactName: string,
+    phone: string | null,
+    email: string | null,
+  ) {
+    const ok = await confirm(
+      `Push this row's phone/email to ${contactName}'s Rolodex entry?`,
+      { title: 'Sync to Rolodex?', confirmLabel: 'Update contact', key: 'sync-contact' },
+    )
+    if (!ok) return
+    await patchContactField(contactId, 'phone', phone)
+    await patchContactField(contactId, 'email', email)
   }
 
   if (readonly) {
@@ -245,12 +293,10 @@ export function CrewEditor({ crew, onChange, readonly = false, rolodexContacts =
                     >
                       <X className="h-3 w-3" />
                     </button>
-                    <RolodexBtn
-                      name={m.name}
-                      role={m.role}
-                      phone={m.phone}
-                      email={m.email}
-                    />
+                    {m.contactId
+                      ? <LinkedBtn member={m} onSyncRequest={handleSyncRequest} />
+                      : <RolodexBtn name={m.name} role={m.role} phone={m.phone} email={m.email} />
+                    }
                   </div>
                 ))}
 
@@ -276,6 +322,8 @@ export function CrewEditor({ crew, onChange, readonly = false, rolodexContacts =
         <Plus className="h-3.5 w-3.5" />
         Add department
       </button>
+
+      {ConfirmDialog}
     </div>
   )
 }

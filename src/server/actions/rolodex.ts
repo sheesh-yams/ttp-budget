@@ -328,6 +328,108 @@ export async function mergeContacts(
   }
 }
 
+// ── Single contact with history ───────────────────────────────────────────────
+
+export async function getContactById(id: string) {
+  const sdb = await getScopedDb()
+  return sdb.contact.findFirst({
+    where: { id, archivedAt: null },
+    select: {
+      id:               true,
+      name:             true,
+      primaryRole:      true,
+      secondaryRoles:   true,
+      email:            true,
+      phone:            true,
+      instagram:        true,
+      website:          true,
+      notes:            true,
+      avatarUrl:        true,
+      defaultRateCents: true,
+      defaultRateUnit:  true,
+      createdAt:        true,
+      projectMembers: {
+        select: {
+          role:     true,
+          rateCents: true,
+          rateUnit:  true,
+          project: {
+            select: {
+              id:             true,
+              name:           true,
+              status:         true,
+              shootStartDate: true,
+            },
+          },
+        },
+      },
+    },
+  })
+}
+
+export type ContactDetail = NonNullable<Awaited<ReturnType<typeof getContactById>>>
+
+// Patch a single phone or email field on a contact — used by call sheet editors
+// when crew/talent rows are linked to a Rolodex contact.
+export async function patchContactField(
+  contactId: string,
+  field: 'phone' | 'email',
+  value: string | null,
+): Promise<ActionResult<void>> {
+  try {
+    const sdb = await getScopedDb()
+    await sdb.contact.update({
+      where: { id: contactId },
+      data:  { [field]: value ?? null },
+    })
+    revalidatePath('/rolodex')
+    revalidatePath(`/rolodex/${contactId}`)
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to update contact' }
+  }
+}
+
+// Scan all call sheets for rows linked to a given contact (via contactId in JSON).
+// Returns lightweight call sheet + project records for display on the contact detail page.
+export async function getContactCallSheets(contactId: string) {
+  const sdb = await getScopedDb()
+  const callSheets = await sdb.callSheet.findMany({
+    select: {
+      id:        true,
+      title:     true,
+      shootDate: true,
+      status:    true,
+      crew:      true,
+      talent:    true,
+      project: {
+        select: { id: true, name: true },
+      },
+    },
+    orderBy: { shootDate: 'desc' },
+  })
+
+  // Filter in-app: scan crew + talent JSON for this contactId
+  return callSheets.filter(cs => {
+    const crewGroups = (cs.crew as { members?: { contactId?: string }[] }[]) ?? []
+    const hasCrew = crewGroups.some(g =>
+      g.members?.some(m => m.contactId === contactId)
+    )
+    if (hasCrew) return true
+    const talent = (cs.talent as { contactId?: string }[]) ?? []
+    return talent.some(t => t.contactId === contactId)
+  }).map(cs => ({
+    id:          cs.id,
+    title:       cs.title,
+    shootDate:   cs.shootDate,
+    status:      cs.status,
+    projectId:   cs.project.id,
+    projectName: cs.project.name,
+  }))
+}
+
+export type ContactCallSheet = Awaited<ReturnType<typeof getContactCallSheets>>[number]
+
 // ── Crew roles — sourced from CREW rate cards ─────────────────────────────────
 // Used to populate role dropdowns in ContactModal and the Rolodex filter.
 

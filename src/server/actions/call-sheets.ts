@@ -162,6 +162,7 @@ export interface CrewMember {
   callTime: string   // "HH:MM"
   phone?: string
   email?: string
+  contactId?: string // Rolodex contact link (optional)
 }
 
 export interface CrewDept {
@@ -176,6 +177,7 @@ export interface TalentMember {
   callTime: string   // "HH:MM"
   phone?: string
   email?: string
+  contactId?: string // Rolodex contact link (optional)
 }
 
 export interface PointOfContact {

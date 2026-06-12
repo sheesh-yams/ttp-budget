@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { Mail, Phone, Instagram, Globe, Edit2, Archive } from 'lucide-react'
+import Link from 'next/link'
+import { Mail, Phone, Instagram, Globe, Edit2, Archive, ExternalLink } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { archiveContact, type ContactRow } from '@/server/actions/rolodex'
 import { ContactModal } from './ContactModal'
@@ -60,6 +61,13 @@ export function ContactCard({ contact, crewRoles = [], onArchived }: Props) {
       <div className="group relative rounded-xl border bg-card shadow-sm hover:shadow-md transition-shadow overflow-hidden">
         {/* Action buttons — revealed on hover */}
         <div className="absolute top-2.5 right-2.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+          <Link
+            href={`/rolodex/${contact.id}`}
+            className="rounded-md bg-background/90 p-1.5 text-muted-foreground hover:text-foreground shadow-sm border transition-colors"
+            title="View details"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </Link>
           <button
             onClick={() => setEditing(true)}
             className="rounded-md bg-background/90 p-1.5 text-muted-foreground hover:text-foreground shadow-sm border transition-colors"
