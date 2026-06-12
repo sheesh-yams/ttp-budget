@@ -256,6 +256,13 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
           </div>
           <ProgressBar progress={progress} />
         </div>
+
+        {/* Burn bar — only shown when actuals exist */}
+        {project.actualSpentCents > 0 && project.budgetTotalCents > 0 && (
+          <div className="mt-2">
+            <BurnBar spentCents={project.actualSpentCents} budgetCents={project.budgetTotalCents} />
+          </div>
+        )}
       </div>
 
       {/* Bottom stats bar */}
@@ -333,6 +340,28 @@ function ProgressBar({ progress }: { progress: number }) {
         className="h-full rounded-full transition-all duration-500"
         style={{ width: `${progress}%`, background: barColor }}
       />
+    </div>
+  )
+}
+
+function BurnBar({ spentCents, budgetCents }: { spentCents: number; budgetCents: number }) {
+  const pct     = Math.min((spentCents / budgetCents) * 100, 100)
+  const over100 = spentCents > budgetCents
+  const barColor = over100 ? '#ef4444' : pct >= 80 ? '#f59e0b' : '#10b981'
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[10px] text-gray-400">Burn</span>
+        <span className={`text-[10px] font-medium ${over100 ? 'text-red-500' : 'text-gray-500'}`}>
+          {formatMoney(spentCents)} / {formatMoney(budgetCents)}
+        </span>
+      </div>
+      <div className="w-full bg-gray-100 rounded-full h-1 overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${pct}%`, background: barColor }}
+        />
+      </div>
     </div>
   )
 }

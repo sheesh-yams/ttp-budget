@@ -732,6 +732,11 @@ model ActualSheet {
   @@index([budgetId])
 }
 
+enum ActualStatus {
+  PENDING
+  APPROVED
+}
+
 model ActualEntry {
   id            String      @id @default(cuid())
   actualSheetId String
@@ -742,11 +747,16 @@ model ActualEntry {
   lineItemId  String?  // null = ad-hoc / unplanned entry
   accountId   String?  // which account this belongs to (for grouping in the UI)
 
-  description String
-  actualCents Int      @default(0)  // what was actually spent on this line
-  notes       String?  @db.Text
-  isAdHoc     Boolean  @default(false)  // true = not present in the original budget
-  order       Int      @default(0)
+  description     String
+  actualCents     Int          @default(0)   // what was actually spent on this line
+  notes           String?      @db.Text
+  isAdHoc         Boolean      @default(false) // true = not present in the original budget
+  order           Int          @default(0)
+
+  // F1 additions
+  date            DateTime?                    // date of expense / shoot day
+  vendorContactId String?                      // soft ref to Contact.id (no FK — contacts are soft-deleted)
+  status          ActualStatus @default(PENDING)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

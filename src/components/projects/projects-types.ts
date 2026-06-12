@@ -45,6 +45,9 @@ export interface ProjectForCard {
   proposals: ProjectProposalSnap[]
   invoices: ProjectInvoiceSnap[]
   callSheets: ProjectCallSheetSnap[]
+  // F1: actuals burn bar (0 if no actuals sheet)
+  actualSpentCents: number
+  budgetTotalCents: number
 }
 
 export interface ProjectMetrics {

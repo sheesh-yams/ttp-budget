@@ -47,6 +47,8 @@ export default async function ProjectsPage({
     wonThisQ,
     wonLastQ,
     outstandingInvoices,
+    actualsSheets,
+    primaryLineItems,
     pipelineProposals,
   ] = await Promise.all([
 
@@ -130,6 +132,22 @@ export default async function ProjectsPage({
       select: { id: true, totalCents: true, dueDate: true, status: true },
     }),
 
+    // ── Actuals: sum of actualCents per project ───────────────────────────────
+    // Each project can have at most one ActualSheet; we sum all entries for it.
+    sdb.actualSheet.findMany({
+      select: {
+        projectId: true,
+        entries:   { select: { actualCents: true } },
+      },
+    }),
+
+    // ── Primary phase line items for budget total ─────────────────────────────
+    // Used to show burn % on cards that have an actuals sheet.
+    sdb.lineItem.findMany({
+      where: { account: { phase: { isPrimary: true } } },
+      select: { quantity: true, rateCents: true, account: { select: { phase: { select: { budget: { select: { projectId: true } } } } } } },
+    }),
+
     // ── Pipeline proposals with phase line items ──────────────────────────────
     sdb.proposal.findMany({
       where: { status: { in: ['SENT', 'VIEWED'] } },
@@ -173,6 +191,29 @@ export default async function ProjectsPage({
     (sum, li) => sum + Math.round(Number(li.quantity) * li.rateCents),
     0,
   )
+
+  // ── Burn bar: merge actuals + budget totals into project cards ───────────────
+  // actualSpentCents: sum of all ActualEntry.actualCents for the project's sheet
+  const actualSpentByProject = new Map<string, number>()
+  for (const sheet of actualsSheets) {
+    const sum = sheet.entries.reduce((s, e) => s + e.actualCents, 0)
+    actualSpentByProject.set(sheet.projectId, (actualSpentByProject.get(sheet.projectId) ?? 0) + sum)
+  }
+
+  // budgetTotalCents: crude sum of qty * rate on primary phase line items
+  const budgetTotalByProject = new Map<string, number>()
+  for (const li of primaryLineItems) {
+    const projectId = li.account?.phase?.budget?.projectId
+    if (!projectId) continue
+    const lineCents = Math.round(Number(li.quantity) * li.rateCents)
+    budgetTotalByProject.set(projectId, (budgetTotalByProject.get(projectId) ?? 0) + lineCents)
+  }
+
+  const projectsWithBurn = allProjects.map(p => ({
+    ...p,
+    actualSpentCents: actualSpentByProject.get(p.id) ?? 0,
+    budgetTotalCents: budgetTotalByProject.get(p.id) ?? 0,
+  }))
 
   // ── Metrics ───────────────────────────────────────────────────────────────────
   // "Open" = LEAD + ACTIVE (anything you're actively working or pitching)
@@ -334,7 +375,7 @@ export default async function ProjectsPage({
 
   return (
     <ProjectsPageClient
-      projects={allProjects as unknown as ProjectForCard[]}
+      projects={projectsWithBurn as unknown as ProjectForCard[]}
       metrics={metrics}
       attentionItems={attentionItems}
       upcomingShoots={upcomingShoots}

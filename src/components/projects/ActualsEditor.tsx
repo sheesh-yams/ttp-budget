@@ -2,7 +2,8 @@
 
 import { useState, useTransition, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2, ChevronRight, ChevronDown, TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import Link from 'next/link'
+import { Plus, Trash2, ChevronRight, ChevronDown, TrendingUp, TrendingDown, BarChart3, CheckCircle2, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   createActualSheet,
@@ -75,7 +76,7 @@ export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents 
   )
   // Which account is showing the "add unplanned" form
   const [addingToAccount, setAddingToAccount] = useState<string | null>(null)
-  const [adHocForm, setAdHocForm] = useState({ description: '', actual: '' })
+  const [adHocForm, setAdHocForm] = useState({ description: '', actual: '', date: '', status: 'PENDING' as 'PENDING' | 'APPROVED' })
   const [adHocSaving, startAdHocSave] = useTransition()
 
   if (!budget || !phase) {
@@ -166,13 +167,15 @@ export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents 
         accountId,
         description: adHocForm.description.trim(),
         actualCents: cents,
+        date: adHocForm.date ? new Date(adHocForm.date) : null,
+        status: adHocForm.status,
       })
       if (result.success) {
         const entry = result.data
         setAdHocEntries(prev => [...prev, entry])
         setActuals(prev => ({ ...prev, [entry.id]: entry.actualCents }))
         setInputValues(prev => ({ ...prev, [entry.id]: displayDollar(entry.actualCents) }))
-        setAdHocForm({ description: '', actual: '' })
+        setAdHocForm({ description: '', actual: '', date: '', status: 'PENDING' })
         setAddingToAccount(null)
       }
     })
@@ -191,6 +194,17 @@ export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents 
 
   return (
     <div className="space-y-6">
+
+      {/* ── Header with Wrap Report button ────────────────────────────────── */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-foreground">Actuals Tracker</h2>
+        <Link href={`/projects/${project.id}/actuals/wrap`}>
+          <Button variant="outline" size="sm" className="gap-1.5">
+            <BarChart3 className="h-4 w-4" />
+            Wrap Report
+          </Button>
+        </Link>
+      </div>
 
       {/* ── Summary bar ───────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -271,12 +285,12 @@ interface AccountSectionProps {
   inputValues:        Record<string, string>
   saving:             Set<string>
   addingToAccount:    string | null
-  adHocForm:          { description: string; actual: string }
+  adHocForm:          { description: string; actual: string; date: string; status: 'PENDING' | 'APPROVED' }
   adHocSaving:        boolean
   onInputChange:      (id: string, val: string) => void
   onInputBlur:        (id: string) => void
   onSetAddingToAccount: (id: string | null) => void
-  onAdHocFormChange:  (f: { description: string; actual: string }) => void
+  onAdHocFormChange:  (f: { description: string; actual: string; date: string; status: 'PENDING' | 'APPROVED' }) => void
   onAddAdHoc:         (accountId: string) => void
   onDeleteAdHoc:      (id: string) => void
 }
@@ -374,6 +388,8 @@ function AccountSection({
               actualCents={actuals[entry.id] ?? 0}
               isSaving={saving.has(entry.id)}
               isAdHoc
+              entryDate={entry.date}
+              entryStatus={entry.status}
               onInputChange={v => onInputChange(entry.id, v)}
               onInputBlur={() => onInputBlur(entry.id)}
               onDelete={() => onDeleteAdHoc(entry.id)}
@@ -382,7 +398,7 @@ function AccountSection({
 
           {/* Inline add-row form */}
           {addingToAccount === account.id ? (
-            <div className="flex items-center gap-2 border-t px-4 py-2 bg-muted/20">
+            <div className="flex flex-wrap items-center gap-2 border-t px-4 py-2 bg-muted/20">
               <input
                 autoFocus
                 type="text"
@@ -390,7 +406,13 @@ function AccountSection({
                 value={adHocForm.description}
                 onChange={e => onAdHocFormChange({ ...adHocForm, description: e.target.value })}
                 onKeyDown={e => e.key === 'Escape' && onSetAddingToAccount(null)}
-                className="flex-1 rounded border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                className="flex-1 min-w-[140px] rounded border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+              <input
+                type="date"
+                value={adHocForm.date}
+                onChange={e => onAdHocFormChange({ ...adHocForm, date: e.target.value })}
+                className="rounded border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
               />
               <div className="relative flex-shrink-0 w-28">
                 <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
@@ -406,6 +428,18 @@ function AccountSection({
                   className="w-full rounded border border-border bg-background pl-5 pr-2 py-1 text-right text-sm tabular focus:outline-none focus:ring-1 focus:ring-ring"
                 />
               </div>
+              <button
+                type="button"
+                onClick={() => onAdHocFormChange({ ...adHocForm, status: adHocForm.status === 'APPROVED' ? 'PENDING' : 'APPROVED' })}
+                className={`flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors ${
+                  adHocForm.status === 'APPROVED'
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                }`}
+              >
+                {adHocForm.status === 'APPROVED' ? <CheckCircle2 className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
+                {adHocForm.status === 'APPROVED' ? 'Approved' : 'Pending'}
+              </button>
               <Button
                 size="sm"
                 onClick={() => onAddAdHoc(account.id)}
@@ -419,7 +453,7 @@ function AccountSection({
             <div className="border-t px-4 py-2">
               <button
                 onClick={() => {
-                  onAdHocFormChange({ description: '', actual: '' })
+                  onAdHocFormChange({ description: '', actual: '', date: '', status: 'PENDING' })
                   onSetAddingToAccount(account.id)
                 }}
                 className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -473,6 +507,8 @@ interface LineRowProps {
   actualCents:    number
   isSaving:       boolean
   isAdHoc:        boolean
+  entryDate?:     Date | null
+  entryStatus?:   'PENDING' | 'APPROVED'
   onInputChange?: (val: string) => void
   onInputBlur?:   () => void
   onDelete?:      () => void
@@ -481,7 +517,8 @@ interface LineRowProps {
 function LineRow({
   description, budgetedCents, entryId,
   inputValue, actualCents, isSaving,
-  isAdHoc, onInputChange, onInputBlur, onDelete,
+  isAdHoc, entryDate, entryStatus,
+  onInputChange, onInputBlur, onDelete,
 }: LineRowProps) {
   const [focused, setFocused] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -489,13 +526,26 @@ function LineRow({
   return (
     <div className="grid grid-cols-[1fr_auto] items-center gap-2 px-4 py-2 hover:bg-muted/20 sm:grid-cols-[1fr_120px_140px_110px]">
       {/* Description */}
-      <div className="flex min-w-0 items-center gap-2">
-        {isAdHoc && (
-          <span className="flex-shrink-0 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium text-violet-700">
-            Unplanned
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <div className="flex items-center gap-2 min-w-0">
+          {isAdHoc && (
+            <span className="flex-shrink-0 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium text-violet-700">
+              Unplanned
+            </span>
+          )}
+          {isAdHoc && entryStatus === 'APPROVED' && (
+            <span className="flex-shrink-0 flex items-center gap-0.5 rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-medium text-green-700">
+              <CheckCircle2 className="h-2.5 w-2.5" />
+              Approved
+            </span>
+          )}
+          <span className="truncate text-sm text-foreground">{description}</span>
+        </div>
+        {isAdHoc && entryDate && (
+          <span className="text-[11px] text-muted-foreground pl-0.5">
+            {new Date(entryDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
           </span>
         )}
-        <span className="truncate text-sm text-foreground">{description}</span>
       </div>
 
       {/* Budgeted */}
