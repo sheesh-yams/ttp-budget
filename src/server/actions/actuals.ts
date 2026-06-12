@@ -212,7 +212,6 @@ export async function addAdHocEntry(
     // Count existing entries to set order
     const count = await db.actualEntry.count({ where: { actualSheetId: sheetId } })
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const createFn = db.actualEntry.create as unknown as (args: { data: Record<string, unknown> }) => Promise<ActualEntryDb>
     const entry = await createFn({
       // Cast needed until `prisma generate` runs with the F1 schema additions
