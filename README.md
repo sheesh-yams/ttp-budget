@@ -95,7 +95,7 @@ Rate cards are the **source of defaults** but never retroactively change histori
 | `/dashboard` | Outstanding invoices, recent projects, draft proposals |
 | `/clients` | Client list |
 | `/clients/[id]` | Client detail + project history |
-| `/projects` | Active project grid. "View archived" link → `/projects?archived=1` |
+| `/projects` | Operational dashboard — metrics strip (pipeline, open projects, outstanding invoices, won this quarter), status filter pills, rich project cards, attention sidebar |
 | `/projects?archived=1` | Archived project grid with one-click restore |
 | `/projects/[id]` | Project hub — budgets, proposals, invoices, call sheets, proposal overview |
 | `/projects/[id]/team` | Per-project crew list. Seed from proposal/budget with one click. |
@@ -117,7 +117,7 @@ Rate cards are the **source of defaults** but never retroactively change histori
 |-------|-------------|
 | `/p/[token]` | Branded proposal — approve, download PDF, request changes. DRAFT status renders a preview banner instead of 404. |
 | `/i/[token]` | Branded invoice — wire/ACH details, download PDF |
-| `/cs/[token]` | Call sheet for crew — desktop 2-col layout, mobile single-column. DRAFT shows a preview banner. |
+| `/cs/[token]` | Call sheet for crew — desktop 2-col layout, mobile single-column. DRAFT shows a preview banner. `?print=1` auto-triggers `window.print()`. |
 | `/invite/[token]` | Team invitation acceptance page |
 
 ## The Five Core Features
@@ -160,6 +160,8 @@ Key behaviours:
 
 **Won status** — set via dropdown on the project proposals table or by dragging the card to the WON column on the Kanban. The dropdown includes Won/Approved alongside the standard statuses. Terminal statuses (Won, Lost, Expired, Declined) show a static pill instead of the dropdown.
 
+**Auto-advance project status** — when a proposal is marked Won (`APPROVED`), its project automatically advances from `LEAD → ACTIVE`. If the only approved proposal is later marked Lost, Declined, or Expired and no other approved proposal exists, the project reverts to `LEAD`. `WRAPPED` is intentionally manual.
+
 **Version auto-increment** — each new proposal increments the `version` counter. The Kanban shows only the latest sent version per thread.
 
 **Proposals Kanban** (`/proposals`): CRM-style drag-and-drop board — DRAFTS | SENT | VIEWED | CHANGES NEEDED | WON | LOST. Lost column hidden by default. All columns including WON and LOST are droppable.
@@ -180,12 +182,18 @@ Day-of documents distributed to crew and talent via a secret token URL.
 
 **Editor sections:**
 - **Shoot Info** — date, general call time, point of contact (name, title, phone, email)
-- **Location** — name, address, parking, entry notes. "Fetch weather & hospital" auto-populates forecast (Open-Meteo) and nearest hospital (geocoding)
+- **Location** — name, address, parking, entry notes. "Fetch weather & hospital" auto-populates forecast (Open-Meteo) and nearest hospital (geocoding). If hospital info is already set, shows a confirm dialog before overwriting.
 - **Schedule** — time blocks with start + end time, description, "who's needed", and notes. Drag handles to reorder.
 - **Talent** — flat list (name, role/character, call time, phone, email)
 - **Crew** — grouped by department. Collapsible dept sections.
   - **Import from budget** — pulls CREW-category line items from the primary budget phase; uses the A value from `quantityFormula` as headcount
 - **Logistics** — catering/craft services info, additional notes
+
+**Address autocomplete** — location address fields use a Nominatim-backed autocomplete API (`/api/address-autocomplete`). Results show venue names when available ("Smashbox Studios — 1011 N Fuller Ave, ...") while inserting only the clean street address into the field.
+
+**Geocoding two-pass fallback** — "Fetch weather & hospital" geocodes the address in two passes: first strips suite/unit/floor numbers, then falls back to city/state/zip only. This handles venues where the full address fails Nominatim lookup.
+
+**Download PDF** — "Download PDF" button in the call sheet editor opens the public view with `?print=1`, which auto-triggers `window.print()` after an 800 ms paint delay (via `PrintTrigger` client component).
 
 **Status lifecycle:** `DRAFT → SENT → FINAL`. Finalized call sheets are locked.
 
@@ -295,6 +303,7 @@ ttp-budget/
 │   │   │   ├── cs/[token]/page.tsx          # Call sheet public view (draft-aware)
 │   │   │   └── invite/[token]/page.tsx      # Team invitation acceptance
 │   │   └── api/
+│   │       ├── address-autocomplete/        # Nominatim-backed address search; venue names; server-side to avoid CORS
 │   │       ├── pdf/proposal/[id]/
 │   │       ├── pdf/invoice/[id]/
 │   │       ├── proposals/[id]/approve/
@@ -319,11 +328,16 @@ ttp-budget/
 │   │   ├── proposals/
 │   │   │   └── ProposalsKanban.tsx          # Drag-and-drop Kanban; WON + LOST columns droppable
 │   │   ├── projects/
+│   │   │   ├── projects-types.ts            # Shared types + helpers (ProjectForCard, statusBadgeStyle, computeProgress, …)
+│   │   │   ├── ProjectMetricsStrip.tsx      # 4-card KPI strip on brand gradient (pipeline, open, invoices, won)
+│   │   │   ├── ProjectStatusPills.tsx       # URL-param status filter pills with counts
+│   │   │   ├── ProjectCard.tsx              # Rich project card — grid + list views, progress bar, 3-dot menu
+│   │   │   ├── ProjectsAttentionSidebar.tsx # Sticky right-rail — attention items, upcoming shoots, week stats
 │   │   │   ├── BudgetEditor.tsx             # Click description → edit modal; category badges
 │   │   │   ├── BudgetSummaryBar.tsx
 │   │   │   ├── LineItemModal.tsx            # Add + Edit line item modal (category field included)
 │   │   │   ├── ProjectHeaderActions.tsx     # Edit + Archive/Restore buttons on project header
-│   │   │   ├── ProjectsPageClient.tsx       # Projects grid; archive on hover; archived view
+│   │   │   ├── ProjectsPageClient.tsx       # URL-param sort/filter/view; sidebar hidden below xl
 │   │   │   ├── ProjectProposals.tsx         # Proposals table with status dropdown (incl. Won)
 │   │   │   ├── ProjectTeam.tsx              # Per-project crew list; seed from proposal
 │   │   │   ├── ProposalModal.tsx            # Create/edit/send proposals + payment schedule + discounts
@@ -341,6 +355,8 @@ ttp-budget/
 │   │   ├── proposal/
 │   │   │   ├── ProposalPublicView.tsx
 │   │   │   └── ProposalPDF.tsx
+│   │   ├── public/
+│   │   │   └── PrintTrigger.tsx             # Client component: delays 800 ms then calls window.print() when ?print=1
 │   │   ├── settings/
 │   │   │   ├── DangerZone.tsx
 │   │   │   └── WorkspaceDataSection.tsx
@@ -442,5 +458,6 @@ The webhook uses `svix` signature verification. Set `CLERK_WEBHOOK_SECRET` from 
 - **Line item categories:** `lineItemCategory` is auto-derived from the linked rate card's category on insert. Users can override it in the line item modal. CREW-tagged items are importable to call sheets.
 - **Call sheet draft preview:** public `/cs/[token]` and `/p/[token]` both render for DRAFT status with a sticky amber banner. View analytics are skipped for drafts.
 - **Global library isolation:** `GlobalRateCard` and `GlobalTemplate` are seeded once by the app. Workspace copies are independent — never update globals from workspace data, and never propagate global changes to existing workspaces.
+- **Brand-safe badge contrast:** use `color-mix(in srgb, var(--brand-accent) 18%, white)` for tinted badge backgrounds instead of hardcoded colours. This adapts at browser render time to whatever brand colour the workspace sets.
 - **Project archiving:** `status = 'ARCHIVED'` + `archivedAt` timestamp. The projects list filters `status: { not: 'ARCHIVED' }` by default. Archived projects are accessible at `?archived=1`.
 - **Radix Select:** never pass `value=""` to `<SelectItem>`. Use a sentinel string like `"__none__"` and convert back to empty/null on `onValueChange`.
