@@ -2,8 +2,6 @@
 
 import { revalidatePath } from 'next/cache'
 import { getScopedDb } from '@/lib/db-scoped'
-import { db } from '@/lib/db'
-import { getWorkspaceId } from '@/lib/auth'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
 
@@ -27,15 +25,12 @@ export type MemberFormData = z.infer<typeof memberSchema>
 // ── Read ───────────────────────────────────────────────────────────────────────
 
 export async function getProjectMembers(projectId: string) {
-  // Access control: verify the project belongs to the current workspace
-  const workspaceId = await getWorkspaceId()
-  const project = await db.project.findFirst({
-    where: { id: projectId, workspaceId },
-    select: { id: true },
-  })
+  const sdb = await getScopedDb()
+  // Scoped read — verifies project belongs to this workspace.
+  const project = await sdb.project.findFirst({ where: { id: projectId }, select: { id: true } })
   if (!project) return []
 
-  return db.projectMember.findMany({
+  return sdb.projectMember.findMany({
     where: { projectId },
     orderBy: [{ department: 'asc' }, { order: 'asc' }, { name: 'asc' }],
     select: {
@@ -63,17 +58,15 @@ export async function addProjectMember(
   input: MemberFormData
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    // Access control: verify project belongs to workspace
-    const workspaceId = await getWorkspaceId()
-    const project = await db.project.findFirst({
-      where: { id: projectId, workspaceId },
-      select: { id: true },
-    })
+    const sdb = await getScopedDb()
+    // Scoped read — verifies project belongs to this workspace.
+    const project = await sdb.project.findFirst({ where: { id: projectId }, select: { id: true } })
     if (!project) return { success: false, error: 'Project not found' }
 
     const data = memberSchema.parse(input)
 
-    const member = await db.projectMember.create({
+    // sdb.projectMember.create auto-injects workspaceId.
+    const member = await sdb.projectMember.create({
       data: {
         projectId,
         contactId:  data.contactId  ?? null,
@@ -102,16 +95,10 @@ export async function updateProjectMember(
   input: MemberFormData
 ): Promise<ActionResult> {
   try {
-    // Access control via project
-    const workspaceId = await getWorkspaceId()
-    const project = await db.project.findFirst({
-      where: { id: projectId, workspaceId },
-      select: { id: true },
-    })
-    if (!project) return { success: false, error: 'Project not found' }
-
+    const sdb = await getScopedDb()
+    // Scoped update — WHERE id = ? AND workspaceId = ? blocks foreign member ids.
     const data = memberSchema.parse(input)
-    await db.projectMember.update({
+    await sdb.projectMember.update({
       where: { id },
       data: {
         contactId:  data.contactId  ?? null,
@@ -143,31 +130,28 @@ export async function seedTeamFromBudget(
   projectId: string
 ): Promise<ActionResult<{ count: number; proposalTitle: string | null }>> {
   try {
-    const workspaceId = await getWorkspaceId()
+    const sdb = await getScopedDb()
 
-    // Access control
-    const project = await db.project.findFirst({
-      where: { id: projectId, workspaceId },
-      select: { id: true },
-    })
+    // Scoped read — verifies project belongs to this workspace.
+    const project = await sdb.project.findFirst({ where: { id: projectId }, select: { id: true } })
     if (!project) return { success: false, error: 'Project not found' }
 
     // Only seed if team is empty
-    const existingCount = await db.projectMember.count({ where: { projectId } })
+    const existingCount = await sdb.projectMember.count({ where: { projectId } })
     if (existingCount > 0) return { success: true, data: { count: 0, proposalTitle: null } }
 
     // ── Find the best proposal to seed from ──────────────────────────────────
-    // 1st priority: won (APPROVED) proposal
-    let proposal = await db.proposal.findFirst({
-      where: { projectId, workspaceId, status: 'APPROVED' },
+    // 1st priority: won (APPROVED) proposal — sdb auto-scopes to this workspace.
+    let proposal = await sdb.proposal.findFirst({
+      where: { projectId, status: 'APPROVED' },
       select: { id: true, title: true, budgetId: true },
       orderBy: { updatedAt: 'desc' },
     })
 
     // 2nd priority: latest SENT or VIEWED proposal
     if (!proposal) {
-      proposal = await db.proposal.findFirst({
-        where: { projectId, workspaceId, status: { in: ['SENT', 'VIEWED'] } },
+      proposal = await sdb.proposal.findFirst({
+        where: { projectId, status: { in: ['SENT', 'VIEWED'] } },
         select: { id: true, title: true, budgetId: true },
         orderBy: { updatedAt: 'desc' },
       })
@@ -175,7 +159,7 @@ export async function seedTeamFromBudget(
 
     // ── If we have a proposal, pull CREW line items from its budget ───────────
     if (proposal) {
-      const phases = await db.phase.findMany({
+      const phases = await sdb.phase.findMany({
         where: { budgetId: proposal.budgetId },
         select: {
           isPrimary: true,
@@ -237,7 +221,8 @@ export async function seedTeamFromBudget(
         }
 
         if (members.length > 0) {
-          await db.projectMember.createMany({ data: members })
+          // sdb.createMany auto-injects workspaceId into each item.
+          await sdb.projectMember.createMany({ data: members })
           revalidatePath(`/projects/${projectId}/team`)
           return { success: true, data: { count: members.length, proposalTitle: proposal.title } }
         }
@@ -245,14 +230,16 @@ export async function seedTeamFromBudget(
     }
 
     // ── Fallback: workspace CREW rate cards ──────────────────────────────────
-    const rateCards = await db.rateCard.findMany({
-      where: { workspaceId, category: 'CREW', archivedAt: null },
+    // sdb auto-scopes findMany to this workspace; no manual workspaceId filter needed.
+    const rateCards = await sdb.rateCard.findMany({
+      where: { category: 'CREW', archivedAt: null },
       select: { role: true, defaultRateCents: true, defaultUnit: true },
       orderBy: { role: 'asc' },
     })
     if (rateCards.length === 0) return { success: true, data: { count: 0, proposalTitle: null } }
 
-    await db.projectMember.createMany({
+    // sdb.createMany auto-injects workspaceId into each item.
+    await sdb.projectMember.createMany({
       data: rateCards.map((rc, i) => ({
         projectId,
         contactId:  null,
@@ -280,14 +267,9 @@ export async function removeProjectMember(
   projectId: string
 ): Promise<ActionResult> {
   try {
-    const workspaceId = await getWorkspaceId()
-    const project = await db.project.findFirst({
-      where: { id: projectId, workspaceId },
-      select: { id: true },
-    })
-    if (!project) return { success: false, error: 'Project not found' }
-
-    await db.projectMember.delete({ where: { id } })
+    const sdb = await getScopedDb()
+    // Scoped delete — WHERE id = ? AND workspaceId = ? blocks foreign member ids.
+    await sdb.projectMember.delete({ where: { id } })
     revalidatePath(`/projects/${projectId}/team`)
     return { success: true, data: undefined }
   } catch {

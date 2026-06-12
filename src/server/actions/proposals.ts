@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
 import { getScopedDb } from '@/lib/db-scoped'
+import type { ScopedDb } from '@/lib/db-scoped'
 import { getCurrentUser } from '@/lib/auth'
 import { sumAccount, type AccountInput } from '@/lib/totals'
 import type { ActionResult, ProposalDiscount } from '@/types'
@@ -11,10 +12,12 @@ function uid() { return crypto.randomUUID().slice(0, 8) }
 
 // ─── Capture a frozen snapshot of budget line items ───────────────────────────
 // Internal helper — always called from exported functions that have already
-// validated workspace ownership via getScopedDb(). Uses raw db intentionally.
+// validated workspace ownership via getScopedDb(). Accepts sdb so all reads
+// remain scoped to the active workspace.
 
-async function captureBudgetSnapshot(budgetId: string, discount?: ProposalDiscount) {
-  const budget = await db.budget.findUnique({
+async function captureBudgetSnapshot(sdb: ScopedDb, budgetId: string, discount?: ProposalDiscount) {
+  // sdb.budget.findFirst auto-scopes — safe even if budgetId comes from user input.
+  const budget = await sdb.budget.findFirst({
     where: { id: budgetId },
     select: { markupPct: true, taxPct: true },
   })
@@ -35,9 +38,10 @@ async function captureBudgetSnapshot(budgetId: string, discount?: ProposalDiscou
     },
   }
 
+  // sdb.phase.findFirst auto-scopes — blocks foreign budgetId cross-workspace reads.
   const primaryPhase =
-    await db.phase.findFirst({ where: { budgetId, isPrimary: true }, include: phaseInclude }) ??
-    await db.phase.findFirst({ where: { budgetId }, orderBy: { order: 'asc' }, include: phaseInclude })
+    await sdb.phase.findFirst({ where: { budgetId, isPrimary: true }, include: phaseInclude }) ??
+    await sdb.phase.findFirst({ where: { budgetId }, orderBy: { order: 'asc' }, include: phaseInclude })
 
   const accounts = (primaryPhase?.accounts ?? []).map(acc => ({
     id:       acc.id,
@@ -175,7 +179,7 @@ export async function sendProposal(proposalId: string): Promise<ActionResult<{ p
     })
     if (!existing) return { success: false, error: 'Proposal not found' }
     const discount = (existing.content as { discount?: ProposalDiscount }).discount
-    const snapshot = await captureBudgetSnapshot(existing.budgetId as string, discount)
+    const snapshot = await captureBudgetSnapshot(sdb, existing.budgetId as string, discount)
     const mergedContent = { ...(existing.content as object), budgetSnapshot: snapshot }
 
     const now = new Date()
@@ -233,10 +237,11 @@ export async function createSentProposal(input: {
   try {
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
 
-    const primaryPhase = await db.phase.findFirst({
+    // sdb.phase.findFirst auto-scopes — blocks foreign budgetId cross-workspace reads.
+    const primaryPhase = await sdb.phase.findFirst({
       where: { budgetId: input.budgetId, isPrimary: true },
       select: { description: true, deliverables: true },
-    }) ?? await db.phase.findFirst({
+    }) ?? await sdb.phase.findFirst({
       where: { budgetId: input.budgetId },
       orderBy: { order: 'asc' },
       select: { description: true, deliverables: true },
@@ -246,7 +251,7 @@ export async function createSentProposal(input: {
     const phaseDeliverables = (primaryPhase?.deliverables as { title: string; description: string }[] | null) ?? []
 
     const content = buildContent({ ...input, about: phaseAbout, deliverables: phaseDeliverables })
-    const snapshot = await captureBudgetSnapshot(input.budgetId, input.discount)
+    const snapshot = await captureBudgetSnapshot(sdb, input.budgetId, input.discount)
 
     const maxVersion = await sdb.proposal.aggregate({
       where: { projectId: input.projectId },
@@ -292,10 +297,11 @@ export async function createDraftProposal(input: {
   try {
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
 
-    const primaryPhase = await db.phase.findFirst({
+    // sdb.phase.findFirst auto-scopes — blocks foreign budgetId cross-workspace reads.
+    const primaryPhase = await sdb.phase.findFirst({
       where: { budgetId: input.budgetId, isPrimary: true },
       select: { description: true, deliverables: true },
-    }) ?? await db.phase.findFirst({
+    }) ?? await sdb.phase.findFirst({
       where: { budgetId: input.budgetId },
       orderBy: { order: 'asc' },
       select: { description: true, deliverables: true },
@@ -351,10 +357,11 @@ export async function updateDraftProposal(
       select: { budgetId: true },
     })
     if (!existing) return { success: false, error: 'Proposal not found' }
-    const primaryPhase = await db.phase.findFirst({
+    // budgetId comes from sdb-verified proposal; sdb.phase.findFirst also auto-scopes.
+    const primaryPhase = await sdb.phase.findFirst({
       where: { budgetId: existing.budgetId as string, isPrimary: true },
       select: { description: true, deliverables: true },
-    }) ?? await db.phase.findFirst({
+    }) ?? await sdb.phase.findFirst({
       where: { budgetId: existing.budgetId as string },
       orderBy: { order: 'asc' },
       select: { description: true, deliverables: true },
@@ -392,7 +399,7 @@ export async function sendDraftProposal(
     })
     if (!existing) return { success: false, error: 'Proposal not found' }
     const discount2 = (existing.content as { discount?: ProposalDiscount }).discount
-    const snapshot = await captureBudgetSnapshot(existing.budgetId as string, discount2)
+    const snapshot = await captureBudgetSnapshot(sdb, existing.budgetId as string, discount2)
     const mergedContent = { ...(existing.content as object), budgetSnapshot: snapshot }
 
     const proposal = await sdb.proposal.update({

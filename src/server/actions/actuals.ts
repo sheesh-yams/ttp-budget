@@ -64,8 +64,8 @@ export async function createActualSheet(
     })
     if (!budget) return { success: false, error: 'Budget not found' }
 
-    // Get the full phase tree so we can pre-populate entries
-    const phase = await db.phase.findFirst({
+    // Get the full phase tree — sdb auto-scopes, blocks foreign phaseId reads.
+    const phase = await sdb.phase.findFirst({
       where: { id: phaseId, budgetId },
       include: {
         accounts: {

@@ -327,6 +327,10 @@ model Phase {
   budgetId      String
   budget        Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
 
+  // Denormalized for IDOR protection — backfilled via scripts/backfill-workspace-ids.ts.
+  // Nullable during migration; all new rows have it set via getScopedDb().
+  workspaceId   String?
+
   name          String   // "v1 Client Send", "v2 With Notes", "Approved"
   order         Int      @default(0)
   isLocked      Boolean  @default(false) // approved phases get locked
@@ -342,6 +346,7 @@ model Phase {
   accounts      Account[]
 
   @@index([budgetId])
+  @@index([workspaceId])
   @@unique([budgetId, name])
 }
 
@@ -355,6 +360,9 @@ model Account {
   parent        Account? @relation("AccountTree", fields: [parentId], references: [id], onDelete: Cascade)
   children      Account[] @relation("AccountTree")
 
+  // Denormalized for IDOR protection — backfilled via scripts/backfill-workspace-ids.ts.
+  workspaceId   String?
+
   name          String   // "Pre-Production", "Crew", "Camera Package"
   code          String?  // optional account code, "1000", "1100"
   order         Int      @default(0)
@@ -367,12 +375,16 @@ model Account {
 
   @@index([phaseId])
   @@index([parentId])
+  @@index([workspaceId])
 }
 
 model LineItem {
   id            String   @id @default(cuid())
   accountId     String
   account       Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  // Denormalized for IDOR protection — backfilled via scripts/backfill-workspace-ids.ts.
+  workspaceId   String?
 
   // Snapshot from RateCard at insert time. rateCardId is nullable for ad-hoc lines.
   rateCardId    String?
@@ -403,6 +415,7 @@ model LineItem {
 
   @@index([accountId])
   @@index([rateCardId])
+  @@index([workspaceId])
 }
 
 // =============================================================
@@ -786,6 +799,9 @@ model ProjectMember {
   projectId   String
   project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
+  // Denormalized for IDOR protection — backfilled via scripts/backfill-workspace-ids.ts.
+  workspaceId String?
+
   // Optional link to the Rolodex contact. Null = ad-hoc entry not in the directory.
   contactId   String?
   contact     Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
@@ -814,6 +830,7 @@ model ProjectMember {
 
   @@index([projectId])
   @@index([contactId])
+  @@index([workspaceId])
 }
 
 // =============================================================

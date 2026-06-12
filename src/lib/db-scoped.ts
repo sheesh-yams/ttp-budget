@@ -17,15 +17,20 @@
  *   Using scopedDb: scopedDb.project.findFirst({ where: { id } })
  *     → automatically becomes WHERE id = ? AND workspaceId = ?
  *     → returns null if the project belongs to a different workspace ✓
+ *
+ * CHILD MODELS (Phase, Account, LineItem, ProjectMember):
+ *   These models carry a denormalized `workspaceId` column (backfilled via
+ *   scripts/backfill-workspace-ids.ts) and are now fully scoped. A crafted
+ *   request with a foreign phaseId / accountId / lineItemId / memberId will
+ *   receive not-found rather than data or a successful mutation.
  */
 
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 
 // Models that have a direct `workspaceId` column and should be automatically scoped.
-// Models without one (Phase, Account, LineItem, ProposalView, InvoiceView, User, Workspace)
-// are passed through unchanged — they're either scoped via joins or don't need it.
 const SCOPED_MODELS = new Set([
+  // Top-level workspace-owned models
   'Client',
   'Project',
   'RateCard',
@@ -35,14 +40,18 @@ const SCOPED_MODELS = new Set([
   'Invoice',
   'CallSheet',
   'ActualSheet',
-  'Contact',          // Rolodex — has workspaceId
-  // ProjectMember intentionally omitted — no workspaceId; access control via Project
+  'Contact',
+  // Child models — denormalized workspaceId added in A1 migration
+  'Phase',
+  'Account',
+  'LineItem',
+  'ProjectMember',
 ])
 
 // Operations that read data — inject workspaceId into `where`
 const READ_OPS = new Set(['findFirst', 'findMany', 'count', 'aggregate', 'groupBy', 'findFirstOrThrow'])
 
-// Operations that write new data — inject workspaceId into `data`
+// Operations that write a single record — inject workspaceId into `data`
 const CREATE_OPS = new Set(['create'])
 
 // Operations that modify existing data — inject workspaceId into `where`
@@ -53,11 +62,13 @@ const MUTATE_OPS = new Set(['update', 'updateMany', 'delete', 'deleteMany'])
  * currently active workspace (from auth().orgId via getWorkspaceId()).
  *
  * Call once at the top of a server action:
- *   const db = await getScopedDb()
+ *   const sdb = await getScopedDb()
  *
  * After that, all queries on scoped models automatically include workspaceId.
  * You can remove manual `where: { workspaceId }` clauses — they're redundant
  * (but harmless if left in, since the extension merges rather than replaces).
+ *
+ * createMany: workspaceId is injected into every item in the data array.
  */
 export async function getScopedDb() {
   const workspaceId = await getWorkspaceId()
@@ -90,12 +101,18 @@ export async function getScopedDb() {
             return query({ ...args, data: { ...data, workspaceId } })
           }
 
+          if (operation === 'createMany') {
+            // data is an array — inject workspaceId into every item
+            const data = (args.data as Record<string, unknown>[]) ?? []
+            return query({ ...args, data: data.map(item => ({ ...item, workspaceId })) })
+          }
+
           if (MUTATE_OPS.has(operation)) {
             const where = (args.where as Record<string, unknown> | undefined) ?? {}
             return query({ ...args, where: { ...where, workspaceId } })
           }
 
-          // findUnique / findUniqueOrThrow / upsert / createMany / etc.
+          // findUnique / findUniqueOrThrow / upsert / etc.
           // Pass through — server actions should avoid findUnique on scoped models
           // (use findFirst instead) and upsert is only used on User in auth.ts.
           return query(args)

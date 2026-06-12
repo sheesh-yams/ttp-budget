@@ -308,7 +308,7 @@ export async function mergeContacts(
       data:  mergedData,
     })
 
-    // Re-point project members (ProjectMember has no workspaceId — use raw db)
+    // Re-point project members — sdb auto-scopes to this workspace.
     await db.projectMember.updateMany({
       where: { contactId: duplicateId },
       data:  { contactId: primaryId },

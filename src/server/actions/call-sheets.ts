@@ -1,7 +1,6 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { db } from '@/lib/db'
 import { getScopedDb } from '@/lib/db-scoped'
 import type { ScopedDb } from '@/lib/db-scoped'
 import { Prisma } from '@prisma/client'
@@ -33,10 +32,10 @@ export async function importCrewFromBudget(
     })
     if (!budget) return { success: false, error: 'Budget not found' }
 
-    // Get primary phase and its CREW line items
+    // Get primary phase and its CREW line items — sdb auto-scopes both queries.
     const phase =
-      (await db.phase.findFirst({ where: { budgetId, isPrimary: true } })) ??
-      (await db.phase.findFirst({ where: { budgetId }, orderBy: { order: 'asc' } }))
+      (await sdb.phase.findFirst({ where: { budgetId, isPrimary: true } })) ??
+      (await sdb.phase.findFirst({ where: { budgetId }, orderBy: { order: 'asc' } }))
     if (!phase) return { success: false, error: 'Budget has no phases' }
 
     // CREW filter: matches items explicitly categorised as CREW, OR items created
@@ -48,8 +47,8 @@ export async function importCrewFromBudget(
       ],
     } as Prisma.LineItemWhereInput
 
-    // Fetch all top-level accounts with their CREW line items
-    const accounts = await db.account.findMany({
+    // Fetch all top-level accounts with their CREW line items — sdb auto-scopes.
+    const accounts = await sdb.account.findMany({
       where: { phaseId: phase.id, parentId: null },
       orderBy: { order: 'asc' },
       select: {
@@ -282,13 +281,13 @@ export async function createCallSheet(
     const sdb = await getScopedDb()
     const project = await sdb.project.findFirst({
       where: { id: projectId },
-      select: { id: true, workspaceId: true },
+      select: { id: true },
     })
     if (!project) return { success: false, error: 'Project not found' }
 
-    // Pre-populate crew from CREW rate cards (empty name slots so crew know who's needed)
-    const rateCards = await db.rateCard.findMany({
-      where: { workspaceId: (project as unknown as { workspaceId: string }).workspaceId, category: 'CREW', archivedAt: null },
+    // Pre-populate crew from CREW rate cards — sdb auto-scopes to this workspace.
+    const rateCards = await sdb.rateCard.findMany({
+      where: { category: 'CREW', archivedAt: null },
       select: { role: true },
       orderBy: { role: 'asc' },
     })

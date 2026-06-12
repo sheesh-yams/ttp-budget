@@ -2,7 +2,6 @@
 
 import { revalidatePath } from 'next/cache'
 import { z }              from 'zod'
-import { db }             from '@/lib/db'
 import { getScopedDb }    from '@/lib/db-scoped'
 import {
   importPayloadSchema,
@@ -64,13 +63,13 @@ export async function importToBudget(
       throw err
     }
 
-    // ── Resolve target phase ─────────────────────────────────────────────────
+    // ── Resolve target phase — sdb auto-scopes to this workspace ────────────
     const phase =
-      (await db.phase.findFirst({
+      (await sdb.phase.findFirst({
         where: { budgetId, isPrimary: true },
         select: { id: true },
       })) ??
-      (await db.phase.findFirst({
+      (await sdb.phase.findFirst({
         where:   { budgetId },
         orderBy: { order: 'asc' },
         select:  { id: true },
@@ -84,15 +83,15 @@ export async function importToBudget(
     let itemsCreated    = 0
 
     // Current max account order (so appended accounts don't collide)
-    const { _max } = await db.account.aggregate({
+    const { _max } = await sdb.account.aggregate({
       where: { phaseId: phase.id, parentId: null },
       _max:  { order: true },
     })
     let nextAccountOrder = (_max.order ?? -1) + 1
 
     for (const [accountName, items] of groups) {
-      // Find-or-create the account
-      let account = await db.account.findFirst({
+      // Find-or-create the account — sdb scopes both ops to this workspace.
+      let account = await sdb.account.findFirst({
         where:  { phaseId: phase.id, name: accountName, parentId: null },
         select: { id: true },
       })
@@ -100,7 +99,8 @@ export async function importToBudget(
       if (account) {
         accountsReused++
       } else {
-        account = await db.account.create({
+        // sdb.create auto-injects workspaceId.
+        account = await sdb.account.create({
           data:   { phaseId: phase.id, name: accountName, order: nextAccountOrder++ },
           select: { id: true },
         })
@@ -108,13 +108,13 @@ export async function importToBudget(
       }
 
       // Current max item order in this account
-      const { _max: itemMax } = await db.lineItem.aggregate({
+      const { _max: itemMax } = await sdb.lineItem.aggregate({
         where: { accountId: account.id },
         _max:  { order: true },
       })
       let nextItemOrder = (itemMax.order ?? -1) + 1
 
-      // Bulk-create line items
+      // Bulk-create line items — sdb.createMany auto-injects workspaceId into each item.
       const lineItemData: Prisma.LineItemCreateManyInput[] = items.map((item, i) => ({
         accountId:   account!.id,
         description: item.description,
@@ -131,7 +131,7 @@ export async function importToBudget(
         order:       nextItemOrder + i,
       }))
 
-      await db.lineItem.createMany({ data: lineItemData })
+      await sdb.lineItem.createMany({ data: lineItemData })
       itemsCreated += items.length
       nextItemOrder += items.length
     }
