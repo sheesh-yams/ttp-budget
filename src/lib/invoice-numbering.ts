@@ -2,43 +2,41 @@ import { db } from '@/lib/db'
 
 /**
  * Generate the next invoice number for a workspace.
- * Format: TTP-2026-001
- * Uses an atomic DB update to prevent races.
+ * Format: {prefix}-{year}-{seq}  e.g. TTP-2026-001
+ *
+ * Uses a single atomic PostgreSQL UPDATE…RETURNING with a CASE expression so
+ * that concurrent calls serialize on the row lock and each receive a distinct
+ * sequential number — no two callers can read the same counter value.
+ *
+ * Year rollover is handled in the same statement:
+ *   - Same year → increment seq
+ *   - Different year (or NULL on first ever invoice) → reset seq to 1
+ *
+ * The Invoice table has @@unique([workspaceId, number]) as a hard backstop in
+ * case something unexpected produces the same number.
  */
 export async function generateInvoiceNumber(workspaceId: string): Promise<string> {
   const currentYear = new Date().getFullYear()
 
-  // Atomically increment the sequence, resetting if the year changed
-  const workspace = await db.workspace.update({
-    where: { id: workspaceId },
-    data: {
-      invoiceNumberSeq: {
-        // If the year matches, increment. Otherwise, Prisma doesn't support
-        // conditional increments directly, so we handle year reset separately.
-        increment: 1,
-      },
-      invoiceNumberYear: currentYear,
-    },
-    select: {
-      invoiceNumberSeq: true,
-      invoiceNumberYear: true,
-      invoiceNumberPrefix: true,
-    },
-  })
+  const rows = await db.$queryRaw<
+    Array<{ invoiceNumberSeq: number; invoiceNumberPrefix: string }>
+  >`
+    UPDATE "Workspace"
+    SET
+      "invoiceNumberSeq" = CASE
+                             WHEN "invoiceNumberYear" IS NOT DISTINCT FROM ${currentYear}
+                             THEN "invoiceNumberSeq" + 1
+                             ELSE 1
+                           END,
+      "invoiceNumberYear" = ${currentYear},
+      "updatedAt"         = NOW()
+    WHERE id = ${workspaceId}
+    RETURNING "invoiceNumberSeq", "invoiceNumberPrefix"
+  `
 
-  // If year rolled over, reset sequence to 1
-  if (workspace.invoiceNumberYear !== currentYear) {
-    const reset = await db.workspace.update({
-      where: { id: workspaceId },
-      data: { invoiceNumberSeq: 1, invoiceNumberYear: currentYear },
-      select: {
-        invoiceNumberSeq: true,
-        invoiceNumberPrefix: true,
-      },
-    })
-    return `${reset.invoiceNumberPrefix}-${currentYear}-${String(reset.invoiceNumberSeq).padStart(3, '0')}`
-  }
+  if (!rows.length) throw new Error(`Workspace ${workspaceId} not found`)
 
-  const seq = String(workspace.invoiceNumberSeq).padStart(3, '0')
-  return `${workspace.invoiceNumberPrefix}-${currentYear}-${seq}`
+  const { invoiceNumberSeq, invoiceNumberPrefix } = rows[0]
+  const seq = String(Number(invoiceNumberSeq)).padStart(3, '0')
+  return `${invoiceNumberPrefix}-${currentYear}-${seq}`
 }
