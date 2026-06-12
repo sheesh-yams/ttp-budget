@@ -48,7 +48,9 @@ export type AuditEventRow = {
   action:      string
   entityType:  string | null
   entityId:    string | null
-  metadata:    Record<string, unknown> | null
+  // Prisma types Json columns as JsonValue (string | number | boolean | object | array | null).
+  // We use unknown here so the type is compatible both before and after prisma generate.
+  metadata:    unknown
   createdAt:   Date
 }
 

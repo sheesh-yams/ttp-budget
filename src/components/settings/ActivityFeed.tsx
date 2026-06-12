@@ -19,8 +19,8 @@ function actionLabel(action: string): string {
 }
 
 function entitySuffix(event: AuditEventRow): string {
-  const meta = event.metadata
-  if (!meta) return ''
+  const meta = event.metadata as Record<string, unknown> | null | undefined
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return ''
 
   if (event.action === 'proposal.approved') {
     const name = meta.signatureName as string | undefined
