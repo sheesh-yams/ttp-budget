@@ -53,6 +53,9 @@ export async function sendProposalApprovedEmail(payload: ProposalApprovedPayload
 
 interface InvoiceSentPayload {
   to: string
+  subject?: string
+  /** Custom message from the sender — rendered above the invoice details. */
+  customMessage?: string
   invoiceNumber: string
   projectName: string
   amountCents: number
@@ -133,25 +136,101 @@ export async function sendInvitationEmail(payload: InvitationPayload) {
 }
 
 export async function sendInvoiceEmail(payload: InvoiceSentPayload) {
-  const { to, invoiceNumber, projectName, amountCents, dueDate, invoiceUrl } = payload
+  const { to, subject, customMessage, invoiceNumber, projectName, amountCents, dueDate, invoiceUrl } = payload
   const amount = new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
   }).format(amountCents / 100)
 
+  const defaultSubject = `Invoice ${invoiceNumber} — ${amount} due ${format(dueDate, 'MMM d, yyyy')}`
+
+  // Convert plain-text message to HTML paragraphs
+  const messageHtml = customMessage
+    ? customMessage
+        .split('\n')
+        .map(line => line.trim() === '' ? '<br>' : `<p style="margin:0 0 12px;font-size:15px;color:#333;line-height:1.6">${line}</p>`)
+        .join('')
+    : `<p style="margin:0 0 12px;font-size:15px;color:#333">Please find your invoice details below.</p>`
+
   await resend.emails.send({
     from: FROM,
     to,
-    subject: `Invoice ${invoiceNumber} — ${amount} due ${format(dueDate, 'MMM d, yyyy')}`,
+    subject: subject ?? defaultSubject,
     html: `
-      <p>Please find your invoice below.</p>
-      <table>
-        <tr><td><strong>Invoice</strong></td><td>${invoiceNumber}</td></tr>
-        <tr><td><strong>Project</strong></td><td>${projectName}</td></tr>
-        <tr><td><strong>Amount due</strong></td><td>${amount}</td></tr>
-        <tr><td><strong>Due date</strong></td><td>${format(dueDate, 'MMMM d, yyyy')}</td></tr>
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#F7F4FA;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F7F4FA;padding:40px 0">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #E8E3EF">
+
+        <!-- Header -->
+        <tr>
+          <td style="background:#0A0612;padding:28px 36px;display:flex;align-items:center;justify-content:space-between">
+            <p style="margin:0;font-size:13px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#04FFCC">The Third Place Creative</p>
+          </td>
+        </tr>
+
+        <!-- Invoice badge -->
+        <tr>
+          <td style="background:#5D00A4;padding:12px 36px">
+            <p style="margin:0;font-size:11px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:rgba(255,255,255,0.7)">Invoice</p>
+            <p style="margin:4px 0 0;font-size:22px;font-weight:700;color:#fff;letter-spacing:-0.02em">${invoiceNumber}</p>
+          </td>
+        </tr>
+
+        <!-- Body -->
+        <tr>
+          <td style="padding:32px 36px">
+            ${messageHtml}
+
+            <!-- Invoice details table -->
+            <table cellpadding="0" cellspacing="0" style="background:#F7F4FA;border-radius:8px;padding:20px 24px;margin:24px 0;width:100%;box-sizing:border-box">
+              <tr>
+                <td style="font-size:12px;color:#888;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;padding-bottom:4px">Project</td>
+                <td style="font-size:14px;color:#1a1a1a;text-align:right;font-weight:500">${projectName}</td>
+              </tr>
+              <tr>
+                <td style="font-size:12px;color:#888;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;padding-top:12px">Amount due</td>
+                <td style="font-size:20px;color:#5D00A4;text-align:right;font-weight:700;padding-top:12px;letter-spacing:-0.01em">${amount}</td>
+              </tr>
+              <tr>
+                <td colspan="2" style="padding-top:12px;border-top:1px solid #E8E3EF">
+                  <p style="margin:0;font-size:12px;color:#888">Due by <strong style="color:#1a1a1a">${format(dueDate, 'MMMM d, yyyy')}</strong></p>
+                </td>
+              </tr>
+            </table>
+
+            <!-- CTA -->
+            <table cellpadding="0" cellspacing="0" style="margin-top:8px">
+              <tr>
+                <td>
+                  <a href="${invoiceUrl}" style="display:inline-block;background:#5D00A4;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;padding:13px 28px;border-radius:8px">
+                    View &amp; Pay Invoice →
+                  </a>
+                </td>
+              </tr>
+            </table>
+
+            <p style="margin:20px 0 0;font-size:12px;color:#aaa">
+              Or copy this link: <a href="${invoiceUrl}" style="color:#5D00A4;word-break:break-all">${invoiceUrl}</a>
+            </p>
+          </td>
+        </tr>
+
+        <!-- Footer -->
+        <tr>
+          <td style="border-top:1px solid #F0EBF7;padding:16px 36px">
+            <p style="margin:0;font-size:11px;color:#ccc">The Third Place Creative · This invoice was sent via TTP Budget</p>
+          </td>
+        </tr>
+
       </table>
-      <p><a href="${invoiceUrl}">View invoice →</a></p>
+    </td></tr>
+  </table>
+</body>
+</html>
     `,
   })
 }

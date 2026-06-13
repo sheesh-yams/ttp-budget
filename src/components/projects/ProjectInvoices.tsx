@@ -1,14 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { ExternalLink, FileText, Send, DollarSign } from 'lucide-react'
+import { FileText, DollarSign, Send, Eye, Ban, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { formatMoney } from '@/lib/money'
-import { sendInvoice, recordPayment, updateInvoiceStatus } from '@/server/actions/invoices'
+import { recordPayment, voidInvoice, deleteInvoice } from '@/server/actions/invoices'
+import { SendInvoiceModal } from '@/components/invoice/SendInvoiceModal'
+import { PreviewPanel } from '@/components/invoice/PreviewPanel'
 import type { InvoiceStatus } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -45,40 +47,24 @@ const STATUS_CONFIG: Record<InvoiceStatus, { label: string; color: string }> = {
 
 export function ProjectInvoices({ invoices }: Props) {
   const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+  const [actingId, setActingId] = useState<string | null>(null)
 
-  // Status change state
-  const [statusPending, setStatusPending] = useState<string | null>(null)
-
-  // Send state
-  const [sendPending, setSendPending] = useState<string | null>(null)
-
-  // Payment dialog state
+  // Payment dialog
   const [payDialog, setPayDialog] = useState<InvoiceRow | null>(null)
   const [payAmount, setPayAmount] = useState('')
   const [payMethod, setPayMethod] = useState('')
-  const [payRef, setPayRef] = useState('')
+  const [payRef, setPayRef]       = useState('')
   const [paySubmitting, setPaySubmitting] = useState(false)
-  const [payError, setPayError] = useState('')
+  const [payError, setPayError]   = useState('')
 
-  async function handleStatusChange(id: string, status: InvoiceStatus) {
-    setStatusPending(id)
-    try {
-      await updateInvoiceStatus(id, status)
-      router.refresh()
-    } finally {
-      setStatusPending(null)
-    }
-  }
+  // Confirm dialog (void / delete)
+  const [confirmDialog, setConfirmDialog] = useState<{
+    type: 'void' | 'delete'
+    inv: InvoiceRow
+  } | null>(null)
 
-  async function handleSend(id: string) {
-    setSendPending(id)
-    try {
-      const result = await sendInvoice(id)
-      if (result.success) router.refresh()
-    } finally {
-      setSendPending(null)
-    }
-  }
+  function refresh() { router.refresh() }
 
   function openPayDialog(inv: InvoiceRow) {
     const remaining = inv.totalCents - inv.amountPaidCents
@@ -100,21 +86,28 @@ export function ProjectInvoices({ invoices }: Props) {
     setPaySubmitting(true)
     try {
       const result = await recordPayment(
-        payDialog.id,
-        amountCents,
+        payDialog.id, amountCents,
         payMethod.trim() || undefined,
-        payRef.trim() || undefined
+        payRef.trim()   || undefined,
       )
-      if (result.success) {
-        setPayDialog(null)
-        router.refresh()
-      } else {
-        const r = result as { success: false; error: string }
-        setPayError(r.error)
-      }
+      if (result.success) { setPayDialog(null); refresh() }
+      else setPayError((result as { success: false; error: string }).error)
     } finally {
       setPaySubmitting(false)
     }
+  }
+
+  function handleConfirm() {
+    if (!confirmDialog) return
+    const { type, inv } = confirmDialog
+    setActingId(inv.id)
+    startTransition(async () => {
+      if (type === 'void')   await voidInvoice(inv.id)
+      if (type === 'delete') await deleteInvoice(inv.id)
+      setConfirmDialog(null)
+      setActingId(null)
+      refresh()
+    })
   }
 
   if (invoices.length === 0) return null
@@ -143,34 +136,25 @@ export function ProjectInvoices({ invoices }: Props) {
               <th className="px-3 py-2.5 text-right w-28">Total</th>
               <th className="px-3 py-2.5 text-right w-28">Paid</th>
               <th className="px-3 py-2.5 text-left w-32">Due</th>
-              <th className="w-28" />
+              <th className="w-36" />
             </tr>
           </thead>
           <tbody>
             {invoices.map(inv => {
               const cfg = STATUS_CONFIG[inv.status] ?? STATUS_CONFIG.DRAFT
-              const isPartial = inv.amountPaidCents > 0 && inv.amountPaidCents < inv.totalCents
-              const isOverdue =
-                !['PAID', 'VOID'].includes(inv.status) &&
-                new Date(inv.dueDate) < new Date()
+              const isPartial  = inv.amountPaidCents > 0 && inv.amountPaidCents < inv.totalCents
+              const isOverdue  = !['PAID', 'VOID'].includes(inv.status) && new Date(inv.dueDate) < new Date()
+              const badgeClass = isOverdue ? 'bg-red-100 text-red-700' : isPartial ? 'bg-amber-100 text-amber-700' : cfg.color
+              const badgeLabel = isPartial ? 'Partial' : isOverdue ? 'Overdue' : cfg.label
 
-              const canSend = inv.status === 'DRAFT'
-              const canPay = !['DRAFT', 'PAID', 'VOID'].includes(inv.status)
-
-              const badgeClass = isOverdue
-                ? 'bg-red-100 text-red-700'
-                : isPartial
-                ? 'bg-amber-100 text-amber-700'
-                : cfg.color
-
-              const badgeLabel = isPartial
-                ? 'Partial'
-                : isOverdue
-                ? 'Overdue'
-                : cfg.label
+              const canSend   = inv.status === 'DRAFT' || inv.status === 'SENT'
+              const canPay    = !['DRAFT', 'PAID', 'VOID'].includes(inv.status)
+              const canVoid   = ['DRAFT', 'SENT', 'VIEWED', 'OVERDUE'].includes(inv.status)
+              const canDelete = inv.status === 'DRAFT'
+              const isBusy    = actingId === inv.id && isPending
 
               return (
-                <tr key={inv.id} className="border-b last:border-0 hover:bg-muted/30">
+                <tr key={inv.id} className={`border-b last:border-0 hover:bg-muted/30 ${isBusy ? 'opacity-50' : ''}`}>
                   <td className="px-4 py-2.5">
                     <p className="font-medium text-foreground font-mono text-xs">{inv.number}</p>
                     {inv.title && (
@@ -179,19 +163,9 @@ export function ProjectInvoices({ invoices }: Props) {
                   </td>
 
                   <td className="px-3 py-2.5">
-                    <select
-                      value={inv.status}
-                      disabled={statusPending === inv.id}
-                      onChange={e => handleStatusChange(inv.id, e.target.value as InvoiceStatus)}
-                      className={`rounded-full border-0 px-2 py-0.5 text-[11px] font-medium cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 ${badgeClass}`}
-                    >
-                      <option value="DRAFT">Draft</option>
-                      <option value="SENT">Sent</option>
-                      <option value="VIEWED">Viewed</option>
-                      <option value="PAID">Paid</option>
-                      <option value="OVERDUE">Overdue</option>
-                      <option value="VOID">Void</option>
-                    </select>
+                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${badgeClass}`}>
+                      {badgeLabel}
+                    </span>
                   </td>
 
                   <td className="px-3 py-2.5 text-right font-medium tabular-nums text-foreground">
@@ -212,17 +186,32 @@ export function ProjectInvoices({ invoices }: Props) {
 
                   <td className="px-2 py-2.5">
                     <div className="flex items-center gap-0.5 justify-end">
+
+                      {/* Preview */}
+                      <PreviewPanel
+                        invoiceId={inv.id}
+                        invoiceNumber={inv.number}
+                      />
+
+                      {/* Send */}
                       {canSend && (
-                        <button
-                          type="button"
-                          onClick={() => handleSend(inv.id)}
-                          disabled={sendPending === inv.id}
-                          className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground inline-flex disabled:opacity-40"
-                          title="Mark as sent &amp; generate link"
-                        >
-                          <Send className="h-3.5 w-3.5" />
-                        </button>
+                        <SendInvoiceModal
+                          invoiceId={inv.id}
+                          onSent={refresh}
+                          trigger={open => (
+                            <button
+                              type="button"
+                              onClick={open}
+                              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground inline-flex"
+                              title={inv.status === 'SENT' ? 'Resend invoice' : 'Send invoice'}
+                            >
+                              <Send className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        />
                       )}
+
+                      {/* Record payment */}
                       {canPay && (
                         <button
                           type="button"
@@ -233,27 +222,44 @@ export function ProjectInvoices({ invoices }: Props) {
                           <DollarSign className="h-3.5 w-3.5" />
                         </button>
                       )}
+
+                      {/* Open public link */}
                       {inv.status !== 'DRAFT' && (
                         <a
                           href={`/i/${inv.publicToken}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground inline-flex"
-                          title="Open invoice"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </a>
-                      )}
-                      {inv.status !== 'DRAFT' && (
-                        <a
-                          href={`/api/pdf/invoice/${inv.publicToken}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground inline-flex"
-                          title="Download PDF"
+                          title="Open client link"
                         >
                           <FileText className="h-3.5 w-3.5" />
                         </a>
+                      )}
+
+                      {/* Void */}
+                      {canVoid && !canDelete && (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDialog({ type: 'void', inv })}
+                          disabled={isBusy}
+                          className="rounded p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600 inline-flex disabled:opacity-40"
+                          title="Void invoice"
+                        >
+                          <Ban className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+
+                      {/* Delete (DRAFT only) */}
+                      {canDelete && (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDialog({ type: 'delete', inv })}
+                          disabled={isBusy}
+                          className="rounded p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600 inline-flex disabled:opacity-40"
+                          title="Delete draft"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       )}
                     </div>
                   </td>
@@ -264,66 +270,77 @@ export function ProjectInvoices({ invoices }: Props) {
         </table>
       </div>
 
-      {/* ── Payment dialog ─────────────────────────────────────────────────── */}
+      {/* ── Payment dialog ─────────────────────────────────────────────── */}
       <Dialog open={!!payDialog} onOpenChange={open => { if (!open) setPayDialog(null) }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Record Payment</DialogTitle>
           </DialogHeader>
-
           {payDialog && (
             <div className="space-y-4 py-1">
-              {/* Outstanding balance */}
               <div className="rounded-lg bg-muted/40 px-4 py-3 flex justify-between text-sm">
                 <span className="text-muted-foreground">Outstanding balance</span>
                 <span className="font-semibold tabular-nums">
                   {formatMoney(payDialog.totalCents - payDialog.amountPaidCents)}
                 </span>
               </div>
-
               <div>
                 <Label htmlFor="pay-amount">Amount received ($)</Label>
-                <Input
-                  id="pay-amount"
-                  type="number"
-                  min={0.01}
-                  step={0.01}
-                  value={payAmount}
-                  onChange={e => setPayAmount(e.target.value)}
-                  className="mt-1"
-                />
+                <Input id="pay-amount" type="number" min={0.01} step={0.01}
+                  value={payAmount} onChange={e => setPayAmount(e.target.value)} className="mt-1" />
               </div>
-
               <div>
                 <Label htmlFor="pay-method">Payment method (optional)</Label>
-                <Input
-                  id="pay-method"
-                  placeholder="Wire, ACH, Check, Venmo…"
-                  value={payMethod}
-                  onChange={e => setPayMethod(e.target.value)}
-                  className="mt-1"
-                />
+                <Input id="pay-method" placeholder="Wire, ACH, Check…"
+                  value={payMethod} onChange={e => setPayMethod(e.target.value)} className="mt-1" />
               </div>
-
               <div>
                 <Label htmlFor="pay-ref">Reference # (optional)</Label>
-                <Input
-                  id="pay-ref"
-                  placeholder="Wire confirmation, check #…"
-                  value={payRef}
-                  onChange={e => setPayRef(e.target.value)}
-                  className="mt-1"
-                />
+                <Input id="pay-ref" placeholder="Wire confirmation, check #…"
+                  value={payRef} onChange={e => setPayRef(e.target.value)} className="mt-1" />
               </div>
-
               {payError && <p className="text-sm text-red-600">{payError}</p>}
-
               <div className="flex gap-3">
-                <Button variant="outline" className="flex-1" onClick={() => setPayDialog(null)}>
-                  Cancel
-                </Button>
+                <Button variant="outline" className="flex-1" onClick={() => setPayDialog(null)}>Cancel</Button>
                 <Button onClick={handlePay} disabled={paySubmitting} className="flex-1">
                   {paySubmitting ? 'Saving…' : 'Record Payment'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Void / Delete confirm dialog ───────────────────────────────── */}
+      <Dialog open={!!confirmDialog} onOpenChange={open => { if (!open) setConfirmDialog(null) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              {confirmDialog?.type === 'delete' ? 'Delete Draft Invoice' : 'Void Invoice'}
+            </DialogTitle>
+          </DialogHeader>
+          {confirmDialog && (
+            <div className="space-y-4 py-1">
+              <p className="text-sm text-muted-foreground">
+                {confirmDialog.type === 'delete'
+                  ? `Permanently delete draft invoice ${confirmDialog.inv.number}? This cannot be undone.`
+                  : `Mark invoice ${confirmDialog.inv.number} as void? The invoice link will still work but will show as voided.`
+                }
+              </p>
+              <div className="flex gap-3">
+                <Button variant="outline" className="flex-1" onClick={() => setConfirmDialog(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  className="flex-1"
+                  onClick={handleConfirm}
+                  disabled={isPending}
+                >
+                  {isPending
+                    ? 'Working…'
+                    : confirmDialog.type === 'delete' ? 'Delete' : 'Void Invoice'
+                  }
                 </Button>
               </div>
             </div>

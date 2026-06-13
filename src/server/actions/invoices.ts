@@ -115,13 +115,71 @@ export async function markInvoicePaid(
   }
 }
 
-export async function sendInvoice(invoiceId: string): Promise<ActionResult<{ publicUrl: string }>> {
+export async function getInvoiceSendData(invoiceId: string) {
+  try {
+    const [scopedDb, workspaceId] = await Promise.all([getScopedDb(), getWorkspaceId()])
+
+    const invoice = await scopedDb.invoice.findFirst({
+      where: { id: invoiceId },
+      select: {
+        id: true,
+        number: true,
+        title: true,
+        status: true,
+        totalCents: true,
+        dueDate: true,
+        publicToken: true,
+        client: { select: { name: true, contactEmail: true } },
+        project: { select: { name: true } },
+      },
+    })
+
+    if (!invoice) return null
+
+    const workspace = await db.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { name: true, contactEmail: true },
+    })
+
+    return {
+      id:            invoice.id,
+      number:        invoice.number,
+      title:         invoice.title,
+      status:        invoice.status,
+      totalCents:    invoice.totalCents,
+      dueDate:       invoice.dueDate,
+      publicToken:   invoice.publicToken,
+      clientName:    (invoice.client as { name: string }).name,
+      clientEmail:   (invoice.client as { contactEmail: string | null }).contactEmail ?? '',
+      projectName:   (invoice.project as { name: string }).name,
+      workspaceName: workspace?.name ?? '',
+      fromEmail:     workspace?.contactEmail ?? '',
+    }
+  } catch {
+    return null
+  }
+}
+
+export async function sendInvoice(
+  invoiceId: string,
+  emailOpts: { to: string; subject: string; message: string },
+): Promise<ActionResult<{ publicUrl: string }>> {
   try {
     const [scopedDb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+
     const existing = await scopedDb.invoice.findFirst({
       where: { id: invoiceId },
-      select: { workspaceId: true },
+      select: {
+        workspaceId: true,
+        number: true,
+        totalCents: true,
+        dueDate: true,
+        project: { select: { name: true } },
+      },
     })
+
+    if (!existing) return { success: false, error: 'Invoice not found' }
+
     const invoice = await scopedDb.invoice.update({
       where: { id: invoiceId },
       data: {
@@ -130,21 +188,110 @@ export async function sendInvoice(invoiceId: string): Promise<ActionResult<{ pub
         publicTokenExpiresAt: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
       } as unknown as Parameters<typeof scopedDb.invoice.update>[0]['data'],
     })
-    const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL}/i/${(invoice as unknown as { publicToken: string }).publicToken}`
 
-    if (existing) {
-      await logAuditEvent({
-        workspaceId: existing.workspaceId,
-        actorId:     user.id,
-        action:      'invoice.sent',
-        entityType:  'Invoice',
-        entityId:    invoiceId,
-      })
-    }
+    const publicToken = (invoice as unknown as { publicToken: string }).publicToken
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') ?? ''
+    const publicUrl = `${appUrl}/i/${publicToken}`
+
+    // Send the email via Resend
+    const { sendInvoiceEmail } = await import('@/lib/email')
+    await sendInvoiceEmail({
+      to:             emailOpts.to,
+      subject:        emailOpts.subject,
+      customMessage:  emailOpts.message,
+      invoiceNumber:  existing.number,
+      projectName:    (existing.project as { name: string }).name,
+      amountCents:    existing.totalCents,
+      dueDate:        new Date(existing.dueDate),
+      invoiceUrl:     publicUrl,
+    })
+
+    await logAuditEvent({
+      workspaceId: existing.workspaceId,
+      actorId:     user.id,
+      action:      'invoice.sent',
+      entityType:  'Invoice',
+      entityId:    invoiceId,
+      metadata:    { to: emailOpts.to },
+    })
 
     return { success: true, data: { publicUrl } }
-  } catch {
+  } catch (err) {
+    console.error('[sendInvoice]', err)
     return { success: false, error: 'Failed to send invoice' }
+  }
+}
+
+export async function voidInvoice(invoiceId: string): Promise<ActionResult> {
+  try {
+    const [scopedDb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+
+    const invoice = await scopedDb.invoice.findFirst({
+      where: { id: invoiceId },
+      select: { workspaceId: true, status: true, projectId: true },
+    })
+
+    if (!invoice) return { success: false, error: 'Invoice not found' }
+
+    const voidable = ['SENT', 'VIEWED', 'OVERDUE', 'DRAFT']
+    if (!voidable.includes(invoice.status as string)) {
+      return { success: false, error: `Cannot void an invoice with status ${invoice.status}` }
+    }
+
+    await scopedDb.invoice.update({
+      where: { id: invoiceId },
+      data: { status: 'VOID' },
+    })
+
+    await logAuditEvent({
+      workspaceId: invoice.workspaceId as string,
+      actorId:     user.id,
+      action:      'invoice.voided',
+      entityType:  'Invoice',
+      entityId:    invoiceId,
+    })
+
+    revalidatePath(`/projects/${invoice.projectId}`)
+    revalidatePath('/invoices')
+    revalidatePath('/dashboard')
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to void invoice' }
+  }
+}
+
+export async function deleteInvoice(invoiceId: string): Promise<ActionResult> {
+  try {
+    const [scopedDb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+
+    const invoice = await scopedDb.invoice.findFirst({
+      where: { id: invoiceId },
+      select: { workspaceId: true, status: true, projectId: true, number: true },
+    })
+
+    if (!invoice) return { success: false, error: 'Invoice not found' }
+
+    if (invoice.status !== 'DRAFT') {
+      return { success: false, error: 'Only DRAFT invoices can be deleted. Void sent invoices instead.' }
+    }
+
+    await scopedDb.invoice.delete({ where: { id: invoiceId } })
+
+    await logAuditEvent({
+      workspaceId: invoice.workspaceId as string,
+      actorId:     user.id,
+      action:      'invoice.deleted',
+      entityType:  'Invoice',
+      entityId:    invoiceId,
+      metadata:    { number: invoice.number },
+    })
+
+    revalidatePath(`/projects/${invoice.projectId}`)
+    revalidatePath('/invoices')
+    revalidatePath('/dashboard')
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to delete invoice' }
   }
 }
 
