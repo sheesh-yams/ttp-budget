@@ -55,7 +55,8 @@ const KIND_LABELS: Record<string, string> = {
 export function InvoicesTable({ invoices }: { invoices: InvoiceListRow[] }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
-  const [actingId, setActingId] = useState<string | null>(null)
+  const [actingId, setActingId]   = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
 
   // Confirm dialog (void / delete)
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -71,9 +72,16 @@ export function InvoicesTable({ invoices }: { invoices: InvoiceListRow[] }) {
     if (!confirmDialog) return
     const { type, inv } = confirmDialog
     setActingId(inv.id)
+    setActionError(null)
     startTransition(async () => {
-      if (type === 'void')   await voidInvoice(inv.id)
-      if (type === 'delete') await deleteInvoice(inv.id)
+      const result = type === 'void'
+        ? await voidInvoice(inv.id)
+        : await deleteInvoice(inv.id)
+      if (!result.success) {
+        setActionError((result as { success: false; error: string }).error)
+        setActingId(null)
+        return
+      }
       setConfirmDialog(null)
       setActingId(null)
       refresh()
@@ -296,8 +304,11 @@ export function InvoicesTable({ invoices }: { invoices: InvoiceListRow[] }) {
                   : `Mark invoice ${confirmDialog.inv.number} as void? The invoice link will still work but will show as voided.`
                 }
               </p>
+              {actionError && (
+                <p className="text-sm text-red-600">{actionError}</p>
+              )}
               <div className="flex gap-3">
-                <Button variant="outline" className="flex-1" onClick={() => setConfirmDialog(null)}>
+                <Button variant="outline" className="flex-1" onClick={() => { setConfirmDialog(null); setActionError(null) }}>
                   Cancel
                 </Button>
                 <Button

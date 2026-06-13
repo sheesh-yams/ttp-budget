@@ -148,8 +148,14 @@ export function ProjectInvoicesPage({
     const { type, inv } = confirmDialog
     setActingId(inv.id)
     startTransition(async () => {
-      if (type === 'void')   await voidInvoice(inv.id)
-      if (type === 'delete') await deleteInvoice(inv.id)
+      const result = type === 'void'
+        ? await voidInvoice(inv.id)
+        : await deleteInvoice(inv.id)
+      if (!result.success) {
+        alert((result as { success: false; error: string }).error)
+        setActingId(null)
+        return
+      }
       setConfirmDialog(null)
       setActingId(null)
       refresh()

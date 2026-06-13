@@ -255,7 +255,8 @@ export async function voidInvoice(invoiceId: string): Promise<ActionResult> {
     revalidatePath('/invoices')
     revalidatePath('/dashboard')
     return { success: true, data: undefined }
-  } catch {
+  } catch (err) {
+    console.error('[voidInvoice]', err)
     return { success: false, error: 'Failed to void invoice' }
   }
 }
