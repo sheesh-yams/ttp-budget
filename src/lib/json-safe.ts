@@ -13,7 +13,6 @@
  * Returns `any` intentionally so callers can assign to Prisma JSON fields
  * without extra casts (mirrors the behaviour of JSON.parse(JSON.stringify)).
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function toJsonSafe(value: unknown): any {
   if (value === null || value === undefined) return value
 
