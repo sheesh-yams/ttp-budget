@@ -7,6 +7,7 @@ import { BudgetEditor } from '@/components/projects/BudgetEditor'
 import { ProjectProposals } from '@/components/projects/ProjectProposals'
 import { ProjectInvoices } from '@/components/projects/ProjectInvoices'
 import { ProjectHeaderActions } from '@/components/projects/ProjectHeaderActions'
+import { ClientInfoPanel } from '@/components/projects/ClientInfoPanel'
 import { ProposalOverview } from '@/components/projects/ProposalOverview'
 import { createBudget } from '@/server/actions/budgets'
 import { Button } from '@/components/ui/button'
@@ -105,6 +106,9 @@ export default async function ProjectDetailPage({
           dueDate:         true,
           publicToken:     true,
           sentAt:          true,
+          lineItems:       true,
+          taxPct:          true,
+          notes:           true,
         },
       },
     },
@@ -213,6 +217,25 @@ export default async function ProjectDetailPage({
               <p className="text-2xl font-semibold tabular text-foreground">{formatMoney(grandTotalCents)}</p>
             </div>
           )}
+          <ClientInfoPanel
+            projectId={project.id}
+            projectName={project.name}
+            projectNotes={project.notes ?? null}
+            client={{
+              name:           project.client.name,
+              contactName:    project.client.contactName ?? null,
+              contactEmail:   project.client.contactEmail ?? null,
+              contactPhone:   project.client.contactPhone ?? null,
+              billingAddress: project.client.billingAddress ?? null,
+              notes:          (project.client as { notes?: string | null }).notes ?? null,
+            }}
+            trigger={
+              <Button size="sm" variant="outline" className="flex-shrink-0">
+                <User className="mr-1.5 h-3.5 w-3.5" />
+                Client Info
+              </Button>
+            }
+          />
           <ProjectHeaderActions project={serialisedProject} />
         </div>
       </div>

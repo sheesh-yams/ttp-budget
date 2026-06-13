@@ -146,3 +146,21 @@ export async function unarchiveProject(projectId: string): Promise<ActionResult>
     return { success: false, error: 'Failed to unarchive project' }
   }
 }
+
+export async function updateProjectNotes(
+  projectId: string,
+  notes: string,
+): Promise<ActionResult> {
+  try {
+    const db = await getScopedDb()
+    await db.project.update({
+      where: { id: projectId },
+      data: { notes: notes.trim() || null },
+    })
+    revalidatePath(`/projects/${projectId}`)
+    return { success: true, data: undefined }
+  } catch (err) {
+    console.error(err)
+    return { success: false, error: 'Failed to save notes' }
+  }
+}

@@ -376,6 +376,73 @@ export async function recordPayment(
   }
 }
 
+// ── Edit invoice line items ────────────────────────────────────────────────
+
+const lineItemSchema = z.object({
+  id:             z.string(),
+  description:    z.string().min(1),
+  quantity:       z.number(),
+  unit:           z.enum(['HOUR', 'HALF_DAY', 'DAY', 'WEEK', 'FLAT', 'EACH', 'MILE']),
+  rateCents:      z.number().int(),
+  lineTotalCents: z.number().int(),
+  notes:          z.string().optional(),
+})
+
+export async function updateInvoiceLineItems(
+  invoiceId:    string,
+  lineItems:    z.infer<typeof lineItemSchema>[],
+  taxPct:       number,
+  notes?:       string,
+  title?:       string,
+  dueDate?:     string,
+): Promise<ActionResult> {
+  try {
+    const [scopedDb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+
+    const invoice = await scopedDb.invoice.findFirst({
+      where: { id: invoiceId },
+      select: { status: true, projectId: true, workspaceId: true },
+    })
+    if (!invoice) return { success: false, error: 'Invoice not found' }
+    if ((invoice.status as string) === 'PAID') return { success: false, error: 'Cannot edit a paid invoice' }
+    if ((invoice.status as string) === 'VOID') return { success: false, error: 'Cannot edit a voided invoice' }
+
+    const validated = z.array(lineItemSchema).parse(lineItems)
+    const subtotalCents = validated.reduce((s, li) => s + li.lineTotalCents, 0)
+    const taxCents      = Math.round(subtotalCents * taxPct / 100)
+    const totalCents    = subtotalCents + taxCents
+
+    await scopedDb.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        lineItems:     validated as object[],
+        subtotalCents,
+        taxPct,
+        taxCents,
+        totalCents,
+        ...(notes    !== undefined ? { notes }              : {}),
+        ...(title    !== undefined ? { title }              : {}),
+        ...(dueDate  !== undefined ? { dueDate: new Date(dueDate) } : {}),
+      },
+    })
+
+    await logAuditEvent({
+      workspaceId: invoice.workspaceId as string,
+      actorId:     user.id,
+      action:      'invoice.edited',
+      entityType:  'Invoice',
+      entityId:    invoiceId,
+    })
+
+    revalidatePath(`/projects/${invoice.projectId}`)
+    revalidatePath('/invoices')
+    return { success: true, data: undefined }
+  } catch (err) {
+    console.error('[updateInvoiceLineItems]', err)
+    return { success: false, error: 'Failed to update invoice' }
+  }
+}
+
 export async function updateOverdueInvoices(): Promise<void> {
   // System cron — uses raw db (no user session)
   await db.invoice.updateMany({

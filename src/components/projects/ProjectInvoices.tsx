@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { FileText, DollarSign, Send, Eye, Ban, Trash2, Receipt, Plus } from 'lucide-react'
+import { FileText, DollarSign, Send, Ban, Trash2, Receipt, Plus, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -12,7 +12,8 @@ import { formatMoney } from '@/lib/money'
 import { recordPayment, voidInvoice, deleteInvoice } from '@/server/actions/invoices'
 import { SendInvoiceModal } from '@/components/invoice/SendInvoiceModal'
 import { PreviewPanel } from '@/components/invoice/PreviewPanel'
-import type { InvoiceStatus } from '@/types'
+import { EditInvoiceModal } from '@/components/invoice/EditInvoiceModal'
+import type { InvoiceStatus, InvoiceLineItem } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -27,6 +28,9 @@ export interface InvoiceRow {
   dueDate: Date | string
   publicToken: string
   sentAt: Date | string | null
+  lineItems: unknown          // JSON array — cast as InvoiceLineItem[] when used
+  taxPct: number | string     // Decimal from Prisma
+  notes: string | null
 }
 
 interface Props {
@@ -186,6 +190,7 @@ export function ProjectInvoices({ invoices, projectId }: Props) {
 
               const canSend   = inv.status === 'DRAFT' || inv.status === 'SENT'
               const canPay    = !['DRAFT', 'PAID', 'VOID'].includes(inv.status)
+              const canEdit   = !['PAID', 'VOID'].includes(inv.status)
               const canVoid   = ['DRAFT', 'SENT', 'VIEWED', 'OVERDUE'].includes(inv.status)
               const canDelete = inv.status === 'DRAFT'
               const isBusy    = actingId === inv.id && isPending
@@ -225,10 +230,31 @@ export function ProjectInvoices({ invoices, projectId }: Props) {
                     <div className="flex items-center gap-0.5 justify-end">
 
                       {/* Preview */}
-                      <PreviewPanel
-                        invoiceId={inv.id}
-                        invoiceNumber={inv.number}
-                      />
+                      <PreviewPanel invoiceId={inv.id} invoiceNumber={inv.number} />
+
+                      {/* Edit line items */}
+                      {canEdit && (
+                        <EditInvoiceModal
+                          invoiceId={inv.id}
+                          invoiceNumber={inv.number}
+                          existingItems={(inv.lineItems as InvoiceLineItem[]) ?? []}
+                          currentTaxPct={Number(inv.taxPct ?? 0)}
+                          currentNotes={inv.notes}
+                          currentTitle={inv.title}
+                          currentDueDate={new Date(inv.dueDate).toISOString()}
+                          onSaved={refresh}
+                          trigger={open => (
+                            <button
+                              type="button"
+                              onClick={open}
+                              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground inline-flex"
+                              title="Edit invoice"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        />
+                      )}
 
                       {/* Send */}
                       {canSend && (

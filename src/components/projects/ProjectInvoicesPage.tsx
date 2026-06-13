@@ -14,16 +14,17 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Receipt, CheckCircle2, Clock, Send, Ban, Trash2, Eye, FileText } from 'lucide-react'
+import { Plus, Receipt, CheckCircle2, Clock, Send, Ban, Trash2, Eye, FileText, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { NewInvoiceModal } from '@/components/projects/NewInvoiceModal'
 import { SendInvoiceModal } from '@/components/invoice/SendInvoiceModal'
 import { PreviewPanel } from '@/components/invoice/PreviewPanel'
+import { EditInvoiceModal } from '@/components/invoice/EditInvoiceModal'
 import { formatMoney } from '@/lib/money'
 import { voidInvoice, deleteInvoice } from '@/server/actions/invoices'
 import { useTransition } from 'react'
-import type { ProposalContent, PaymentMilestone, MilestoneTrigger } from '@/types'
+import type { ProposalContent, PaymentMilestone, MilestoneTrigger, InvoiceLineItem } from '@/types'
 import type { InvoiceStatus } from '@/types'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -45,6 +46,9 @@ interface InvoiceRow {
   dueDate: string
   publicToken: string
   sentAt: string | null
+  lineItems: unknown
+  taxPct: number | string
+  notes: string | null
 }
 
 interface ProposalRef {
@@ -333,6 +337,7 @@ export function ProjectInvoicesPage({
                   const badgeLabel = isPartial ? 'Partial' : isOverdue ? 'Overdue' : cfg.label
 
                   const canSend   = inv.status === 'DRAFT' || inv.status === 'SENT'
+                  const canEdit   = !['PAID', 'VOID'].includes(inv.status)
                   const canVoid   = ['DRAFT', 'SENT', 'VIEWED', 'OVERDUE'].includes(inv.status)
                   const canDelete = inv.status === 'DRAFT'
                   const isBusy    = actingId === inv.id && isPending
@@ -370,6 +375,29 @@ export function ProjectInvoicesPage({
                       <td className="px-2 py-2.5">
                         <div className="flex items-center gap-0.5 justify-end">
                           <PreviewPanel invoiceId={inv.id} invoiceNumber={inv.number} />
+
+                          {canEdit && (
+                            <EditInvoiceModal
+                              invoiceId={inv.id}
+                              invoiceNumber={inv.number}
+                              existingItems={(inv.lineItems as InvoiceLineItem[]) ?? []}
+                              currentTaxPct={Number(inv.taxPct ?? 0)}
+                              currentNotes={inv.notes}
+                              currentTitle={inv.title}
+                              currentDueDate={inv.dueDate}
+                              onSaved={refresh}
+                              trigger={open => (
+                                <button
+                                  type="button"
+                                  onClick={open}
+                                  className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground inline-flex"
+                                  title="Edit invoice"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            />
+                          )}
 
                           {canSend && (
                             <SendInvoiceModal

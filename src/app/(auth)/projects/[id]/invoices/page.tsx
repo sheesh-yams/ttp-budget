@@ -92,6 +92,9 @@ export default async function InvoicesSubPage({ params }: Props) {
           dueDate:         true,
           publicToken:     true,
           sentAt:          true,
+          lineItems:       true,
+          taxPct:          true,
+          notes:           true,
         },
       },
     },
@@ -123,8 +126,11 @@ export default async function InvoicesSubPage({ params }: Props) {
   // Serialize dates for client component
   const serializedInvoices = project.invoices.map(inv => ({
     ...inv,
-    dueDate: inv.dueDate.toISOString(),
-    sentAt:  inv.sentAt?.toISOString() ?? null,
+    dueDate:   inv.dueDate.toISOString(),
+    sentAt:    inv.sentAt?.toISOString() ?? null,
+    lineItems: inv.lineItems,
+    taxPct:    Number(inv.taxPct ?? 0),
+    notes:     inv.notes ?? null,
   }))
 
   return (
