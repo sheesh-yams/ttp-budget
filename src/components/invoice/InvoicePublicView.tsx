@@ -81,8 +81,34 @@ export function InvoicePublicView({
     workspace.achInstructions ||
     workspace.checkPayableTo
 
+  const isVoid = invoice.status === 'VOID'
+
   return (
     <div style={{ fontFamily: 'var(--font-sans, system-ui, sans-serif)', color: BODY, background: '#fff', minHeight: '100vh' }}>
+
+      {/* ════════════════════ VOID BANNER ════════════════════ */}
+      {isVoid && (
+        <div style={{
+          background: '#111827',
+          borderBottom: '3px solid #6B7280',
+          padding: '14px clamp(24px,5vw,64px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 12,
+          position: 'sticky',
+          top: 0,
+          zIndex: 50,
+        }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+          </svg>
+          <span style={{ color: '#9CA3AF', fontSize: 13, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+            This invoice has been voided and is no longer payable
+          </span>
+        </div>
+      )}
 
       {/* ════════════════════ HEADER ════════════════════ */}
       <section
@@ -156,12 +182,36 @@ export function InvoicePublicView({
 
             {/* Balance due */}
             <div style={{ textAlign: 'right', flexShrink: 0 }}>
-              <p style={{ color: 'rgba(0,0,0,0.4)', fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 4px' }}>
-                {isPaid ? 'Total Paid' : isPartiallyPaid ? 'Balance Due' : 'Amount Due'}
-              </p>
-              <p style={{ color: isPaid ? '#15803D' : isOverdue ? '#B91C1C' : '#0A0612', fontSize: 'clamp(26px,3vw,40px)', fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1, letterSpacing: '-0.02em', margin: 0 }}>
-                {formatMoney(isPaid ? invoice.totalCents : balanceDueCents)}
-              </p>
+              {isVoid ? (
+                <>
+                  <p style={{ color: 'rgba(0,0,0,0.4)', fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 4px' }}>Status</p>
+                  <p style={{
+                    color: '#6B7280',
+                    fontSize: 'clamp(22px,2.5vw,34px)',
+                    fontWeight: 700,
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                    lineHeight: 1,
+                    margin: 0,
+                    textDecoration: 'line-through',
+                    textDecorationThickness: 3,
+                  }}>
+                    {formatMoney(invoice.totalCents)}
+                  </p>
+                  <p style={{ color: '#6B7280', fontSize: 11, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', margin: '6px 0 0' }}>
+                    Voided
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p style={{ color: 'rgba(0,0,0,0.4)', fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 4px' }}>
+                    {isPaid ? 'Total Paid' : isPartiallyPaid ? 'Balance Due' : 'Amount Due'}
+                  </p>
+                  <p style={{ color: isPaid ? '#15803D' : isOverdue ? '#B91C1C' : '#0A0612', fontSize: 'clamp(26px,3vw,40px)', fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1, letterSpacing: '-0.02em', margin: 0 }}>
+                    {formatMoney(isPaid ? invoice.totalCents : balanceDueCents)}
+                  </p>
+                </>
+              )}
             </div>
           </div>
         </div>
