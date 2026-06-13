@@ -1,3 +1,5 @@
+import Link from 'next/link'
+
 /**
  * SLATESUITE marketing homepage.
  * Rendered at "/" for unauthenticated visitors.
@@ -18,11 +20,11 @@ export function SlateSuiteHomepage() {
             <li><a href="#invoicing">Invoicing</a></li>
           </ul>
           <div className="nav-actions">
-            <a href="/sign-in" className="nav-signin">Sign in</a>
-            <a href="/sign-up" className="btn-primary">
+            <Link href="/sign-in" className="nav-signin">Sign in</Link>
+            <Link href="/sign-up" className="btn-primary">
               Get early access
               <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 7h10M7 2l5 5-5 5" /></svg>
-            </a>
+            </Link>
           </div>
         </div>
       </nav>
@@ -38,11 +40,11 @@ export function SlateSuiteHomepage() {
             <h1>Run your production business like a <em>studio.</em></h1>
             <p>Budgets, proposals, invoices, and call sheets — all in one place. Purpose-built for independent film and video production companies.</p>
             <div className="hero-ctas">
-              <a href="/sign-up" className="btn-primary-lg">
+              <Link href="/sign-up" className="btn-primary-lg">
                 Get early access
                 <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ width: '14px', height: '14px' }}><path d="M3 8h10M8 3l5 5-5 5" /></svg>
-              </a>
-              <span className="hero-secondary">Already have an account? <a href="/sign-in">Sign in</a></span>
+              </Link>
+              <span className="hero-secondary">Already have an account? <Link href="/sign-in">Sign in</Link></span>
             </div>
           </div>
 
@@ -141,7 +143,7 @@ export function SlateSuiteHomepage() {
 
       {/* ── FEATURE PILLS ────────────────────────────────────────── */}
       <div className="feature-nav" id="features">
-        <div className="feature-nav-label">What's inside</div>
+        <div className="feature-nav-label">What&apos;s inside</div>
         <div className="feature-pills">
           <div className="feature-pill">
             <svg viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="1.5" /><path d="M5 8h6M5 5.5h3M5 10.5h4" strokeLinecap="round" /></svg>
@@ -510,10 +512,10 @@ export function SlateSuiteHomepage() {
       <section className="cta-section">
         <h2>Your next production deserves<br />better <em>tools.</em></h2>
         <p>Stop stitching together spreadsheets, PDFs, and email threads. SLATESUITE puts everything in one place, built from the ground up for production companies.</p>
-        <a href="/sign-up" className="btn-primary-lg" style={{ background: '#fff', color: 'var(--ss-purple)', margin: '0 auto' }}>
+        <Link href="/sign-up" className="btn-primary-lg" style={{ background: '#fff', color: 'var(--ss-purple)', margin: '0 auto' }}>
           Get early access
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ width: '14px', height: '14px' }}><path d="M3 8h10M8 3l5 5-5 5" /></svg>
-        </a>
+        </Link>
         <div className="cta-note">No credit card required.</div>
       </section>
 
@@ -523,7 +525,7 @@ export function SlateSuiteHomepage() {
           <div className="footer-logo">SLATE<span>SUITE</span></div>
           <ul className="footer-links">
             <li><a href="#">Features</a></li>
-            <li><a href="/sign-in">Sign in</a></li>
+            <li><Link href="/sign-in">Sign in</Link></li>
             <li><a href="#">Privacy</a></li>
             <li><a href="#">Terms</a></li>
           </ul>
