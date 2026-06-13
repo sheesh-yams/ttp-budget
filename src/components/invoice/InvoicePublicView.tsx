@@ -2,6 +2,7 @@
 
 import { formatMoney } from '@/lib/money'
 import type { InvoiceWithRelations, InvoiceLineItem } from '@/types'
+import { HelcimPayButton } from './HelcimPayButton'
 
 // ─── Brand tokens ─────────────────────────────────────────────────────────────
 
@@ -52,7 +53,13 @@ const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function InvoicePublicView({ invoice }: { invoice: InvoiceWithRelations }) {
+export function InvoicePublicView({
+  invoice,
+  paymentEnabled = false,
+}: {
+  invoice: InvoiceWithRelations
+  paymentEnabled?: boolean
+}) {
   const lineItems = (invoice.lineItems as unknown as InvoiceLineItem[]) ?? []
   const workspace = invoice.workspace
   const client    = invoice.client
@@ -255,11 +262,24 @@ export function InvoicePublicView({ invoice }: { invoice: InvoiceWithRelations }
         </section>
       )}
 
+      {/* ════════════════════ PAY ONLINE ════════════════════ */}
+      {paymentEnabled && !isPaid && ['SENT', 'VIEWED'].includes(invoice.status) && balanceDueCents > 0 && (
+        <section style={{ padding: 'clamp(48px,7vw,80px) clamp(24px,6vw,80px)' }}>
+          <div style={{ maxWidth: 560, margin: '0 auto' }}>
+            <SectionHeader label="Pay Online" />
+            <HelcimPayButton
+              invoicePublicToken={invoice.publicToken as string}
+              amountCents={balanceDueCents}
+            />
+          </div>
+        </section>
+      )}
+
       {/* ════════════════════ PAYMENT INSTRUCTIONS ════════════════════ */}
       {hasPaymentInfo && !isPaid && (
         <section style={{ padding: 'clamp(48px,7vw,80px) clamp(24px,6vw,80px)', background: CANVAS }}>
           <div style={{ maxWidth: 960, margin: '0 auto' }}>
-            <SectionHeader label="How to Pay" />
+            <SectionHeader label={paymentEnabled ? 'Other Payment Methods' : 'How to Pay'} />
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 20 }}>
               {workspace.wireInstructions && (

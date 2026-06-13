@@ -67,5 +67,21 @@ export default async function PublicInvoicePage({ params }: Props) {
   const ua = headersList.get('user-agent') ?? ''
   void recordInvoiceView(invoice.id, ip, ua)
 
-  return <InvoicePublicView invoice={invoice} />
+  // ── Payment config ────────────────────────────────────────────────────────
+  // Fetched via raw db (no Clerk session on public pages).
+  // WorkspacePaymentConfig is a new model — requires 'as unknown as' until
+  // the user runs `npx prisma generate` locally.
+  const paymentConfig = await (db as unknown as {
+    workspacePaymentConfig: {
+      findUnique: (args: object) => Promise<{ provider: string } | null>
+    }
+  }).workspacePaymentConfig.findUnique({
+    where: { workspaceId: invoice.workspaceId },
+    select: { provider: true },
+  })
+
+  const paymentEnabled =
+    paymentConfig != null && paymentConfig.provider !== 'NONE'
+
+  return <InvoicePublicView invoice={invoice} paymentEnabled={paymentEnabled} />
 }
