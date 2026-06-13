@@ -48,6 +48,10 @@ const SCOPED_MODELS = new Set([
   'ProjectMember',
   // A9: audit log — workspaceId plain column (no FK), same injection pattern
   'AuditEvent',
+  // Payments — workspace-owned config and attempt records
+  'WorkspacePaymentConfig',
+  'PaymentAttempt',
+  // NOTE: WebhookEvent is NOT workspace-scoped (keyed by provider+eventId only)
 ])
 
 // Operations that read data — inject workspaceId into `where`

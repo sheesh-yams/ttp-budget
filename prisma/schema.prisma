@@ -84,6 +84,7 @@ model Workspace {
   actualSheets      ActualSheet[]
   invitations       WorkspaceInvitation[]
   contacts          Contact[]
+  paymentConfig     WorkspacePaymentConfig?
 }
 
 enum UserRole {
@@ -867,6 +868,74 @@ model WorkspaceInvitation {
 
   @@index([workspaceId])
   @@index([token])
+}
+
+// =============================================================
+// PAYMENTS — provider config, checkout attempts, webhook dedup
+// =============================================================
+
+enum PaymentProvider {
+  NONE
+  HELCIM
+}
+
+// One row per workspace — controls which payment provider is active.
+// Created on first enable; provider = NONE means payments are off.
+model WorkspacePaymentConfig {
+  id          String          @id @default(cuid())
+  workspaceId String          @unique
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  provider    PaymentProvider @default(NONE)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+// Tracks a single checkout attempt for an invoice payment.
+// Created by initiatePayment, resolved (SUCCEEDED/FAILED) by the confirm route.
+// idempotencyKey prevents double-creation; [provider, providerRef] is unique so
+// the same Helcim transactionId can never settle two attempts.
+model PaymentAttempt {
+  id              String          @id @default(cuid())
+  workspaceId     String
+  invoiceId       String
+
+  provider        PaymentProvider
+  // INITIATED → SUCCEEDED | FAILED | EXPIRED
+  status          String
+
+  amountCents     Int
+  currency        String          @default("USD")
+
+  // Helcim transactionId — set after successful confirm
+  providerRef     String?
+  // HelcimPay.js checkoutToken returned to the client for modal rendering
+  checkoutToken   String?
+  // SHA-256(secretToken) — stored for audit; raw secretToken never persisted
+  secretTokenHash String?
+
+  // One-time key generated per initiatePayment call; prevents double-submission
+  idempotencyKey  String          @unique
+
+  createdAt       DateTime        @default(now())
+  resolvedAt      DateTime?
+
+  @@index([invoiceId])
+  @@index([workspaceId, status])
+  // Ensures one Helcim transaction can only ever settle one attempt
+  @@unique([provider, providerRef])
+}
+
+// Idempotency log for inbound webhooks — prevents the same event from being
+// processed twice in a race or retry scenario.
+model WebhookEvent {
+  id          String          @id @default(cuid())
+  provider    PaymentProvider
+  eventId     String
+  payloadHash String
+  processedAt DateTime?
+  createdAt   DateTime        @default(now())
+
+  @@unique([provider, eventId])
 }
 
 // =============================================================
