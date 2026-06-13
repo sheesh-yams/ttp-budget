@@ -223,6 +223,7 @@ export async function sendInvoice(
 }
 
 export async function voidInvoice(invoiceId: string): Promise<ActionResult> {
+  console.log('[voidInvoice] called', { invoiceId })
   try {
     const [scopedDb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
 
@@ -254,9 +255,10 @@ export async function voidInvoice(invoiceId: string): Promise<ActionResult> {
     revalidatePath(`/projects/${invoice.projectId}`)
     revalidatePath('/invoices')
     revalidatePath('/dashboard')
+    console.log('[voidInvoice] success', { invoiceId, projectId: invoice.projectId })
     return { success: true, data: undefined }
   } catch (err) {
-    console.error('[voidInvoice]', err)
+    console.error('[voidInvoice] error', err)
     return { success: false, error: 'Failed to void invoice' }
   }
 }
@@ -301,9 +303,18 @@ export async function recordInvoiceView(invoiceId: string, ip: string, userAgent
   try {
     const now = new Date()
     await db.invoiceView.create({ data: { invoiceId, ip, userAgent, viewedAt: now } })
-    await db.invoice.update({
-      where: { id: invoiceId },
+    // Only advance status to VIEWED if the invoice is in a viewable state.
+    // Never overwrite terminal statuses (VOID, PAID) — a client opening the link
+    // after a void must not un-void the invoice.
+    await db.invoice.updateMany({
+      where: { id: invoiceId, status: { in: ['SENT', 'OVERDUE'] } },
       data: { viewCount: { increment: 1 }, lastViewedAt: now, status: 'VIEWED' },
+    })
+    // Still track view count + timestamp for already-VIEWED and DRAFT invoices,
+    // but don't change the status.
+    await db.invoice.updateMany({
+      where: { id: invoiceId, status: { notIn: ['SENT', 'OVERDUE'] } },
+      data: { viewCount: { increment: 1 }, lastViewedAt: now },
     })
     await db.invoice.updateMany({
       where: { id: invoiceId, firstViewedAt: null },
