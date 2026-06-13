@@ -508,7 +508,7 @@ export function ProposalPublicView({ proposal, accounts, totalCents, discountCen
                     Payment {String(i + 1).padStart(2, '0')}
                   </p>
                   <p style={{ fontSize: 36, fontWeight: 700, color: BODY, fontVariantNumeric: 'tabular-nums', margin: '0 0 4px', lineHeight: 1 }}>
-                    {m.percentPct}%
+                    {Math.round(m.percentPct * 100)}%
                   </p>
                   <p style={{ fontSize: 15, fontWeight: 600, color: BODY, margin: '0 0 6px' }}>{m.name}</p>
                   <p style={{ fontSize: 13, color: MUTED, margin: '0 0 18px' }}>
@@ -516,7 +516,7 @@ export function ProposalPublicView({ proposal, accounts, totalCents, discountCen
                   </p>
                   {totalCents > 0 && (
                     <p style={{ fontSize: 15, fontWeight: 700, color: V, fontVariantNumeric: 'tabular-nums', margin: 0 }}>
-                      {formatMoney(Math.round(totalCents * m.percentPct / 100))}
+                      {formatMoney(Math.round(totalCents * m.percentPct))}
                     </p>
                   )}
                 </div>

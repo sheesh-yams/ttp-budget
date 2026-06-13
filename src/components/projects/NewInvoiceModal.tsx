@@ -157,7 +157,7 @@ export function NewInvoiceModal({
     ...milestones.map(m => ({
       type: 'milestone' as const,
       milestone: m,
-      amountCents: Math.round(totalCents * m.percentPct / 100),
+      amountCents: Math.round(totalCents * m.percentPct),
     })),
     { type: 'full', amountCents: totalCents },
   ]
@@ -279,8 +279,8 @@ export function NewInvoiceModal({
   function getKind(): 'DEPOSIT' | 'PROGRESS' | 'FINAL' | 'STANDALONE' {
     if (!selected || selected.type === 'full') return 'STANDALONE'
     const pct = selected.milestone.percentPct
-    if (pct <= 35) return 'DEPOSIT'
-    if (pct >= 80) return 'FINAL'
+    if (pct <= 0.35) return 'DEPOSIT'
+    if (pct >= 0.80) return 'FINAL'
     return 'PROGRESS'
   }
 
@@ -349,7 +349,7 @@ export function NewInvoiceModal({
             <div className="space-y-2">
               {options.map((opt, idx) => {
                 const label = opt.type === 'full' ? 'Full invoice' : opt.milestone.name
-                const pct   = opt.type === 'milestone' ? `${opt.milestone.percentPct}%` : '100%'
+                const pct   = opt.type === 'milestone' ? `${Math.round(opt.milestone.percentPct * 100)}%` : '100%'
                 const isSelected = selectedIdx === idx
 
                 return (

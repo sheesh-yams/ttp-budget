@@ -16,6 +16,7 @@
 
 import { db } from '@/lib/db'
 import type { RateCategory, RateUnit, ShootType, TemplateKind } from '@prisma/client'
+import { toJsonSafe } from '@/lib/json-safe'
 
 export async function seedWorkspaceFromGlobals(workspaceId: string): Promise<void> {
   // Fetch all featured globals in parallel
@@ -59,7 +60,7 @@ export async function seedWorkspaceFromGlobals(workspaceId: string): Promise<voi
           // Strip any globalRateCard IDs from the structure — the workspace
           // copy has its own rate card IDs (or none). Descriptions are kept so
           // line items still have meaningful labels.
-          structure:   JSON.parse(JSON.stringify(stripRateCardIds(g.structure))),
+          structure:   toJsonSafe(stripRateCardIds(g.structure)),
         } as unknown as Parameters<typeof tx.budgetTemplate.create>[0]['data'],
       })
     }
@@ -120,7 +121,7 @@ export async function reseedWorkspaceFromGlobals(workspaceId: string): Promise<{
           description: g.description,
           shootType:   g.shootType as ShootType,
           kind:        g.templateKind as TemplateKind,
-          structure:   JSON.parse(JSON.stringify(stripRateCardIds(g.structure))),
+          structure:   toJsonSafe(stripRateCardIds(g.structure)),
         } as unknown as Parameters<typeof tx.budgetTemplate.create>[0]['data'],
       })
     }

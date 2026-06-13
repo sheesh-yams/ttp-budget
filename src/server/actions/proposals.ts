@@ -125,8 +125,8 @@ export async function createProposal(
           title: 'Payment terms',
           body: '',
           milestones: [
-            { id: uid(), name: 'Deposit — on signing', percentPct: 50, trigger: 'on_signing' },
-            { id: uid(), name: 'Final — on delivery', percentPct: 50, trigger: 'on_delivery' },
+            { id: uid(), name: 'Deposit — on signing', percentPct: 0.5, trigger: 'on_signing' },
+            { id: uid(), name: 'Final — on delivery', percentPct: 0.5, trigger: 'on_delivery' },
           ],
         },
       ],

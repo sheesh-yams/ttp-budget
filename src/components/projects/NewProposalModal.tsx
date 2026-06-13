@@ -70,8 +70,8 @@ export function NewProposalModal({
         budgetId,
         title: title.trim(),
         milestones: [
-          { id: crypto.randomUUID().slice(0, 8), name: 'On signing',  percentPct: deposit,         trigger: 'on_signing'  },
-          { id: crypto.randomUUID().slice(0, 8), name: 'On delivery', percentPct: 100 - deposit,   trigger: 'on_delivery' },
+          { id: crypto.randomUUID().slice(0, 8), name: 'On signing',  percentPct: deposit / 100,           trigger: 'on_signing'  },
+          { id: crypto.randomUUID().slice(0, 8), name: 'On delivery', percentPct: (100 - deposit) / 100,   trigger: 'on_delivery' },
         ],
         expiresAt,
         totalCents,

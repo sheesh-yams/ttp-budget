@@ -52,7 +52,7 @@ function fromPaymentMilestones(ms: PaymentMilestone[]): LocalMilestone[] {
   return ms.map(m => ({
     id: m.id,
     amtType: 'pct' as AmtType,
-    pctValue: String(m.percentPct),
+    pctValue: String(Math.round(m.percentPct * 100)),
     flatValue: '',
     trigger: m.trigger,
     customDate: m.customDate ?? '',
@@ -65,9 +65,9 @@ function toPaymentMilestones(locals: LocalMilestone[], totalCents: number): Paym
     let percentPct: number
     if (m.amtType === 'flat') {
       const flat = parseFloat(m.flatValue) || 0
-      percentPct = totalDollars > 0 ? Math.round((flat / totalDollars) * 10000) / 100 : 0
+      percentPct = totalDollars > 0 ? flat / totalDollars : 0
     } else {
-      percentPct = parseFloat(m.pctValue) || 0
+      percentPct = (parseFloat(m.pctValue) || 0) / 100
     }
     const label = TRIGGER_OPTIONS.find(t => t.value === m.trigger)?.label ?? m.trigger
     return {

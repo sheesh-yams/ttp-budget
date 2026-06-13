@@ -398,11 +398,11 @@ export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0,
               {milestones.map((m, i) => (
                 <View key={m.id} style={s.milestoneCard}>
                   <Text style={s.milestoneNum}>Payment {String(i + 1).padStart(2, '0')}</Text>
-                  <Text style={s.milestonePct}>{m.percentPct}%</Text>
+                  <Text style={s.milestonePct}>{Math.round(m.percentPct * 100)}%</Text>
                   <Text style={s.milestoneName}>{m.name}</Text>
                   <Text style={s.milestoneTrig}>{milestoneLabelPdf(m, proposal.project.shootStartDate)}</Text>
                   {totalCents > 0 && (
-                    <Text style={s.milestoneAmt}>{formatMoney(Math.round(totalCents * m.percentPct / 100))}</Text>
+                    <Text style={s.milestoneAmt}>{formatMoney(Math.round(totalCents * m.percentPct))}</Text>
                   )}
                 </View>
               ))}

@@ -202,7 +202,7 @@ export function ProjectInvoicesPage({
 
           <div className="rounded-xl border overflow-hidden">
             {milestones.map((m, idx) => {
-              const milestoneAmount = Math.round(budgetTotalCents * m.percentPct / 100)
+              const milestoneAmount = Math.round(budgetTotalCents * m.percentPct)
 
               // Try to find a matching invoice — rough match by position/kind
               const kindForIdx =
@@ -235,7 +235,7 @@ export function ProjectInvoicesPage({
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-foreground">{m.name}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      {m.percentPct}% · {triggerLabel(m.trigger, m.customDate)}
+                      {Math.round(m.percentPct * 100)}% · {triggerLabel(m.trigger, m.customDate)}
                     </p>
                   </div>
 

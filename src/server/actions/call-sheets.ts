@@ -5,6 +5,7 @@ import { getScopedDb } from '@/lib/db-scoped'
 import type { ScopedDb } from '@/lib/db-scoped'
 import { Prisma } from '@prisma/client'
 import type { ActionResult } from '@/types'
+import { toJsonSafe } from '@/lib/json-safe'
 
 // =============================================================================
 // Crew import from budget
@@ -140,7 +141,7 @@ export async function importCrewFromBudget(
 
     await sdb.callSheet.update({
       where: { id: callSheetId },
-      data: { crew: JSON.parse(JSON.stringify(newCrew)) },
+      data: { crew: toJsonSafe(newCrew) },
     })
 
     revalidatePath(`/projects/${cs.projectId}/call-sheets/${callSheetId}`)
@@ -357,12 +358,12 @@ export async function updateCallSheet(
         ...(input.locationAddress    !== undefined && { locationAddress:  input.locationAddress }),
         ...(input.parkingAddress     !== undefined && { parkingAddress:   input.parkingAddress }),
         ...(input.locationNotes      !== undefined && { locationNotes:    input.locationNotes }),
-        ...(input.pointOfContact     !== undefined && { pointOfContact:   JSON.parse(JSON.stringify(input.pointOfContact)) }),
-        ...(input.talent             !== undefined && { talent:        JSON.parse(JSON.stringify(input.talent)) }),
-        ...(input.crew               !== undefined && { crew:          JSON.parse(JSON.stringify(input.crew)) }),
-        ...(input.schedule           !== undefined && { schedule:      JSON.parse(JSON.stringify(input.schedule)) }),
-        ...(input.otherContacts      !== undefined && { otherContacts: JSON.parse(JSON.stringify(input.otherContacts)) }),
-        ...(input.hospitalInfo       !== undefined && !addressChanging && { hospitalInfo: input.hospitalInfo ? JSON.parse(JSON.stringify(input.hospitalInfo)) : null }),
+        ...(input.pointOfContact     !== undefined && { pointOfContact:   toJsonSafe(input.pointOfContact) }),
+        ...(input.talent             !== undefined && { talent:        toJsonSafe(input.talent) }),
+        ...(input.crew               !== undefined && { crew:          toJsonSafe(input.crew) }),
+        ...(input.schedule           !== undefined && { schedule:      toJsonSafe(input.schedule) }),
+        ...(input.otherContacts      !== undefined && { otherContacts: toJsonSafe(input.otherContacts) }),
+        ...(input.hospitalInfo       !== undefined && !addressChanging && { hospitalInfo: input.hospitalInfo ? toJsonSafe(input.hospitalInfo) : null }),
         ...(input.cateringInfo       !== undefined && { cateringInfo:  input.cateringInfo }),
         ...(input.notes              !== undefined && { notes:            input.notes }),
         ...(addressChanging && { locationLat: null, locationLng: null, hospitalInfo: null, weather: null }),
@@ -684,8 +685,8 @@ export async function fetchLocationData(id: string): Promise<ActionResult<{
       data: {
         locationLat:  lat,
         locationLng:  lng,
-        weather:      JSON.parse(JSON.stringify(weather)),
-        ...(hospital ? { hospitalInfo: JSON.parse(JSON.stringify(hospital)) } : {}),
+        weather:      toJsonSafe(weather),
+        ...(hospital ? { hospitalInfo: toJsonSafe(hospital) } : {}),
       },
     })
 

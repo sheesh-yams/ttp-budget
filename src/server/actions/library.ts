@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import type { ActionResult } from '@/types'
 import type { RateCategory, RateUnit, ShootType, TemplateKind } from '@prisma/client'
+import { toJsonSafe } from '@/lib/json-safe'
 
 // ---------------------------------------------------------------------------
 // Copy a GlobalRateCard into the active workspace
@@ -82,7 +83,7 @@ export async function copyGlobalTemplateToWorkspace(
         description: global.description,
         shootType:   global.shootType as ShootType,
         kind:        global.templateKind as TemplateKind,
-        structure:   JSON.parse(JSON.stringify(structure)),
+        structure:   toJsonSafe(structure),
       } as unknown as Parameters<typeof db.budgetTemplate.create>[0]['data'],
       select: { id: true },
     })

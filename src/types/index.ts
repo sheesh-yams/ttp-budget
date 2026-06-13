@@ -157,7 +157,7 @@ export type MilestoneTrigger =
 export interface PaymentMilestone {
   id: string
   name: string
-  percentPct: number      // 0–100 (stored as display %, not decimal)
+  percentPct: number      // 0–1 decimal fraction (0.5 = 50%). Never store display %.
   trigger: MilestoneTrigger
   customDate?: string     // ISO date string if trigger === 'custom_date'
 }
