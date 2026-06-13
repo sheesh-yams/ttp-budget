@@ -12,7 +12,7 @@ import { ProposalOverview } from '@/components/projects/ProposalOverview'
 import { createBudget } from '@/server/actions/budgets'
 import { Button } from '@/components/ui/button'
 import { formatMoney } from '@/lib/money'
-import { sumAccount, type AccountInput } from '@/lib/totals'
+import { sumAccount, calcBudgetTotals, type AccountInput } from '@/lib/totals'
 
 const SHOOT_LABELS: Record<string, string> = {
   MUSIC_VIDEO:    'Music Video',
@@ -118,46 +118,68 @@ export default async function ProjectDetailPage({
 
   const budget = project.budgets[0] ?? null
 
-  // Grand total from primary phase
-  let grandTotalCents = 0
+  // Gross total from primary phase (includes budget-level markup + agency fee)
+  let grandTotalCents = 0   // kept for back-compat with proposal components
+  let grossTotalCents = 0
   if (budget) {
     const primaryPhase = budget.phases.find(p => p.isPrimary) ?? budget.phases[0]
     if (primaryPhase) {
-      grandTotalCents = primaryPhase.accounts.reduce(
-        (sum, acc) => sum + sumAccount(acc as unknown as AccountInput),
-        0
+      const netCents  = primaryPhase.accounts.reduce(
+        (sum, acc) => sum + sumAccount(acc as unknown as AccountInput), 0
       )
+      const markupPct = Number((budget as unknown as { markupPct?: number | null }).markupPct ?? 0)
+      const taxPct    = Number((budget as unknown as { taxPct?: number | null }).taxPct ?? 0)
+      if (markupPct > 0 || taxPct > 0) {
+        const totals = calcBudgetTotals(
+          primaryPhase.accounts as unknown as AccountInput[],
+          markupPct,
+          taxPct,
+        )
+        grandTotalCents = totals.grandTotalCents
+        grossTotalCents = totals.grandTotalCents
+      } else {
+        grandTotalCents = netCents
+        grossTotalCents = netCents
+      }
     }
   }
 
+  // Billed from invoices: sum of SENT / VIEWED / OVERDUE / PAID (not DRAFT, not VOID)
+  const billedFromInvoicesCents = project.invoices
+    .filter(inv => !['DRAFT', 'VOID'].includes(inv.status as string))
+    .reduce((sum, inv) => sum + inv.totalCents, 0)
+
   // ── Actuals summary (lightweight — just revenue override + sum of entries) ──
   let actualsSummary: {
-    billedCents: number
-    spentCents:  number
-    profitCents: number
-    marginPct:   number
-    hasSheet:    boolean
-    actualsId:   string | null
+    projectTotalCents:   number   // gross budget total
+    invoiceBilledCents:  number   // invoices actually sent (not DRAFT/VOID)
+    spentCents:          number
+    profitCents:         number
+    marginPct:           number
+    hasSheet:            boolean
+    actualsId:           string | null
   } | null = null
 
   if (budget) {
     const sheet = await db.actualSheet.findFirst({
       where: { budgetId: budget.id, workspaceId },
       select: {
-        id:                  true,
+        id:                   true,
         revenueOverrideCents: true,
         entries: { select: { actualCents: true } },
       },
     })
 
     if (sheet) {
-      const billedCents = sheet.revenueOverrideCents ?? grandTotalCents
-      const spentCents  = sheet.entries.reduce((s, e) => s + e.actualCents, 0)
-      const profitCents = billedCents - spentCents
-      const marginPct   = billedCents > 0 ? (profitCents / billedCents) * 100 : 0
+      // Revenue basis for profit/margin: honour manual override, else use gross budget total
+      const revenueBasis = sheet.revenueOverrideCents ?? grossTotalCents
+      const spentCents   = sheet.entries.reduce((s, e) => s + e.actualCents, 0)
+      const profitCents  = revenueBasis - spentCents
+      const marginPct    = revenueBasis > 0 ? (profitCents / revenueBasis) * 100 : 0
 
       actualsSummary = {
-        billedCents,
+        projectTotalCents:  grossTotalCents,
+        invoiceBilledCents: billedFromInvoicesCents,
         spentCents,
         profitCents,
         marginPct,
@@ -244,12 +266,18 @@ export default async function ProjectDetailPage({
       {actualsSummary && (
         <section className="mb-6">
           <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
-            <div className="grid grid-cols-4 divide-x">
+            <div className="grid grid-cols-5 divide-x">
               <ActualsStat
-                label="Billed"
-                value={formatMoney(actualsSummary.billedCents)}
+                label="Project Total"
+                value={formatMoney(actualsSummary.projectTotalCents)}
                 sub={null}
                 color="text-foreground"
+              />
+              <ActualsStat
+                label="Billed"
+                value={formatMoney(actualsSummary.invoiceBilledCents)}
+                sub={actualsSummary.invoiceBilledCents === 0 ? 'No invoices sent' : null}
+                color={actualsSummary.invoiceBilledCents > 0 ? 'text-foreground' : 'text-muted-foreground'}
               />
               <ActualsStat
                 label="Spent"

@@ -148,7 +148,9 @@ export function NewInvoiceModal({
   const milestones: PaymentMilestone[] =
     termsSection?.type === 'terms' ? termsSection.milestones : []
   const snapshot = (proposal.content as unknown as Record<string, unknown>)?.budgetSnapshot as BudgetSnapshot | undefined
-  const totalCents = snapshot?.totalCents ?? liveTotalCents
+  // Always use the live gross budget total (includes markup + agency fee).
+  // The snapshot.totalCents can be stale if the budget changed after the proposal was created.
+  const totalCents = liveTotalCents
 
   // Build options: one per milestone + "Full invoice"
   const options: InvoiceOption[] = [
