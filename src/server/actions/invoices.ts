@@ -190,8 +190,21 @@ export async function sendInvoice(
     })
 
     const publicToken = (invoice as unknown as { publicToken: string }).publicToken
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') ?? ''
-    const publicUrl = `${appUrl}/i/${publicToken}`
+    // Build the canonical URL for client-facing invoice links.
+    // Priority: APP_URL (server-only, always production) → Vercel's auto-populated
+    // production URL → NEXT_PUBLIC_APP_URL → empty fallback.
+    // We deliberately avoid VERCEL_URL — that's the deployment-specific preview
+    // URL and would produce broken Helcim payment links for emails sent from
+    // preview deployments.
+    const baseUrl = (
+      process.env.APP_URL ??
+      (process.env.VERCEL_PROJECT_PRODUCTION_URL
+        ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+        : null) ??
+      process.env.NEXT_PUBLIC_APP_URL ??
+      ''
+    ).replace(/\/$/, '')
+    const publicUrl = `${baseUrl}/i/${publicToken}`
 
     // Send the email via Resend
     const { sendInvoiceEmail } = await import('@/lib/email')
