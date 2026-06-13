@@ -48,6 +48,8 @@ interface Props {
   clientId: string
   proposal: ProposalForInvoice
   liveTotalCents: number // fallback if no snapshot
+  /** Pre-select a specific milestone by index (0-based). */
+  defaultMilestoneIdx?: number
 }
 
 type InvoiceOption =
@@ -78,6 +80,7 @@ export function NewInvoiceModal({
   clientId,
   proposal,
   liveTotalCents,
+  defaultMilestoneIdx,
 }: Props) {
   const router = useRouter()
 
@@ -101,7 +104,7 @@ export function NewInvoiceModal({
   ]
 
   // State
-  const [selectedIdx, setSelectedIdx] = useState(0)
+  const [selectedIdx, setSelectedIdx] = useState(defaultMilestoneIdx ?? 0)
   const [title, setTitle] = useState('')
   const [dueDate, setDueDate] = useState(defaultDueDate)
   const [taxPct, setTaxPct] = useState(0)

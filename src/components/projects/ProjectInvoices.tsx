@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { FileText, DollarSign, Send, Eye, Ban, Trash2 } from 'lucide-react'
+import Link from 'next/link'
+import { FileText, DollarSign, Send, Eye, Ban, Trash2, Receipt, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -30,6 +31,7 @@ export interface InvoiceRow {
 
 interface Props {
   invoices: InvoiceRow[]
+  projectId?: string
 }
 
 // ─── Status config ────────────────────────────────────────────────────────────
@@ -45,7 +47,7 @@ const STATUS_CONFIG: Record<InvoiceStatus, { label: string; color: string }> = {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function ProjectInvoices({ invoices }: Props) {
+export function ProjectInvoices({ invoices, projectId }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [actingId, setActingId] = useState<string | null>(null)
@@ -110,21 +112,56 @@ export function ProjectInvoices({ invoices }: Props) {
     })
   }
 
-  if (invoices.length === 0) return null
-
   const totalOwed = invoices
     .filter(i => i.status !== 'VOID')
     .reduce((s, i) => s + i.totalCents - i.amountPaidCents, 0)
+
+  // Empty state
+  if (invoices.length === 0) {
+    return (
+      <div>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-foreground">Invoices</h2>
+        </div>
+        <div className="rounded-xl border border-dashed p-6 flex flex-col items-center text-center">
+          <Receipt className="h-7 w-7 text-muted-foreground/40 mb-2" />
+          <p className="text-sm font-medium text-foreground">No invoices yet</p>
+          <p className="mt-1 text-xs text-muted-foreground mb-3">
+            Create invoices from the payment schedule or directly from a proposal.
+          </p>
+          {projectId && (
+            <Link
+              href={`/projects/${projectId}/invoices`}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+            >
+              <Plus className="h-3 w-3" />
+              Create Invoice
+            </Link>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div>
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-base font-semibold text-foreground">Invoices</h2>
-        {totalOwed > 0 && (
-          <span className="text-xs text-muted-foreground">
-            {formatMoney(totalOwed)} outstanding
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {totalOwed > 0 && (
+            <span className="text-xs text-muted-foreground">
+              {formatMoney(totalOwed)} outstanding
+            </span>
+          )}
+          {projectId && (
+            <Link
+              href={`/projects/${projectId}/invoices`}
+              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+            >
+              Manage invoices →
+            </Link>
+          )}
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-xl border">

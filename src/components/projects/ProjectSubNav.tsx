@@ -3,7 +3,7 @@
 import type { ElementType } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { ChevronLeft, LayoutDashboard, DollarSign, FileText, Users } from 'lucide-react'
+import { ChevronLeft, LayoutDashboard, DollarSign, FileText, Users, Receipt } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface NavItem {
@@ -42,6 +42,11 @@ export function ProjectSubNav({ projectId, projectName, clientName }: Props) {
           label: 'Actuals',
           href: `/projects/${projectId}/actuals`,
           icon: DollarSign,
+        },
+        {
+          label: 'Invoices',
+          href: `/projects/${projectId}/invoices`,
+          icon: Receipt,
         },
       ],
     },

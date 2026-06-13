@@ -276,11 +276,12 @@ export default async function ProjectDetailPage({
       </section>
 
       {/* ── Invoices ─────────────────────────────────────────────────────────── */}
-      {project.invoices.length > 0 && (
-        <section className="mb-8">
-          <ProjectInvoices invoices={project.invoices as never} />
-        </section>
-      )}
+      <section className="mb-8">
+        <ProjectInvoices
+          invoices={project.invoices as never}
+          projectId={project.id}
+        />
+      </section>
 
       {/* ── Deliverables / Proposal Overview ─────────────────────────────────── */}
       {budget && (() => {
