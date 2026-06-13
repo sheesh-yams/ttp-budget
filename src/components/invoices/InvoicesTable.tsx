@@ -3,14 +3,15 @@
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { FileText, ExternalLink, Receipt, Send, Ban, Trash2 } from 'lucide-react'
+import { FileText, ExternalLink, Receipt, Send, Ban, Trash2, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { formatMoney } from '@/lib/money'
 import { voidInvoice, deleteInvoice } from '@/server/actions/invoices'
 import { SendInvoiceModal } from '@/components/invoice/SendInvoiceModal'
 import { PreviewPanel } from '@/components/invoice/PreviewPanel'
-import type { InvoiceStatus } from '@/types'
+import { EditInvoiceModal } from '@/components/invoice/EditInvoiceModal'
+import type { InvoiceStatus, InvoiceLineItem } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,9 @@ export interface InvoiceListRow {
   amountPaidCents: number
   dueDate: Date | string
   publicToken: string
+  lineItems?: unknown
+  taxPct?: number | null
+  notes?: string | null
   project: {
     id: string
     name: string
@@ -102,6 +106,7 @@ export function InvoicesTable({ invoices }: { invoices: InvoiceListRow[] }) {
               const badgeLabel = isPartial ? 'Partial' : isOverdue ? 'Overdue' : cfg.label
               const balanceDue = inv.totalCents - inv.amountPaidCents
 
+              const canEdit   = !['PAID', 'VOID'].includes(inv.status)
               const canSend   = inv.status === 'DRAFT' || inv.status === 'SENT'
               const canVoid   = ['DRAFT', 'SENT', 'VIEWED', 'OVERDUE'].includes(inv.status)
               const canDelete = inv.status === 'DRAFT'
@@ -165,6 +170,30 @@ export function InvoicesTable({ invoices }: { invoices: InvoiceListRow[] }) {
 
                       {/* Preview */}
                       <PreviewPanel invoiceId={inv.id} invoiceNumber={inv.number} />
+
+                      {/* Edit line items */}
+                      {canEdit && (
+                        <EditInvoiceModal
+                          invoiceId={inv.id}
+                          invoiceNumber={inv.number}
+                          existingItems={(inv.lineItems as InvoiceLineItem[] | null) ?? []}
+                          currentTaxPct={Number(inv.taxPct ?? 0)}
+                          currentNotes={inv.notes}
+                          currentTitle={inv.title}
+                          currentDueDate={new Date(inv.dueDate).toISOString()}
+                          onSaved={refresh}
+                          trigger={open => (
+                            <button
+                              type="button"
+                              onClick={open}
+                              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground inline-flex"
+                              title="Edit invoice"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        />
+                      )}
 
                       {/* Send */}
                       {canSend && (

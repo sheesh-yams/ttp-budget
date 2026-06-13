@@ -28,6 +28,9 @@ export default async function InvoicesPage() {
       publicToken: true,
       sentAt: true,
       paidAt: true,
+      lineItems: true,
+      taxPct: true,
+      notes: true,
       project: {
         select: {
           id: true,
@@ -95,7 +98,15 @@ export default async function InvoicesPage() {
           </Link>
         </div>
       ) : (
-        <InvoicesTable invoices={invoices} />
+          <InvoicesTable invoices={invoices.map(inv => ({
+          ...inv,
+          dueDate:   inv.dueDate.toISOString(),
+          issueDate: inv.issueDate?.toISOString() ?? inv.dueDate.toISOString(),
+          sentAt:    inv.sentAt?.toISOString() ?? null,
+          paidAt:    inv.paidAt?.toISOString() ?? null,
+          taxPct:    Number(inv.taxPct ?? 0),
+          notes:     inv.notes ?? null,
+        }))} />
       )}
     </div>
   )

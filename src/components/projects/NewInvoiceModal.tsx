@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { Plus, Trash2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,7 +11,61 @@ import { createInvoice } from '@/server/actions/invoices'
 import { formatMoney } from '@/lib/money'
 import type { ProposalContent, PaymentMilestone, InvoiceLineItem } from '@/types'
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Line-item row types ───────────────────────────────────────────────────────
+
+const UNITS = ['FLAT', 'HOUR', 'HALF_DAY', 'DAY', 'WEEK', 'EACH', 'MILE'] as const
+type Unit = typeof UNITS[number]
+
+const UNIT_LABELS: Record<Unit, string> = {
+  FLAT: 'Flat', HOUR: 'Hour', HALF_DAY: 'Half day',
+  DAY: 'Day', WEEK: 'Week', EACH: 'Each', MILE: 'Mile',
+}
+
+interface Row {
+  id:          string
+  description: string
+  quantity:    string
+  unit:        Unit
+  rate:        string   // display dollars
+  notes:       string
+}
+
+function rowToCents(row: Row): number {
+  const qty  = parseFloat(row.quantity) || 0
+  const rate = Math.round((parseFloat(row.rate) || 0) * 100)
+  return Math.round(qty * rate)
+}
+
+function liToRow(li: InvoiceLineItem): Row {
+  return {
+    id:          li.id,
+    description: li.description,
+    quantity:    String(li.quantity),
+    unit:        li.unit as Unit,
+    rate:        (li.rateCents / 100).toFixed(2),
+    notes:       (li as unknown as { notes?: string }).notes ?? '',
+  }
+}
+
+function blankRow(): Row {
+  return { id: crypto.randomUUID(), description: '', quantity: '1', unit: 'FLAT', rate: '', notes: '' }
+}
+
+function rowToLineItem(row: Row): InvoiceLineItem {
+  const qty       = parseFloat(row.quantity) || 0
+  const rateCents = Math.round((parseFloat(row.rate) || 0) * 100)
+  return {
+    id:             row.id,
+    description:    row.description,
+    quantity:       qty,
+    unit:           row.unit,
+    rateCents,
+    lineTotalCents: Math.round(qty * rateCents),
+    ...(row.notes ? { notes: row.notes } : {}),
+  } as InvoiceLineItem
+}
+
+// ─── Budget snapshot types ─────────────────────────────────────────────────────
 
 interface SnapshotLineItem {
   id: string
@@ -40,6 +95,8 @@ interface ProposalForInvoice {
   content: unknown
 }
 
+// ─── Props ────────────────────────────────────────────────────────────────────
+
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -47,7 +104,7 @@ interface Props {
   projectName: string
   clientId: string
   proposal: ProposalForInvoice
-  liveTotalCents: number // fallback if no snapshot
+  liveTotalCents: number
   /** Pre-select a specific milestone by index (0-based). */
   defaultMilestoneIdx?: number
 }
@@ -103,38 +160,9 @@ export function NewInvoiceModal({
     { type: 'full', amountCents: totalCents },
   ]
 
-  // State
-  const [selectedIdx, setSelectedIdx] = useState(defaultMilestoneIdx ?? 0)
-  const [title, setTitle] = useState('')
-  const [dueDate, setDueDate] = useState(defaultDueDate)
-  const [taxPct, setTaxPct] = useState(0)
-  const [notes, setNotes] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
-
-  const selected = options[selectedIdx] ?? options[0]
-  const selectedAmount = selected?.amountCents ?? 0
-  const taxCents = Math.round(selectedAmount * taxPct / 100)
-  const totalWithTax = selectedAmount + taxCents
-
-  function getAutoTitle() {
-    if (!selected) return `Invoice — ${projectName}`
-    if (selected.type === 'full') return `Invoice — ${projectName}`
-    return `${selected.milestone.name} — ${projectName}`
-  }
-
-  function getKind(): 'DEPOSIT' | 'PROGRESS' | 'FINAL' | 'STANDALONE' {
-    if (!selected || selected.type === 'full') return 'STANDALONE'
-    const pct = selected.milestone.percentPct
-    if (pct <= 35) return 'DEPOSIT'
-    if (pct >= 80) return 'FINAL'
-    return 'PROGRESS'
-  }
-
-  function buildLineItems(): InvoiceLineItem[] {
-    if (!selected) return []
-
-    if (selected.type === 'full' && snapshot?.accounts) {
+  // Build line items for a given option
+  function buildLineItemsForOption(opt: InvoiceOption): InvoiceLineItem[] {
+    if (opt.type === 'full' && snapshot?.accounts) {
       const items: InvoiceLineItem[] = []
       for (const acc of snapshot.accounts) {
         for (const item of acc.lineItems) {
@@ -160,29 +188,116 @@ export function NewInvoiceModal({
           }
         }
       }
-      return items.length > 0 ? items : fallbackLineItem(selectedAmount, projectName)
+      if (items.length > 0) return items
     }
-
-    // Milestone → single line item
-    const label = selected.type === 'milestone' ? selected.milestone.name : projectName
+    // Milestone or fallback → single line item
+    const label = opt.type === 'milestone' ? opt.milestone.name : projectName
+    const amountCents = opt.amountCents
     return [{
       id: crypto.randomUUID(),
       description: label,
       quantity: 1,
       unit: 'FLAT' as InvoiceLineItem['unit'],
-      rateCents: selectedAmount,
-      lineTotalCents: selectedAmount,
+      rateCents: amountCents,
+      lineTotalCents: amountCents,
     }]
   }
+
+  // ── State ────────────────────────────────────────────────────────────────────
+
+  const initIdx = defaultMilestoneIdx ?? 0
+  const [selectedIdx, setSelectedIdx]   = useState(initIdx)
+  const [rows, setRows]                 = useState<Row[]>(() => {
+    const opt = options[initIdx] ?? options[0]
+    return opt ? buildLineItemsForOption(opt).map(liToRow) : [blankRow()]
+  })
+  const [title, setTitle]               = useState('')
+  const [dueDate, setDueDate]           = useState(defaultDueDate)
+  const [taxPct, setTaxPct]             = useState(0)
+  const [notes, setNotes]               = useState('')
+  const [submitting, setSubmitting]     = useState(false)
+  const [error, setError]               = useState('')
+  const [showLineItems, setShowLineItems] = useState(false)
+
+  // Re-init rows when selection changes
+  useEffect(() => {
+    const opt = options[selectedIdx]
+    if (opt) setRows(buildLineItemsForOption(opt).map(liToRow))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedIdx])
+
+  // Reset all state when modal opens with a new defaultMilestoneIdx
+  useEffect(() => {
+    if (open) {
+      const idx = defaultMilestoneIdx ?? 0
+      setSelectedIdx(idx)
+      const opt = options[idx] ?? options[0]
+      if (opt) setRows(buildLineItemsForOption(opt).map(liToRow))
+      setTitle('')
+      setTaxPct(0)
+      setNotes('')
+      setDueDate(defaultDueDate())
+      setError('')
+      setShowLineItems(false)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, defaultMilestoneIdx])
+
+  // ── Row helpers ──────────────────────────────────────────────────────────────
+
+  const selected      = options[selectedIdx] ?? options[0]
+
+  function updateRow(idx: number, patch: Partial<Row>) {
+    setRows(prev => prev.map((r, i) => i === idx ? { ...r, ...patch } : r))
+  }
+
+  function addRow() {
+    setRows(prev => [...prev, blankRow()])
+    setShowLineItems(true)
+  }
+
+  function removeRow(idx: number) {
+    setRows(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  // ── Derived totals (always from rows) ────────────────────────────────────────
+
+  const subtotalCents = rows.reduce((s, r) => s + rowToCents(r), 0)
+  const taxCents      = Math.round(subtotalCents * taxPct / 100)
+  const totalWithTax  = subtotalCents + taxCents
+
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+
+  function getAutoTitle() {
+    if (!selected) return `Invoice — ${projectName}`
+    if (selected.type === 'full') return `Invoice — ${projectName}`
+    return `${selected.milestone.name} — ${projectName}`
+  }
+
+  function getKind(): 'DEPOSIT' | 'PROGRESS' | 'FINAL' | 'STANDALONE' {
+    if (!selected || selected.type === 'full') return 'STANDALONE'
+    const pct = selected.milestone.percentPct
+    if (pct <= 35) return 'DEPOSIT'
+    if (pct >= 80) return 'FINAL'
+    return 'PROGRESS'
+  }
+
+  // ── Submit ────────────────────────────────────────────────────────────────────
 
   async function handleSubmit() {
     setError('')
     const invoiceTitle = title.trim() || getAutoTitle()
     if (!invoiceTitle) { setError('Title is required'); return }
     if (!dueDate) { setError('Due date is required'); return }
+    if (rows.length === 0) { setError('At least one line item is required'); return }
+    const emptyDesc = rows.some(r => !r.description.trim())
+    if (emptyDesc) { setError('All line items need a description.'); return }
+    const badRate = rows.some(r => (parseFloat(r.rate) || 0) <= 0)
+    if (badRate) { setError('All line items need a rate greater than zero.'); return }
+
     setSubmitting(true)
     try {
-      const lineItems = buildLineItems()
+      const lineItems = rows.map(rowToLineItem)
       const result = await createInvoice({
         projectId,
         clientId,
@@ -191,7 +306,7 @@ export function NewInvoiceModal({
         title: invoiceTitle,
         dueDate,
         lineItems,
-        subtotalCents: selectedAmount,
+        subtotalCents,
         taxPct,
         taxCents,
         discountCents: 0,
@@ -199,17 +314,10 @@ export function NewInvoiceModal({
         notes: notes.trim() || undefined,
       })
       if (result.success) {
-        // Reset form
-        setTitle('')
-        setTaxPct(0)
-        setNotes('')
-        setSelectedIdx(0)
-        setDueDate(defaultDueDate())
         onOpenChange(false)
         router.refresh()
       } else {
-        const r = result as { success: false; error: string }
-        setError(r.error)
+        setError((result as { success: false; error: string }).error)
       }
     } catch {
       setError('Something went wrong. Please try again.')
@@ -218,14 +326,16 @@ export function NewInvoiceModal({
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────────────────
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
+      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0">
+        <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
           <DialogTitle>New Invoice</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-5 py-1">
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
           {/* Proposal context */}
           <p className="text-xs text-muted-foreground">
             From proposal: <span className="font-medium text-foreground">{proposal.title}</span>
@@ -236,12 +346,8 @@ export function NewInvoiceModal({
             <Label className="mb-2 block text-sm">What are you invoicing for?</Label>
             <div className="space-y-2">
               {options.map((opt, idx) => {
-                const label = opt.type === 'full'
-                  ? 'Full invoice'
-                  : opt.milestone.name
-                const pct = opt.type === 'milestone'
-                  ? `${opt.milestone.percentPct}%`
-                  : '100%'
+                const label = opt.type === 'full' ? 'Full invoice' : opt.milestone.name
+                const pct   = opt.type === 'milestone' ? `${opt.milestone.percentPct}%` : '100%'
                 const isSelected = selectedIdx === idx
 
                 return (
@@ -266,6 +372,111 @@ export function NewInvoiceModal({
                 )
               })}
             </div>
+          </div>
+
+          {/* Line items */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <button
+                type="button"
+                onClick={() => setShowLineItems(v => !v)}
+                className="text-sm font-medium text-foreground hover:text-primary flex items-center gap-1"
+              >
+                Line Items
+                <span className="text-xs text-muted-foreground font-normal ml-1">
+                  ({rows.length} item{rows.length !== 1 ? 's' : ''})
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {showLineItems ? '▲' : '▼'}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={addRow}
+                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+              >
+                <Plus className="h-3 w-3" /> Add item
+              </button>
+            </div>
+
+            {showLineItems && (
+              <div className="rounded-lg border bg-muted/20 p-3 space-y-2">
+                {/* Header */}
+                <div
+                  className="grid gap-2 text-[11px] font-medium text-muted-foreground uppercase tracking-wide"
+                  style={{ gridTemplateColumns: '1fr 60px 90px 100px 80px 24px' }}
+                >
+                  <span>Description</span>
+                  <span>Qty</span>
+                  <span>Unit</span>
+                  <span className="text-right">Rate ($)</span>
+                  <span className="text-right">Total</span>
+                  <span />
+                </div>
+
+                {rows.map((row, idx) => (
+                  <div key={row.id}>
+                    <div
+                      className="grid gap-2 items-center"
+                      style={{ gridTemplateColumns: '1fr 60px 90px 100px 80px 24px' }}
+                    >
+                      <Input
+                        value={row.description}
+                        onChange={e => updateRow(idx, { description: e.target.value })}
+                        placeholder="e.g. Deposit, Overtime…"
+                        className="h-7 text-xs"
+                      />
+                      <Input
+                        type="number"
+                        min={0}
+                        step={0.5}
+                        value={row.quantity}
+                        onChange={e => updateRow(idx, { quantity: e.target.value })}
+                        className="h-7 text-xs text-right"
+                      />
+                      <select
+                        value={row.unit}
+                        onChange={e => updateRow(idx, { unit: e.target.value as Unit })}
+                        className="h-7 rounded-md border border-input bg-background px-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                      >
+                        {UNITS.map(u => (
+                          <option key={u} value={u}>{UNIT_LABELS[u]}</option>
+                        ))}
+                      </select>
+                      <Input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={row.rate}
+                        onChange={e => updateRow(idx, { rate: e.target.value })}
+                        placeholder="0.00"
+                        className="h-7 text-xs text-right"
+                      />
+                      <div className="text-right text-xs font-medium tabular-nums text-foreground pr-1">
+                        {rowToCents(row) > 0 ? formatMoney(rowToCents(row)) : '—'}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeRow(idx)}
+                        disabled={rows.length === 1}
+                        className="flex items-center justify-center rounded p-0.5 text-muted-foreground hover:text-red-500 hover:bg-red-50 disabled:opacity-25 disabled:cursor-not-allowed"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+
+                    {/* Per-item notes */}
+                    <input
+                      type="text"
+                      value={row.notes}
+                      onChange={e => updateRow(idx, { notes: e.target.value })}
+                      placeholder={`Notes for "${row.description || 'item'}" (optional)`}
+                      className="mt-1 w-full h-6 rounded border border-input bg-background px-2 text-[11px] text-muted-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Title */}
@@ -322,38 +533,36 @@ export function NewInvoiceModal({
           </div>
 
           {/* Total preview */}
-          <div className="rounded-lg bg-muted/40 px-4 py-3 flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">
-              Invoice total{taxPct > 0 ? ` (incl. ${taxPct}% tax)` : ''}
-            </span>
-            <span className="text-xl font-bold tabular-nums">{formatMoney(totalWithTax)}</span>
+          <div className="rounded-lg bg-muted/40 px-4 py-3 space-y-1.5">
+            <div className="flex items-center justify-between text-sm text-muted-foreground">
+              <span>Subtotal</span>
+              <span className="tabular-nums">{formatMoney(subtotalCents)}</span>
+            </div>
+            {taxPct > 0 && (
+              <div className="flex items-center justify-between text-sm text-muted-foreground">
+                <span>Tax ({taxPct}%)</span>
+                <span className="tabular-nums">{formatMoney(taxCents)}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between font-bold text-foreground pt-1 border-t">
+              <span>Invoice total</span>
+              <span className="text-xl tabular-nums">{formatMoney(totalWithTax)}</span>
+            </div>
           </div>
 
           {error && <p className="text-sm text-red-600">{error}</p>}
+        </div>
 
-          <div className="flex gap-3">
-            <Button variant="outline" className="flex-1" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSubmit} disabled={submitting} className="flex-1">
-              {submitting ? 'Creating…' : 'Create Invoice'}
-            </Button>
-          </div>
+        {/* Footer */}
+        <div className="px-6 py-4 border-t shrink-0 flex gap-3">
+          <Button variant="outline" className="flex-1" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleSubmit} disabled={submitting} className="flex-1">
+            {submitting ? 'Creating…' : 'Create Invoice'}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
   )
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function fallbackLineItem(amountCents: number, label: string): InvoiceLineItem[] {
-  return [{
-    id: crypto.randomUUID(),
-    description: label,
-    quantity: 1,
-    unit: 'FLAT' as InvoiceLineItem['unit'],
-    rateCents: amountCents,
-    lineTotalCents: amountCents,
-  }]
 }
