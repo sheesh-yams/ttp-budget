@@ -96,6 +96,9 @@ async function initializeCheckout(
         paymentType: 'purchase',
         amount: amountDollars,
         currency: input.currency,
+        // Show both credit card and bank account (ACH/EFT) tabs in the modal.
+        // Customers can pick whichever method they prefer.
+        paymentMethod: 'cc-ach',
       }),
     })
   } catch (fetchErr) {
