@@ -30,7 +30,7 @@ export function SlateSuiteHomepage() {
       </nav>
 
       {/* ── HERO ─────────────────────────────────────────────────── */}
-      <section>
+      <section className="hero-section">
         <div className="hero">
           <div className="hero-copy">
             <div className="hero-badge">
@@ -602,15 +602,17 @@ const css = `
   .ss-page .btn-primary {
     display: inline-flex; align-items: center; gap: 6px;
     background: var(--ss-purple); color: #fff;
-    font-size: 14px; font-weight: 600; padding: 9px 18px;
+    font-size: 13px; font-weight: 600; padding: 8px 16px;
     border-radius: 8px; border: none; cursor: pointer;
     transition: background 0.15s; text-decoration: none;
+    white-space: nowrap; flex-shrink: 0; line-height: 1.4;
   }
   .ss-page .btn-primary:hover { background: var(--ss-purple-hover); }
 
   /* HERO */
+  .ss-page .hero-section { padding: 0 2rem; }
   .ss-page .hero {
-    max-width: 1200px; margin: 0 auto; padding: 80px 2rem 60px;
+    max-width: 1200px; margin: 0 auto; padding: 80px 0 60px;
     display: grid; grid-template-columns: 1fr 1fr; gap: 4rem; align-items: center;
   }
   .ss-page .hero-badge {
@@ -929,7 +931,8 @@ const css = `
     .ss-page .features-pair { grid-template-columns: 1fr; gap: 2rem; }
     .ss-page .feature-section.flip { direction: ltr; }
     .ss-page .nav-links { display: none; }
-    .ss-page .hero { padding: 48px 1.5rem 40px; }
+    .ss-page .hero-section { padding: 0 1.5rem; }
+    .ss-page .hero { padding: 48px 0 40px; }
     .ss-page .features-wrap { padding: 0 1.5rem; }
     .ss-page .features-pair { padding: 0 1.5rem; }
   }
