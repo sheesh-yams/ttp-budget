@@ -3,7 +3,7 @@
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { r2, R2_BUCKET } from '@/lib/r2'
-import { getWorkspaceId } from '@/lib/auth'
+import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
 import { generatePublicToken } from '@/lib/secure-token'
 import type { ActionResult } from '@/types'
 
@@ -32,8 +32,8 @@ export async function getPresignedUploadUrl(
   folder:      UploadFolder,
 ): Promise<ActionResult<{ uploadUrl: string; publicUrl: string }>> {
   try {
-    // Auth gate — workspace must be active
-    const workspaceId = await getWorkspaceId()
+    // Auth gate — resolve both user and workspace
+    const [user, workspaceId] = await Promise.all([getCurrentUser(), getWorkspaceId()])
 
     // ── Validate on the server before issuing any credentials ──────────────────
     if (!ALLOWED_MIME_TYPES.has(contentType)) {
@@ -46,10 +46,13 @@ export async function getPresignedUploadUrl(
       return { success: false, error: 'Invalid filename.' }
     }
 
-    // ── Build a collision-safe, workspace-namespaced path ──────────────────────
-    const ext  = MIME_TO_EXT[contentType]
-    const uuid = generatePublicToken()           // crypto.randomUUID() UUID v4
-    const key  = `${folder}/${workspaceId}-${uuid}.${ext}`
+    // ── Build a collision-safe, correctly-scoped path ─────────────────────────
+    // avatars/ → user-scoped (userId): a user is the same person across workspaces.
+    // logos/   → workspace-scoped (workspaceId): branding belongs to the workspace.
+    const ext    = MIME_TO_EXT[contentType]
+    const uuid   = generatePublicToken()           // crypto.randomUUID() UUID v4
+    const prefix = folder === 'avatars' ? user.id : workspaceId
+    const key    = `${folder}/${prefix}-${uuid}.${ext}`
 
     // ── Presign a PutObject ticket — 60 seconds to upload ─────────────────────
     const command = new PutObjectCommand({
