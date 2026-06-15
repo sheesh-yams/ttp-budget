@@ -12,7 +12,8 @@ import {
   updateInvoiceDefaults,
   updateProposalDefaults,
   updateProductionSettings,
-  uploadWorkspaceLogo,
+  getLogoUploadUrl,
+  saveWorkspaceLogo,
   removeWorkspaceLogo,
   updateUserAvatar,
 } from '@/server/actions/workspace'
@@ -79,16 +80,30 @@ function LogoUpload({
     if (file.size > 5 * 1024 * 1024) { setError('File must be under 5 MB'); return }
 
     setUploading(true)
-    const fd = new FormData()
-    fd.append('file', file)
     startTransition(async () => {
-      const result = await uploadWorkspaceLogo(fd, variant)
+      // Step 1: get a presigned PUT ticket from the server
+      const ticket = await getLogoUploadUrl(file.type, file.size, variant)
+      if (!ticket.success) {
+        setError('error' in ticket ? ticket.error : 'Upload failed.')
+        setUploading(false)
+        return
+      }
+      // Step 2: PUT binary directly to R2 — server never sees the bytes
+      const res = await fetch(ticket.data.uploadUrl, {
+        method: 'PUT', headers: { 'Content-Type': file.type }, body: file,
+      })
+      if (!res.ok) {
+        setError(`Upload failed (HTTP ${res.status}).`)
+        setUploading(false)
+        return
+      }
+      // Step 3: persist the public URL to the workspace record
+      const save = await saveWorkspaceLogo(ticket.data.publicUrl, variant)
       setUploading(false)
-      if (result.success) {
-        onUploaded(result.data.url)
+      if (save.success) {
+        onUploaded(ticket.data.publicUrl)
       } else {
-        const r = result as { success: false; error: string }
-        setError(r.error)
+        setError('error' in save ? save.error : 'Failed to save logo.')
       }
     })
   }

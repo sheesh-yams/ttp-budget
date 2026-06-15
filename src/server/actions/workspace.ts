@@ -8,7 +8,10 @@ import { auth, clerkClient } from '@clerk/nextjs/server'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import { seedWorkspaceFromGlobals, reseedWorkspaceFromGlobals } from '@/lib/workspace-seeder'
-import { put, del } from '@vercel/blob'
+import { PutObjectCommand } from '@aws-sdk/client-s3'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+import { r2, R2_BUCKET } from '@/lib/r2'
+import { generatePublicToken } from '@/lib/secure-token'
 import { logAuditEvent } from '@/lib/audit'
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
@@ -311,7 +314,7 @@ export async function leaveWorkspace(): Promise<ActionResult> {
  *   2. DB workspace gets `deletedAt = now()` — invisible to getScopedDb() and
  *      getWorkspaceId() (which now filters `deletedAt: null`).
  *
- * Hard purge: a Vercel Cron job (`/api/cron/purge-workspaces`) deletes workspaces
+ * Hard purge: a cron job (`/api/cron/purge-workspaces`) deletes workspaces
  * where `deletedAt < now() - 30 days`. Data is fully restorable during grace.
  *
  * Producers are blocked at both the UI layer (DangerZone hides the button) and
@@ -366,49 +369,63 @@ export async function deleteWorkspace(confirmName: string): Promise<ActionResult
 // ─── Logo upload ──────────────────────────────────────────────────────────────
 
 /**
- * Upload a logo image to Vercel Blob and save the URL to the workspace.
- * variant: 'light' → logoUrl, 'dark' → logoDarkUrl
+ * Issue a presigned PUT URL so the browser can upload a logo directly to R2,
+ * then persist the resulting public URL. variant: 'light' → logoUrl, 'dark' → logoDarkUrl
  */
-export async function uploadWorkspaceLogo(
-  formData: FormData,
+export async function getLogoUploadUrl(
+  contentType: string,
+  byteSize:    number,
+  variant:     'light' | 'dark',
+): Promise<ActionResult<{ uploadUrl: string; publicUrl: string }>> {
+  try {
+    const workspaceId = await getWorkspaceId()
+
+    const allowed = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'])
+    if (!allowed.has(contentType)) return { success: false, error: 'Only JPEG, PNG, WebP, or SVG images are allowed.' }
+    if (byteSize > 5 * 1024 * 1024)  return { success: false, error: 'File must be under 5 MB.' }
+
+    const extMap: Record<string, string> = {
+      'image/jpeg':    'jpg',
+      'image/png':     'png',
+      'image/webp':    'webp',
+      'image/svg+xml': 'svg',
+    }
+    const ext  = extMap[contentType] ?? 'png'
+    const uuid = generatePublicToken()
+    const key  = `logos/${workspaceId}-${variant}-${uuid}.${ext}`
+
+    const command = new PutObjectCommand({
+      Bucket: R2_BUCKET, Key: key, ContentType: contentType, ContentLength: byteSize,
+    })
+    const uploadUrl = await getSignedUrl(r2, command, { expiresIn: 60 })
+
+    const publicBase = process.env.NEXT_PUBLIC_R2_PUBLIC_URL?.replace(/\/$/, '')
+    if (!publicBase) return { success: false, error: 'R2 public URL is not configured.' }
+
+    return { success: true, data: { uploadUrl, publicUrl: `${publicBase}/${key}` } }
+  } catch {
+    return { success: false, error: 'Failed to generate upload URL.' }
+  }
+}
+
+/**
+ * Persist an already-uploaded logo URL (public R2 URL) to the workspace record.
+ */
+export async function saveWorkspaceLogo(
+  url:     string,
   variant: 'light' | 'dark',
 ): Promise<ActionResult<{ url: string }>> {
   try {
     const workspaceId = await getWorkspaceId()
-
-    const file = formData.get('file')
-    if (!(file instanceof File)) return { success: false, error: 'No file provided' }
-    if (!file.type.startsWith('image/')) return { success: false, error: 'File must be an image' }
-    if (file.size > 5 * 1024 * 1024) return { success: false, error: 'File must be under 5 MB' }
-
-    // Fetch the current logo URL so we can delete the old blob (best-effort)
-    const workspace = await db.workspace.findUnique({
-      where: { id: workspaceId },
-      select: { logoUrl: true, logoDarkUrl: true },
-    })
-    const oldUrl = variant === 'light' ? workspace?.logoUrl : workspace?.logoDarkUrl
-
-    // Upload to Vercel Blob
-    const ext      = file.name.split('.').pop() ?? 'png'
-    const blobPath = `logos/${workspaceId}/${variant}.${ext}`
-    const { url }  = await put(blobPath, file, { access: 'public', addRandomSuffix: false })
-
-    // Persist URL to workspace
     await db.workspace.update({
       where: { id: workspaceId },
       data:  variant === 'light' ? { logoUrl: url } : { logoDarkUrl: url },
     })
-
-    // Delete old blob (best-effort — don't fail the action if this errors)
-    if (oldUrl && oldUrl !== url) {
-      del(oldUrl).catch(() => undefined)
-    }
-
     revalidatePath('/settings')
     revalidatePath('/', 'layout')
     return { success: true, data: { url } }
   } catch {
-    return { success: false, error: 'Failed to upload logo' }
+    return { success: false, error: 'Failed to save logo.' }
   }
 }
 
@@ -421,18 +438,10 @@ export async function removeWorkspaceLogo(
   try {
     const workspaceId = await getWorkspaceId()
 
-    const workspace = await db.workspace.findUnique({
-      where:  { id: workspaceId },
-      select: { logoUrl: true, logoDarkUrl: true },
-    })
-    const url = variant === 'light' ? workspace?.logoUrl : workspace?.logoDarkUrl
-
     await db.workspace.update({
       where: { id: workspaceId },
       data:  variant === 'light' ? { logoUrl: null } : { logoDarkUrl: null },
     })
-
-    if (url) del(url).catch(() => undefined)
 
     revalidatePath('/settings')
     revalidatePath('/', 'layout')

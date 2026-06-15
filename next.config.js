@@ -15,7 +15,7 @@ const fs   = require('fs')
 // instance with the rest of the app and the error never occurs.
 //
 // This patch runs at every `next build` (before webpack) and the patched
-// package.json is included in Vercel's Lambda deployment alongside the
+// package.json is included in the Railway deployment alongside the
 // package, so it also applies at runtime.
 // ---------------------------------------------------------------------------
 const reactPdfPkgPath = path.join(
@@ -56,7 +56,7 @@ const nextConfig = {
   // Do NOT externalise @react-pdf/renderer. When it's external, Node's require()
   // loads its internal React separately from webpack's bundled React, creating two
   // React instances whose Symbol.for("react.element") values don't match in the
-  // reconciler's context — causing minified React error #31 on Vercel Lambda.
+  // reconciler's context — causing minified React error #31.
   //
   // Instead, let webpack bundle react-pdf.cjs (the patched exports map above
   // ensures webpack picks up the CJS build, not the ESM bundle). Inside the
@@ -68,7 +68,7 @@ const nextConfig = {
   serverExternalPackages: [],
   webpack(config, { isServer }) {
     if (isServer) {
-      // canvas is an optional native dep inside react-pdf; not installed on Vercel,
+      // canvas is an optional native dep inside react-pdf; not installed on Railway,
       // so it must stay external or webpack will error trying to bundle a missing native module.
       config.externals = [...(config.externals ?? []), 'canvas']
 
@@ -86,7 +86,7 @@ const nextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: '**.vercel-storage.com',
+        hostname: 'assets.slatesuite.io',
       },
       {
         protocol: 'https',

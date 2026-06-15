@@ -2,7 +2,7 @@
  * /api/cron/purge-workspaces
  *
  * Hard-purges workspaces that were soft-deleted more than 30 days ago.
- * Called by Vercel Cron (see vercel.json). Secured by CRON_SECRET.
+ * Called by a Railway Cron job. Secured by CRON_SECRET.
  *
  * Order of operations per workspace:
  *   1. Delete AuditEvent rows (no FK cascade — plain workspaceId column)
@@ -15,7 +15,7 @@ import { db } from '@/lib/db'
 const GRACE_DAYS = 30
 
 export async function GET(req: NextRequest) {
-  // Verify CRON_SECRET from Authorization header (set by Vercel automatically)
+  // Verify CRON_SECRET from Authorization header
   const authHeader = req.headers.get('authorization')
   const expected   = `Bearer ${process.env.CRON_SECRET}`
   if (!process.env.CRON_SECRET || authHeader !== expected) {

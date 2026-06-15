@@ -29,7 +29,7 @@ export default async function InvitePage({
   const { userId } = await auth()
   const isAuthed = !!userId
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://ttp-budget-3lvh.vercel.app'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://budget.thethirdplace.co'
   const inviteUrl = `${appUrl}/invite/${token}`
 
   return (
