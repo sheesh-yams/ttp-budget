@@ -44,10 +44,15 @@ export function ImageUploader({
   const [loading, setLoading] = useState(false)
   const [error,   setError  ] = useState<string | null>(null)
 
-  // Keep preview in sync if the parent prop changes (e.g. edit mode reload)
-  // Use a ref to avoid stale closure without useEffect dep noise
+  // Track whether the user has uploaded a file in this session. When true,
+  // we ignore prop changes to currentUrl — the blob URL is the source of truth
+  // and we don't want the parent re-passing the R2 public URL to overwrite it.
+  const hasLocalUpload = useRef(false)
+
+  // Sync prop → preview only on genuine external changes (e.g. opening a
+  // different contact in edit mode), never after a local upload has occurred.
   const prevCurrentUrl = useRef(currentUrl)
-  if (currentUrl !== prevCurrentUrl.current) {
+  if (!hasLocalUpload.current && currentUrl !== prevCurrentUrl.current) {
     prevCurrentUrl.current = currentUrl
     setPreview(currentUrl)
   }
@@ -65,8 +70,10 @@ export function ImageUploader({
       return
     }
 
-    // Optimistic local preview so the UI feels instant
+    // Optimistic local preview so the UI feels instant.
+    // Flag that we own the preview so prop-sync doesn't overwrite it.
     const objectUrl = URL.createObjectURL(file)
+    hasLocalUpload.current = true
     setPreview(objectUrl)
     setLoading(true)
 
@@ -80,7 +87,9 @@ export function ImageUploader({
       )
       if (!ticketResult.success) {
         setError('error' in ticketResult ? ticketResult.error : 'Upload failed.')
-        setPreview(currentUrl)  // revert optimistic preview
+        hasLocalUpload.current = false
+        URL.revokeObjectURL(objectUrl)
+        setPreview(currentUrl)
         return
       }
 
@@ -95,6 +104,7 @@ export function ImageUploader({
 
       if (!res.ok) {
         setError(`Upload failed (HTTP ${res.status}). Please try again.`)
+        hasLocalUpload.current = false
         URL.revokeObjectURL(objectUrl)
         setPreview(currentUrl)
         return
