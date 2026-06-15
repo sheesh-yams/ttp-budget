@@ -14,8 +14,10 @@ import {
   updateProductionSettings,
   uploadWorkspaceLogo,
   removeWorkspaceLogo,
+  updateUserAvatar,
 } from '@/server/actions/workspace'
 import type { TimeFormat } from '@/lib/time-format'
+import { ImageUploader } from '@/components/ui/ImageUploader'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -254,7 +256,19 @@ function useSave() {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function SettingsForm({ workspace }: { workspace: WorkspaceSettings }) {
+interface CurrentUser {
+  id:        string
+  name:      string
+  avatarUrl: string | null
+}
+
+export function SettingsForm({
+  workspace,
+  currentUser,
+}: {
+  workspace:   WorkspaceSettings
+  currentUser?: CurrentUser
+}) {
 
   // ── Company ────────────────────────────────────────────────────────────────
   const [name, setName]               = useState(str(workspace.name))
@@ -295,6 +309,10 @@ export function SettingsForm({ workspace }: { workspace: WorkspaceSettings }) {
   // ── Production settings ────────────────────────────────────────────────────
   const [callTimeFormat, setCallTimeFormat] = useState<TimeFormat>(workspace.callTimeFormat ?? '12H')
   const productionSave = useSave()
+
+  // ── My Profile ─────────────────────────────────────────────────────────────
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState<string | null>(currentUser?.avatarUrl ?? null)
+  const profileSave = useSave()
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
@@ -345,6 +363,7 @@ export function SettingsForm({ workspace }: { workspace: WorkspaceSettings }) {
         <TabsTrigger value="invoices">Invoice defaults</TabsTrigger>
         <TabsTrigger value="proposals">Proposal defaults</TabsTrigger>
         <TabsTrigger value="production">Production</TabsTrigger>
+        {currentUser && <TabsTrigger value="profile">My profile</TabsTrigger>}
       </TabsList>
 
       {/* ── COMPANY ── */}
@@ -579,6 +598,45 @@ export function SettingsForm({ workspace }: { workspace: WorkspaceSettings }) {
           <SaveButton state={productionSave.state} onClick={saveProduction} />
         </SettingsCard>
       </TabsContent>
+
+      {/* ── MY PROFILE ── */}
+      {currentUser && (
+        <TabsContent value="profile">
+          <SettingsCard
+            title="My profile"
+            description="Your personal avatar shown across the workspace. Only you can change this."
+          >
+            <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
+              <ImageUploader
+                currentUrl={profileAvatarUrl}
+                onUploadComplete={url => {
+                  setProfileAvatarUrl(url || null)
+                  // Persist immediately — no separate Save button needed for avatar
+                  profileSave.save(() => updateUserAvatar(url))
+                }}
+                folder="avatars"
+                size={96}
+                fallback={
+                  <span className="text-2xl font-bold text-muted-foreground select-none">
+                    {currentUser.name ? currentUser.name[0].toUpperCase() : '?'}
+                  </span>
+                }
+              />
+              <div className="text-sm text-muted-foreground space-y-1 pt-1">
+                <p className="font-medium text-foreground">{currentUser.name || '—'}</p>
+                <p>Click or drop an image to update your avatar.</p>
+                <p className="text-xs">JPEG, PNG, or WebP · max 2 MB</p>
+                {profileSave.state === 'saved' && (
+                  <p className="text-xs text-emerald-600 font-medium">Avatar saved ✓</p>
+                )}
+                {profileSave.state === 'error' && (
+                  <p className="text-xs text-destructive">Failed to save — try again.</p>
+                )}
+              </div>
+            </div>
+          </SettingsCard>
+        </TabsContent>
+      )}
     </Tabs>
   )
 }

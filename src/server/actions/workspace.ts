@@ -498,3 +498,30 @@ export async function updateProductionSettings(
     return { success: false, error: 'Failed to save production settings' }
   }
 }
+
+// ─── User profile ─────────────────────────────────────────────────────────────
+
+/**
+ * Persist a new avatar URL (already uploaded to R2) to the authenticated user's
+ * DB record. Passing an empty string clears the custom avatar, falling back to
+ * the Clerk imageUrl on next login.
+ */
+export async function updateUserAvatar(
+  avatarUrl: string,
+): Promise<ActionResult<{ avatarUrl: string | null }>> {
+  try {
+    const user = await getCurrentUser()
+    const url  = avatarUrl.trim() || null
+
+    await db.user.update({
+      where: { id: user.id },
+      data:  { avatarUrl: url },
+    })
+
+    revalidatePath('/settings')
+    revalidatePath('/', 'layout')
+    return { success: true, data: { avatarUrl: url } }
+  } catch {
+    return { success: false, error: 'Failed to update avatar.' }
+  }
+}

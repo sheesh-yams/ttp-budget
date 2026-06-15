@@ -43,7 +43,9 @@ export const getCurrentUser = cache(async () => {
       update: {
         email,
         name: displayName,
-        avatarUrl: clerkUser.imageUrl ?? null,
+        // Only fall back to Clerk's imageUrl when no custom R2 avatar is set.
+        // If the user has uploaded their own photo we must not overwrite it here.
+        avatarUrl: undefined,
       },
       create: {
         clerkId: userId,

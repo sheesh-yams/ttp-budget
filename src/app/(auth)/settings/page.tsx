@@ -58,7 +58,10 @@ export default async function SettingsPage() {
         </p>
       </div>
 
-      <SettingsForm workspace={settings} />
+      <SettingsForm
+        workspace={settings}
+        currentUser={{ id: user.id, name: user.name ?? '', avatarUrl: user.avatarUrl ?? null }}
+      />
 
       <WorkspaceDataSection />
 

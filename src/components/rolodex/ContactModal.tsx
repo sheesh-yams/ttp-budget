@@ -3,6 +3,7 @@
 import { useState, useTransition, useRef, useEffect } from 'react'
 import { X, Briefcase } from 'lucide-react'
 import { createContact, updateContact, type ContactFormData } from '@/server/actions/rolodex'
+import { ImageUploader } from '@/components/ui/ImageUploader'
 
 const RATE_UNITS = [
   { value: 'HOUR',     label: 'per hour' },
@@ -45,6 +46,9 @@ export function ContactModal({ contact, crewRoles = [], projectId, onClose, onSa
   const isEdit = !!contact
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState('')
+
+  // ── Avatar ───────────────────────────────────────────────────────────────────
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(contact?.avatarUrl ?? null)
 
   // ── Core fields ──────────────────────────────────────────────────────────────
   const [name,        setName]        = useState(contact?.name        ?? '')
@@ -123,7 +127,7 @@ export function ContactModal({ contact, crewRoles = [], projectId, onClose, onSa
       instagram:        instagram.trim() || null,
       website:          website.trim() || null,
       notes:            notes.trim() || null,
-      avatarUrl:        null,
+      avatarUrl:        avatarUrl || null,
       defaultRateCents: rateDollars.trim() ? Math.round(parseFloat(rateDollars) * 100) : null,
       defaultRateUnit:  rateUnit,
       hasKit,
@@ -168,6 +172,21 @@ export function ContactModal({ contact, crewRoles = [], projectId, onClose, onSa
         </div>
 
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+          {/* Avatar uploader */}
+          <div className="flex justify-center pb-1">
+            <ImageUploader
+              currentUrl={avatarUrl}
+              onUploadComplete={url => setAvatarUrl(url || null)}
+              folder="avatars"
+              size={80}
+              fallback={
+                <span className="text-lg font-bold text-muted-foreground select-none">
+                  {name ? name[0].toUpperCase() : '?'}
+                </span>
+              }
+            />
+          </div>
+
           {/* Name + Primary role */}
           <div className="grid grid-cols-2 gap-3">
             <div>
