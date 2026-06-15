@@ -53,9 +53,10 @@ export default function SignUpPage() {
               elements: {
                 rootBox: { width: '100%' },
                 card: {
-                  boxShadow: 'none', border: 'none',
-                  borderRadius: '0', padding: '0',
-                  background: 'transparent', width: '100%',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 8px 32px rgba(0,0,0,0.07)',
+                  border: '1px solid #E5E7EB',
+                  borderRadius: '14px',
+                  background: '#fff', width: '100%',
                 },
                 headerTitle: { display: 'none' },
                 headerSubtitle: { display: 'none' },
