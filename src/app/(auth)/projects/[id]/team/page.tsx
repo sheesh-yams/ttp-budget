@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { getProjectMembers, seedTeamFromBudget } from '@/server/actions/project-members'
 import { ProjectTeam } from '@/components/projects/ProjectTeam'
+import type { TimeFormat } from '@/lib/time-format'
 
 export async function generateMetadata({
   params,
@@ -34,13 +35,18 @@ export default async function ProjectTeamPage({
   if (!project) notFound()
 
   // Auto-seed team from proposal crew if team is empty (no-op if already seeded)
-  const seedResult = await seedTeamFromBudget(id)
+  const [seedResult, members, workspace] = await Promise.all([
+    seedTeamFromBudget(id),
+    getProjectMembers(id),
+    db.workspace.findUnique({ where: { id: workspaceId }, select: { callTimeFormat: true } }),
+  ])
+
   const proposalTitle =
     seedResult.success && seedResult.data.count > 0
       ? seedResult.data.proposalTitle
       : null
 
-  const members = await getProjectMembers(id)
+  const timeFormat = (workspace?.callTimeFormat as TimeFormat | null) ?? '12H'
 
   return (
     <div>
@@ -51,7 +57,7 @@ export default async function ProjectTeamPage({
         </p>
       </div>
 
-      <ProjectTeam projectId={id} members={members} seedProposalTitle={proposalTitle} />
+      <ProjectTeam projectId={id} members={members} seedProposalTitle={proposalTitle} timeFormat={timeFormat} />
     </div>
   )
 }

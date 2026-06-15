@@ -6,6 +6,7 @@ import type { CrewDept, CrewMember } from '@/server/actions/call-sheets'
 import { createContact, patchContactField } from '@/server/actions/rolodex'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { RolodexNameInput, type RolodexContact } from './RolodexNameInput'
+import { formatTime, type TimeFormat } from '@/lib/time-format'
 
 // ── Add-to-Rolodex button (free-text rows only) ────────────────────────────────
 
@@ -85,13 +86,14 @@ function LinkedBtn({ member, onSyncRequest }: LinkedBtnProps) {
 }
 
 interface Props {
-  crew:            CrewDept[]
-  onChange:        (crew: CrewDept[]) => void
-  readonly?:       boolean
+  crew:             CrewDept[]
+  onChange:         (crew: CrewDept[]) => void
+  readonly?:        boolean
   rolodexContacts?: RolodexContact[]
+  timeFormat?:      TimeFormat
 }
 
-export function CrewEditor({ crew, onChange, readonly = false, rolodexContacts = [] }: Props) {
+export function CrewEditor({ crew, onChange, readonly = false, rolodexContacts = [], timeFormat = '12H' }: Props) {
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
   const { confirm, ConfirmDialog } = useConfirm()
 
@@ -192,7 +194,9 @@ export function CrewEditor({ crew, onChange, readonly = false, rolodexContacts =
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="text-sm font-mono font-semibold text-foreground">{m.callTime || '—'}</p>
+                    <p className="text-sm font-mono font-semibold text-foreground">
+                      {m.callTime ? formatTime(m.callTime, timeFormat) : '—'}
+                    </p>
                   </div>
                 </div>
               ))}

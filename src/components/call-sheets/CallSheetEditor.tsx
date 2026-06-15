@@ -86,9 +86,11 @@ const STATUS_CONFIG: Record<CallSheetStatus, { label: string; color: string }> =
 export function CallSheetEditor({
   initial,
   rolodexContacts = [],
+  timeFormat = '12H',
 }: {
   initial: CallSheetData
   rolodexContacts?: RolodexContact[]
+  timeFormat?: import('@/lib/time-format').TimeFormat
 }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
@@ -665,6 +667,7 @@ export function CallSheetEditor({
             crew={crew}
             talent={talent}
             onChange={s => { setSchedule(s); markDirty() }}
+            timeFormat={timeFormat}
           />
         </Section>
 
@@ -675,6 +678,7 @@ export function CallSheetEditor({
             readonly={isLocked}
             rolodexContacts={rolodexContacts}
             onChange={t => { setTalent(t); markDirty() }}
+            timeFormat={timeFormat}
           />
         </Section>
 
@@ -703,6 +707,7 @@ export function CallSheetEditor({
             readonly={isLocked}
             rolodexContacts={rolodexContacts}
             onChange={c => { setCrew(c); markDirty() }}
+            timeFormat={timeFormat}
           />
         </Section>
 

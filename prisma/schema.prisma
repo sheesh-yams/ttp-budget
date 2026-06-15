@@ -63,6 +63,9 @@ model Workspace {
   defaultProposalTerms String? @db.Text
   defaultInvoiceTerms  String? @db.Text
 
+  // Production preferences
+  callTimeFormat    String   @default("12H")  // "12H" → "7:00 AM" | "24H" → "07:00"
+
   // Clerk organization that owns this workspace (set after org creation webhook)
   clerkOrgId        String?  @unique
 

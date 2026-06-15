@@ -6,6 +6,7 @@ import type { TalentMember } from '@/server/actions/call-sheets'
 import { createContact, patchContactField } from '@/server/actions/rolodex'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { RolodexNameInput, type RolodexContact } from './RolodexNameInput'
+import { formatTime, type TimeFormat } from '@/lib/time-format'
 
 function RolodexBtn({ name, role, phone, email }: { name: string; role: string; phone?: string; email?: string }) {
   const [state, setState] = useState<'idle' | 'loading' | 'done'>('idle')
@@ -85,11 +86,12 @@ interface Props {
   onChange:         (talent: TalentMember[]) => void
   readonly?:        boolean
   rolodexContacts?: RolodexContact[]
+  timeFormat?:      TimeFormat
 }
 
 const blank = (): TalentMember => ({ name: '', role: '', callTime: '', phone: '', email: '' })
 
-export function TalentEditor({ talent, onChange, readonly = false, rolodexContacts = [] }: Props) {
+export function TalentEditor({ talent, onChange, readonly = false, rolodexContacts = [], timeFormat = '12H' }: Props) {
   const { confirm, ConfirmDialog } = useConfirm()
 
   function add() {
@@ -149,7 +151,9 @@ export function TalentEditor({ talent, onChange, readonly = false, rolodexContac
               </div>
             </div>
             <div className="text-right shrink-0">
-              <p className="text-sm font-mono font-semibold text-foreground">{t.callTime || '—'}</p>
+              <p className="text-sm font-mono font-semibold text-foreground">
+                {t.callTime ? formatTime(t.callTime, timeFormat) : '—'}
+              </p>
             </div>
           </div>
         ))}

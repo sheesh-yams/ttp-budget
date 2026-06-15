@@ -16,6 +16,7 @@ import {
 } from '@/server/actions/project-members'
 import { searchContacts, type ContactSearchResult } from '@/server/actions/rolodex'
 import { AddMemberModal } from './AddMemberModal'
+import { formatTime, type TimeFormat } from '@/lib/time-format'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -84,9 +85,10 @@ interface Props {
   projectId:          string
   members:            ProjectMemberRow[]
   seedProposalTitle?: string | null
+  timeFormat?:        TimeFormat
 }
 
-export function ProjectTeam({ projectId, members: initial, seedProposalTitle }: Props) {
+export function ProjectTeam({ projectId, members: initial, seedProposalTitle, timeFormat = '12H' }: Props) {
   const [members,   setMembers]   = useState(initial)
   const [adding,    setAdding]    = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -193,6 +195,7 @@ export function ProjectTeam({ projectId, members: initial, seedProposalTitle }: 
                       key={member.id}
                       member={member}
                       projectId={projectId}
+                      timeFormat={timeFormat}
                       onEdit={() => setEditingId(member.id)}
                       onRemoved={() => handleRemoved(member.id)}
                     />
@@ -298,13 +301,15 @@ function PlaceholderCard({
 function MemberCard({
   member,
   projectId,
+  timeFormat = '12H',
   onEdit,
   onRemoved,
 }: {
-  member:    ProjectMemberRow
-  projectId: string
-  onEdit:    () => void
-  onRemoved: () => void
+  member:      ProjectMemberRow
+  projectId:   string
+  timeFormat?: TimeFormat
+  onEdit:      () => void
+  onRemoved:   () => void
 }) {
   const [removing, startTransition] = useTransition()
   const { confirm, ConfirmDialog }  = useConfirm()
@@ -376,7 +381,7 @@ function MemberCard({
           {member.callTime && (
             <p className="flex items-center gap-1 text-xs text-muted-foreground">
               <Clock className="h-3 w-3 shrink-0" />
-              {member.callTime}
+              {formatTime(member.callTime, timeFormat)}
             </p>
           )}
           {member.email && (

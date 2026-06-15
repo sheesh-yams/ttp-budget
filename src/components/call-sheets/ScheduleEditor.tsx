@@ -3,13 +3,15 @@
 import { Plus, X, ChevronUp, ChevronDown } from 'lucide-react'
 import type { ScheduleBlock, CrewDept, TalentMember } from '@/server/actions/call-sheets'
 import { WhoNeededPicker } from './WhoNeededPicker'
+import { formatTime, type TimeFormat } from '@/lib/time-format'
 
 interface Props {
-  schedule: ScheduleBlock[]
-  onChange: (schedule: ScheduleBlock[]) => void
-  readonly?: boolean
-  crew?:     CrewDept[]
-  talent?:   TalentMember[]
+  schedule:    ScheduleBlock[]
+  onChange:    (schedule: ScheduleBlock[]) => void
+  readonly?:   boolean
+  crew?:       CrewDept[]
+  talent?:     TalentMember[]
+  timeFormat?: TimeFormat
 }
 
 /** Normalise a block so startTime is always defined (backward-compat with old `time` field). */
@@ -24,7 +26,7 @@ function addMinutes(hhmm: string, mins: number): string {
   return `${String(Math.floor(total / 60) % 24).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
 }
 
-export function ScheduleEditor({ schedule, onChange, readonly = false, crew = [], talent = [] }: Props) {
+export function ScheduleEditor({ schedule, onChange, readonly = false, crew = [], talent = [], timeFormat = '12H' }: Props) {
   function add() {
     const last = schedule.at(-1)
     const lastEnd = last?.endTime ?? startOf(last ?? { startTime: '07:00', label: '' })
@@ -63,9 +65,9 @@ export function ScheduleEditor({ schedule, onChange, readonly = false, crew = []
           <div key={i} className="flex items-start gap-4 px-4 py-2.5">
             <div className="shrink-0 pt-0.5 min-w-[80px]">
               <span className="font-mono text-sm font-semibold text-foreground">
-                {startOf(block)}
+                {formatTime(startOf(block), timeFormat)}
                 {block.endTime && (
-                  <span className="font-normal text-muted-foreground"> – {block.endTime}</span>
+                  <span className="font-normal text-muted-foreground"> – {formatTime(block.endTime, timeFormat)}</span>
                 )}
               </span>
             </div>

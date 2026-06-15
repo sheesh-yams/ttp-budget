@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { CallSheetEditor } from '@/components/call-sheets/CallSheetEditor'
 import type { CrewDept, ScheduleBlock, WeatherInfo, HospitalInfo, TalentMember, PointOfContact } from '@/server/actions/call-sheets'
+import type { TimeFormat } from '@/lib/time-format'
 
 // Geocoding + Overpass + weather in sequence can take ~20s; extend the limit.
 export const maxDuration = 30
@@ -25,7 +26,7 @@ export default async function CallSheetPage({
   const { id: projectId, csId } = await params
   const workspaceId = await getWorkspaceId()
 
-  const [cs, project, budget, rolodexContacts] = await Promise.all([
+  const [cs, project, budget, rolodexContacts, workspace] = await Promise.all([
     db.callSheet.findFirst({
       where: { id: csId, workspaceId },
     }),
@@ -53,6 +54,10 @@ export default async function CallSheetPage({
       where: { workspaceId, archivedAt: null },
       select: { id: true, name: true, primaryRole: true, email: true, phone: true },
       orderBy: { name: 'asc' },
+    }),
+    db.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { callTimeFormat: true },
     }),
   ])
 
@@ -91,9 +96,11 @@ export default async function CallSheetPage({
       : null,
   }
 
+  const timeFormat = (workspace?.callTimeFormat as TimeFormat | null) ?? '12H'
+
   return (
     <div className="pb-24">
-      <CallSheetEditor initial={initial} rolodexContacts={rolodexContacts} />
+      <CallSheetEditor initial={initial} rolodexContacts={rolodexContacts} timeFormat={timeFormat} />
     </div>
   )
 }

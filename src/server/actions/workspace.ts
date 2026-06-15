@@ -475,3 +475,26 @@ export async function updateProposalDefaults(
     return { success: false, error: 'Failed to save proposal defaults' }
   }
 }
+
+// ─── Production settings ──────────────────────────────────────────────────────
+
+const productionSchema = z.object({
+  callTimeFormat: z.enum(['12H', '24H']),
+})
+
+export async function updateProductionSettings(
+  input: z.infer<typeof productionSchema>
+): Promise<ActionResult> {
+  try {
+    const workspaceId = await getWorkspaceId()
+    const data = productionSchema.parse(input)
+    await db.workspace.update({
+      where: { id: workspaceId },
+      data: { callTimeFormat: data.callTimeFormat },
+    })
+    revalidatePath('/settings')
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to save production settings' }
+  }
+}

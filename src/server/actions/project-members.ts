@@ -2,8 +2,10 @@
 
 import { revalidatePath } from 'next/cache'
 import { getScopedDb } from '@/lib/db-scoped'
+import { toJsonSafe } from '@/lib/json-safe'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
+import type { CrewDept, TalentMember } from './call-sheets'
 
 // ── Schema ─────────────────────────────────────────────────────────────────────
 
@@ -114,10 +116,57 @@ export async function updateProjectMember(
       },
     })
 
+    // Bi-directional sync: push callTime to any call sheet rows for the same contact.
+    // Fire-and-forget — don't fail the save if sync errors.
+    if (data.contactId && data.callTime) {
+      syncMemberCallTimeToCallSheets(projectId, data.contactId, data.callTime, sdb).catch(() => {})
+    }
+
     revalidatePath(`/projects/${projectId}/team`)
+    revalidatePath(`/projects/${projectId}/call-sheets`)
     return { success: true, data: undefined }
   } catch {
     return { success: false, error: 'Failed to update team member' }
+  }
+}
+
+// ── Sync helper: push a Teams-page callTime edit into call sheet crew/talent ──
+
+async function syncMemberCallTimeToCallSheets(
+  projectId: string,
+  contactId: string,
+  callTime: string,
+  sdb: Awaited<ReturnType<typeof getScopedDb>>,
+) {
+  const sheets = await sdb.callSheet.findMany({
+    where: { projectId },
+    select: { id: true, crew: true, talent: true },
+  })
+
+  for (const sheet of sheets) {
+    let dirty = false
+
+    const crew = (sheet.crew as unknown as CrewDept[]) ?? []
+    const newCrew = crew.map(dept => ({
+      ...dept,
+      members: dept.members.map(m => {
+        if (m.contactId === contactId) { dirty = true; return { ...m, callTime } }
+        return m
+      }),
+    }))
+
+    const talent = (sheet.talent as unknown as TalentMember[]) ?? []
+    const newTalent = talent.map(t => {
+      if (t.contactId === contactId) { dirty = true; return { ...t, callTime } }
+      return t
+    })
+
+    if (dirty) {
+      await sdb.callSheet.update({
+        where: { id: sheet.id },
+        data: { crew: toJsonSafe(newCrew), talent: toJsonSafe(newTalent) },
+      })
+    }
   }
 }
 

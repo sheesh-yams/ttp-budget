@@ -11,9 +11,11 @@ import {
   updateBrandingSettings,
   updateInvoiceDefaults,
   updateProposalDefaults,
+  updateProductionSettings,
   uploadWorkspaceLogo,
   removeWorkspaceLogo,
 } from '@/server/actions/workspace'
+import type { TimeFormat } from '@/lib/time-format'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -42,6 +44,7 @@ export interface WorkspaceSettings {
   checkMailingAddress:     string | null
   defaultInvoiceTerms:     string | null
   defaultProposalTerms:    string | null
+  callTimeFormat:          TimeFormat
 }
 
 // ─── Logo upload component ────────────────────────────────────────────────────
@@ -289,6 +292,10 @@ export function SettingsForm({ workspace }: { workspace: WorkspaceSettings }) {
   const [propTerms, setPropTerms]     = useState(str(workspace.defaultProposalTerms))
   const proposalSave = useSave()
 
+  // ── Production settings ────────────────────────────────────────────────────
+  const [callTimeFormat, setCallTimeFormat] = useState<TimeFormat>(workspace.callTimeFormat ?? '12H')
+  const productionSave = useSave()
+
   // ── Handlers ───────────────────────────────────────────────────────────────
 
   function saveCompany() {
@@ -324,6 +331,10 @@ export function SettingsForm({ workspace }: { workspace: WorkspaceSettings }) {
     }))
   }
 
+  function saveProduction() {
+    productionSave.save(() => updateProductionSettings({ callTimeFormat }))
+  }
+
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -333,6 +344,7 @@ export function SettingsForm({ workspace }: { workspace: WorkspaceSettings }) {
         <TabsTrigger value="branding">Branding</TabsTrigger>
         <TabsTrigger value="invoices">Invoice defaults</TabsTrigger>
         <TabsTrigger value="proposals">Proposal defaults</TabsTrigger>
+        <TabsTrigger value="production">Production</TabsTrigger>
       </TabsList>
 
       {/* ── COMPANY ── */}
@@ -530,6 +542,41 @@ export function SettingsForm({ workspace }: { workspace: WorkspaceSettings }) {
             placeholder="This proposal is valid for 30 days from the date of issue. All work is subject to a signed agreement…"
           />
           <SaveButton state={proposalSave.state} onClick={saveProposal} />
+        </SettingsCard>
+      </TabsContent>
+
+      {/* ── PRODUCTION ── */}
+      <TabsContent value="production">
+        <SettingsCard
+          title="Production preferences"
+          description="Controls how times are displayed across call sheets and the team page."
+        >
+          <Field
+            label="Call time format"
+            hint="Applies to call sheets and the Teams page throughout the workspace."
+          >
+            <div className="mt-2 flex gap-2">
+              {(['12H', '24H'] as const).map(fmt => (
+                <button
+                  key={fmt}
+                  type="button"
+                  onClick={() => setCallTimeFormat(fmt)}
+                  className={[
+                    'flex flex-col items-center gap-1 rounded-xl border px-5 py-3 text-sm font-medium transition-colors',
+                    callTimeFormat === fmt
+                      ? 'border-primary bg-primary/5 text-primary shadow-sm'
+                      : 'border-border text-muted-foreground hover:border-ring hover:text-foreground',
+                  ].join(' ')}
+                >
+                  <span className="text-xl font-bold tracking-tight">
+                    {fmt === '12H' ? '7:00 AM' : '07:00'}
+                  </span>
+                  <span className="text-xs">{fmt === '12H' ? '12-hour (AM/PM)' : '24-hour'}</span>
+                </button>
+              ))}
+            </div>
+          </Field>
+          <SaveButton state={productionSave.state} onClick={saveProduction} />
         </SettingsCard>
       </TabsContent>
     </Tabs>

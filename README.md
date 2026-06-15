@@ -75,8 +75,8 @@ Workspace (1)
   │           ├── Proposals (public /p/[token] page + PDF)
   │           ├── Invoices  (public /i/[token] page + PDF)
   │           └── CallSheets (public /cs/[token] page)
-  │                 ├── crew          JSON — [{ dept, members: [{ name, role, callTime, phone, email }] }]
-  │                 ├── talent        JSON — [{ name, role/character, callTime, phone, email }]
+  │                 ├── crew          JSON — [{ dept, members: [{ name, role, callTime, phone, email, contactId? }] }]
+  │                 ├── talent        JSON — [{ name, role/character, callTime, phone, email, contactId? }]
   │                 ├── schedule      JSON — [{ startTime, endTime, label, whoNeeded, notes }]
   │                 ├── pointOfContact JSON — { name, title, phone, email }
   │                 ├── weather       JSON — fetched from Open-Meteo
@@ -84,6 +84,23 @@ Workspace (1)
 ```
 
 Money is stored in **integer cents** everywhere. Percentages are `Decimal(6,4)` (0.2000 = 20%).
+
+### Actuals
+
+Each project can have one `ActualSheet` (created automatically when the actuals tab is first visited). The sheet holds `ActualEntry` rows — one per budget line item (linked via `lineItemId`) plus free-form ad-hoc entries.
+
+```
+ActualSheet
+  ├── projectId  (one per project)
+  └── ActualEntry[]
+        ├── lineItemId?         (null for ad-hoc)
+        ├── accountId           (for grouping in the wrap report)
+        ├── actualCents
+        ├── date?               (receipt/expense date)
+        ├── vendorContactId?    (Rolodex contact link)
+        ├── status              PENDING | APPROVED
+        └── notes?
+```
 
 Rate cards are the **source of defaults** but never retroactively change historical line items — every line item snapshots `description`, `unit`, and `rateCents` at insert time.
 
@@ -99,6 +116,8 @@ Rate cards are the **source of defaults** but never retroactively change histori
 | `/projects?archived=1` | Archived project grid with one-click restore |
 | `/projects/[id]` | Project hub — budgets, proposals, invoices, call sheets, proposal overview |
 | `/projects/[id]/team` | Per-project crew list. Seed from proposal/budget with one click. |
+| `/projects/[id]/actuals` | Actuals tracker — per-line-item spend, ad-hoc entries, status (Pending/Approved), date, vendor |
+| `/projects/[id]/actuals/wrap` | Wrap report — budgeted vs. actual by account, margin, top overages, PDF download |
 | `/projects/[id]/call-sheets/[csId]` | Call sheet editor |
 | `/proposals` | All proposals — Kanban view + full list table |
 | `/invoices` | Invoice list with metrics |
@@ -108,6 +127,7 @@ Rate cards are the **source of defaults** but never retroactively change histori
 | `/templates/[id]` | Template detail + structure editor |
 | `/library` | Global library catalog — browse + add to workspace |
 | `/rolodex` | Contact directory — grid + list view, role filter, archive |
+| `/rolodex/[id]` | Contact detail — info, project history, call sheet appearances |
 | `/team` | Workspace team members + invite by email |
 | `/settings` | Branding, payment instructions, workspace data, danger zone |
 | `/onboarding` | First-time setup wizard (redirected automatically for new users) |
@@ -189,6 +209,11 @@ Day-of documents distributed to crew and talent via a secret token URL.
   - **Import from budget** — pulls CREW-category line items from the primary budget phase; uses the A value from `quantityFormula` as headcount
 - **Logistics** — catering/craft services info, additional notes
 
+**Rolodex linking** — crew and talent rows can be linked to Rolodex contacts:
+- Typing a name in the name field shows a **Rolodex typeahead** (brand-purple dropdown) filtered by the existing contacts directory. Selecting a suggestion auto-fills phone/email and stores a `contactId` on the row.
+- Linked rows show a green **chain icon** (instead of the "Add to Rolodex" button). Clicking the chain prompts to push the row's current phone/email back to the Rolodex contact (`patchContactField`).
+- Free-text rows (no `contactId`) retain the **BookUser** "Add to Rolodex" one-click affordance.
+
 **Address autocomplete** — location address fields use a Nominatim-backed autocomplete API (`/api/address-autocomplete`). Results show venue names when available ("Smashbox Studios — 1011 N Fuller Ave, ...") while inserting only the clean street address into the field.
 
 **Geocoding two-pass fallback** — "Fetch weather & hospital" geocodes the address in two passes: first strips suite/unit/floor numbers, then falls back to city/state/zip only. This handles venues where the full address fails Nominatim lookup.
@@ -206,15 +231,30 @@ Day-of documents distributed to crew and talent via a secret token URL.
 
 ### 5. Rolodex (`/rolodex`)
 
-A persistent contact directory for the workspace — all crew, talent, and vendors across every project.
+A persistent contact directory for the workspace — all crew, talent, and vendors across every project. The Rolodex is the **source of truth for call sheet people**: crew/talent rows link back to contacts via `contactId`.
 
 - **Grid + list views** with search by name/role
 - **Role filter** — dropdown built from the union of existing contact primary roles + workspace CREW rate card roles
 - **Contact record** — name, primary role, secondary roles (tags), email, phone, Instagram, website, default rate + unit, avatar
+- **Contact detail page** (`/rolodex/[id]`) — full info card, linked projects (via `ProjectMember`), and every call sheet the person appears on (scanned via `contactId` in crew/talent JSON). Edit button opens the existing `ContactModal`.
 - **Archive** — soft-delete hides a contact from the Rolodex while preserving their project history
 - **Import from call sheets** — scan all existing call sheets and bulk-import crew/talent into the Rolodex
 - **Merge duplicates** — find and merge duplicate contacts (matching on name similarity)
 - **Per-project team** (`/projects/[id]/team`) — assign Rolodex contacts to individual projects with optional role/rate overrides. **Seed from proposal** auto-populates from CREW line items in the latest won or sent proposal, with attribution banner showing which proposal was used.
+
+### 6. Actuals tracker (`/projects/[id]/actuals`)
+
+Post-production spend tracking per project.
+
+- **Per-line-item actuals** — each budget line item gets an editable `actualCents` field. Amounts start at `null` (untouched) and are entered as the project wraps.
+- **Ad-hoc entries** — add arbitrary spend not in the budget: description, amount, optional date, optional vendor contact (Rolodex link), status toggle (Pending / Approved).
+- **Status** — each entry is `PENDING` (default) or `APPROVED`. The editor shows a green checkmark badge for approved entries.
+- **Wrap Report** (`/projects/[id]/actuals/wrap`) — summary dashboard showing:
+  - Four KPI cards: Billed (approved proposal), Budget, Actual cost, Margin
+  - Account-level table with budgeted vs. actual vs. variance and a per-account burn bar
+  - Top overages ranked list
+  - **Download PDF** — `/api/pdf/wrap-report/[projectId]` generates a branded PDF via `@react-pdf/renderer`
+- **Project card burn bar** — when actuals exist, each project card shows a small burn bar (`actual / budget`) coloured green (<80%), amber (80–100%), or red (>100%).
 
 ## Project Archiving
 
@@ -271,6 +311,8 @@ ttp-budget/
 │   ├── schema.prisma
 │   └── seed.ts                              # Populates GlobalRateCard + GlobalTemplate; preserves TTP workspace data
 ├── scripts/
+│   ├── backfill-callsheet-contacts.ts      # F6: link existing crew/talent rows to Rolodex contacts by name+email (--apply to write)
+│   ├── backfill-workspace-ids.ts           # A1: fill workspaceId on Phase/Account/LineItem/ProjectMember rows
 │   ├── backfill-clerk-orgs.ts              # One-time: create Clerk orgs for workspaces that lack one
 │   ├── dedupe-workspaces.ts                # Find + remove duplicate workspaces by name/owner
 │   ├── fix-workspace-links.ts              # Audit + repair Clerk org ↔ DB workspace mapping
@@ -286,14 +328,17 @@ ttp-budget/
 │   │   │   │       ├── page.tsx             # Project hub
 │   │   │   │       ├── layout.tsx           # Project sub-layout + secondary sidebar
 │   │   │   │       ├── team/                # Per-project crew list
-│   │   │   │       ├── actuals/             # Actuals tracker
+│   │   │   │       ├── actuals/             # Actuals tracker (per-line spend, ad-hoc entries, status)
+│   │   │   │       │   └── wrap/            # Wrap report — budgeted vs. actual, PDF download
 │   │   │   │       └── call-sheets/[csId]/  # Call sheet editor page
 │   │   │   ├── proposals/
 │   │   │   ├── invoices/
 │   │   │   ├── rates/
 │   │   │   ├── templates/[id]/
 │   │   │   ├── library/                     # Global library catalog
-│   │   │   ├── rolodex/                     # Contact directory
+│   │   │   ├── rolodex/
+│   │   │   │   ├── page.tsx                 # Contact directory (grid + list + role filter)
+│   │   │   │   └── [id]/page.tsx            # Contact detail — info, projects, call sheet history
 │   │   │   ├── team/                        # Workspace team members + invite
 │   │   │   ├── onboarding/                  # First-time setup wizard
 │   │   │   └── settings/
@@ -306,6 +351,7 @@ ttp-budget/
 │   │       ├── address-autocomplete/        # Nominatim-backed address search; venue names; server-side to avoid CORS
 │   │       ├── pdf/proposal/[id]/
 │   │       ├── pdf/invoice/[id]/
+│   │       ├── pdf/wrap-report/[projectId]/  # Wrap report PDF — @react-pdf/renderer → binary stream
 │   │       ├── proposals/[id]/approve/
 │   │       └── webhooks/clerk/              # user.created, organization.created, organizationMembership.created
 │   ├── components/
@@ -316,8 +362,9 @@ ttp-budget/
 │   │   │   └── BulkImportModal.tsx
 │   │   ├── call-sheets/
 │   │   │   ├── CallSheetEditor.tsx          # Full call sheet editor with all sections
-│   │   │   ├── CrewEditor.tsx               # Dept-grouped crew table
-│   │   │   ├── TalentEditor.tsx             # Flat talent list
+│   │   │   ├── CrewEditor.tsx               # Dept-grouped crew table; Rolodex typeahead; contactId linking
+│   │   │   ├── TalentEditor.tsx             # Flat talent list; Rolodex typeahead; contactId linking
+│   │   │   ├── RolodexNameInput.tsx         # Typeahead input: filters contacts by name, portal dropdown
 │   │   │   ├── ScheduleEditor.tsx           # Time blocks with start/end/whoNeeded
 │   │   │   └── ProjectCallSheets.tsx        # Call sheets section on project page
 │   │   ├── library/
@@ -343,9 +390,12 @@ ttp-budget/
 │   │   │   ├── ProposalModal.tsx            # Create/edit/send proposals + payment schedule + discounts
 │   │   │   ├── ProjectInvoices.tsx
 │   │   │   └── ProposalOverview.tsx
+│   │   ├── actuals/
+│   │   │   └── WrapReportPDF.tsx            # @react-pdf/renderer Document for the wrap report PDF
 │   │   ├── rolodex/
 │   │   │   ├── RolodexClient.tsx            # Grid + list views, role filter, import, merge
-│   │   │   ├── ContactCard.tsx              # Card view with hover actions (edit/archive)
+│   │   │   ├── ContactCard.tsx              # Card view with hover actions (view detail / edit / archive)
+│   │   │   ├── ContactDetailClient.tsx      # Edit button for /rolodex/[id] — opens ContactModal
 │   │   │   ├── ContactModal.tsx             # Create/edit contact
 │   │   │   ├── ImportFromCallSheetsModal.tsx
 │   │   │   └── MergeDuplicatesModal.tsx
@@ -384,7 +434,8 @@ ttp-budget/
 │           ├── clients.ts
 │           ├── projects.ts                  # archiveProject, unarchiveProject
 │           ├── project-members.ts           # seedTeamFromBudget (proposal-first), removeProjectMember
-│           ├── rolodex.ts                   # CRUD contacts, archiveContact, bulkImportContacts, mergeContacts
+│           ├── actuals.ts                   # CRUD actuals, getWrapReportData, ActualStatus (PENDING | APPROVED)
+│           ├── rolodex.ts                   # CRUD contacts, patchContactField, getContactById, getContactCallSheets, mergeContacts
 │           ├── team.ts                      # sendInvitation, acceptInvitation, removeMember
 │           └── workspace.ts
 ├── .env.example
@@ -428,6 +479,10 @@ npx tsx scripts/fix-workspace-links.ts            # audit Clerk org ↔ DB works
 npx tsx scripts/fix-workspace-links.ts --fix      # repair orphan orgs + stale links
 npx tsx scripts/seed-existing-workspaces.ts       # preview empty workspaces
 npx tsx scripts/seed-existing-workspaces.ts --seed  # seed them
+
+# F6: link existing call sheet crew/talent rows to Rolodex contacts by name+email:
+npx tsx scripts/backfill-callsheet-contacts.ts         # dry-run (no writes)
+npx tsx scripts/backfill-callsheet-contacts.ts --apply # apply changes
 ```
 
 ## Clerk Webhook Setup

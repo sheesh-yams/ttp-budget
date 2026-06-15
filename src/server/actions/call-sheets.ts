@@ -370,11 +370,54 @@ export async function updateCallSheet(
       },
     })
 
+    // Bi-directional sync: push callTime from linked crew/talent rows → ProjectMember.
+    // Fire-and-forget — never fails the main save.
+    if (input.crew !== undefined || input.talent !== undefined) {
+      syncSheetCallTimesToMembers(cs.projectId, input.crew, input.talent, sdb).catch(() => {})
+    }
+
     revalidatePath(`/projects/${cs.projectId}`)
     revalidatePath(`/projects/${cs.projectId}/call-sheets/${id}`)
     return { success: true, data: undefined }
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : 'Failed to update call sheet' }
+  }
+}
+
+// ── Sync helper: push call-sheet callTime edits back to ProjectMember rows ────
+
+async function syncSheetCallTimesToMembers(
+  projectId: string,
+  crew: CrewDept[] | undefined,
+  talent: TalentMember[] | undefined,
+  sdb: Awaited<ReturnType<typeof getScopedDb>>,
+) {
+  const updates = new Map<string, string>() // contactId → callTime
+  if (crew) {
+    for (const dept of crew) {
+      for (const m of dept.members) {
+        if (m.contactId && m.callTime) updates.set(m.contactId, m.callTime)
+      }
+    }
+  }
+  if (talent) {
+    for (const t of talent) {
+      if (t.contactId && t.callTime) updates.set(t.contactId, t.callTime)
+    }
+  }
+  if (updates.size === 0) return
+
+  const members = await sdb.projectMember.findMany({
+    where: { projectId, contactId: { in: [...updates.keys()] } },
+    select: { id: true, contactId: true, callTime: true },
+  })
+
+  for (const member of members) {
+    if (!member.contactId) continue
+    const newTime = updates.get(member.contactId)
+    if (newTime !== undefined && newTime !== member.callTime) {
+      await sdb.projectMember.update({ where: { id: member.id }, data: { callTime: newTime } })
+    }
   }
 }
 

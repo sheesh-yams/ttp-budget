@@ -39,12 +39,14 @@ export default async function SettingsPage() {
       checkMailingAddress:     true,
       defaultInvoiceTerms:     true,
       defaultProposalTerms:    true,
+      callTimeFormat:          true,
     },
   })
 
   const settings = {
     ...workspace,
     defaultTaxPct: Number(workspace.defaultTaxPct),
+    callTimeFormat: (workspace.callTimeFormat as '12H' | '24H') ?? '12H',
   }
 
   return (
