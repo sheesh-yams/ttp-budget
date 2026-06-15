@@ -38,9 +38,9 @@ const navGroups = [
     items: [
       { label: 'Clients',   href: '/clients',   icon: Users },
       { label: 'Projects',  href: '/projects',  icon: FolderOpen },
-      { label: 'Rolodex',   href: '/rolodex',   icon: BookUser },
       { label: 'Proposals', href: '/proposals', icon: FileText },
       { label: 'Invoices',  href: '/invoices',  icon: Receipt },
+      { label: 'Rolodex',   href: '/rolodex',   icon: BookUser },
     ],
   },
   {

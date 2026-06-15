@@ -163,10 +163,11 @@ export async function upsertLineItem(
         })
       }
 
-      // Magical Crew Workflow — only on CREATE with an assigned CREW contact
+      // Magical Crew Workflow — only on CREATE with an assigned CREW contact.
+      // Awaited so the kit line item is in the DB before the client refreshes.
+      // Wrapped in catch so a failure never blocks the core CREW item save.
       if (data.contactId && lineItemCategory === 'CREW') {
-        // Fire-and-forget — crew side effects never fail the core line-item save
-        void runCrewWorkflow(sdb, {
+        await runCrewWorkflow(sdb, {
           accountId:   data.accountId,
           contactId:   data.contactId,
           description: data.description,
@@ -174,7 +175,7 @@ export async function upsertLineItem(
           unit:        data.unit,
           quantity:    data.quantity,
           crewItemOrder: typeof item.order === 'number' ? item.order : 0,
-        })
+        }).catch(() => {})
       }
     }
     return { success: true, data: { id: item.id } }
