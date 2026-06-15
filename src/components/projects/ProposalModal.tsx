@@ -149,9 +149,10 @@ export function ProposalModal({
   const [expiresAt,  setExpiresAt]  = useState(defaultExpiry)
   const [milestones, setMilestones] = useState<LocalMilestone[]>(defaultMilestones)
   const [error,      setError]      = useState('')
-  const [successToken, setSuccessToken] = useState<string | null>(null)
-  const [copied,       setCopied]       = useState(false)
-  const [isDraft,      setIsDraft]      = useState(false)
+  const [successToken,   setSuccessToken]   = useState<string | null>(null)
+  const [copied,         setCopied]         = useState(false)
+  const [isDraft,        setIsDraft]        = useState(false)
+  const [isSentManually, setIsSentManually] = useState(false)
 
   // Discount state
   const [discountType,  setDiscountType]  = useState<'none' | 'flat' | 'pct'>('none')
@@ -184,6 +185,7 @@ export function ProposalModal({
     setSuccessToken(null)
     setCopied(false)
     setIsDraft(false)
+    setIsSentManually(false)
   }, [open, existing, projectName, prefill])
 
   // ── Milestone helpers ──────────────────────────────────────────────────────
@@ -276,6 +278,25 @@ export function ProposalModal({
     })
   }
 
+  // Same flow as handleSend but marks isSentManually — when email sending is
+  // added to handleSend, this path will remain the bypass (no email sent).
+  function handleMarkSent() {
+    if (!validate()) return
+    startTransition(async () => {
+      if (mode === 'edit-draft' && existing) {
+        const updateResult = await updateDraftProposal(existing.id, baseInput())
+        if (!updateResult.success) { setError((updateResult as { success: false; error: string }).error); return }
+        const sendResult = await sendDraftProposal(existing.id)
+        if (sendResult.success) { setSuccessToken(existing.publicToken); setIsDraft(false); setIsSentManually(true) }
+        else { setError((sendResult as { success: false; error: string }).error) }
+        return
+      }
+      const r = await createSentProposal(baseInput())
+      if (r.success) { setSuccessToken(r.data.publicToken); setIsDraft(false); setIsSentManually(true) }
+      else { setError((r as { success: false; error: string }).error) }
+    })
+  }
+
   const publicUrl = successToken ? `${typeof window !== 'undefined' ? window.location.origin : ''}/p/${successToken}` : null
 
   async function handleCopy() {
@@ -328,7 +349,7 @@ export function ProposalModal({
       <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
           <DialogTitle>
-            {successToken ? (isDraft ? 'Draft Saved' : 'Proposal Sent') : MODE_TITLE[mode]}
+            {successToken ? (isDraft ? 'Draft Saved' : (isSentManually ? 'Marked as Sent' : 'Proposal Sent')) : MODE_TITLE[mode]}
           </DialogTitle>
         </DialogHeader>
 
@@ -346,7 +367,11 @@ export function ProposalModal({
               </div>
             ) : (
               <>
-                <p className="text-sm text-muted-foreground">Your proposal is live. Share this link with your client.</p>
+                <p className="text-sm text-muted-foreground">
+                  {isSentManually
+                    ? 'Marked as sent — no email was sent. Share this link with your client manually.'
+                    : 'Your proposal is live. Share this link with your client.'}
+                </p>
                 <div className="flex items-center gap-2 rounded-lg border bg-secondary/30 p-3">
                   <code className="flex-1 text-xs text-foreground break-all">{publicUrl}</code>
                   <Button size="sm" variant="outline" onClick={handleCopy}>
@@ -569,10 +594,13 @@ export function ProposalModal({
         )}
 
         {!successToken && (
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="gap-2 sm:gap-1 flex-wrap">
             <Button variant="outline" onClick={() => handleClose(false)} disabled={pending}>Cancel</Button>
             <Button variant="outline" onClick={handleSaveDraft} disabled={pending}>
               {pending ? 'Saving…' : 'Save Draft'}
+            </Button>
+            <Button variant="outline" onClick={handleMarkSent} disabled={pending} className="text-muted-foreground">
+              {pending ? 'Saving…' : 'Mark as Sent'}
             </Button>
             <Button onClick={handleSend} disabled={pending}>
               {pending ? 'Sending…' : mode === 'edit-draft' ? 'Save & Send' : 'Send Proposal'}

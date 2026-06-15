@@ -198,7 +198,7 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
                 const isExpiredEff    = !!p.expiresAt && new Date(p.expiresAt) < new Date() && !['APPROVED', 'LOST'].includes(effectiveStatus)
                 const canEdit     = effectiveStatus === 'DRAFT'
                 const canInvoice  = ['SENT', 'VIEWED', 'APPROVED'].includes(effectiveStatus) && !!budgetId
-                const canDelete   = effectiveStatus !== 'APPROVED'
+                const canDelete   = true
                 const isTerminal  = ['APPROVED', 'LOST', 'DECLINED'].includes(effectiveStatus) || isExpiredEff
 
                 return (
@@ -348,10 +348,19 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
           <DialogHeader>
             <DialogTitle>Delete proposal?</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            <strong className="text-foreground">{deleteTarget?.title}</strong> will be permanently deleted.
-            This cannot be undone.
-          </p>
+          {(statusOverrides[deleteTarget?.id ?? ''] ?? deleteTarget?.status) === 'APPROVED' ? (
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-destructive">This proposal is marked Won.</p>
+              <p className="text-sm text-muted-foreground">
+                Deleting <strong className="text-foreground">{deleteTarget?.title}</strong> will permanently remove all approval data and cannot be undone.
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              <strong className="text-foreground">{deleteTarget?.title}</strong> will be permanently deleted.
+              This cannot be undone.
+            </p>
+          )}
           <div className="flex gap-3 pt-2">
             <Button variant="outline" className="flex-1" onClick={() => setDeleteTarget(null)}>
               Cancel
