@@ -116,7 +116,7 @@ Rate cards are the **source of defaults** but never retroactively change histori
 | `/dashboard` | Outstanding invoices, recent projects, draft proposals |
 | `/clients` | Client list |
 | `/clients/[id]` | Client detail + project history |
-| `/projects` | Operational dashboard — metrics strip (pipeline, open projects, outstanding invoices, won this quarter), status filter pills, rich project cards, attention sidebar |
+| `/projects` | Operational dashboard — 4-card KPI strip (Pipeline, Open Projects, Outstanding, Won This Quarter), status filter pills, rich project cards with client avatar, attention sidebar |
 | `/projects?archived=1` | Archived project grid with one-click restore |
 | `/projects/[id]` | Project hub — budgets, proposals, invoices, call sheets, proposal overview |
 | `/projects/[id]/team` | Per-project crew list. Seed from proposal/budget with one click. |
@@ -182,6 +182,11 @@ Key behaviours:
 
 **Status lifecycle:** `DRAFT → SENT → VIEWED → CHANGES_NEEDED → SENT → …` or `APPROVED` (Won) / `LOST` / `EXPIRED`.
 
+**Sending options** — the proposal modal footer offers three non-cancel actions:
+- **Save Draft** — saves with `DRAFT` status; accessible via preview link with amber banner.
+- **Mark as Sent** — marks the proposal `SENT` and sets `sentAt` without triggering any client email. Use when you've already shared the link manually, or want to record the send for testing. Success screen confirms "no email was sent."
+- **Send Proposal** — same DB write as Mark as Sent today; the email send path will be wired here when Resend integration ships for proposals. Keeping them separate now means the bypass is already in place.
+
 **Won status** — set via dropdown on the project proposals table or by dragging the card to the WON column on the Kanban. The dropdown includes Won/Approved alongside the standard statuses. Terminal statuses (Won, Lost, Expired, Declined) show a static pill instead of the dropdown.
 
 **Auto-advance project status** — when a proposal is marked Won (`APPROVED`), its project automatically advances from `LEAD → ACTIVE`. If the only approved proposal is later marked Lost, Declined, or Expired and no other approved proposal exists, the project reverts to `LEAD`. `WRAPPED` is intentionally manual.
@@ -193,6 +198,8 @@ Key behaviours:
 - Role in new proposal that needs more slots than currently exist → new unassigned placeholders added
 
 **Version auto-increment** — each new proposal increments the `version` counter. The Kanban shows only the latest sent version per thread.
+
+**Delete any proposal** — the trash icon appears on every proposal row regardless of status. Deleting a WON (APPROVED) proposal shows a stronger confirmation dialog: "This proposal is marked Won. Deleting it will permanently remove all approval data and cannot be undone." There is no soft-delete — the record is gone.
 
 **Proposals Kanban** (`/proposals`): CRM-style drag-and-drop board — DRAFTS | SENT | VIEWED | CHANGES NEEDED | WON | LOST. Lost column hidden by default. All columns including WON and LOST are droppable.
 
@@ -339,13 +346,15 @@ ttp-budget/
 │   ├── seed.ts                              # Populates GlobalRateCard + GlobalTemplate; preserves TTP workspace data
 │   └── migrations/                          # Manual SQL migration files (run in Neon SQL Editor)
 │       ├── 20260614000001_add_call_time_format/migration.sql
-│       └── 20260614000002_add_mismatch_flag/migration.sql
+│       ├── 20260614000002_add_mismatch_flag/migration.sql
+│       └── 20260614000003_secure_public_tokens/migration.sql
 ├── scripts/
 │   ├── backfill-callsheet-contacts.ts      # F6: link existing crew/talent rows to Rolodex contacts by name+email (--apply to write)
 │   ├── backfill-workspace-ids.ts           # A1: fill workspaceId on Phase/Account/LineItem/ProjectMember rows
 │   ├── backfill-clerk-orgs.ts              # One-time: create Clerk orgs for workspaces that lack one
 │   ├── dedupe-workspaces.ts                # Find + remove duplicate workspaces by name/owner
 │   ├── fix-workspace-links.ts              # Audit + repair Clerk org ↔ DB workspace mapping
+│   ├── rotate-public-tokens.ts             # Upgrade CUID1 publicTokens to UUID v4 (--dry-run default, --live to write, --all for non-drafts)
 │   └── seed-existing-workspaces.ts         # Backfill empty workspaces with global library (--seed flag)
 ├── src/
 │   ├── app/
@@ -406,9 +415,9 @@ ttp-budget/
 │   │   │   └── ProposalsKanban.tsx          # Drag-and-drop Kanban; WON + LOST columns droppable
 │   │   ├── projects/
 │   │   │   ├── projects-types.ts            # Shared types + helpers (ProjectForCard, statusBadgeStyle, computeProgress, …)
-│   │   │   ├── ProjectMetricsStrip.tsx      # 4-card KPI strip on brand gradient (pipeline, open, invoices, won)
+│   │   │   ├── ProjectMetricsStrip.tsx      # 4 solid-color KPI cards (Pipeline, Open Projects, Outstanding, Won This Quarter); metrics exclude ARCHIVED projects
 │   │   │   ├── ProjectStatusPills.tsx       # URL-param status filter pills with counts
-│   │   │   ├── ProjectCard.tsx              # Rich project card — grid + list views, progress bar, 3-dot menu
+│   │   │   ├── ProjectCard.tsx              # Rich project card — client initials avatar, burn bar (ACTIVE only), proposed budget; no progress bar
 │   │   │   ├── ProjectsAttentionSidebar.tsx # Sticky right-rail — attention items, upcoming shoots, week stats
 │   │   │   ├── BudgetEditor.tsx             # Click description → edit modal; category badges
 │   │   │   ├── BudgetSummaryBar.tsx
@@ -451,6 +460,7 @@ ttp-budget/
 │   │   ├── importSchema.ts
 │   │   ├── invoice-numbering.ts
 │   │   ├── json-safe.ts                     # toJsonSafe() — replaces JSON.parse(JSON.stringify()); handles Decimal
+│   │   ├── secure-token.ts                  # generatePublicToken() — crypto.randomUUID() UUID v4; called at every proposal/invoice/call-sheet create
 │   │   ├── time-format.ts                   # formatTime(hhmm, format) — "07:00" → "7:00 AM" or "07:00"; TimeFormat type
 │   │   └── email.ts
 │   └── server/
@@ -523,6 +533,11 @@ npx tsx scripts/seed-existing-workspaces.ts --seed  # seed them
 # F6: link existing call sheet crew/talent rows to Rolodex contacts by name+email:
 npx tsx scripts/backfill-callsheet-contacts.ts         # dry-run (no writes)
 npx tsx scripts/backfill-callsheet-contacts.ts --apply # apply changes
+
+# Rotate public tokens — upgrades CUID1 tokens to UUID v4:
+npx tsx scripts/rotate-public-tokens.ts                  # dry-run (preview what would change)
+npx tsx scripts/rotate-public-tokens.ts --live           # rotate DRAFT records only (safe)
+npx tsx scripts/rotate-public-tokens.ts --live --all     # rotate ALL records (invalidates live shared links)
 ```
 
 ## Clerk Webhook Setup
@@ -536,6 +551,29 @@ The `/api/webhooks/clerk` endpoint must be registered in the Clerk dashboard. Re
 | `organizationMembership.created` | Attaches invited members to the org's workspace |
 
 The webhook uses `svix` signature verification. Set `CLERK_WEBHOOK_SECRET` from the Clerk dashboard endpoint page.
+
+## Security
+
+### Public token generation
+
+`Proposal`, `Invoice`, and `CallSheet` each carry a `publicToken` used in their shareable URLs (`/p/`, `/i/`, `/cs/`). Tokens are **UUID v4** (122 bits of entropy, generated via `crypto.randomUUID()`), replacing the original CUID1 format which had only ~32 bits of randomness and embedded a timestamp fingerprint.
+
+- Schema: `@default(dbgenerated("gen_random_uuid()::text"))` — real Postgres DEFAULT, not ORM-layer only.
+- Application layer: `generatePublicToken()` from `src/lib/secure-token.ts` is called at every `.create()` call site (proposals, invoices, call sheets) as defense in depth.
+- Migration: `prisma/migrations/20260614000003_secure_public_tokens/migration.sql`
+- Rotation script: `scripts/rotate-public-tokens.ts` — upgrades existing CUID records to UUID v4. Dry-run by default; `--live` to write; `--all` to include SENT/APPROVED records (breaks live links — notify clients first).
+
+### Rate limiting
+
+`src/middleware.ts` (inside the Clerk middleware callback) rate-limits all public doc routes before auth runs:
+
+| Route prefix | Window | Max requests |
+|---|---|---|
+| `/p/` (proposals) | 60 s | 60 per IP |
+| `/i/` (invoices) | 60 s | 60 per IP |
+| `/cs/` (call sheets) | 60 s | 60 per IP |
+
+Returns `429 Too Many Requests` with `Retry-After` and `X-RateLimit-*` headers. State is in-process (`Map`) — correct for single-instance Railway. Upgrade path: swap the `Map` for Upstash Redis + `@upstash/ratelimit` when scaling to multiple replicas.
 
 ## Engineering Conventions
 
@@ -561,3 +599,4 @@ The webhook uses `svix` signature verification. Set `CLERK_WEBHOOK_SECRET` from 
 - **Brand-safe badge contrast:** use `color-mix(in srgb, var(--brand-accent) 18%, white)` for tinted badge backgrounds instead of hardcoded colours. This adapts at browser render time to whatever brand colour the workspace sets.
 - **Project archiving:** `status = 'ARCHIVED'` + `archivedAt` timestamp. The projects list filters `status: { not: 'ARCHIVED' }` by default. Archived projects are accessible at `?archived=1`.
 - **Radix Select:** never pass `value=""` to `<SelectItem>`. Use a sentinel string like `"__none__"` and convert back to empty/null on `onValueChange`.
+- **Public tokens:** `publicToken` on Proposal, Invoice, and CallSheet must be UUID v4. Always call `generatePublicToken()` from `src/lib/secure-token.ts` at every `.create()` call site. Never use `cuid()`, `nanoid()`, or sequential IDs for public-facing tokens — the DB default is `gen_random_uuid()::text` but the app layer must also generate correctly in case the ORM layer is invoked without the DB default (e.g. raw `prisma.create` with explicit data).
