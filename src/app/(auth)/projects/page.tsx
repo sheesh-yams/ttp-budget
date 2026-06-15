@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { ProjectsPageClient } from '@/components/projects/ProjectsPageClient'
 import type { ProjectForCard, ProjectMetrics, AttentionItem, UpcomingShoot, StatusCounts } from '@/components/projects/projects-types'
+import { calcBudgetTotals, type AccountInput } from '@/lib/totals'
 
 export const metadata = { title: 'Projects — SLATESUITE' }
 
@@ -84,7 +85,7 @@ export default async function ProjectsPage({
     wonLastQ,
     outstandingInvoices,
     actualsSheets,
-    primaryLineItems,
+    primaryPhases,
     pipelineProposals,
   ] = await Promise.all([
 
@@ -153,11 +154,32 @@ export default async function ProjectsPage({
       },
     }),
 
-    // ── Primary phase line items for budget total ─────────────────────────────
-    // Used to show burn % on cards that have an actuals sheet.
-    sdb.lineItem.findMany({
-      where: { account: { phase: { isPrimary: true } } },
-      select: { quantity: true, rateCents: true, account: { select: { phase: { select: { budget: { select: { projectId: true } } } } } } },
+    // ── Primary phase gross totals (net + markup + tax) ──────────────────────
+    // Used for burn bar denominator and "Proposed" / "Approved" amounts on cards.
+    // Fetches account tree so calcBudgetTotals can apply per-item markup + budget
+    // level markup + tax, matching what the proposal modal sends to the client.
+    sdb.phase.findMany({
+      where: { isPrimary: true },
+      select: {
+        budget: {
+          select: {
+            projectId: true,
+            markupPct:  true,
+            taxPct:     true,
+          },
+        },
+        accounts: {
+          where:  { parentId: null },
+          select: {
+            lineItems: { select: { quantity: true, rateCents: true, markupPct: true } },
+            children:  {
+              select: {
+                lineItems: { select: { quantity: true, rateCents: true, markupPct: true } },
+              },
+            },
+          },
+        },
+      },
     }),
 
     // ── Pipeline proposals (non-archived projects, deduped to one per project) ─
@@ -227,13 +249,20 @@ export default async function ProjectsPage({
     actualSpentByProject.set(sheet.projectId, (actualSpentByProject.get(sheet.projectId) ?? 0) + sum)
   }
 
-  // budgetTotalCents: crude sum of qty * rate on primary phase line items
+  // budgetTotalCents: GROSS total (net + markup + tax) from primary phase.
+  // Uses calcBudgetTotals so the number matches what the proposal modal shows.
   const budgetTotalByProject = new Map<string, number>()
-  for (const li of primaryLineItems) {
-    const projectId = li.account?.phase?.budget?.projectId
+  for (const phase of primaryPhases) {
+    const projectId = phase.budget?.projectId
     if (!projectId) continue
-    const lineCents = Math.round(Number(li.quantity) * li.rateCents)
-    budgetTotalByProject.set(projectId, (budgetTotalByProject.get(projectId) ?? 0) + lineCents)
+    const markupPct = phase.budget?.markupPct != null ? Number(phase.budget.markupPct) : 0
+    const taxPct    = phase.budget?.taxPct    != null ? Number(phase.budget.taxPct)    : 0
+    const { grandTotalCents } = calcBudgetTotals(
+      phase.accounts as unknown as AccountInput[],
+      markupPct,
+      taxPct,
+    )
+    budgetTotalByProject.set(projectId, grandTotalCents)
   }
 
   // Attach burn data to both non-archived and archived projects

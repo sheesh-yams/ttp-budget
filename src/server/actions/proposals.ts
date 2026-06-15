@@ -515,13 +515,32 @@ export async function updateProposalStatus(
       select: {
         projectId:   true,
         workspaceId: true,
+        content:     true,
         project: { select: { status: true } },
       },
     })
 
+    // When manually marking APPROVED, snapshot the gross total from content so
+    // the project card shows the correct amount (same logic as the client
+    // approval route). Prefer content.totalCents (set by buildContent), fall
+    // back to content.budgetSnapshot.totalCents for older proposals.
+    let approvedTotalCents: number | undefined
+    if (status === 'APPROVED' && proposal) {
+      const c = proposal.content as Record<string, unknown> | null
+      const fromTop      = c && typeof c.totalCents === 'number' ? c.totalCents : null
+      const fromSnapshot = c?.budgetSnapshot
+        ? (c.budgetSnapshot as Record<string, unknown>).totalCents
+        : null
+      const resolved = fromTop ?? (typeof fromSnapshot === 'number' ? fromSnapshot : null)
+      if (resolved !== null) approvedTotalCents = resolved
+    }
+
     await sdb.proposal.update({
       where: { id: proposalId },
-      data:  { status: status as Parameters<typeof sdb.proposal.update>[0]['data']['status'] },
+      data:  {
+        status: status as Parameters<typeof sdb.proposal.update>[0]['data']['status'],
+        ...(approvedTotalCents !== undefined ? { approvedTotalCents } : {}),
+      } as Parameters<typeof sdb.proposal.update>[0]['data'],
     })
 
     // ── Auto-advance project status based on proposal outcome ─────────────────
