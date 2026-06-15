@@ -95,13 +95,14 @@ export function ImageUploader({
 
       if (!res.ok) {
         setError(`Upload failed (HTTP ${res.status}). Please try again.`)
+        URL.revokeObjectURL(objectUrl)
         setPreview(currentUrl)
         return
       }
 
-      // Step 3: swap optimistic blob URL for the permanent R2 URL
-      URL.revokeObjectURL(objectUrl)
-      setPreview(publicUrl)
+      // Keep the local blob URL as the preview — it's already rendering correctly
+      // and avoids depending on the R2 public URL being immediately readable.
+      // The public URL is only needed for DB persistence via the callback.
       onUploadComplete(publicUrl)
     } catch {
       setError('Upload failed. Check your connection and try again.')
