@@ -18,55 +18,57 @@ export default function SignUpPage() {
         <div style={{
           width: '50%', flexShrink: 0, background: '#fff',
           display: 'flex', flexDirection: 'column',
-          padding: '3rem 4rem', overflowY: 'auto',
+          alignItems: 'center', justifyContent: 'center',
+          padding: '3rem 2rem', overflowY: 'auto',
         }}>
-          <Link href="/" style={{
-            fontSize: '15px', fontWeight: 800, letterSpacing: '0.08em',
-            color: '#111827', textDecoration: 'none', marginBottom: '3rem', display: 'block',
-          }}>
-            SLATE<span style={{ color: '#5D00A4' }}>SUITE</span>
-          </Link>
-
-          <h1 style={{
-            fontSize: '28px', fontWeight: 800, color: '#111827',
-            letterSpacing: '-0.02em', marginBottom: '0.4rem', lineHeight: 1.15,
-          }}>
-            Run your business<br />like a studio.
-          </h1>
-          <p style={{ fontSize: '15px', color: '#6B7280', marginBottom: '2rem', lineHeight: 1.6 }}>
-            Everything you need to pitch, produce, and get paid — in one place.
-          </p>
-
-          <div style={{ maxWidth: '420px', width: '100%' }}>
-          <SignUp appearance={{
-            variables: {
-              colorPrimary: '#5D00A4',
-              colorBackground: '#ffffff',
-              colorInputBackground: '#F9FAFB',
-              colorInputText: '#111827',
-              borderRadius: '8px',
-              fontFamily: 'Inter, -apple-system, sans-serif',
-              fontSize: '14px',
-            },
-            elements: {
-              rootBox: { width: '100%' },
-              card: {
-                boxShadow: 'none', border: 'none',
-                borderRadius: '0', padding: '0',
-                background: 'transparent', width: '100%',
-              },
-              headerTitle: { display: 'none' },
-              headerSubtitle: { display: 'none' },
-            },
-          }} />
-          </div>
-
-          <p style={{ marginTop: '2rem', fontSize: '13px', color: '#9CA3AF', textAlign: 'center', maxWidth: '420px', width: '100%' }}>
-            Already have an account?{' '}
-            <Link href="/sign-in" style={{ color: '#5D00A4', fontWeight: 500, textDecoration: 'none' }}>
-              Sign in
+          {/* Inner container — constrains all content to clean width */}
+          <div style={{ width: '100%', maxWidth: '400px' }}>
+            <Link href="/" style={{
+              fontSize: '15px', fontWeight: 800, letterSpacing: '0.08em',
+              color: '#111827', textDecoration: 'none', marginBottom: '2.5rem', display: 'block',
+            }}>
+              SLATE<span style={{ color: '#5D00A4' }}>SUITE</span>
             </Link>
-          </p>
+
+            <h1 style={{
+              fontSize: '28px', fontWeight: 800, color: '#111827',
+              letterSpacing: '-0.02em', marginBottom: '0.4rem', lineHeight: 1.15,
+            }}>
+              Run your business<br />like a studio.
+            </h1>
+            <p style={{ fontSize: '15px', color: '#6B7280', marginBottom: '2rem', lineHeight: 1.6 }}>
+              Everything you need to pitch, produce, and get paid — in one place.
+            </p>
+
+            <SignUp appearance={{
+              variables: {
+                colorPrimary: '#5D00A4',
+                colorBackground: '#ffffff',
+                colorInputBackground: '#F9FAFB',
+                colorInputText: '#111827',
+                borderRadius: '8px',
+                fontFamily: 'Inter, -apple-system, sans-serif',
+                fontSize: '14px',
+              },
+              elements: {
+                rootBox: { width: '100%' },
+                card: {
+                  boxShadow: 'none', border: 'none',
+                  borderRadius: '0', padding: '0',
+                  background: 'transparent', width: '100%',
+                },
+                headerTitle: { display: 'none' },
+                headerSubtitle: { display: 'none' },
+              },
+            }} />
+
+            <p style={{ marginTop: '1.5rem', fontSize: '13px', color: '#9CA3AF', textAlign: 'center' }}>
+              Already have an account?{' '}
+              <Link href="/sign-in" style={{ color: '#5D00A4', fontWeight: 500, textDecoration: 'none' }}>
+                Sign in
+              </Link>
+            </p>
+          </div>
         </div>
 
         {/* ── RIGHT PANEL — 50% ──────────────────────────────────── */}
