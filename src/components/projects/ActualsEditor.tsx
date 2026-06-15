@@ -3,7 +3,7 @@
 import { useState, useTransition, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Plus, Trash2, ChevronRight, ChevronDown, TrendingUp, TrendingDown, BarChart3, CheckCircle2, Clock } from 'lucide-react'
+import { Plus, Trash2, ChevronRight, ChevronDown, TrendingUp, TrendingDown, BarChart3, CheckCircle2, Clock, SlidersHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   createActualSheet,
@@ -15,6 +15,7 @@ import { formatMoney, lineTotal } from '@/lib/money'
 import { sumAccount, type AccountInput } from '@/lib/totals'
 import type { ActualSheetFull, ActualEntryDb } from '@/server/actions/actuals'
 import type { AccountWithItems } from '@/types'
+import { ActualEntrySidebar } from '@/components/actuals/ActualEntrySidebar'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -76,6 +77,8 @@ export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents 
   )
   // Which account is showing the "add unplanned" form
   const [addingToAccount, setAddingToAccount] = useState<string | null>(null)
+  // Sidebar state
+  const [sidebarEntry, setSidebarEntry] = useState<ActualEntryDb | null>(null)
   const [adHocForm, setAdHocForm] = useState({ description: '', actual: '', date: '', status: 'PENDING' as 'PENDING' | 'APPROVED' })
   const [adHocSaving, startAdHocSave] = useTransition()
 
@@ -192,8 +195,21 @@ export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents 
 
   const marginColor = marginPct >= 20 ? 'text-green-600' : marginPct >= 10 ? 'text-yellow-600' : marginPct >= 0 ? 'text-orange-500' : 'text-red-600'
 
+  // All entries map for sidebar lookup
+  const entryMap = new Map<string, ActualEntryDb>(
+    sheet ? sheet.entries.map(e => [e.id, e]) : []
+  )
+
   return (
     <div className="space-y-6">
+
+      {/* ── Entry detail sidebar ───────────────────────────────────────────── */}
+      <ActualEntrySidebar
+        open={sidebarEntry !== null}
+        onClose={() => setSidebarEntry(null)}
+        entry={sidebarEntry}
+        projectId={project.id}
+      />
 
       {/* ── Header with Wrap Report button ────────────────────────────────── */}
       <div className="flex items-center justify-between">
@@ -252,6 +268,7 @@ export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents 
           onAdHocFormChange={setAdHocForm}
           onAddAdHoc={handleAddAdHoc}
           onDeleteAdHoc={handleDeleteAdHoc}
+          onRowClick={entry => setSidebarEntry(entryMap.get(entry.id) ?? entry)}
         />
       ))}
     </div>
@@ -293,6 +310,7 @@ interface AccountSectionProps {
   onAdHocFormChange:  (f: { description: string; actual: string; date: string; status: 'PENDING' | 'APPROVED' }) => void
   onAddAdHoc:         (accountId: string) => void
   onDeleteAdHoc:      (id: string) => void
+  onRowClick:         (entry: ActualEntryDb) => void
 }
 
 function AccountSection({
@@ -301,7 +319,7 @@ function AccountSection({
   actuals, inputValues, saving,
   addingToAccount, adHocForm, adHocSaving,
   onInputChange, onInputBlur,
-  onSetAddingToAccount, onAdHocFormChange, onAddAdHoc, onDeleteAdHoc,
+  onSetAddingToAccount, onAdHocFormChange, onAddAdHoc, onDeleteAdHoc, onRowClick,
 }: AccountSectionProps) {
   const [collapsed, setCollapsed] = useState(false)
 
@@ -373,6 +391,7 @@ function AccountSection({
                 onInputChange={entryId ? (v => onInputChange(entryId, v)) : undefined}
                 onInputBlur={entryId  ? (() => onInputBlur(entryId))    : undefined}
                 onDelete={undefined}
+                onRowClick={entry ? () => onRowClick(entry) : undefined}
               />
             )
           })}
@@ -393,6 +412,7 @@ function AccountSection({
               onInputChange={v => onInputChange(entry.id, v)}
               onInputBlur={() => onInputBlur(entry.id)}
               onDelete={() => onDeleteAdHoc(entry.id)}
+              onRowClick={() => onRowClick(entry)}
             />
           ))}
 
@@ -486,6 +506,7 @@ function AccountSection({
                     onAdHocFormChange={onAdHocFormChange}
                     onAddAdHoc={onAddAdHoc}
                     onDeleteAdHoc={onDeleteAdHoc}
+                    onRowClick={onRowClick}
                   />
                 </div>
               ))}
@@ -512,13 +533,14 @@ interface LineRowProps {
   onInputChange?: (val: string) => void
   onInputBlur?:   () => void
   onDelete?:      () => void
+  onRowClick?:    () => void
 }
 
 function LineRow({
   description, budgetedCents, entryId,
   inputValue, actualCents, isSaving,
   isAdHoc, entryDate, entryStatus,
-  onInputChange, onInputBlur, onDelete,
+  onInputChange, onInputBlur, onDelete, onRowClick,
 }: LineRowProps) {
   const [focused, setFocused] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -587,7 +609,7 @@ function LineRow({
         )}
       </div>
 
-      {/* Variance + delete */}
+      {/* Variance + actions */}
       <div className="hidden w-[110px] items-center justify-end gap-1 sm:flex">
         {budgetedCents !== null ? (
           <VariancePill budgeted={budgetedCents} actual={actualCents} />
@@ -595,6 +617,15 @@ function LineRow({
           <span className="text-xs text-red-500 tabular">
             {actualCents > 0 ? `-${formatMoney(actualCents)}` : '—'}
           </span>
+        )}
+        {onRowClick && (
+          <button
+            onClick={e => { e.stopPropagation(); onRowClick() }}
+            className="ml-1 rounded p-0.5 text-muted-foreground hover:text-foreground transition-colors"
+            title="Open details"
+          >
+            <SlidersHorizontal className="h-3 w-3" />
+          </button>
         )}
         {onDelete && (
           <button

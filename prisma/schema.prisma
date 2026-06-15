@@ -88,6 +88,7 @@ model Workspace {
   invitations       WorkspaceInvitation[]
   contacts          Contact[]
   paymentConfig     WorkspacePaymentConfig?
+  receipts          Receipt[]
 }
 
 enum UserRole {
@@ -193,6 +194,7 @@ model Project {
   callSheets     CallSheet[]
   actualSheets   ActualSheet[]
   projectMembers ProjectMember[]
+  receipts       Receipt[]
 
   @@index([workspaceId])
   @@index([clientId])
@@ -772,6 +774,8 @@ model ActualEntry {
   vendorContactId String?                      // soft ref to Contact.id (no FK — contacts are soft-deleted)
   status          ActualStatus @default(PENDING)
 
+  receipts  Receipt[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -984,4 +988,34 @@ model AuditEvent {
 
   @@index([workspaceId])
   @@index([workspaceId, createdAt(sort: Desc)])
+}
+
+// =============================================================
+// RECEIPTS — file attachments linked to actuals
+// =============================================================
+
+model Receipt {
+  id            String       @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId     String
+  project       Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // Optional link to an ActualEntry. Null = "Inbox" (unattached).
+  actualEntryId String?
+  actualEntry   ActualEntry? @relation(fields: [actualEntryId], references: [id], onDelete: SetNull)
+
+  fileUrl       String       // R2 public URL (permanent)
+  fileName      String       // original filename for display
+  fileType      String       // MIME type: image/jpeg | image/png | image/webp | application/pdf
+  fileSizeBytes Int?         // file size in bytes
+
+  uploadedAt    DateTime     @default(now())
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([workspaceId])
+  @@index([projectId])
+  @@index([actualEntryId])
+  @@index([projectId, actualEntryId])
 }
