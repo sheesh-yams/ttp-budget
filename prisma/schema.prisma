@@ -841,6 +841,11 @@ model ProjectMember {
   // Call sheet scheduling
   callTime    String?  // HH:MM, e.g. "07:00"
 
+  // Set to true when a newly-won proposal no longer lists this member's role.
+  // Cleared when the user confirms ("yes, keep them") or when a future won proposal
+  // re-includes the role. Unassigned placeholders with this flag set are deleted outright.
+  mismatchFlag Boolean @default(false)
+
   order       Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

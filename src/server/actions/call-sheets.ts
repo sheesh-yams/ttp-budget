@@ -288,19 +288,31 @@ export async function createCallSheet(
     })
     if (!project) return { success: false, error: 'Project not found' }
 
-    // Pre-populate crew from CREW rate cards — sdb auto-scopes to this workspace.
-    const rateCards = await sdb.rateCard.findMany({
-      where: { category: 'CREW', archivedAt: null },
-      select: { role: true },
-      orderBy: { role: 'asc' },
+    // Pre-populate crew from the project's Teams-page members — this is the source of truth
+    // for who's on the project. Each assigned member carries their name/contact info;
+    // unassigned placeholders carry role+dept but no name.
+    const teamMembers = await sdb.projectMember.findMany({
+      where: { projectId },
+      orderBy: [{ department: 'asc' }, { order: 'asc' }, { name: 'asc' }],
+      select: { name: true, role: true, department: true, callTime: true, phone: true, email: true, contactId: true },
     })
 
-    const initialCrew: CrewDept[] = rateCards.length > 0
-      ? [{
-          dept:    'Crew',
-          members: rateCards.map(rc => ({ name: '', role: rc.role, callTime: '', phone: '', email: '' })),
-        }]
-      : []
+    // Group by department; fall back to 'Crew' when no department is set.
+    const deptMap = new Map<string, CrewMember[]>()
+    for (const m of teamMembers) {
+      const dept = m.department ?? 'Crew'
+      if (!deptMap.has(dept)) deptMap.set(dept, [])
+      deptMap.get(dept)!.push({
+        name:      m.name === 'Unassigned' ? '' : m.name,
+        role:      m.role,
+        callTime:  m.callTime ?? '',
+        phone:     m.phone   ?? '',
+        email:     m.email   ?? '',
+        ...(m.contactId ? { contactId: m.contactId } : {}),
+      })
+    }
+
+    const initialCrew: CrewDept[] = Array.from(deptMap.entries()).map(([dept, members]) => ({ dept, members }))
 
     const cs = await sdb.callSheet.create({
       data: {
@@ -370,10 +382,12 @@ export async function updateCallSheet(
       },
     })
 
-    // Bi-directional sync: push callTime from linked crew/talent rows → ProjectMember.
-    // Fire-and-forget — never fails the main save.
+    // Bi-directional sync (fire-and-forget — never fails the main save):
+    // 1. Push callTime changes from linked rows → ProjectMember.callTime
+    // 2. When a crew row gains a contactId+name, upsert the matching ProjectMember
     if (input.crew !== undefined || input.talent !== undefined) {
       syncSheetCallTimesToMembers(cs.projectId, input.crew, input.talent, sdb).catch(() => {})
+      syncSheetMembersToTeam(cs.projectId, input.crew, input.talent, sdb).catch(() => {})
     }
 
     revalidatePath(`/projects/${cs.projectId}`)
@@ -419,6 +433,107 @@ async function syncSheetCallTimesToMembers(
       await sdb.projectMember.update({ where: { id: member.id }, data: { callTime: newTime } })
     }
   }
+}
+
+// ── Sync helper: when a Rolodex-linked crew/talent row is saved, upsert the
+//    matching ProjectMember so the Teams page reflects who's actually assigned.
+//    Priority: fill the first unassigned placeholder for that role; otherwise create.
+
+async function syncSheetMembersToTeam(
+  projectId: string,
+  crew: CrewDept[] | undefined,
+  talent: TalentMember[] | undefined,
+  sdb: Awaited<ReturnType<typeof getScopedDb>>,
+) {
+  // Collect all linked entries that have a real name
+  const entries: Array<{
+    contactId: string
+    name:      string
+    role:      string
+    callTime:  string
+    phone?:    string
+    email?:    string
+    dept?:     string
+  }> = []
+
+  if (crew) {
+    for (const dept of crew) {
+      for (const m of dept.members) {
+        if (m.contactId && m.name.trim()) {
+          entries.push({ contactId: m.contactId, name: m.name, role: m.role, callTime: m.callTime, phone: m.phone, email: m.email, dept: dept.dept })
+        }
+      }
+    }
+  }
+  if (talent) {
+    for (const t of talent) {
+      if (t.contactId && t.name.trim()) {
+        entries.push({ contactId: t.contactId, name: t.name, role: t.role ?? '', callTime: t.callTime, phone: t.phone, email: t.email })
+      }
+    }
+  }
+  if (entries.length === 0) return
+
+  // Load current team members once
+  const existing = await sdb.projectMember.findMany({
+    where: { projectId },
+    select: { id: true, contactId: true, name: true, role: true, order: true },
+  })
+
+  const byContactId = new Map(
+    existing.filter(m => m.contactId).map(m => [m.contactId!, m])
+  )
+
+  let maxOrder = Math.max(-1, ...existing.map(m => m.order))
+
+  for (const entry of entries) {
+    // Already on the team — callTime is handled by syncSheetCallTimesToMembers
+    if (byContactId.has(entry.contactId)) continue
+
+    // Find the first unassigned placeholder with a matching role
+    const placeholder = existing.find(
+      m => m.name === 'Unassigned' && m.role === entry.role && !byContactId.has(m.contactId ?? '__none__')
+    )
+
+    if (placeholder) {
+      await sdb.projectMember.update({
+        where: { id: placeholder.id },
+        data: {
+          contactId:   entry.contactId,
+          name:        entry.name,
+          callTime:    entry.callTime || null,
+          phone:       entry.phone  || null,
+          email:       entry.email  || null,
+          mismatchFlag: false,
+        },
+      })
+      // Mark as filled so subsequent entries for the same role get a fresh slot
+      byContactId.set(entry.contactId, { ...placeholder, name: entry.name })
+    } else {
+      // No placeholder — create a fresh member
+      maxOrder++
+      await sdb.projectMember.create({
+        data: {
+          projectId,
+          contactId:   entry.contactId,
+          name:        entry.name,
+          role:        entry.role,
+          department:  entry.dept ?? null,
+          email:       entry.email  || null,
+          phone:       entry.phone  || null,
+          callTime:    entry.callTime || null,
+          rateCents:   null,
+          rateUnit:    'DAY',
+          mismatchFlag: false,
+          order:       maxOrder,
+        },
+      })
+      existing.push({ id: 'new', contactId: entry.contactId, name: entry.name, role: entry.role, order: maxOrder })
+      byContactId.set(entry.contactId, { id: 'new', contactId: entry.contactId, name: entry.name, role: entry.role, order: maxOrder })
+    }
+  }
+
+  revalidatePath(`/projects/${projectId}/team`)
 }
 
 export async function deleteCallSheet(id: string): Promise<ActionResult<void>> {

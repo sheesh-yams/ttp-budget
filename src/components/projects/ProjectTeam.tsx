@@ -3,7 +3,7 @@
 import { useState, useTransition, useRef, useEffect } from 'react'
 import {
   Plus, Mail, Phone, Clock, Edit2, Trash2,
-  BookUser, FileText, Search, X, UserPlus,
+  BookUser, FileText, Search, X, UserPlus, AlertTriangle, CheckCircle2,
 } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import Link from 'next/link'
@@ -11,6 +11,7 @@ import { createPortal } from 'react-dom'
 import {
   removeProjectMember,
   updateProjectMember,
+  dismissMismatch,
   type ProjectMemberRow,
   type MemberFormData,
 } from '@/server/actions/project-members'
@@ -101,6 +102,9 @@ export function ProjectTeam({ projectId, members: initial, seedProposalTitle, ti
   function handleRemoved(id: string) { setMembers(prev => prev.filter(m => m.id !== id)) }
   function handleUpdated(updated: ProjectMemberRow) {
     setMembers(prev => prev.map(m => m.id === updated.id ? updated : m))
+  }
+  function handleMismatchDismissed(id: string) {
+    setMembers(prev => prev.map(m => m.id === id ? { ...m, mismatchFlag: false } : m))
   }
 
   return (
@@ -198,6 +202,7 @@ export function ProjectTeam({ projectId, members: initial, seedProposalTitle, ti
                       timeFormat={timeFormat}
                       onEdit={() => setEditingId(member.id)}
                       onRemoved={() => handleRemoved(member.id)}
+                      onMismatchDismissed={handleMismatchDismissed}
                     />
                   )
                 )}
@@ -304,15 +309,20 @@ function MemberCard({
   timeFormat = '12H',
   onEdit,
   onRemoved,
+  onMismatchDismissed,
 }: {
-  member:      ProjectMemberRow
-  projectId:   string
-  timeFormat?: TimeFormat
-  onEdit:      () => void
-  onRemoved:   () => void
+  member:               ProjectMemberRow
+  projectId:            string
+  timeFormat?:          TimeFormat
+  onEdit:               () => void
+  onRemoved:            () => void
+  onMismatchDismissed?: (id: string) => void
 }) {
-  const [removing, startTransition] = useTransition()
-  const { confirm, ConfirmDialog }  = useConfirm()
+  const [removing,    startRemove]   = useTransition()
+  const [dismissing,  startDismiss]  = useTransition()
+  const { confirm, ConfirmDialog }   = useConfirm()
+
+  const isMismatch = (member as ProjectMemberRow & { mismatchFlag?: boolean }).mismatchFlag
 
   async function handleRemove() {
     const ok = await confirm(`Remove ${member.name} from this project?`, {
@@ -320,16 +330,39 @@ function MemberCard({
       key: 'team-remove-member',
     })
     if (!ok) return
-    startTransition(async () => {
+    startRemove(async () => {
       await removeProjectMember(member.id, projectId)
       onRemoved()
+    })
+  }
+
+  function handleDismissMismatch() {
+    startDismiss(async () => {
+      await dismissMismatch(member.id, projectId)
+      onMismatchDismissed?.(member.id)
     })
   }
 
   return (
     <>
       {ConfirmDialog}
-      <div className="group relative flex flex-col rounded-xl border bg-card p-4 transition-shadow hover:shadow-sm">
+      <div className={`group relative flex flex-col rounded-xl border p-4 transition-shadow hover:shadow-sm ${
+        isMismatch
+          ? 'border-red-400 bg-red-50/40 dark:bg-red-950/20'
+          : 'border-border bg-card'
+      }`}>
+
+        {/* Mismatch banner */}
+        {isMismatch && (
+          <div className="mb-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-100/60 px-2.5 py-1.5 text-[11px] text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400">
+            <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold leading-tight">Not in latest won proposal</p>
+              <p className="mt-0.5 leading-tight opacity-80">Confirm they should be here or remove them.</p>
+            </div>
+          </div>
+        )}
+
         {/* Action buttons */}
         <div className="absolute right-2.5 top-2.5 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
           <button
@@ -403,6 +436,18 @@ function MemberCard({
             </a>
           )}
         </div>
+
+        {/* Mismatch confirm button */}
+        {isMismatch && (
+          <button
+            onClick={handleDismissMismatch}
+            disabled={dismissing}
+            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-green-300 bg-green-50 px-3 py-1.5 text-xs font-semibold text-green-700 transition-colors hover:bg-green-100 disabled:opacity-40 dark:border-green-800 dark:bg-green-950/30 dark:text-green-400 dark:hover:bg-green-950/50"
+          >
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            {dismissing ? 'Confirming…' : 'Confirm position'}
+          </button>
+        )}
       </div>
     </>
   )

@@ -36,17 +36,18 @@ export async function getProjectMembers(projectId: string) {
     where: { projectId },
     orderBy: [{ department: 'asc' }, { order: 'asc' }, { name: 'asc' }],
     select: {
-      id:         true,
-      contactId:  true,
-      name:       true,
-      role:       true,
-      department: true,
-      email:      true,
-      phone:      true,
-      rateCents:  true,
-      rateUnit:   true,
-      callTime:   true,
-      order:      true,
+      id:           true,
+      contactId:    true,
+      name:         true,
+      role:         true,
+      department:   true,
+      email:        true,
+      phone:        true,
+      rateCents:    true,
+      rateUnit:     true,
+      callTime:     true,
+      mismatchFlag: true,
+      order:        true,
     },
   })
 }
@@ -323,5 +324,22 @@ export async function removeProjectMember(
     return { success: true, data: undefined }
   } catch {
     return { success: false, error: 'Failed to remove team member' }
+  }
+}
+
+// ── Dismiss a proposal-mismatch flag ─────────────────────────────────────────
+// Called when the user confirms "yes, keep them" on a card that has a red outline.
+
+export async function dismissMismatch(
+  id: string,
+  projectId: string
+): Promise<ActionResult> {
+  try {
+    const sdb = await getScopedDb()
+    await sdb.projectMember.update({ where: { id }, data: { mismatchFlag: false } })
+    revalidatePath(`/projects/${projectId}/team`)
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to dismiss mismatch' }
   }
 }
