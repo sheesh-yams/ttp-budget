@@ -617,6 +617,7 @@ function AccountRows({
       notes:           item.notes ?? null,
       quantityFormula: item.quantityFormula ?? null,
       lineItemCategory: item.lineItemCategory as ('CREW' | 'LOCATION' | 'EQUIPMENT' | 'SERVICE' | 'DELIVERABLE') ?? null,
+      contactId:       (item as { contactId?: string | null }).contactId ?? null,
     })
   }
 

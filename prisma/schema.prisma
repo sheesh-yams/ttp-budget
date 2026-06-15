@@ -397,6 +397,12 @@ model LineItem {
   rateCardId    String?
   rateCard      RateCard? @relation(fields: [rateCardId], references: [id], onDelete: SetNull)
 
+  // Optional Rolodex contact fulfilling this line item (crew use only).
+  // Financially inert — rate is already snapshotted into rateCents.
+  // Drives auto-upsert of ProjectMember on the Teams page when category = CREW.
+  contactId     String?
+  contact       Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
   description   String   // editable; defaults to rateCard.role
   quantity      Decimal  @db.Decimal(12, 4) @default(1)
   unit          RateUnit @default(DAY)
@@ -422,6 +428,7 @@ model LineItem {
 
   @@index([accountId])
   @@index([rateCardId])
+  @@index([contactId])
   @@index([workspaceId])
 }
 
@@ -799,11 +806,18 @@ model Contact {
   defaultRateCents Int?
   defaultRateUnit  RateUnit @default(DAY)
 
+  // Kit — if this person comes with their own gear, enabling hasKit will auto-insert
+  // a companion EQUIPMENT line item whenever they're added to a budget as CREW.
+  hasKit       Boolean  @default(false)
+  kitRateCents Int?     // day-rate for the kit, in cents
+  kitName      String?  // e.g. "Sony FX3 Package"; defaults to "{name}'s Kit" if null
+
   archivedAt   DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   projectMembers ProjectMember[]
+  lineItems      LineItem[]
 
   @@index([workspaceId])
   @@index([workspaceId, archivedAt])

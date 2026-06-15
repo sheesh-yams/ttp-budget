@@ -1,13 +1,14 @@
 'use client'
 
 import { useState, useTransition, useCallback, useEffect } from 'react'
-import { Search, Star } from 'lucide-react'
+import { Search, BookUser } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { searchRateCards, upsertLineItem } from '@/server/actions/budgets'
+import { searchContacts, type ContactSearchResult } from '@/server/actions/rolodex'
 import { centsToRate, rateToCents, parseQtyFormula } from '@/lib/money'
 import type { RateCardOption } from '@/types'
 import type { RateUnit } from '@prisma/client'
@@ -47,6 +48,8 @@ export interface EditableLineItem {
   notes:      string | null
   quantityFormula: string | null
   lineItemCategory?: LineItemCategory | null
+  // Magical Crew Workflow: linked Rolodex contact
+  contactId?:  string | null
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -72,6 +75,14 @@ export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved
   const [results,  setResults]  = useState<RateCardOption[]>([])
   const [searching, setSearching] = useState(false)
   const [selected, setSelected] = useState<RateCardOption | null>(null)
+
+  // Rolodex contact search (CREW only)
+  const [contactQuery,     setContactQuery]     = useState('')
+  const [contactResults,   setContactResults]   = useState<ContactSearchResult[]>([])
+  const [contactSearching, setContactSearching] = useState(false)
+  const [selectedContact,  setSelectedContact]  = useState<ContactSearchResult | null>(null)
+  // True when the item being edited already has a contactId; cleared when user unlinks
+  const [editHasContact,   setEditHasContact]   = useState(false)
 
   // Form fields
   const [description, setDescription] = useState('')
@@ -101,9 +112,15 @@ export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved
       setSelected(null)
       setQuery('')
       setResults([])
+      setSelectedContact(null)
+      setContactQuery('')
+      setContactResults([])
+      setEditHasContact(!!(editItem.contactId))
       setError('')
     }
   }, [editItem, open])
+
+  // ── Rate card search ────────────────────────────────────────────────────────
 
   const doSearch = useCallback(async (q: string) => {
     if (!q.trim()) { setResults([]); return }
@@ -127,17 +144,70 @@ export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved
     setResults([])
   }
 
+  // ── Rolodex contact search ──────────────────────────────────────────────────
+
+  const doContactSearch = useCallback(async (q: string) => {
+    if (!q.trim()) { setContactResults([]); return }
+    setContactSearching(true)
+    const res = await searchContacts(q)
+    setContactSearching(false)
+    setContactResults(res)
+  }, [])
+
+  function handleContactQueryChange(q: string) {
+    setContactQuery(q)
+    doContactSearch(q)
+  }
+
+  function handleSelectContact(c: ContactSearchResult) {
+    setSelectedContact(c)
+    setEditHasContact(false) // clear "existing" flag once a new contact is chosen
+    // Pre-fill description if still empty
+    if (!description.trim()) setDescription(c.name)
+    // Override rate + unit from contact defaults when available
+    if (c.defaultRateCents != null) setRate(centsToRate(c.defaultRateCents))
+    setUnit(c.defaultRateUnit as RateUnit)
+    setContactQuery('')
+    setContactResults([])
+  }
+
+  function handleUnlinkContact() {
+    setSelectedContact(null)
+    setEditHasContact(false)
+    setContactQuery('')
+    setContactResults([])
+  }
+
+  // ── Category change ─────────────────────────────────────────────────────────
+
+  function handleCategoryChange(v: string) {
+    const newCat = v === '__none__' ? '' : v as LineItemCategory
+    setCategory(newCat)
+    // Clear contact linkage when switching away from CREW
+    if (newCat !== 'CREW') {
+      setSelectedContact(null)
+      setEditHasContact(false)
+      setContactQuery('')
+      setContactResults([])
+    }
+  }
+
+  // ── Reset + close ───────────────────────────────────────────────────────────
+
   function reset() {
     setQuery(''); setResults([]); setSelected(null)
     setDescription(''); setQuantity('1'); setDays('1')
     setUnit('DAY'); setRate(''); setCategory('')
     setMarkup(''); setNotes(''); setError('')
+    setContactQuery(''); setContactResults([]); setSelectedContact(null); setEditHasContact(false)
   }
 
   function handleOpenChange(v: boolean) {
     if (!v) reset()
     onOpenChange(v)
   }
+
+  // ── Submit ──────────────────────────────────────────────────────────────────
 
   function handleSubmit() {
     if (!description.trim()) { setError('Description is required'); return }
@@ -152,18 +222,27 @@ export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved
     const quantityFormula = daysVal > 1 ? `${qty}x${daysVal}` : null
     const effectiveAccountId = editItem?.accountId ?? accountId ?? ''
 
+    // contactId resolution:
+    //   selectedContact  → newly picked in this session → use its id
+    //   editHasContact   → editing, contact unchanged → preserve editItem.contactId
+    //   neither          → null (no assignment or explicitly unlinked)
+    const resolvedContactId =
+      selectedContact?.id ??
+      (isEdit && editHasContact ? (editItem!.contactId ?? null) : null)
+
     startTransition(async () => {
       const res = await upsertLineItem(isEdit ? editItem!.id : null, {
-        accountId:       effectiveAccountId,
-        description:     description.trim(),
-        quantity:        finalQty,
+        accountId:        effectiveAccountId,
+        description:      description.trim(),
+        quantity:         finalQty,
         unit,
         rateCents,
-        rateCardId:      selected?.id ?? (isEdit ? editItem!.rateCardId : null),
-        markupPct:       markup ? parseFloat(markup) / 100 : null,
-        notes:           notes.trim() || null,
+        rateCardId:       selected?.id ?? (isEdit ? editItem!.rateCardId : null),
+        markupPct:        markup ? parseFloat(markup) / 100 : null,
+        notes:            notes.trim() || null,
         quantityFormula,
         lineItemCategory: category || null,
+        contactId:        resolvedContactId,
       })
       if (res.success) {
         onSaved()
@@ -173,6 +252,11 @@ export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved
       setError((res as { success: false; error: string }).error)
     })
   }
+
+  // ── Derived state ───────────────────────────────────────────────────────────
+
+  const isCrew = category === 'CREW'
+  const hasLinkedContact = selectedContact !== null || editHasContact
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -203,7 +287,7 @@ export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved
                     onClick={() => handleSelectRate(card)}
                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
                   >
-                    {card.isFavorite && <Star className="h-3 w-3 flex-shrink-0 text-yellow-500" />}
+                    {card.isFavorite && <span className="text-yellow-500 text-xs">★</span>}
                     <span className="flex-1 font-medium">{card.role}</span>
                     <span className="text-xs text-muted-foreground">{card.defaultUnit}</span>
                     <span className="text-xs font-mono text-muted-foreground">
@@ -291,7 +375,7 @@ export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved
               <Label>Category</Label>
               <Select
                 value={category || '__none__'}
-                onValueChange={v => setCategory(v === '__none__' ? '' : v as LineItemCategory)}
+                onValueChange={handleCategoryChange}
               >
                 <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
                 <SelectContent>
@@ -326,9 +410,89 @@ export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved
             </div>
           </div>
 
-          {category === 'CREW' && (
+          {/* ── Rolodex contact search (CREW items only) ────────────────────── */}
+          {isCrew && (
+            <div className="grid gap-1.5">
+              <Label className="flex items-center gap-1.5">
+                <BookUser className="h-3.5 w-3.5 text-muted-foreground" />
+                Assign from Rolodex
+              </Label>
+
+              {/* Edit mode: existing contact linked, no new one selected yet */}
+              {editHasContact && !selectedContact && (
+                <p className="text-xs text-muted-foreground bg-primary/5 rounded px-2.5 py-1.5 flex items-center gap-1.5">
+                  <BookUser className="h-3 w-3 flex-shrink-0" />
+                  Contact currently linked.{' '}
+                  Search below to replace, or{' '}
+                  <button type="button" className="text-destructive hover:underline" onClick={handleUnlinkContact}>
+                    unlink
+                  </button>.
+                </p>
+              )}
+
+              {/* Newly selected contact */}
+              {selectedContact && (
+                <p className="text-xs text-muted-foreground bg-primary/5 rounded px-2.5 py-1.5 flex items-center gap-1.5 flex-wrap">
+                  <BookUser className="h-3 w-3 flex-shrink-0" />
+                  <span className="font-medium text-foreground">{selectedContact.name}</span>
+                  <span className="text-muted-foreground">· {selectedContact.primaryRole}</span>
+                  {selectedContact.hasKit && selectedContact.kitRateCents && (
+                    <span className="text-amber-600 font-medium">
+                      · Kit ${(selectedContact.kitRateCents / 100).toLocaleString()}/day will be auto-added
+                    </span>
+                  )}
+                  <button type="button" className="text-destructive hover:underline ml-auto" onClick={handleUnlinkContact}>
+                    unlink
+                  </button>
+                </p>
+              )}
+
+              {/* Search input — hidden once a contact is locked in */}
+              {!hasLinkedContact && (
+                <>
+                  <div className="relative">
+                    <BookUser className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      className="pl-8"
+                      placeholder="Search by name or role…"
+                      value={contactQuery}
+                      onChange={e => handleContactQueryChange(e.target.value)}
+                    />
+                  </div>
+                  {contactResults.length > 0 && (
+                    <div className="rounded-md border bg-popover shadow-md">
+                      {contactResults.map(c => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => handleSelectContact(c)}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+                        >
+                          <span className="flex-1 font-medium">{c.name}</span>
+                          <span className="text-xs text-muted-foreground">{c.primaryRole}</span>
+                          {c.hasKit && (
+                            <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-600 bg-amber-50 rounded px-1 py-0.5">
+                              Kit
+                            </span>
+                          )}
+                          {c.defaultRateCents != null && (
+                            <span className="text-xs font-mono text-muted-foreground">
+                              ${(c.defaultRateCents / 100).toLocaleString()}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {contactSearching && <p className="text-xs text-muted-foreground">Searching…</p>}
+                </>
+              )}
+            </div>
+          )}
+
+          {isCrew && !hasLinkedContact && !selectedContact && (
             <p className="text-[11px] text-muted-foreground bg-primary/5 rounded-md px-3 py-2">
-              Items in the <strong>Crew</strong> category will be importable directly into call sheets.
+              <strong>Crew</strong> items are importable into call sheets. Assign from Rolodex above to auto-add this person to the Teams page and pull their day rate.
             </p>
           )}
 

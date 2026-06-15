@@ -74,6 +74,9 @@ export async function searchContacts(query: string) {
         phone:            true,
         defaultRateCents: true,
         defaultRateUnit:  true,
+        hasKit:           true,
+        kitRateCents:     true,
+        kitName:          true,
       },
     })
   }
@@ -97,6 +100,9 @@ export async function searchContacts(query: string) {
       phone:            true,
       defaultRateCents: true,
       defaultRateUnit:  true,
+      hasKit:           true,
+      kitRateCents:     true,
+      kitName:          true,
     },
   })
 }

@@ -102,6 +102,8 @@ const lineItemSchema = z.object({
   tags: z.array(z.string()).optional(),
   order: z.number().optional(),
   lineItemCategory: z.enum(['CREW', 'LOCATION', 'EQUIPMENT', 'SERVICE', 'DELIVERABLE']).optional().nullable(),
+  // Magical Crew Workflow: Rolodex contact fulfilling this line item
+  contactId: z.string().optional().nullable(),
 })
 
 export async function upsertLineItem(
@@ -115,14 +117,20 @@ export async function upsertLineItem(
     let item
     if (id) {
       // Scoped update — WHERE id = ? AND workspaceId = ? blocks foreign ids.
-      const { lineItemCategory: explicitCat, ...rest } = data
+      const { lineItemCategory: explicitCat, contactId: _cid, ...rest } = data
       item = await sdb.lineItem.update({
         where: { id },
         data: {
           ...rest,
           ...(explicitCat !== undefined ? { lineItemCategory: explicitCat } : {}),
-        },
+          contactId: data.contactId ?? null,
+        } as Parameters<typeof sdb.lineItem.update>[0]['data'],
       })
+
+      // On edit: upsert ProjectMember when a CREW contact is linked (no kit insertion)
+      if (data.contactId && (explicitCat === 'CREW' || data.lineItemCategory === 'CREW')) {
+        await maybeUpsertCrewMember(sdb, data.accountId, data.contactId, data.description, data.rateCents, data.unit)
+      }
     } else {
       // Verify the account belongs to this workspace before creating a child line item.
       const account = await sdb.account.findFirst({ where: { id: data.accountId }, select: { id: true } })
@@ -138,13 +146,15 @@ export async function upsertLineItem(
         if (rc) lineItemCategory = mapRateCategory(rc.category)
       }
 
-      const { lineItemCategory: _omit, ...createData } = data
+      const { lineItemCategory: _omit, contactId: _cid, ...createData } = data
       item = await sdb.lineItem.create({
         data: {
           ...(createData as Prisma.LineItemUncheckedCreateInput),
           ...(lineItemCategory ? { lineItemCategory } : {}),
-        },
+          contactId: data.contactId ?? null,
+        } as Parameters<typeof sdb.lineItem.create>[0]['data'],
       })
+
       if (data.rateCardId) {
         // Fire-and-forget usage count — raw db intentional (no user-facing data returned)
         void db.rateCard.update({
@@ -152,10 +162,172 @@ export async function upsertLineItem(
           data: { usageCount: { increment: 1 } },
         })
       }
+
+      // Magical Crew Workflow — only on CREATE with an assigned CREW contact
+      if (data.contactId && lineItemCategory === 'CREW') {
+        // Fire-and-forget — crew side effects never fail the core line-item save
+        void runCrewWorkflow(sdb, {
+          accountId:   data.accountId,
+          contactId:   data.contactId,
+          description: data.description,
+          rateCents:   data.rateCents,
+          unit:        data.unit,
+          quantity:    data.quantity,
+          crewItemOrder: typeof item.order === 'number' ? item.order : 0,
+        })
+      }
     }
     return { success: true, data: { id: item.id } }
   } catch {
     return { success: false, error: 'Failed to save line item' }
+  }
+}
+
+// ─── Crew workflow helpers ─────────────────────────────────────────────────────
+
+/**
+ * Traverse account → phase → budget → project to get the projectId.
+ * Returns null if the account is not found (defensive; scoped check already ran above).
+ */
+async function getProjectIdFromAccount(
+  sdb: Awaited<ReturnType<typeof getScopedDb>>,
+  accountId: string
+): Promise<string | null> {
+  const account = await sdb.account.findFirst({
+    where: { id: accountId },
+    select: {
+      phase: {
+        select: {
+          budget: {
+            select: { projectId: true },
+          },
+        },
+      },
+    },
+  })
+  return account?.phase?.budget?.projectId ?? null
+}
+
+/**
+ * If the contact isn't already on the project team, add them.
+ * Used by both the CREATE and EDIT paths.
+ */
+async function maybeUpsertCrewMember(
+  sdb: Awaited<ReturnType<typeof getScopedDb>>,
+  accountId: string,
+  contactId: string,
+  description: string,
+  rateCents: number,
+  unit: string,
+) {
+  const [projectId, contact] = await Promise.all([
+    getProjectIdFromAccount(sdb, accountId),
+    sdb.contact.findFirst({
+      where: { id: contactId },
+      select: { id: true, name: true, email: true, phone: true },
+    }),
+  ])
+  if (!projectId || !contact) return
+
+  // Dedup: only add if this contact isn't already on the team
+  const existing = await sdb.projectMember.findFirst({
+    where: { projectId, contactId: contact.id },
+    select: { id: true },
+  })
+  if (existing) return
+
+  const memberCount = await sdb.projectMember.count({ where: { projectId } })
+  await sdb.projectMember.create({
+    data: {
+      projectId,
+      contactId:   contact.id,
+      name:        contact.name,
+      role:        description,
+      email:       contact.email  ?? null,
+      phone:       contact.phone  ?? null,
+      rateCents:   rateCents,
+      rateUnit:    unit as Parameters<typeof sdb.projectMember.create>[0]['data']['rateUnit'],
+      mismatchFlag: false,
+      order:       memberCount,
+    } as Parameters<typeof sdb.projectMember.create>[0]['data'],
+  })
+
+  revalidatePath(`/projects/${projectId}/team`)
+}
+
+/**
+ * Full Magical Crew Workflow for new line items:
+ * 1. Upsert ProjectMember
+ * 2. If contact.hasKit → insert a companion EQUIPMENT line item directly below
+ */
+async function runCrewWorkflow(
+  sdb: Awaited<ReturnType<typeof getScopedDb>>,
+  opts: {
+    accountId:     string
+    contactId:     string
+    description:   string
+    rateCents:     number
+    unit:          string
+    quantity:      number
+    crewItemOrder: number
+  }
+) {
+  const [projectId, contact] = await Promise.all([
+    getProjectIdFromAccount(sdb, opts.accountId),
+    sdb.contact.findFirst({
+      where: { id: opts.contactId },
+      select: {
+        id:           true,
+        name:         true,
+        email:        true,
+        phone:        true,
+        hasKit:       true,
+        kitRateCents: true,
+        kitName:      true,
+      },
+    }),
+  ])
+  if (!projectId || !contact) return
+
+  // Step 1: Upsert ProjectMember
+  const existing = await sdb.projectMember.findFirst({
+    where: { projectId, contactId: contact.id },
+    select: { id: true },
+  })
+  if (!existing) {
+    const memberCount = await sdb.projectMember.count({ where: { projectId } })
+    await sdb.projectMember.create({
+      data: {
+        projectId,
+        contactId:   contact.id,
+        name:        contact.name,
+        role:        opts.description,
+        email:       contact.email ?? null,
+        phone:       contact.phone ?? null,
+        rateCents:   opts.rateCents,
+        rateUnit:    opts.unit as Parameters<typeof sdb.projectMember.create>[0]['data']['rateUnit'],
+        mismatchFlag: false,
+        order:       memberCount,
+      } as Parameters<typeof sdb.projectMember.create>[0]['data'],
+    })
+    revalidatePath(`/projects/${projectId}/team`)
+  }
+
+  // Step 2: Auto-insert kit line item if contact has kit and kitRateCents is set
+  if (contact.hasKit && contact.kitRateCents) {
+    await sdb.lineItem.create({
+      data: {
+        accountId:        opts.accountId,
+        description:      contact.kitName ?? `${contact.name}'s Kit`,
+        quantity:         opts.quantity,
+        unit:             opts.unit as Parameters<typeof sdb.lineItem.create>[0]['data']['unit'],
+        rateCents:        contact.kitRateCents,
+        lineItemCategory: 'EQUIPMENT',
+        contactId:        contact.id,
+        order:            opts.crewItemOrder + 1,
+        tags:             [],
+      } as Parameters<typeof sdb.lineItem.create>[0]['data'],
+    })
   }
 }
 
