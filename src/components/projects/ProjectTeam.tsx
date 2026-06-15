@@ -1,13 +1,23 @@
 'use client'
 
 import { useState, useTransition, useRef, useEffect } from 'react'
-import { Plus, Mail, Phone, Clock, Edit2, Trash2, BookUser, FileText, Search, X } from 'lucide-react'
+import {
+  Plus, Mail, Phone, Clock, Edit2, Trash2,
+  BookUser, FileText, Search, X, UserPlus,
+} from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import Link from 'next/link'
 import { createPortal } from 'react-dom'
-import { removeProjectMember, updateProjectMember, type ProjectMemberRow, type MemberFormData } from '@/server/actions/project-members'
+import {
+  removeProjectMember,
+  updateProjectMember,
+  type ProjectMemberRow,
+  type MemberFormData,
+} from '@/server/actions/project-members'
 import { searchContacts, type ContactSearchResult } from '@/server/actions/rolodex'
 import { AddMemberModal } from './AddMemberModal'
+
+// ── Constants ─────────────────────────────────────────────────────────────────
 
 const UNIT_SHORT: Record<string, string> = {
   HOUR:     '/hr',
@@ -32,9 +42,47 @@ const DEPARTMENTS = [
   'Hair & Makeup', 'Talent', 'Post Production', 'Other',
 ]
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function isUnassigned(m: ProjectMemberRow) {
+  return m.name === 'Unassigned'
+}
+
+function groupByDepartment(members: ProjectMemberRow[]): { dept: string | null; members: ProjectMemberRow[] }[] {
+  const map = new Map<string, ProjectMemberRow[]>()
+  for (const m of members) {
+    const key = m.department ?? ''
+    if (!map.has(key)) map.set(key, [])
+    map.get(key)!.push(m)
+  }
+  const result: { dept: string | null; members: ProjectMemberRow[] }[] = []
+  const namedKeys = [...map.keys()].filter(k => k !== '').sort()
+  for (const key of namedKeys) result.push({ dept: key, members: map.get(key)! })
+  if (map.has('')) result.push({ dept: null, members: map.get('')! })
+  return result
+}
+
+function formatRate(rateCents: number, rateUnit: string) {
+  return `${(rateCents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}${UNIT_SHORT[rateUnit] ?? ''}`
+}
+
+function Initials({ name }: { name: string }) {
+  const letters = name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()
+  return (
+    <div
+      className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
+      style={{ background: 'var(--brand-primary, #5D00A4)' }}
+    >
+      {letters}
+    </div>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
 interface Props {
-  projectId:         string
-  members:           ProjectMemberRow[]
+  projectId:          string
+  members:            ProjectMemberRow[]
   seedProposalTitle?: string | null
 }
 
@@ -43,19 +91,12 @@ export function ProjectTeam({ projectId, members: initial, seedProposalTitle }: 
   const [adding,    setAdding]    = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
 
-  // Group by department
-  const grouped = groupByDepartment(members)
+  const grouped  = groupByDepartment(members)
   const hasDepts = members.some(m => m.department)
+  const assigned = members.filter(m => !isUnassigned(m)).length
 
-  function handleAdded() {
-    // Trigger a full reload — simplest approach since we're server-side paginating
-    window.location.reload()
-  }
-
-  function handleRemoved(id: string) {
-    setMembers(prev => prev.filter(m => m.id !== id))
-  }
-
+  function handleAdded() { window.location.reload() }
+  function handleRemoved(id: string) { setMembers(prev => prev.filter(m => m.id !== id)) }
   function handleUpdated(updated: ProjectMemberRow) {
     setMembers(prev => prev.map(m => m.id === updated.id ? updated : m))
   }
@@ -63,15 +104,13 @@ export function ProjectTeam({ projectId, members: initial, seedProposalTitle }: 
   return (
     <div>
       {/* Header */}
-      <div className="mb-5 flex items-center justify-between">
-        <div>
-          <p className="text-sm text-muted-foreground">
-            {members.length === 0
-              ? 'No crew assigned yet.'
-              : `${members.length} crew member${members.length === 1 ? '' : 's'} on this project.`
-            }
-          </p>
-        </div>
+      <div className="mb-6 flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          {members.length === 0
+            ? 'No crew assigned yet.'
+            : `${assigned} of ${members.length} position${members.length === 1 ? '' : 's'} filled.`
+          }
+        </p>
         <div className="flex items-center gap-2">
           <Link
             href="/rolodex"
@@ -107,66 +146,72 @@ export function ProjectTeam({ projectId, members: initial, seedProposalTitle }: 
         </div>
       )}
 
-      {/* Member list — grouped if departments exist */}
+      {/* Card grid — grouped by department/account */}
       {members.length > 0 && (
-        <div className="space-y-6">
+        <div className="space-y-8">
           {grouped.map(({ dept, members: deptMembers }) => (
             <div key={dept ?? '__none__'}>
+              {/* Department header */}
               {hasDepts && (
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  {dept ?? 'No Department'}
-                </h3>
+                <div className="mb-4 flex items-center gap-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    {dept ?? 'No Department'}
+                  </h3>
+                  <div className="h-px flex-1 bg-border" />
+                  <span className="text-[10px] text-muted-foreground/60">
+                    {deptMembers.filter(m => !isUnassigned(m)).length}/{deptMembers.length}
+                  </span>
+                </div>
               )}
-              <div className="rounded-xl border overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/30">
-                      <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Name</th>
-                      <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground hidden sm:table-cell">Role</th>
-                      <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground hidden md:table-cell">Rate</th>
-                      <th className="px-4 py-2.5 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground hidden md:table-cell">Call</th>
-                      <th className="px-4 py-2.5 w-16" />
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {deptMembers.map(member => (
-                      editingId === member.id
-                        ? (
-                          <EditRow
-                            key={member.id}
-                            member={member}
-                            projectId={projectId}
-                            onSaved={(updated) => { handleUpdated(updated); setEditingId(null) }}
-                            onCancel={() => setEditingId(null)}
-                          />
-                        )
-                        : (
-                          <MemberRow
-                            key={member.id}
-                            member={member}
-                            projectId={projectId}
-                            onEdit={() => setEditingId(member.id)}
-                            onRemoved={() => handleRemoved(member.id)}
-                          />
-                        )
-                    ))}
-                  </tbody>
-                </table>
+
+              {/* Card grid */}
+              <div
+                className="grid gap-3"
+                style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))' }}
+              >
+                {deptMembers.map(member =>
+                  editingId === member.id ? (
+                    // Edit card spans full width
+                    <div key={member.id} style={{ gridColumn: '1 / -1' }}>
+                      <EditCard
+                        member={member}
+                        projectId={projectId}
+                        onSaved={(updated) => { handleUpdated(updated); setEditingId(null) }}
+                        onCancel={() => setEditingId(null)}
+                      />
+                    </div>
+                  ) : isUnassigned(member) ? (
+                    <PlaceholderCard
+                      key={member.id}
+                      member={member}
+                      projectId={projectId}
+                      onAssign={() => setEditingId(member.id)}
+                      onRemoved={() => handleRemoved(member.id)}
+                    />
+                  ) : (
+                    <MemberCard
+                      key={member.id}
+                      member={member}
+                      projectId={projectId}
+                      onEdit={() => setEditingId(member.id)}
+                      onRemoved={() => handleRemoved(member.id)}
+                    />
+                  )
+                )}
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Proposal attribution — shown once on initial seed */}
+      {/* Seed attribution */}
       {seedProposalTitle && (
-        <p className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground">
+        <p className="mt-6 flex items-center gap-1.5 text-xs text-muted-foreground">
           <FileText className="h-3.5 w-3.5 shrink-0" />
-          Crew populated based on <span className="font-medium text-foreground">{seedProposalTitle}</span>
+          Positions pulled from <span className="font-medium text-foreground">{seedProposalTitle}</span>
         </p>
       )}
 
-      {/* Add member modal */}
       {adding && (
         <AddMemberModal
           projectId={projectId}
@@ -178,9 +223,79 @@ export function ProjectTeam({ projectId, members: initial, seedProposalTitle }: 
   )
 }
 
-// ── Member row ────────────────────────────────────────────────────────────────
+// ── Placeholder card (Unassigned position) ────────────────────────────────────
 
-function MemberRow({
+function PlaceholderCard({
+  member,
+  projectId,
+  onAssign,
+  onRemoved,
+}: {
+  member:    ProjectMemberRow
+  projectId: string
+  onAssign:  () => void
+  onRemoved: () => void
+}) {
+  const [removing, startTransition] = useTransition()
+  const { confirm, ConfirmDialog }  = useConfirm()
+
+  async function handleRemove() {
+    const ok = await confirm(`Remove the ${member.role} placeholder?`, {
+      confirmLabel: 'Remove',
+      key: 'team-remove-placeholder',
+    })
+    if (!ok) return
+    startTransition(async () => {
+      await removeProjectMember(member.id, projectId)
+      onRemoved()
+    })
+  }
+
+  return (
+    <>
+      {ConfirmDialog}
+      <div className="group relative flex min-h-[148px] flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border bg-muted/20 p-4 text-center transition-colors hover:border-primary/25 hover:bg-primary/[0.03]">
+        {/* Remove */}
+        <button
+          onClick={handleRemove}
+          disabled={removing}
+          title="Remove placeholder"
+          className="absolute right-2 top-2 rounded p-1 text-muted-foreground/30 opacity-0 transition-all hover:text-red-400 group-hover:opacity-100 disabled:opacity-30"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+
+        {/* Empty avatar ring */}
+        <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/20 bg-muted/40 text-muted-foreground/40">
+          <UserPlus className="h-4 w-4" />
+        </div>
+
+        {/* Role + rate */}
+        <div className="space-y-0.5">
+          <p className="text-sm font-semibold text-foreground/70">{member.role}</p>
+          {member.rateCents != null && (
+            <p className="text-xs text-muted-foreground/60">
+              {formatRate(member.rateCents, member.rateUnit)}
+            </p>
+          )}
+        </div>
+
+        {/* Assign CTA */}
+        <button
+          onClick={onAssign}
+          className="flex items-center gap-1.5 rounded-lg border border-primary/30 bg-background px-3 py-1.5 text-xs font-semibold text-primary shadow-sm transition-colors hover:border-primary hover:bg-primary/5"
+        >
+          <UserPlus className="h-3 w-3" />
+          Assign crew member
+        </button>
+      </div>
+    </>
+  )
+}
+
+// ── Filled member card ────────────────────────────────────────────────────────
+
+function MemberCard({
   member,
   projectId,
   onEdit,
@@ -192,10 +307,13 @@ function MemberRow({
   onRemoved: () => void
 }) {
   const [removing, startTransition] = useTransition()
-  const { confirm, ConfirmDialog } = useConfirm()
+  const { confirm, ConfirmDialog }  = useConfirm()
 
   async function handleRemove() {
-    const ok = await confirm(`Remove ${member.name} from this project?`, { confirmLabel: 'Remove', key: 'team-remove-member' })
+    const ok = await confirm(`Remove ${member.name} from this project?`, {
+      confirmLabel: 'Remove',
+      key: 'team-remove-member',
+    })
     if (!ok) return
     startTransition(async () => {
       await removeProjectMember(member.id, projectId)
@@ -203,78 +321,91 @@ function MemberRow({
     })
   }
 
-  const name = member.name
-  const initials = name.trim().split(/\s+/).map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()
-
   return (
     <>
       {ConfirmDialog}
-      <tr className="group bg-card hover:bg-muted/20 transition-colors">
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-3">
-          <div
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
-            style={{ background: 'var(--brand-primary, #5D00A4)' }}
+      <div className="group relative flex flex-col rounded-xl border bg-card p-4 transition-shadow hover:shadow-sm">
+        {/* Action buttons */}
+        <div className="absolute right-2.5 top-2.5 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+          <button
+            onClick={onEdit}
+            title="Edit"
+            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
-            {initials}
-          </div>
-          <div className="min-w-0">
-            <p className="font-medium text-foreground leading-tight">{member.name}</p>
-            <div className="flex items-center gap-2 mt-0.5">
-              {member.email && (
-                <a href={`mailto:${member.email}`} className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors">
-                  <Mail className="h-2.5 w-2.5" />{member.email}
-                </a>
-              )}
-              {member.phone && (
-                <a href={`tel:${member.phone}`} className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors">
-                  <Phone className="h-2.5 w-2.5" />{member.phone}
-                </a>
-              )}
-            </div>
-          </div>
+            <Edit2 className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={handleRemove}
+            disabled={removing}
+            title="Remove"
+            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-red-500 transition-colors disabled:opacity-40"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        {/* Avatar row */}
+        <div className="mb-3 flex items-center gap-2">
+          <Initials name={member.name} />
           {member.contactId && (
             <Link
               href="/rolodex"
               title="In Rolodex"
-              className="flex-shrink-0 rounded-full bg-primary/10 p-1 text-primary hover:bg-primary/20 transition-colors"
+              className="rounded-full bg-primary/10 p-1 text-primary hover:bg-primary/20 transition-colors"
             >
               <BookUser className="h-3 w-3" />
             </Link>
           )}
         </div>
-      </td>
-      <td className="px-4 py-3 text-xs font-medium text-primary hidden sm:table-cell">{member.role}</td>
-      <td className="px-4 py-3 text-right text-xs hidden md:table-cell">
-        {member.rateCents != null
-          ? <>{(member.rateCents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}<span className="text-muted-foreground/60">{UNIT_SHORT[member.rateUnit]}</span></>
-          : <span className="text-muted-foreground/50">—</span>
-        }
-      </td>
-      <td className="px-4 py-3 text-center hidden md:table-cell">
-        {member.callTime
-          ? <span className="flex items-center justify-center gap-1 text-xs text-muted-foreground"><Clock className="h-3 w-3" />{member.callTime}</span>
-          : <span className="text-xs text-muted-foreground/40">—</span>
-        }
-      </td>
-      <td className="px-4 py-3">
-        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button onClick={onEdit} className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="Edit">
-            <Edit2 className="h-3.5 w-3.5" />
-          </button>
-          <button onClick={handleRemove} disabled={removing} className="rounded p-1 text-muted-foreground hover:text-red-500 hover:bg-muted transition-colors disabled:opacity-40" title="Remove">
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+
+        {/* Name + role */}
+        <p className="text-sm font-semibold text-foreground leading-tight truncate pr-12">
+          {member.name}
+        </p>
+        <p className="mt-0.5 text-xs font-medium text-primary truncate">
+          {member.role}
+        </p>
+
+        {/* Contact + meta */}
+        <div className="mt-3 space-y-1.5">
+          {member.rateCents != null && (
+            <p className="text-xs text-muted-foreground">
+              {formatRate(member.rateCents, member.rateUnit)}
+            </p>
+          )}
+          {member.callTime && (
+            <p className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Clock className="h-3 w-3 shrink-0" />
+              {member.callTime}
+            </p>
+          )}
+          {member.email && (
+            <a
+              href={`mailto:${member.email}`}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Mail className="h-3 w-3 shrink-0" />
+              <span className="truncate">{member.email}</span>
+            </a>
+          )}
+          {member.phone && (
+            <a
+              href={`tel:${member.phone}`}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Phone className="h-3 w-3 shrink-0" />
+              {member.phone}
+            </a>
+          )}
         </div>
-      </td>
-    </tr>
+      </div>
     </>
   )
 }
 
-// ── Inline edit row ───────────────────────────────────────────────────────────
+// ── Inline edit card (full-width) ─────────────────────────────────────────────
 
-function EditRow({
+function EditCard({
   member,
   projectId,
   onSaved,
@@ -286,30 +417,31 @@ function EditRow({
   onCancel:  () => void
 }) {
   const [isPending, startTransition] = useTransition()
-  const [name,       setName]       = useState(member.name)
+  const [name,       setName]       = useState(isUnassigned(member) ? '' : member.name)
   const [contactId,  setContactId]  = useState<string | null>(member.contactId ?? null)
   const [role,       setRole]       = useState(member.role)
   const [department, setDepartment] = useState(member.department ?? '')
   const [email,      setEmail]      = useState(member.email ?? '')
   const [phone,      setPhone]      = useState(member.phone ?? '')
   const [callTime,   setCallTime]   = useState(member.callTime ?? '')
-  const [rateCents,  setRateCents]  = useState(member.rateCents != null ? String(member.rateCents / 100) : '')
-  const [rateUnit,   setRateUnit]   = useState<MemberFormData['rateUnit']>(
+  const [rateCents,  setRateCents]  = useState(
+    member.rateCents != null ? String(member.rateCents / 100) : ''
+  )
+  const [rateUnit, setRateUnit] = useState<MemberFormData['rateUnit']>(
     (member.rateUnit as MemberFormData['rateUnit']) ?? 'DAY'
   )
 
   // Rolodex name search
-  const [nameResults,   setNameResults]   = useState<ContactSearchResult[]>([])
-  const [nameOpen,      setNameOpen]      = useState(false)
-  const [namePos,       setNamePos]       = useState<{ top: number; left: number; width: number } | null>(null)
-  const [mounted,       setMounted]       = useState(false)
-  const nameInputRef   = useRef<HTMLInputElement>(null)
-  const namePortalRef  = useRef<HTMLDivElement>(null)
-  const nameDebounce   = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [nameResults,  setNameResults]  = useState<ContactSearchResult[]>([])
+  const [nameOpen,     setNameOpen]     = useState(false)
+  const [namePos,      setNamePos]      = useState<{ top: number; left: number; width: number } | null>(null)
+  const [mounted,      setMounted]      = useState(false)
+  const nameInputRef  = useRef<HTMLInputElement>(null)
+  const namePortalRef = useRef<HTMLDivElement>(null)
+  const nameDebounce  = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => setMounted(true), [])
 
-  // Close name dropdown on outside click
   useEffect(() => {
     if (!nameOpen) return
     function handle(e: MouseEvent) {
@@ -324,7 +456,7 @@ function EditRow({
 
   function handleNameChange(v: string) {
     setName(v)
-    setContactId(null) // unlink contact when manually editing
+    setContactId(null)
     if (nameDebounce.current) clearTimeout(nameDebounce.current)
     if (!v.trim()) { setNameResults([]); setNameOpen(false); return }
     nameDebounce.current = setTimeout(async () => {
@@ -378,7 +510,6 @@ function EditRow({
           style={{ position: 'fixed', top: namePos.top, left: namePos.left, width: namePos.width, zIndex: 9999 }}
           className="rounded-lg border bg-card shadow-xl overflow-hidden"
         >
-          {/* Header */}
           <div
             className="flex items-center gap-1.5 px-2.5 py-1.5"
             style={{ background: 'var(--brand-primary, #5D00A4)' }}
@@ -394,7 +525,7 @@ function EditRow({
               className={`flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-muted/60 transition-colors ${i > 0 ? 'border-t border-border/30' : ''}`}
             >
               <div
-                className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
                 style={{ background: 'var(--brand-primary, #5D00A4)' }}
               >
                 {c.name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
@@ -416,11 +547,15 @@ function EditRow({
     : null
 
   return (
-    <tr className="bg-primary/4">
-      <td colSpan={5} className="px-4 py-3">
-        {/* Name row — full width with Rolodex search */}
-        <div className="mb-2">
-          <label className="mb-1 block text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+    <div className="rounded-xl border border-primary/30 bg-primary/[0.02] p-4">
+      <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-primary">
+        {isUnassigned(member) ? `Assign — ${member.role}` : `Edit — ${member.name}`}
+      </p>
+
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+        {/* Name — full row, with Rolodex search */}
+        <div className="sm:col-span-2 md:col-span-3 lg:col-span-4">
+          <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
             Name
             {contactId && (
               <span className="ml-2 normal-case text-[9px] font-normal text-primary/70 inline-flex items-center gap-0.5">
@@ -429,85 +564,124 @@ function EditRow({
             )}
           </label>
           <div className="relative">
-            <Search className="pointer-events-none absolute inset-y-0 left-2 my-auto h-3 w-3 text-muted-foreground" />
+            <Search className="pointer-events-none absolute inset-y-0 left-2.5 my-auto h-3.5 w-3.5 text-muted-foreground" />
             <input
               ref={nameInputRef}
               value={name}
               onChange={e => handleNameChange(e.target.value)}
-              placeholder="Type to search Rolodex…"
-              className="w-full rounded border bg-background pl-6 pr-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-primary/40"
+              placeholder="Search Rolodex or type a name…"
+              className="w-full rounded-lg border bg-background pl-8 pr-8 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
             />
             {contactId && (
               <button
                 type="button"
-                title="Unlink from Rolodex"
+                title="Unlink"
                 onClick={() => setContactId(null)}
-                className="absolute inset-y-0 right-1.5 my-auto text-muted-foreground hover:text-foreground"
+                className="absolute inset-y-0 right-2 my-auto text-muted-foreground hover:text-foreground"
               >
-                <X className="h-3 w-3" />
+                <X className="h-3.5 w-3.5" />
               </button>
             )}
           </div>
           {nameDropdown}
         </div>
 
-        {/* Other fields grid */}
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
-          <div>
-            <label className="mb-1 block text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Role</label>
-            <input value={role} onChange={e => setRole(e.target.value)} className="w-full rounded border bg-background px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-primary/40" />
-          </div>
-          <div>
-            <label className="mb-1 block text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Department</label>
-            <select value={department} onChange={e => setDepartment(e.target.value)} className="w-full rounded border bg-background px-2 py-1.5 text-xs outline-none">
-              <option value="">None</option>
-              {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Rate ($)</label>
-            <input type="number" value={rateCents} onChange={e => setRateCents(e.target.value)} min="0" step="0.01" className="w-full rounded border bg-background px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-primary/40" />
-          </div>
-          <div>
-            <label className="mb-1 block text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Unit</label>
-            <select value={rateUnit} onChange={e => setRateUnit(e.target.value as MemberFormData['rateUnit'])} className="w-full rounded border bg-background px-2 py-1.5 text-xs outline-none">
-              {RATE_UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Call time</label>
-            <input type="time" value={callTime} onChange={e => setCallTime(e.target.value)} className="w-full rounded border bg-background px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-primary/40" />
-          </div>
-          <div>
-            <label className="mb-1 block text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Email</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full rounded border bg-background px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-primary/40" />
-          </div>
+        {/* Role */}
+        <div>
+          <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Role</label>
+          <input
+            value={role}
+            onChange={e => setRole(e.target.value)}
+            className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+          />
         </div>
-        <div className="mt-2 flex gap-2">
-          <button onClick={onCancel} className="rounded border px-3 py-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">Cancel</button>
-          <button onClick={handleSave} disabled={isPending} className="rounded bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-40">
-            {isPending ? 'Saving…' : 'Save'}
-          </button>
+
+        {/* Department */}
+        <div>
+          <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Department</label>
+          <select
+            value={department}
+            onChange={e => setDepartment(e.target.value)}
+            className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none"
+          >
+            <option value="">None</option>
+            {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
         </div>
-      </td>
-    </tr>
+
+        {/* Rate */}
+        <div>
+          <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Rate ($)</label>
+          <input
+            type="number"
+            value={rateCents}
+            onChange={e => setRateCents(e.target.value)}
+            min="0" step="0.01"
+            className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+          />
+        </div>
+
+        {/* Unit */}
+        <div>
+          <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Unit</label>
+          <select
+            value={rateUnit}
+            onChange={e => setRateUnit(e.target.value as MemberFormData['rateUnit'])}
+            className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none"
+          >
+            {RATE_UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)}
+          </select>
+        </div>
+
+        {/* Call time */}
+        <div>
+          <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Call time</label>
+          <input
+            type="time"
+            value={callTime}
+            onChange={e => setCallTime(e.target.value)}
+            className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+          />
+        </div>
+
+        {/* Email */}
+        <div>
+          <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Email</label>
+          <input
+            type="email"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+          />
+        </div>
+
+        {/* Phone */}
+        <div>
+          <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Phone</label>
+          <input
+            type="tel"
+            value={phone}
+            onChange={e => setPhone(e.target.value)}
+            className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+          />
+        </div>
+      </div>
+
+      <div className="mt-4 flex gap-2">
+        <button
+          onClick={onCancel}
+          className="rounded-lg border px-4 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={isPending}
+          className="rounded-lg bg-primary px-4 py-1.5 text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-40"
+        >
+          {isPending ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </div>
   )
-}
-
-// ── Grouping helper ───────────────────────────────────────────────────────────
-
-function groupByDepartment(members: ProjectMemberRow[]): { dept: string | null; members: ProjectMemberRow[] }[] {
-  const map = new Map<string, ProjectMemberRow[]>()
-  for (const m of members) {
-    const key = m.department ?? ''
-    if (!map.has(key)) map.set(key, [])
-    map.get(key)!.push(m)
-  }
-
-  const result: { dept: string | null; members: ProjectMemberRow[] }[] = []
-  // Named departments first, then ungrouped
-  const namedKeys = [...map.keys()].filter(k => k !== '').sort()
-  for (const key of namedKeys) result.push({ dept: key, members: map.get(key)! })
-  if (map.has('')) result.push({ dept: null, members: map.get('')! })
-  return result
 }
