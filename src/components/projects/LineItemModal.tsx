@@ -35,6 +35,21 @@ const CATEGORIES: { value: LineItemCategory; label: string }[] = [
   { value: 'DELIVERABLE', label: 'Deliverable' },
 ]
 
+// Mirrors mapRateCategory on the server — used to auto-fill the category dropdown
+// when a rate card is selected, so the Crew contact picker appears automatically.
+const RATE_CATEGORY_MAP: Record<string, LineItemCategory> = {
+  CREW:           'CREW',
+  TALENT:         'CREW',
+  EQUIPMENT:      'EQUIPMENT',
+  LOCATION:       'LOCATION',
+  POST:           'DELIVERABLE',
+  TRAVEL:         'SERVICE',
+  CATERING:       'SERVICE',
+  INSURANCE:      'SERVICE',
+  PRODUCTION_FEE: 'SERVICE',
+  MISC:           'SERVICE',
+}
+
 // Minimal shape we need from the existing item when editing
 export interface EditableLineItem {
   id: string
@@ -142,6 +157,10 @@ export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved
     setRate(centsToRate(card.defaultRateCents))
     setQuery('')
     setResults([])
+    // Auto-fill the category dropdown from the rate card so that selecting a
+    // CREW rate card reveals the Rolodex contact picker without a manual step.
+    const mapped = RATE_CATEGORY_MAP[card.category]
+    if (mapped) setCategory(mapped)
   }
 
   // ── Rolodex contact search ──────────────────────────────────────────────────

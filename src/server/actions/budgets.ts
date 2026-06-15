@@ -165,7 +165,6 @@ export async function upsertLineItem(
 
       // Magical Crew Workflow — only on CREATE with an assigned CREW contact.
       // Awaited so the kit line item is in the DB before the client refreshes.
-      // Wrapped in catch so a failure never blocks the core CREW item save.
       if (data.contactId && lineItemCategory === 'CREW') {
         await runCrewWorkflow(sdb, {
           accountId:   data.accountId,
@@ -175,7 +174,7 @@ export async function upsertLineItem(
           unit:        data.unit,
           quantity:    data.quantity,
           crewItemOrder: typeof item.order === 'number' ? item.order : 0,
-        }).catch(() => {})
+        }).catch(err => console.error('[crew-workflow] failed — kit may not have been inserted:', err))
       }
     }
     return { success: true, data: { id: item.id } }
@@ -329,6 +328,8 @@ async function runCrewWorkflow(
         tags:             [],
       } as Parameters<typeof sdb.lineItem.create>[0]['data'],
     })
+    // Invalidate the budget page so the kit appears without a hard refresh
+    if (projectId) revalidatePath(`/projects/${projectId}`)
   }
 }
 
