@@ -458,7 +458,7 @@ model Proposal {
 
   // Identity & sharing
   title         String   // "Hulu — Summer 2026 Sizzle Proposal"
-  publicToken   String   @unique @default(cuid()) // /p/[publicToken]
+  publicToken   String   @unique @default(dbgenerated("gen_random_uuid()::text")) // /p/[publicToken]
   version       Int      @default(1)
 
   // Content — JSON so we can iterate on shape without migrations
@@ -546,7 +546,7 @@ model Invoice {
 
   // Identity & sharing
   number        String   // "TTP-2026-001" — unique per workspace
-  publicToken   String   @unique @default(cuid()) // /i/[publicToken]
+  publicToken   String   @unique @default(dbgenerated("gen_random_uuid()::text")) // /i/[publicToken]
   kind          InvoiceKind @default(STANDALONE)
 
   title         String?  // "50% Deposit — Hulu Summer Sizzle"
@@ -659,7 +659,7 @@ model CallSheet {
   shootDate     DateTime // the date of the shoot
   generalCall   String   @default("07:00") // HH:MM string
   status        CallSheetStatus @default(DRAFT)
-  publicToken   String   @unique @default(cuid()) // /cs/[token]
+  publicToken   String   @unique @default(dbgenerated("gen_random_uuid()::text")) // /cs/[token]
 
   // Location
   locationName    String?

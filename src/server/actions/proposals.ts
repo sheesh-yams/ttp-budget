@@ -8,6 +8,7 @@ import { getCurrentUser } from '@/lib/auth'
 import { sumAccount, type AccountInput } from '@/lib/totals'
 import type { ActionResult, ProposalDiscount } from '@/types'
 import { logAuditEvent } from '@/lib/audit'
+import { generatePublicToken } from '@/lib/secure-token'
 
 function uid() { return crypto.randomUUID().slice(0, 8) }
 
@@ -137,6 +138,7 @@ export async function createProposal(
         projectId,
         budgetId,
         title,
+        publicToken: generatePublicToken(),
         content: defaultContent as object,
         createdById: user.id,
       } as unknown as Parameters<typeof sdb.proposal.create>[0]['data'],
@@ -274,6 +276,7 @@ export async function createSentProposal(input: {
         projectId: input.projectId,
         budgetId: input.budgetId,
         title: input.title,
+        publicToken: generatePublicToken(),
         content: { ...content, budgetSnapshot: snapshot } as object,
         status: 'SENT',
         sentAt: new Date(),
@@ -333,6 +336,7 @@ export async function createDraftProposal(input: {
         projectId: input.projectId,
         budgetId: input.budgetId,
         title: input.title,
+        publicToken: generatePublicToken(),
         content: content as object,
         status: 'DRAFT',
         expiresAt: new Date(input.expiresAt),
@@ -448,6 +452,7 @@ export async function createProposalRevision(
         projectId:   (source as unknown as { projectId: string }).projectId,
         budgetId:    (source as unknown as { budgetId: string }).budgetId,
         title:       (source as unknown as { title: string }).title,
+        publicToken: generatePublicToken(),
         content:     (source as unknown as { content: object }).content,
         status:      'DRAFT',
         version:     nextVersion,

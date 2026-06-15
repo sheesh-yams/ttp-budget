@@ -6,6 +6,7 @@ import type { ScopedDb } from '@/lib/db-scoped'
 import { Prisma } from '@prisma/client'
 import type { ActionResult } from '@/types'
 import { toJsonSafe } from '@/lib/json-safe'
+import { generatePublicToken } from '@/lib/secure-token'
 
 // =============================================================================
 // Crew import from budget
@@ -320,6 +321,7 @@ export async function createCallSheet(
         title:       input.title,
         shootDate:   new Date(input.shootDate),
         generalCall: input.generalCall ?? '07:00',
+        publicToken: generatePublicToken(),
         crew:        initialCrew as unknown as Prisma.InputJsonValue,
       } as unknown as Parameters<typeof sdb.callSheet.create>[0]['data'],
       select: { id: true, publicToken: true },

@@ -8,6 +8,7 @@ import { generateInvoiceNumber } from '@/lib/invoice-numbering'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import { logAuditEvent } from '@/lib/audit'
+import { generatePublicToken } from '@/lib/secure-token'
 
 const createSchema = z.object({
   projectId: z.string(),
@@ -57,6 +58,7 @@ export async function createInvoice(
         clientId: data.clientId,
         budgetId: data.budgetId ?? null,
         number,
+        publicToken: generatePublicToken(),
         kind: data.kind,
         title: data.title,
         dueDate: new Date(data.dueDate),
