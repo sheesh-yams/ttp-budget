@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { Calendar, User, TrendingUp } from 'lucide-react'
+import { Calendar, User, TrendingUp, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { BudgetEditor } from '@/components/projects/BudgetEditor'
@@ -233,7 +233,24 @@ export default async function ProjectDetailPage({
         </div>
 
         <div className="flex items-start gap-3">
-          {budget && grandTotalCents > 0 && !actualsSummary && (
+          {project.status === 'ACTIVE' && budget && !actualsSummary && (
+            <div className="rounded-xl border bg-card shadow-sm overflow-hidden text-right">
+              <ActiveFinancialStat
+                label="Approved Amount"
+                valueCents={grossTotalCents}
+                todo={grossTotalCents === 0}
+                todoMsg="Set up a budget"
+              />
+              <div className="border-t" />
+              <ActiveFinancialStat
+                label="Invoiced"
+                valueCents={billedFromInvoicesCents}
+                todo={billedFromInvoicesCents === 0}
+                todoMsg="No invoices sent"
+              />
+            </div>
+          )}
+          {project.status !== 'ACTIVE' && budget && grandTotalCents > 0 && !actualsSummary && (
             <div className="rounded-xl border bg-card px-5 py-3 text-right shadow-sm">
               <p className="text-xs text-muted-foreground">Budget total</p>
               <p className="text-2xl font-semibold tabular text-foreground">{formatMoney(grandTotalCents)}</p>
@@ -408,6 +425,38 @@ function marginColor(pct: number): string {
   if (pct >= 20) return 'text-yellow-500'
   if (pct >= 10) return 'text-orange-500'
   return 'text-red-500'
+}
+
+// ─── Active project financial stat (Approved / Invoiced) ─────────────────────
+
+function ActiveFinancialStat({
+  label,
+  valueCents,
+  todo,
+  todoMsg,
+}: {
+  label:     string
+  valueCents: number
+  todo:      boolean
+  todoMsg:   string
+}) {
+  return (
+    <div className="px-5 py-3">
+      <div className="flex items-center justify-end gap-1.5 mb-0.5">
+        {todo ? (
+          <AlertCircle className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
+        ) : (
+          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
+        )}
+        <p className="text-xs text-muted-foreground">{label}</p>
+      </div>
+      {todo ? (
+        <p className="text-sm font-medium text-amber-500">{todoMsg}</p>
+      ) : (
+        <p className="text-2xl font-semibold tabular text-foreground">{formatMoney(valueCents)}</p>
+      )}
+    </div>
+  )
 }
 
 // ─── Empty state when no budget yet ──────────────────────────────────────────

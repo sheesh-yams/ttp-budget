@@ -58,8 +58,11 @@ Workspace (1)
   ├── RateCards (workspace-owned copies, seeded from global library)
   ├── BudgetTemplates (workspace-owned copies, seeded from global library)
   ├── Contacts (Rolodex — persistent across projects)
+  │     ├── hasKit        Boolean  — crew member brings their own equipment package
+  │     ├── kitRateCents  Int?     — day-rate for the kit (cents)
+  │     ├── kitName       String?  — e.g. "Sony FX3 Package"; shown on ContactCard badge
   │     └── ProjectMembers (crew on a project — Contact ↔ Project with role/rate override)
-  │           ├── mismatchFlag Boolean  — true when a newly-won proposal no longer lists this role
+  │           └── mismatchFlag Boolean  — true when a newly-won proposal no longer lists this role
   ├── Clients
   │     └── Projects
   │           ├── status   LEAD | ACTIVE | WRAPPED | ARCHIVED
@@ -73,6 +76,7 @@ Workspace (1)
   │           │                 └── LineItems
   │           │                       ├── rateCents        (snapshot at insert)
   │           │                       ├── lineItemCategory (CREW | LOCATION | EQUIPMENT | SERVICE | DELIVERABLE)
+  │           │                       ├── contactId        (Rolodex contact fulfilling this line item — CREW only)
   │           │                       ├── hasMarkup        (opt-out of agency fee)
   │           │                       ├── taxRate          (per-item tax override)
   │           │                       └── quantityFormula  (A×B multiplier, e.g. "3x2" = 3 people × 2 days)
@@ -165,6 +169,18 @@ Key behaviours:
 **Phase versioning** — each budget can have multiple phases (tabs):
 - Rename, duplicate (copies all accounts + line items), make primary, delete
 - The primary phase is used by default for proposals and invoices
+
+#### Magical Crew Workflow
+
+When a CREW line item is saved with a Rolodex contact linked (via the **Rolodex typeahead** in the line item modal), two side effects fire automatically:
+
+1. **Rate auto-fill** — the modal pre-fills the line item rate and unit from the contact's `defaultRateCents` / `defaultRateUnit`.
+2. **ProjectMember upsert** — the contact is added to the project's Teams page (deduped by `contactId`; existing members are not overwritten).
+3. **Auto-kit line item** — if the contact has `hasKit = true` and a `kitRateCents` set, an EQUIPMENT line item for their kit is automatically inserted directly below the CREW row. This is fire-and-forget: it never blocks or fails the core save.
+
+The Rolodex typeahead in the line item modal (visible only for CREW category items) searches contacts by name/role and shows a **Kit badge** next to contacts that carry equipment. A selected contact with a kit shows a preview ("Kit $600/day will be auto-added") before you save.
+
+All crew side effects use `sdb` (scoped Prisma client) so no explicit `workspaceId` lookup is needed. The project ID is resolved by traversing `lineItem → account → phase → budget → project`.
 
 ### 2. Proposal builder + dual render (web + PDF)
 
@@ -265,18 +281,45 @@ A persistent contact directory for the workspace — all crew, talent, and vendo
 
 - **Grid + list views** with search by name/role
 - **Role filter** — dropdown built from the union of existing contact primary roles + workspace CREW rate card roles
-- **Contact record** — name, primary role, secondary roles (tags), email, phone, Instagram, website, default rate + unit, avatar
+- **Contact record** — name, primary role, secondary roles (tags), email, phone, Instagram, website, default rate + unit, avatar, equipment kit
 - **Contact detail page** (`/rolodex/[id]`) — full info card, linked projects (via `ProjectMember`), and every call sheet the person appears on (scanned via `contactId` in crew/talent JSON). Edit button opens the existing `ContactModal`.
 - **Archive** — soft-delete hides a contact from the Rolodex while preserving their project history
 - **Import from call sheets** — scan all existing call sheets and bulk-import crew/talent into the Rolodex
 - **Merge duplicates** — find and merge duplicate contacts (matching on name similarity)
-- **Per-project team** (`/projects/[id]/team`) — assign Rolodex contacts to individual projects with optional role/rate overrides. Displayed as a responsive card grid grouped by department.
-  - **Seed from proposal** — auto-populates on first load from CREW line items in the latest won or sent proposal (or workspace rate cards as a fallback). Attribution banner shows which proposal was used.
-  - **Card states** — PlaceholderCard (Unassigned position, dashed border), MemberCard (filled, shows avatar initials, role, rate, call time, email, phone), EditCard (inline full-width form with Rolodex name search).
-  - **Mismatch flag** (`mismatchFlag`) — when a new proposal is marked Won, any assigned member whose role is no longer in the proposal gets a red outline card with a "Not in latest won proposal" warning. Click **Confirm position** to dismiss (`dismissMismatch` action). Unassigned placeholders with orphaned roles are deleted automatically.
-  - **Call time sync** — call times on member cards sync bi-directionally with call sheet crew/talent rows via `contactId`. Latest edit wins; sync is fire-and-forget so neither side can fail the other's save.
 
-### 6. Actuals tracker (`/projects/[id]/actuals`)
+#### Equipment Kit
+
+Crew members can be marked as bringing their own equipment package:
+- **`hasKit`** — toggle in `ContactModal` (checkbox labelled "Has Equipment Kit")
+- **`kitName`** — e.g. "Sony FX3 Package" (optional label shown on the badge)
+- **`kitRateCents`** — day-rate for the kit in cents; displayed as dollars in the form
+- **ContactCard badge** — contacts with `hasKit = true` show an amber briefcase badge displaying the kit name and rate beneath their social links on the Rolodex grid
+- **Auto-insert on budget** — when a contact with `hasKit = true` is assigned as a CREW line item, an EQUIPMENT line item for their kit is automatically inserted below (see Magical Crew Workflow above)
+
+#### Per-project team (`/projects/[id]/team`)
+
+Assign Rolodex contacts to individual projects with optional role/rate overrides. Displayed as a responsive card grid grouped by department.
+
+- **Seed from proposal** — auto-populates on first load from CREW line items in the latest won or sent proposal (or workspace rate cards as a fallback). Attribution banner shows which proposal was used.
+- **Card states** — PlaceholderCard (Unassigned position, dashed border), MemberCard (filled, shows avatar initials, role, rate, call time, email, phone), EditCard (inline full-width form with Rolodex name search).
+- **Mismatch flag** (`mismatchFlag`) — when a new proposal is marked Won, any assigned member whose role is no longer in the proposal gets a red outline card with a "Not in latest won proposal" warning. Click **Confirm position** to dismiss (`dismissMismatch` action). Unassigned placeholders with orphaned roles are deleted automatically.
+- **Call time sync** — call times on member cards sync bi-directionally with call sheet crew/talent rows via `contactId`. Latest edit wins; sync is fire-and-forget so neither side can fail the other's save.
+- **Edit Rolodex contact from Team page** — on any `MemberCard` that is linked to a Rolodex contact (`contactId` set), clicking the **BookUser icon** fetches the contact's full record (`getContactForModal`) and opens `ContactModal` pre-populated — including kit settings — without leaving the project workspace. On save, `revalidatePath` is called on both `/projects/[id]/team` and `/rolodex` so both views update immediately.
+
+### 6. Projects dashboard metrics (`/projects`)
+
+The four KPI cards are computed server-side from the primary budget phase of each non-archived project using `calcBudgetTotals` (net subtotal + markup + tax = gross). All figures are **gross totals** — the same number a client sees on a proposal.
+
+- **Pipeline** — sum of `budgetTotalCents` (gross) for projects with at least one SENT or VIEWED proposal. Deduped to one proposal per project (latest sent). Matches the "Proposed $X" label shown on each LEAD card exactly.
+- **Open Projects** — count of LEAD + ACTIVE projects.
+- **Outstanding** — money owed but not yet collected, split by project status:
+  - *WON projects* (`APPROVED` proposal): `budgetTotalCents − sum(amountPaidCents across all invoices)`. This captures approved-but-not-yet-invoiced amounts so a producer sees the full uncollected balance, not just what's been billed.
+  - *Non-WON projects*: `sum(max(0, invoice.totalCents − invoice.amountPaidCents))` for invoices with status not VOID or PAID. Correctly ignores invoices where payment has been recorded regardless of whether the status field was manually flipped to PAID.
+- **Won This Quarter** — sum of `approvedTotalCents` for proposals marked APPROVED within the current calendar quarter.
+
+**Project card amounts** — the card footer shows financial info in priority order: Paid → Approved → Invoiced → Proposed. For WON projects, "Approved $X" uses `budgetTotalCents` (live gross from `calcBudgetTotals`) rather than the `approvedTotalCents` snapshot, which may have been stored as a net value at approval time.
+
+### 7. Actuals tracker (`/projects/[id]/actuals`)
 
 Post-production spend tracking per project.
 
@@ -347,7 +390,10 @@ ttp-budget/
 │   └── migrations/                          # Manual SQL migration files (run in Neon SQL Editor)
 │       ├── 20260614000001_add_call_time_format/migration.sql
 │       ├── 20260614000002_add_mismatch_flag/migration.sql
-│       └── 20260614000003_secure_public_tokens/migration.sql
+│       ├── 20260614000003_secure_public_tokens/migration.sql
+│       └── 20260615000001_crew_workflow/migration.sql
+│                                            #   Contact: hasKit, kitRateCents, kitName
+│                                            #   LineItem: contactId → Contact (ON DELETE SET NULL)
 ├── scripts/
 │   ├── backfill-callsheet-contacts.ts      # F6: link existing crew/talent rows to Rolodex contacts by name+email (--apply to write)
 │   ├── backfill-workspace-ids.ts           # A1: fill workspaceId on Phase/Account/LineItem/ProjectMember rows
@@ -362,7 +408,7 @@ ttp-budget/
 │   │   │   ├── dashboard/
 │   │   │   ├── clients/[id]/
 │   │   │   ├── projects/
-│   │   │   │   ├── page.tsx                 # Active projects grid (+ ?archived=1 view)
+│   │   │   │   ├── page.tsx                 # Active projects grid (+ ?archived=1 view); pipeline/outstanding use gross calcBudgetTotals
 │   │   │   │   └── [id]/
 │   │   │   │       ├── page.tsx             # Project hub
 │   │   │   │       ├── layout.tsx           # Project sub-layout + secondary sidebar
@@ -414,18 +460,18 @@ ttp-budget/
 │   │   ├── proposals/
 │   │   │   └── ProposalsKanban.tsx          # Drag-and-drop Kanban; WON + LOST columns droppable
 │   │   ├── projects/
-│   │   │   ├── projects-types.ts            # Shared types + helpers (ProjectForCard, statusBadgeStyle, computeProgress, …)
-│   │   │   ├── ProjectMetricsStrip.tsx      # 4 solid-color KPI cards (Pipeline, Open Projects, Outstanding, Won This Quarter); metrics exclude ARCHIVED projects
+│   │   │   ├── projects-types.ts            # Shared types (ProjectForCard, ProjectInvoiceSnap incl. amountPaidCents, …)
+│   │   │   ├── ProjectMetricsStrip.tsx      # 4 solid-color KPI cards; metrics exclude ARCHIVED projects
 │   │   │   ├── ProjectStatusPills.tsx       # URL-param status filter pills with counts
-│   │   │   ├── ProjectCard.tsx              # Rich project card — client initials avatar, burn bar (ACTIVE only), proposed budget; no progress bar
+│   │   │   ├── ProjectCard.tsx              # Rich project card; "Approved $X" uses live budgetTotalCents for WON projects
 │   │   │   ├── ProjectsAttentionSidebar.tsx # Sticky right-rail — attention items, upcoming shoots, week stats
-│   │   │   ├── BudgetEditor.tsx             # Click description → edit modal; category badges
+│   │   │   ├── BudgetEditor.tsx             # Click description → edit modal; category badges; passes contactId on edit open
 │   │   │   ├── BudgetSummaryBar.tsx
-│   │   │   ├── LineItemModal.tsx            # Add + Edit line item modal (category field included)
+│   │   │   ├── LineItemModal.tsx            # Add + Edit modal; CREW category shows Rolodex typeahead; kit auto-insert preview
 │   │   │   ├── ProjectHeaderActions.tsx     # Edit + Archive/Restore buttons on project header
 │   │   │   ├── ProjectsPageClient.tsx       # URL-param sort/filter/view; sidebar hidden below xl
 │   │   │   ├── ProjectProposals.tsx         # Proposals table with status dropdown (incl. Won)
-│   │   │   ├── ProjectTeam.tsx              # Per-project crew list; seed from proposal
+│   │   │   ├── ProjectTeam.tsx              # Per-project crew list; MemberCard BookUser button opens ContactModal inline
 │   │   │   ├── ProposalModal.tsx            # Create/edit/send proposals + payment schedule + discounts
 │   │   │   ├── ProjectInvoices.tsx
 │   │   │   └── ProposalOverview.tsx
@@ -433,9 +479,9 @@ ttp-budget/
 │   │   │   └── WrapReportPDF.tsx            # @react-pdf/renderer Document for the wrap report PDF
 │   │   ├── rolodex/
 │   │   │   ├── RolodexClient.tsx            # Grid + list views, role filter, import, merge
-│   │   │   ├── ContactCard.tsx              # Card view with hover actions (view detail / edit / archive)
+│   │   │   ├── ContactCard.tsx              # Card + amber kit badge (Briefcase icon) when hasKit = true
 │   │   │   ├── ContactDetailClient.tsx      # Edit button for /rolodex/[id] — opens ContactModal
-│   │   │   ├── ContactModal.tsx             # Create/edit contact
+│   │   │   ├── ContactModal.tsx             # Create/edit contact; kit toggle → kitName + kitRateCents fields; accepts projectId for team-page revalidation
 │   │   │   ├── ImportFromCallSheetsModal.tsx
 │   │   │   └── MergeDuplicatesModal.tsx
 │   │   ├── team/
@@ -456,16 +502,16 @@ ttp-budget/
 │   │   ├── auth.ts                          # getCurrentUser, getWorkspaceId, getActiveWorkspace
 │   │   ├── workspace-seeder.ts              # seedWorkspaceFromGlobals + reseedWorkspaceFromGlobals
 │   │   ├── money.ts                         # cents ↔ display, parseQtyFormula, fmtUnit
-│   │   ├── totals.ts
+│   │   ├── totals.ts                        # calcBudgetTotals(accounts, markupPct, taxPct) → { subtotalCents, markupCents, taxCents, grandTotalCents }
 │   │   ├── importSchema.ts
 │   │   ├── invoice-numbering.ts
 │   │   ├── json-safe.ts                     # toJsonSafe() — replaces JSON.parse(JSON.stringify()); handles Decimal
-│   │   ├── secure-token.ts                  # generatePublicToken() — crypto.randomUUID() UUID v4; called at every proposal/invoice/call-sheet create
+│   │   ├── secure-token.ts                  # generatePublicToken() — crypto.randomUUID() UUID v4
 │   │   ├── time-format.ts                   # formatTime(hhmm, format) — "07:00" → "7:00 AM" or "07:00"; TimeFormat type
 │   │   └── email.ts
 │   └── server/
 │       └── actions/
-│           ├── budgets.ts                   # upsertLineItem accepts lineItemCategory override
+│           ├── budgets.ts                   # upsertLineItem: CREW + contactId → runCrewWorkflow (member upsert + auto-kit line item)
 │           ├── call-sheets.ts               # CRUD + importCrewFromBudget + fetchLocationData
 │           │                                #   createCallSheet seeds crew from Teams page members (not rate cards)
 │           │                                #   updateCallSheet: syncSheetCallTimesToMembers (callTime→Teams) +
@@ -483,7 +529,10 @@ ttp-budget/
 │           │                                #   updateProjectMember: syncMemberCallTimeToCallSheets (callTime→sheets)
 │           │                                #   dismissMismatch — clears mismatchFlag on a team card
 │           ├── actuals.ts                   # CRUD actuals, getWrapReportData, ActualStatus (PENDING | APPROVED)
-│           ├── rolodex.ts                   # CRUD contacts, patchContactField, getContactById, getContactCallSheets, mergeContacts
+│           ├── rolodex.ts                   # CRUD contacts; kit fields (hasKit, kitRateCents, kitName) in schema + selects
+│           │                                #   updateContact: optional projectId → revalidates /projects/[id]/team
+│           │                                #   getContactForModal: lightweight fetch for team-page modal pre-fill
+│           │                                #   searchContacts: returns kit fields for LineItemModal typeahead
 │           ├── team.ts                      # sendInvitation, acceptInvitation, removeMember
 │           └── workspace.ts                 # updateProductionSettings — saves callTimeFormat
 ├── .env.example
@@ -515,11 +564,12 @@ NEXT_PUBLIC_APP_URL="https://budget.thethirdplace.co"
 npm install
 npm run dev          # localhost:3000
 
-# After schema changes (see Engineering Conventions above for full workflow):
+# After schema changes (see Engineering Conventions for full workflow):
 # 1. Edit prisma/schema.prisma
 # 2. Write migration SQL → prisma/migrations/<date>_<name>/migration.sql
 # 3. Run the SQL in Neon SQL Editor (console.neon.tech)
-# 4. Patch node_modules/.prisma/client/index.d.ts for TypeScript types
+# 4. Run npx prisma generate locally to regenerate the client types
+# 5. Run npx tsc --noEmit to verify clean compile before pushing
 
 # Populate global library (idempotent — safe to run multiple times):
 npm run db:seed
@@ -579,6 +629,7 @@ Returns `429 Too Many Requests` with `Retry-After` and `X-RateLimit-*` headers. 
 
 - **Money:** always integer cents. Never floats. `$1,500 → 150000`.
 - **Percentages:** always decimals stored as `Decimal(6,4)`. Exception: `PaymentMilestone.percentPct` is stored as display percent (50 = 50%) in JSON.
+- **Gross totals:** always use `calcBudgetTotals(accounts, markupPct, taxPct)` from `src/lib/totals.ts` when displaying a project's value. Never sum `qty × rateCents` directly for UI display — that produces a net total and will not match what the client saw on the proposal.
 - **Row-level security:** all server actions use `getScopedDb()` (from `src/lib/db-scoped.ts`), a Prisma `$extends()` wrapper that auto-injects `workspaceId` on every query for scoped models. Webhook handlers and the workspace seeder use raw `db` — those run without an active Clerk session.
 - **Return type:** all actions return `ActionResult<T>` — `{ success: true; data: T } | { success: false; error: string }`. Narrow with `'error' in result` (not `!result.success`) inside `startTransition` callbacks.
 - **Confirm dialogs:** never use `window.confirm()`. Use the `useConfirm()` hook from `src/components/ui/confirm-dialog.tsx`. Pass a stable `key` to enable per-dialog "Don't show again" suppression.
@@ -586,14 +637,16 @@ Returns `429 Too Many Requests` with `Retry-After` and `X-RateLimit-*` headers. 
 - **JSON fields:** all Prisma JSON field writes must go through `toJsonSafe(value)` from `src/lib/json-safe.ts` to avoid Decimal serialization issues. Never use raw `JSON.parse(JSON.stringify())` — `toJsonSafe` handles it and is searchable.
 - **Workspace switching:** use `window.location.href = '/dashboard'` after `setActive()` — not `router.refresh()`. `router.refresh()` can hit the Next.js route cache and serve stale auth context from the previous org.
 - **`router.refresh()`** syncs server-rendered data after mutations. For client state that needs to update immediately, update React state directly from the action's return value.
-- **Schema changes:** we cannot run `prisma migrate dev` or `prisma generate` in Railway's build environment (binary download blocked). Workflow:
+- **Schema changes:** we cannot run `prisma migrate dev` in Railway's build environment (binary download blocked). Workflow:
   1. Edit `prisma/schema.prisma`.
   2. Write the SQL by hand into `prisma/migrations/<date>_<name>/migration.sql`.
   3. Run the SQL manually in **Neon's SQL Editor** (console.neon.tech → project → SQL Editor).
-  4. Patch `node_modules/.prisma/client/index.d.ts` with targeted `sed`/Python edits to add the new field to all relevant type interfaces (output types, select types, create/update input types). This keeps TypeScript happy without a full `prisma generate`.
-  5. Commit both `schema.prisma` and the migration file so the history is preserved.
+  4. Run `npx prisma generate` locally to regenerate the Prisma client types.
+  5. Run `npx tsc --noEmit` to verify a clean compile before committing.
+  6. Commit both `schema.prisma` and the migration file so the history is preserved.
+- **Fire-and-forget side effects:** crew workflow helpers (`runCrewWorkflow`, team reconciliation, call-time sync) are called with `void fn()` so they never block or fail the primary save. If a kit line item fails to insert, the CREW line item is still saved successfully.
 - **Quantity formula:** `quantityFormula = "AxB"` encodes headcount (A) × days (B). Use `parseQtyFormula()` from `money.ts` everywhere it's displayed. `fmtUnit(days, unit)` formats the unit column.
-- **Line item categories:** `lineItemCategory` is auto-derived from the linked rate card's category on insert. Users can override it in the line item modal. CREW-tagged items are importable to call sheets.
+- **Line item categories:** `lineItemCategory` is auto-derived from the linked rate card's category on insert. Users can override it in the line item modal. CREW-tagged items are importable to call sheets and trigger the Magical Crew Workflow when a `contactId` is present.
 - **Call sheet draft preview:** public `/cs/[token]` and `/p/[token]` both render for DRAFT status with a sticky amber banner. View analytics are skipped for drafts.
 - **Global library isolation:** `GlobalRateCard` and `GlobalTemplate` are seeded once by the app. Workspace copies are independent — never update globals from workspace data, and never propagate global changes to existing workspaces.
 - **Brand-safe badge contrast:** use `color-mix(in srgb, var(--brand-accent) 18%, white)` for tinted badge backgrounds instead of hardcoded colours. This adapts at browser render time to whatever brand colour the workspace sets.
