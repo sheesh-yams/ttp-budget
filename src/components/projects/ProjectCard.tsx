@@ -115,7 +115,11 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
 
   // ── Derived data ─────────────────────────────────────────────────────────────
   const approvedProposal   = project.proposals.find(p => p.status === 'APPROVED')
-  const approvedCents      = approvedProposal?.approvedTotalCents ?? null
+  // Prefer live gross total (budgetTotalCents) over the approvedTotalCents snapshot,
+  // which may have been stored as a net value at the time the proposal was approved.
+  const approvedCents      = approvedProposal
+    ? (project.budgetTotalCents > 0 ? project.budgetTotalCents : (approvedProposal.approvedTotalCents ?? 0))
+    : null
   const latestSentProposal = project.proposals
     .filter(p => ['SENT', 'VIEWED'].includes(p.status))
     .sort((a, b) => {

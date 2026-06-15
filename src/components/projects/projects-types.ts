@@ -19,6 +19,7 @@ export interface ProjectInvoiceSnap {
   id: string
   status: string
   totalCents: number
+  amountPaidCents: number
   dueDate: string
   paidAt: string | null
   issueDate: string

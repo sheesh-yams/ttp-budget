@@ -29,6 +29,7 @@ const PROJECT_INCLUDES = {
       id: true,
       status: true,
       totalCents: true,
+      amountPaidCents: true,
       dueDate: true,
       paidAt: true,
       issueDate: true,
@@ -83,7 +84,6 @@ export default async function ProjectsPage({
     templates,
     wonThisQ,
     wonLastQ,
-    outstandingInvoices,
     actualsSheets,
     primaryPhases,
     pipelineProposals,
@@ -136,15 +136,6 @@ export default async function ProjectsPage({
       _sum: { approvedTotalCents: true },
     }),
 
-    // ── Outstanding invoices (non-archived projects only) ─────────────────────
-    sdb.invoice.findMany({
-      where: {
-        status: { in: ['SENT', 'VIEWED', 'OVERDUE'] },
-        project: { status: { not: 'ARCHIVED' } },
-      },
-      select: { id: true, totalCents: true, dueDate: true, status: true },
-    }),
-
     // ── Actuals: sum of actualCents per project ───────────────────────────────
     // Each project can have at most one ActualSheet; we sum all entries for it.
     sdb.actualSheet.findMany({
@@ -184,6 +175,8 @@ export default async function ProjectsPage({
 
     // ── Pipeline proposals (non-archived projects, deduped to one per project) ─
     // Ordered by sentAt desc so deduplication keeps the most-recently-sent proposal.
+    // Value is computed from budgetTotalByProject (same gross calc as the cards),
+    // so we only need the projectId to look it up.
     sdb.proposal.findMany({
       where: {
         status: { in: ['SENT', 'VIEWED'] },
@@ -193,17 +186,6 @@ export default async function ProjectsPage({
       select: {
         id: true,
         projectId: true,
-        phaseId: true,
-        budget: {
-          select: {
-            phases: {
-              select: {
-                id: true,
-                isPrimary: true,
-              },
-            },
-          },
-        },
       },
     }),
   ])
@@ -217,29 +199,7 @@ export default async function ProjectsPage({
     return true
   })
 
-  // ── Pipeline: resolve which phaseIds to sum ───────────────────────────────
-  const pipelinePhaseIds: string[] = []
-  for (const p of dedupedPipelineProposals) {
-    if (p.phaseId) {
-      pipelinePhaseIds.push(p.phaseId)
-    } else {
-      const primary = p.budget.phases.find(ph => ph.isPrimary)
-      if (primary) pipelinePhaseIds.push(primary.id)
-    }
-  }
-
-  // Fetch all line items in those phases (every account in a phase has phaseId set)
-  const pipelineLineItems = pipelinePhaseIds.length > 0
-    ? await sdb.lineItem.findMany({
-        where: { account: { phaseId: { in: pipelinePhaseIds } } },
-        select: { quantity: true, rateCents: true },
-      })
-    : []
-
-  const pipelineValueCents = pipelineLineItems.reduce(
-    (sum, li) => sum + Math.round(Number(li.quantity) * li.rateCents),
-    0,
-  )
+  // ── Pipeline value assigned after budgetTotalByProject (see below) ───────────
 
   // ── Burn bar: merge actuals + budget totals into project cards ───────────────
   // actualSpentCents: sum of all ActualEntry.actualCents for the project's sheet
@@ -264,6 +224,13 @@ export default async function ProjectsPage({
     )
     budgetTotalByProject.set(projectId, grandTotalCents)
   }
+
+  // ── Pipeline value: gross total for each project with a SENT/VIEWED proposal ─
+  // Matches "Proposed $X" on the cards — same calcBudgetTotals source of truth.
+  const pipelineValueCents = dedupedPipelineProposals.reduce((sum, p) => {
+    if (!p.projectId) return sum
+    return sum + (budgetTotalByProject.get(p.projectId) ?? 0)
+  }, 0)
 
   // Attach burn data to both non-archived and archived projects
   const projectsWithBurn = allProjects.map(p => ({
@@ -291,13 +258,36 @@ export default async function ProjectsPage({
     p => p.shootStartDate && p.shootStartDate >= startOfToday && p.shootStartDate <= upcomingShootCutoff,
   ).length
 
-  const overdueCount = outstandingInvoices.filter(
-    inv => inv.dueDate < now,
-  ).length
-  const outstandingCents = outstandingInvoices.reduce(
-    (sum, inv) => sum + inv.totalCents,
-    0,
-  )
+  // Overdue = open invoices (not VOID/PAID, not fully paid) past their due date.
+  const overdueCount = projectsWithBurn
+    .flatMap(p => p.invoices)
+    .filter(inv =>
+      ['SENT', 'VIEWED', 'OVERDUE'].includes(inv.status) &&
+      inv.amountPaidCents < inv.totalCents &&
+      inv.dueDate < now,
+    ).length
+
+  // Outstanding = money owed but not yet collected.
+  //
+  // • WON projects: expected gross (live budgetTotalCents) minus all payments made so far.
+  //   This captures approved-but-not-yet-invoiced amounts automatically.
+  // • Non-WON projects: sum of unpaid balances on open (non-void, non-paid) invoices.
+  let outstandingCents = 0
+  for (const project of projectsWithBurn) {
+    const wonProposal = project.proposals.find(p => p.status === 'APPROVED')
+    if (wonProposal) {
+      const expectedCents  = project.budgetTotalCents > 0
+        ? project.budgetTotalCents
+        : (wonProposal.approvedTotalCents ?? 0)
+      const collectedCents = project.invoices.reduce((s, inv) => s + inv.amountPaidCents, 0)
+      outstandingCents += Math.max(0, expectedCents - collectedCents)
+    } else {
+      for (const inv of project.invoices) {
+        if (inv.status === 'VOID' || inv.status === 'PAID') continue
+        outstandingCents += Math.max(0, inv.totalCents - inv.amountPaidCents)
+      }
+    }
+  }
 
   // This-week stats (non-archived only)
   const thisWeekProposalsSent = allProjects
