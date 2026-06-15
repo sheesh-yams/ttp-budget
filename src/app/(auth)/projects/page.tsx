@@ -4,7 +4,43 @@ import { getWorkspaceId } from '@/lib/auth'
 import { ProjectsPageClient } from '@/components/projects/ProjectsPageClient'
 import type { ProjectForCard, ProjectMetrics, AttentionItem, UpcomingShoot, StatusCounts } from '@/components/projects/projects-types'
 
-export const metadata = { title: 'Projects — TTP Budget' }
+export const metadata = { title: 'Projects — SLATESUITE' }
+
+// Shared project includes — used for both allProjects and archivedProjects queries
+const PROJECT_INCLUDES = {
+  client: { select: { id: true, name: true } },
+  _count: { select: { budgets: true } },
+  proposals: {
+    select: {
+      id: true,
+      status: true,
+      approvedTotalCents: true,
+      lastViewedAt: true,
+      sentAt: true,
+      expiresAt: true,
+      viewCount: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  },
+  invoices: {
+    select: {
+      id: true,
+      status: true,
+      totalCents: true,
+      dueDate: true,
+      paidAt: true,
+      issueDate: true,
+    },
+  },
+  callSheets: {
+    select: {
+      id: true,
+      status: true,
+      shootDate: true,
+    },
+  },
+} as const
 
 export default async function ProjectsPage({
   searchParams,
@@ -41,7 +77,7 @@ export default async function ProjectsPage({
 
   const [
     allProjects,
-    archivedCount,
+    archivedProjects,
     clients,
     templates,
     wonThisQ,
@@ -56,44 +92,15 @@ export default async function ProjectsPage({
     sdb.project.findMany({
       where: { status: { not: 'ARCHIVED' } },
       orderBy: { updatedAt: 'desc' },
-      include: {
-        client: { select: { id: true, name: true } },
-        _count: { select: { budgets: true } },
-        proposals: {
-          select: {
-            id: true,
-            status: true,
-            approvedTotalCents: true,
-            lastViewedAt: true,
-            sentAt: true,
-            expiresAt: true,
-            viewCount: true,
-            createdAt: true,
-            updatedAt: true,
-          },
-        },
-        invoices: {
-          select: {
-            id: true,
-            status: true,
-            totalCents: true,
-            dueDate: true,
-            paidAt: true,
-            issueDate: true,
-          },
-        },
-        callSheets: {
-          select: {
-            id: true,
-            status: true,
-            shootDate: true,
-          },
-        },
-      },
+      include: PROJECT_INCLUDES,
     }),
 
-    // ── Archived count (for pill) ─────────────────────────────────────────────
-    sdb.project.count({ where: { status: 'ARCHIVED' } }),
+    // ── Archived projects (passed to client for the Archived filter view) ─────
+    sdb.project.findMany({
+      where: { status: 'ARCHIVED' },
+      orderBy: { updatedAt: 'desc' },
+      include: PROJECT_INCLUDES,
+    }),
 
     // ── For NewProjectModal ───────────────────────────────────────────────────
     db.client.findMany({
@@ -107,28 +114,33 @@ export default async function ProjectsPage({
       select: { id: true, name: true, shootType: true, description: true },
     }),
 
-    // ── Won this quarter ──────────────────────────────────────────────────────
+    // ── Won this quarter (non-archived projects only) ─────────────────────────
     sdb.proposal.aggregate({
       where: {
         status: 'APPROVED',
         approvedAt: { gte: qStart, lte: qEnd },
+        project: { status: { not: 'ARCHIVED' } },
       },
       _sum: { approvedTotalCents: true },
       _count: true,
     }),
 
-    // ── Won last quarter ──────────────────────────────────────────────────────
+    // ── Won last quarter (non-archived projects only) ─────────────────────────
     sdb.proposal.aggregate({
       where: {
         status: 'APPROVED',
         approvedAt: { gte: prevQStart, lte: prevQEnd },
+        project: { status: { not: 'ARCHIVED' } },
       },
       _sum: { approvedTotalCents: true },
     }),
 
-    // ── Outstanding invoices ──────────────────────────────────────────────────
+    // ── Outstanding invoices (non-archived projects only) ─────────────────────
     sdb.invoice.findMany({
-      where: { status: { in: ['SENT', 'VIEWED', 'OVERDUE'] } },
+      where: {
+        status: { in: ['SENT', 'VIEWED', 'OVERDUE'] },
+        project: { status: { not: 'ARCHIVED' } },
+      },
       select: { id: true, totalCents: true, dueDate: true, status: true },
     }),
 
@@ -148,11 +160,17 @@ export default async function ProjectsPage({
       select: { quantity: true, rateCents: true, account: { select: { phase: { select: { budget: { select: { projectId: true } } } } } } },
     }),
 
-    // ── Pipeline proposals with phase line items ──────────────────────────────
+    // ── Pipeline proposals (non-archived projects, deduped to one per project) ─
+    // Ordered by sentAt desc so deduplication keeps the most-recently-sent proposal.
     sdb.proposal.findMany({
-      where: { status: { in: ['SENT', 'VIEWED'] } },
+      where: {
+        status: { in: ['SENT', 'VIEWED'] },
+        project: { status: { not: 'ARCHIVED' } },
+      },
+      orderBy: { sentAt: 'desc' },
       select: {
         id: true,
+        projectId: true,
         phaseId: true,
         budget: {
           select: {
@@ -168,9 +186,18 @@ export default async function ProjectsPage({
     }),
   ])
 
+  // ── Pipeline: deduplicate to one proposal per project (latest sent) ──────────
+  // Multiple proposals for the same project should only count once in the metrics.
+  const seenProjectIds = new Set<string>()
+  const dedupedPipelineProposals = pipelineProposals.filter(p => {
+    if (!p.projectId || seenProjectIds.has(p.projectId)) return false
+    seenProjectIds.add(p.projectId)
+    return true
+  })
+
   // ── Pipeline: resolve which phaseIds to sum ───────────────────────────────
   const pipelinePhaseIds: string[] = []
-  for (const p of pipelineProposals) {
+  for (const p of dedupedPipelineProposals) {
     if (p.phaseId) {
       pipelinePhaseIds.push(p.phaseId)
     } else {
@@ -209,13 +236,24 @@ export default async function ProjectsPage({
     budgetTotalByProject.set(projectId, (budgetTotalByProject.get(projectId) ?? 0) + lineCents)
   }
 
+  // Attach burn data to both non-archived and archived projects
   const projectsWithBurn = allProjects.map(p => ({
     ...p,
     actualSpentCents: actualSpentByProject.get(p.id) ?? 0,
     budgetTotalCents: budgetTotalByProject.get(p.id) ?? 0,
   }))
 
+  const archivedWithBurn = archivedProjects.map(p => ({
+    ...p,
+    actualSpentCents: actualSpentByProject.get(p.id) ?? 0,
+    budgetTotalCents: budgetTotalByProject.get(p.id) ?? 0,
+  }))
+
+  // All projects for the client (non-archived first, then archived at the end)
+  const allProjectsForClient = [...projectsWithBurn, ...archivedWithBurn]
+
   // ── Metrics ───────────────────────────────────────────────────────────────────
+  // Metrics are computed from allProjects (non-archived) only.
   // "Open" = LEAD + ACTIVE (anything you're actively working or pitching)
   const openProjects        = allProjects.filter(p => p.status === 'LEAD' || p.status === 'ACTIVE')
   const upcomingShootCutoff = new Date(now.getTime() + 30 * msPerDay)
@@ -232,7 +270,7 @@ export default async function ProjectsPage({
     0,
   )
 
-  // This-week stats
+  // This-week stats (non-archived only)
   const thisWeekProposalsSent = allProjects
     .flatMap(p => p.proposals)
     .filter(pr => pr.sentAt && pr.sentAt >= weekStart).length
@@ -247,7 +285,7 @@ export default async function ProjectsPage({
 
   const metrics: ProjectMetrics = {
     pipelineValueCents,
-    pipelineCount:            pipelineProposals.length,
+    pipelineCount:            dedupedPipelineProposals.length,
     activeCount:              openProjects.length,
     upcomingShootCount,
     outstandingCents,
@@ -364,18 +402,12 @@ export default async function ProjectsPage({
     lead:     allProjects.filter(p => p.status === 'LEAD').length,
     active:   allProjects.filter(p => p.status === 'ACTIVE').length,
     wrapped:  allProjects.filter(p => p.status === 'WRAPPED').length,
-    archived: archivedCount,
+    archived: archivedProjects.length,
   }
-
-  // ── Normalise project data for the client ─────────────────────────────────────
-  // Dates from Prisma are Date objects but Next.js serialises them to ISO strings
-  // when passing through server → client boundary. Cast via JSON round-trip to be
-  // explicit, or just let Next.js handle it.  Types in projects-types.ts use `string`
-  // for dates so the client can use `new Date(...)`.
 
   return (
     <ProjectsPageClient
-      projects={projectsWithBurn as unknown as ProjectForCard[]}
+      projects={allProjectsForClient as unknown as ProjectForCard[]}
       metrics={metrics}
       attentionItems={attentionItems}
       upcomingShoots={upcomingShoots}

@@ -1,8 +1,8 @@
-# The Third Place — Budget & Invoice Platform
+# SLATESUITE — Production Management Platform
 
 Internal tool for The Third Place Creative. Builds production budgets, sends sleek proposals to clients, tracks invoices, distributes call sheets to crew, and manages the Rolodex of contacts.
 
-Inspired by Saturation.io but stripped down to the parts that matter for an agency: **budgets → proposals → invoices → call sheets**. No banking, no expense cards, no QuickBooks. Just the core production artifacts done extremely well.
+Inspired by Saturation.io but stripped down to the parts that matter for an agency: **budgets → proposals → invoices → call sheets → teams**. No banking, no expense cards, no QuickBooks. Just the core production artifacts done extremely well.
 
 ## Stack
 
@@ -11,12 +11,12 @@ Inspired by Saturation.io but stripped down to the parts that matter for an agen
 | Framework    | Next.js 15 (App Router) + TypeScript |
 | UI           | Tailwind + shadcn/ui                 |
 | Database     | Postgres (Neon)                      |
-| ORM          | Prisma (`prisma db push`, no migrations folder) |
+| ORM          | Prisma (manual migration SQL in `prisma/migrations/`) |
 | Auth         | Clerk                                |
 | Email        | Resend                               |
 | File storage | Vercel Blob                          |
 | PDF          | @react-pdf/renderer                  |
-| Hosting      | Vercel                               |
+| Hosting      | Railway                              |
 
 ## Multi-tenant Architecture
 
@@ -32,6 +32,8 @@ The app is fully multi-tenant. Every user signs up into their own **workspace**,
 `Client`, `Project`, `RateCard`, `BudgetTemplate`, `Budget`, `Proposal`, `Invoice`, `CallSheet`, `Contact`
 
 Non-scoped (shared or workspace-metadata): `Workspace`, `User`, `Phase`, `Account`, `LineItem`, `ProposalView`, `InvoiceView`, `ProjectMember`
+
+> **Note:** `ProjectMember` does have a `workspaceId` column (backfilled via `scripts/backfill-workspace-ids.ts`) used for IDOR protection, but the model is not fully scoped through `getScopedDb()`. Scoping is enforced by joining through the `project` relation.
 
 ## Global Library
 
@@ -51,11 +53,13 @@ GlobalRateCard  ─┐
 GlobalTemplate  ─┘  (global catalog; seeded into new workspaces on creation)
 
 Workspace (1)
+  ├── callTimeFormat   "12H" | "24H"  (workspace-level display preference for call times)
   ├── Users (you + producers, via Clerk org membership)
   ├── RateCards (workspace-owned copies, seeded from global library)
   ├── BudgetTemplates (workspace-owned copies, seeded from global library)
   ├── Contacts (Rolodex — persistent across projects)
-  │     └── ProjectMembers (join table — Contact ↔ Project with role/rate override)
+  │     └── ProjectMembers (crew on a project — Contact ↔ Project with role/rate override)
+  │           ├── mismatchFlag Boolean  — true when a newly-won proposal no longer lists this role
   ├── Clients
   │     └── Projects
   │           ├── status   LEAD | ACTIVE | WRAPPED | ARCHIVED
@@ -129,7 +133,7 @@ Rate cards are the **source of defaults** but never retroactively change histori
 | `/rolodex` | Contact directory — grid + list view, role filter, archive |
 | `/rolodex/[id]` | Contact detail — info, project history, call sheet appearances |
 | `/team` | Workspace team members + invite by email |
-| `/settings` | Branding, payment instructions, workspace data, danger zone |
+| `/settings` | Branding, payment instructions, production preferences (call time format), workspace data, danger zone |
 | `/onboarding` | First-time setup wizard (redirected automatically for new users) |
 
 ### Public (no auth, tokenized)
@@ -182,6 +186,12 @@ Key behaviours:
 
 **Auto-advance project status** — when a proposal is marked Won (`APPROVED`), its project automatically advances from `LEAD → ACTIVE`. If the only approved proposal is later marked Lost, Declined, or Expired and no other approved proposal exists, the project reverts to `LEAD`. `WRAPPED` is intentionally manual.
 
+**Teams page reconciliation on Win** — marking a proposal Won triggers `reconcileTeamFromWonProposal` (fire-and-forget):
+- Unassigned placeholder whose role is **not** in the new proposal → deleted silently
+- Assigned member whose role is **not** in the new proposal → `mismatchFlag = true` (red card with "Not in latest won proposal" warning + "Confirm position" button)
+- Assigned member whose role **is** in the new proposal → `mismatchFlag = false` (cleared)
+- Role in new proposal that needs more slots than currently exist → new unassigned placeholders added
+
 **Version auto-increment** — each new proposal increments the `version` counter. The Kanban shows only the latest sent version per thread.
 
 **Proposals Kanban** (`/proposals`): CRM-style drag-and-drop board — DRAFTS | SENT | VIEWED | CHANGES NEEDED | WON | LOST. Lost column hidden by default. All columns including WON and LOST are droppable.
@@ -206,8 +216,21 @@ Day-of documents distributed to crew and talent via a secret token URL.
 - **Schedule** — time blocks with start + end time, description, "who's needed", and notes. Drag handles to reorder.
 - **Talent** — flat list (name, role/character, call time, phone, email)
 - **Crew** — grouped by department. Collapsible dept sections.
-  - **Import from budget** — pulls CREW-category line items from the primary budget phase; uses the A value from `quantityFormula` as headcount
+  - **Seeded from Teams page** — new call sheets pre-populate crew rows from the project's Teams-page members (name, role, dept, call time, Rolodex link). If the Teams page is empty, crew starts blank.
+  - **Import from budget** — pulls CREW-category line items from the primary budget phase; uses the A value from `quantityFormula` as headcount. Use this when you want to re-sync crew structure from the budget after the call sheet already exists.
 - **Logistics** — catering/craft services info, additional notes
+
+**Call time display format** — call times across crew cards (Teams page) and call sheet readonly views use `formatTime()` from `src/lib/time-format.ts`. The workspace setting **Settings → Production → Call time format** toggles between `12H` (7:00 AM) and `24H` (07:00). `type="time"` inputs are always HH:MM; only display labels are affected. Stored as `Workspace.callTimeFormat`.
+
+**Bi-directional callTime sync** — when a call time is saved on either side, it propagates to the other via `contactId` match (fire-and-forget):
+- Teams page edit → pushes to matching crew/talent rows in all call sheets for this project
+- Call sheet save → pushes to matching `ProjectMember` row on the Teams page
+- Sync is **contactId-based only**. Rows without a Rolodex link (`contactId` absent) are not synced.
+
+**Call sheet → Teams page member upsert** — when a Rolodex-linked crew/talent row is saved with a name (`contactId` present), `syncSheetMembersToTeam` runs fire-and-forget:
+- If the project's Teams page has an unassigned placeholder for that role → fills it in (name, phone, email, callTime)
+- If no placeholder → creates a new `ProjectMember` row
+- Already-assigned members (matching `contactId`) are left alone (callTime handled by the sync above)
 
 **Rolodex linking** — crew and talent rows can be linked to Rolodex contacts:
 - Typing a name in the name field shows a **Rolodex typeahead** (brand-purple dropdown) filtered by the existing contacts directory. Selecting a suggestion auto-fills phone/email and stores a `contactId` on the row.
@@ -240,7 +263,11 @@ A persistent contact directory for the workspace — all crew, talent, and vendo
 - **Archive** — soft-delete hides a contact from the Rolodex while preserving their project history
 - **Import from call sheets** — scan all existing call sheets and bulk-import crew/talent into the Rolodex
 - **Merge duplicates** — find and merge duplicate contacts (matching on name similarity)
-- **Per-project team** (`/projects/[id]/team`) — assign Rolodex contacts to individual projects with optional role/rate overrides. **Seed from proposal** auto-populates from CREW line items in the latest won or sent proposal, with attribution banner showing which proposal was used.
+- **Per-project team** (`/projects/[id]/team`) — assign Rolodex contacts to individual projects with optional role/rate overrides. Displayed as a responsive card grid grouped by department.
+  - **Seed from proposal** — auto-populates on first load from CREW line items in the latest won or sent proposal (or workspace rate cards as a fallback). Attribution banner shows which proposal was used.
+  - **Card states** — PlaceholderCard (Unassigned position, dashed border), MemberCard (filled, shows avatar initials, role, rate, call time, email, phone), EditCard (inline full-width form with Rolodex name search).
+  - **Mismatch flag** (`mismatchFlag`) — when a new proposal is marked Won, any assigned member whose role is no longer in the proposal gets a red outline card with a "Not in latest won proposal" warning. Click **Confirm position** to dismiss (`dismissMismatch` action). Unassigned placeholders with orphaned roles are deleted automatically.
+  - **Call time sync** — call times on member cards sync bi-directionally with call sheet crew/talent rows via `contactId`. Latest edit wins; sync is fire-and-forget so neither side can fail the other's save.
 
 ### 6. Actuals tracker (`/projects/[id]/actuals`)
 
@@ -309,7 +336,10 @@ Both budgets and templates accept `.csv` or `.json` import files.
 ttp-budget/
 ├── prisma/
 │   ├── schema.prisma
-│   └── seed.ts                              # Populates GlobalRateCard + GlobalTemplate; preserves TTP workspace data
+│   ├── seed.ts                              # Populates GlobalRateCard + GlobalTemplate; preserves TTP workspace data
+│   └── migrations/                          # Manual SQL migration files (run in Neon SQL Editor)
+│       ├── 20260614000001_add_call_time_format/migration.sql
+│       └── 20260614000002_add_mismatch_flag/migration.sql
 ├── scripts/
 │   ├── backfill-callsheet-contacts.ts      # F6: link existing crew/talent rows to Rolodex contacts by name+email (--apply to write)
 │   ├── backfill-workspace-ids.ts           # A1: fill workspaceId on Phase/Account/LineItem/ProjectMember rows
@@ -420,24 +450,32 @@ ttp-budget/
 │   │   ├── totals.ts
 │   │   ├── importSchema.ts
 │   │   ├── invoice-numbering.ts
+│   │   ├── json-safe.ts                     # toJsonSafe() — replaces JSON.parse(JSON.stringify()); handles Decimal
+│   │   ├── time-format.ts                   # formatTime(hhmm, format) — "07:00" → "7:00 AM" or "07:00"; TimeFormat type
 │   │   └── email.ts
 │   └── server/
 │       └── actions/
 │           ├── budgets.ts                   # upsertLineItem accepts lineItemCategory override
 │           ├── call-sheets.ts               # CRUD + importCrewFromBudget + fetchLocationData
+│           │                                #   createCallSheet seeds crew from Teams page members (not rate cards)
+│           │                                #   updateCallSheet: syncSheetCallTimesToMembers (callTime→Teams) +
+│           │                                #                    syncSheetMembersToTeam (Rolodex-linked rows→Teams upsert)
 │           ├── import.ts
 │           ├── library.ts
-│           ├── proposals.ts                 # updateProposalStatus, markProposalWon, markProposalLost
+│           ├── proposals.ts                 # updateProposalStatus → reconcileTeamFromWonProposal on APPROVED
+│           │                                #   markProposalWon, markProposalLost
 │           ├── invoices.ts
 │           ├── rates.ts
 │           ├── templates.ts
 │           ├── clients.ts
 │           ├── projects.ts                  # archiveProject, unarchiveProject
 │           ├── project-members.ts           # seedTeamFromBudget (proposal-first), removeProjectMember
+│           │                                #   updateProjectMember: syncMemberCallTimeToCallSheets (callTime→sheets)
+│           │                                #   dismissMismatch — clears mismatchFlag on a team card
 │           ├── actuals.ts                   # CRUD actuals, getWrapReportData, ActualStatus (PENDING | APPROVED)
 │           ├── rolodex.ts                   # CRUD contacts, patchContactField, getContactById, getContactCallSheets, mergeContacts
 │           ├── team.ts                      # sendInvitation, acceptInvitation, removeMember
-│           └── workspace.ts
+│           └── workspace.ts                 # updateProductionSettings — saves callTimeFormat
 ├── .env.example
 ├── next.config.js
 ├── tailwind.config.ts
@@ -467,9 +505,11 @@ NEXT_PUBLIC_APP_URL="https://budget.thethirdplace.co"
 npm install
 npm run dev          # localhost:3000
 
-# After schema changes:
-npx prisma db push
-npx prisma generate
+# After schema changes (see Engineering Conventions above for full workflow):
+# 1. Edit prisma/schema.prisma
+# 2. Write migration SQL → prisma/migrations/<date>_<name>/migration.sql
+# 3. Run the SQL in Neon SQL Editor (console.neon.tech)
+# 4. Patch node_modules/.prisma/client/index.d.ts for TypeScript types
 
 # Populate global library (idempotent — safe to run multiple times):
 npm run db:seed
@@ -505,10 +545,15 @@ The webhook uses `svix` signature verification. Set `CLERK_WEBHOOK_SECRET` from 
 - **Return type:** all actions return `ActionResult<T>` — `{ success: true; data: T } | { success: false; error: string }`. Narrow with `'error' in result` (not `!result.success`) inside `startTransition` callbacks.
 - **Confirm dialogs:** never use `window.confirm()`. Use the `useConfirm()` hook from `src/components/ui/confirm-dialog.tsx`. Pass a stable `key` to enable per-dialog "Don't show again" suppression.
 - **ESLint:** the project does not include `@typescript-eslint` plugin. **Never** add `// eslint-disable-next-line @typescript-eslint/...` comments — they cause Vercel build failures. Use proper casts instead (`as unknown as T`).
-- **JSON fields:** all Prisma JSON field writes must go through `JSON.parse(JSON.stringify(value))` to avoid Decimal serialization issues.
+- **JSON fields:** all Prisma JSON field writes must go through `toJsonSafe(value)` from `src/lib/json-safe.ts` to avoid Decimal serialization issues. Never use raw `JSON.parse(JSON.stringify())` — `toJsonSafe` handles it and is searchable.
 - **Workspace switching:** use `window.location.href = '/dashboard'` after `setActive()` — not `router.refresh()`. `router.refresh()` can hit the Next.js route cache and serve stale auth context from the previous org.
 - **`router.refresh()`** syncs server-rendered data after mutations. For client state that needs to update immediately, update React state directly from the action's return value.
-- **Schema changes:** `prisma db push` (no migrations folder). Run locally; Vercel runs `prisma generate` on deploy.
+- **Schema changes:** we cannot run `prisma migrate dev` or `prisma generate` in Railway's build environment (binary download blocked). Workflow:
+  1. Edit `prisma/schema.prisma`.
+  2. Write the SQL by hand into `prisma/migrations/<date>_<name>/migration.sql`.
+  3. Run the SQL manually in **Neon's SQL Editor** (console.neon.tech → project → SQL Editor).
+  4. Patch `node_modules/.prisma/client/index.d.ts` with targeted `sed`/Python edits to add the new field to all relevant type interfaces (output types, select types, create/update input types). This keeps TypeScript happy without a full `prisma generate`.
+  5. Commit both `schema.prisma` and the migration file so the history is preserved.
 - **Quantity formula:** `quantityFormula = "AxB"` encodes headcount (A) × days (B). Use `parseQtyFormula()` from `money.ts` everywhere it's displayed. `fmtUnit(days, unit)` formats the unit column.
 - **Line item categories:** `lineItemCategory` is auto-derived from the linked rate card's category on insert. Users can override it in the line item modal. CREW-tagged items are importable to call sheets.
 - **Call sheet draft preview:** public `/cs/[token]` and `/p/[token]` both render for DRAFT status with a sticky amber banner. View analytics are skipped for drafts.

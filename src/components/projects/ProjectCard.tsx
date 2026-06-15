@@ -14,11 +14,8 @@ import { archiveProject, unarchiveProject } from '@/server/actions/projects'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import {
   type ProjectForCard,
-  computeProgress,
   statusLabel,
-  statusColor,
   statusBadgeStyle,
-  shootTypeLabel,
 } from './projects-types'
 
 interface Props {
@@ -26,10 +23,46 @@ interface Props {
   view?: 'grid' | 'list'
 }
 
+// ── Client avatar (initials in a deterministic colored circle) ─────────────────
+
+const AVATAR_COLORS = [
+  { bg: '#dbeafe', text: '#1d4ed8' }, // blue
+  { bg: '#fce7f3', text: '#be185d' }, // pink
+  { bg: '#d1fae5', text: '#065f46' }, // green
+  { bg: '#ede9fe', text: '#5b21b6' }, // purple
+  { bg: '#fef3c7', text: '#92400e' }, // amber
+  { bg: '#fee2e2', text: '#991b1b' }, // red
+  { bg: '#e0f2fe', text: '#0369a1' }, // sky
+  { bg: '#f3e8ff', text: '#6b21a8' }, // violet
+]
+
+function ClientAvatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md' }) {
+  const words    = name.trim().split(/\s+/)
+  const initials = words.length >= 2
+    ? (words[0][0] + words[words.length - 1][0]).toUpperCase()
+    : name.slice(0, 2).toUpperCase()
+
+  const idx = name.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0) % AVATAR_COLORS.length
+  const { bg, text } = AVATAR_COLORS[idx]
+
+  const sizeClass = size === 'sm'
+    ? 'w-7 h-7 text-xs'
+    : 'w-9 h-9 text-sm'
+
+  return (
+    <div
+      className={`${sizeClass} rounded-full flex items-center justify-center font-bold flex-shrink-0`}
+      style={{ background: bg, color: text }}
+      title={name}
+    >
+      {initials}
+    </div>
+  )
+}
+
 export function ProjectCard({ project, view = 'grid' }: Props) {
   const router    = useRouter()
   const { confirm, ConfirmDialog } = useConfirm()
-  const progress  = computeProgress(project)
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPos,  setMenuPos ] = useState<{ top: number; left: number } | null>(null)
   const [mounted,  setMounted ] = useState(false)
@@ -81,15 +114,22 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
   }
 
   // ── Derived data ─────────────────────────────────────────────────────────────
-  const approvedProposal  = project.proposals.find(p => p.status === 'APPROVED')
-  const approvedCents     = approvedProposal?.approvedTotalCents ?? null
-  const pendingInvoice    = project.invoices.find(i => ['SENT','VIEWED','OVERDUE'].includes(i.status))
-  const paidTotal         = project.invoices
+  const approvedProposal   = project.proposals.find(p => p.status === 'APPROVED')
+  const approvedCents      = approvedProposal?.approvedTotalCents ?? null
+  const latestSentProposal = project.proposals
+    .filter(p => ['SENT', 'VIEWED'].includes(p.status))
+    .sort((a, b) => {
+      const aTime = a.sentAt ? new Date(a.sentAt).getTime() : new Date(a.updatedAt).getTime()
+      const bTime = b.sentAt ? new Date(b.sentAt).getTime() : new Date(b.updatedAt).getTime()
+      return bTime - aTime
+    })[0]
+  const pendingInvoice     = project.invoices.find(i => ['SENT','VIEWED','OVERDUE'].includes(i.status))
+  const paidTotal          = project.invoices
     .filter(i => i.status === 'PAID')
     .reduce((s, i) => s + i.totalCents, 0)
-  const callSheetCount    = project.callSheets.length
-  const hasSentCallSheet  = project.callSheets.some(cs => cs.status === 'SENT' || cs.status === 'FINAL')
-  const shootDate         = project.shootStartDate ? new Date(project.shootStartDate) : null
+  const callSheetCount     = project.callSheets.length
+  const hasSentCallSheet   = project.callSheets.some(cs => cs.status === 'SENT' || cs.status === 'FINAL')
+  const shootDate          = project.shootStartDate ? new Date(project.shootStartDate) : null
 
   // Days until / since shoot
   let shootLabel: string | null = null
@@ -101,18 +141,14 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
   }
 
   const isArchived = project.status === 'ARCHIVED'
+  const isActive   = project.status === 'ACTIVE'
 
   if (view === 'list') {
     const listBadge = statusBadgeStyle(project.status)
     return (
       <div className="group relative bg-white border border-gray-100 rounded-xl px-4 py-3 flex items-center gap-4 hover:shadow-sm transition-all">
-        {/* Status badge */}
-        <span
-          className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
-          style={listBadge}
-        >
-          {statusLabel(project.status)}
-        </span>
+        {/* Client avatar */}
+        <ClientAvatar name={project.client.name} size="sm" />
 
         {/* Name + client */}
         <Link href={`/projects/${project.id}`} className="flex-1 min-w-0">
@@ -120,8 +156,15 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
             <span className="font-semibold text-gray-900 truncate">{project.name}</span>
             <span className="text-xs text-gray-400 truncate hidden sm:inline">{project.client.name}</span>
           </div>
-          <div className="text-xs text-gray-500 mt-0.5">{shootTypeLabel(project.shootType)}</div>
         </Link>
+
+        {/* Status badge */}
+        <span
+          className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
+          style={listBadge}
+        >
+          {statusLabel(project.status)}
+        </span>
 
         {/* Shoot date */}
         {shootDate && (
@@ -134,19 +177,17 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
           </div>
         )}
 
-        {/* Progress bar */}
-        <div className="hidden sm:block w-20 flex-shrink-0">
-          <ProgressBar progress={progress} />
-        </div>
-
         {/* Financial pill */}
         <div className="flex-shrink-0 text-right hidden lg:block w-24">
-          {approvedCents !== null
-            ? <span className="text-sm font-semibold text-gray-900">{formatMoney(approvedCents)}</span>
-            : paidTotal > 0
-            ? <span className="text-sm font-semibold text-emerald-600">{formatMoney(paidTotal)}</span>
-            : <span className="text-xs text-gray-400">—</span>
-          }
+          {paidTotal > 0 ? (
+            <span className="text-sm font-semibold text-emerald-600">{formatMoney(paidTotal)}</span>
+          ) : approvedCents !== null ? (
+            <span className="text-sm font-semibold text-gray-900">{formatMoney(approvedCents)}</span>
+          ) : latestSentProposal && project.budgetTotalCents > 0 ? (
+            <span className="text-sm text-gray-500">{formatMoney(project.budgetTotalCents)}</span>
+          ) : (
+            <span className="text-xs text-gray-400">—</span>
+          )}
         </div>
 
         {/* 3-dot menu */}
@@ -180,24 +221,18 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
 
   return (
     <div className="group relative bg-white border border-gray-100 rounded-2xl overflow-hidden hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
-      {/* Colour bar */}
-      <div
-        className="h-1 w-full"
-        style={{ background: statusColor(project.status) }}
-      />
+      {/* Thin colour bar at top (matches status badge colour) */}
+      <div className="h-1 w-full" style={{ background: badge.background }} />
 
       <div className="p-4">
-        {/* Top row: status pill + 3-dot */}
-        <div className="flex items-start justify-between gap-2 mb-3">
-          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-            <span
-              className="text-xs font-semibold px-2 py-0.5 rounded-full"
-              style={badge}
-            >
-              {statusLabel(project.status)}
-            </span>
-            <span className="text-xs text-gray-400">{shootTypeLabel(project.shootType)}</span>
-          </div>
+        {/* Top row: Avatar + Project name + 3-dot */}
+        <div className="flex items-center gap-2.5 mb-2">
+          <ClientAvatar name={project.client.name} />
+          <Link href={`/projects/${project.id}`} className="flex-1 min-w-0 group/link">
+            <h3 className="font-bold text-gray-900 text-sm leading-snug group-hover/link:text-[var(--brand-primary)] transition-colors line-clamp-2">
+              {project.name}
+            </h3>
+          </Link>
           <button
             ref={triggerRef}
             onClick={openMenu}
@@ -207,17 +242,20 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
           </button>
         </div>
 
-        {/* Project name + client */}
-        <Link href={`/projects/${project.id}`} className="block group/link">
-          <h3 className="font-bold text-gray-900 text-base leading-snug group-hover/link:text-[var(--brand-primary)] transition-colors line-clamp-2 mb-0.5">
-            {project.name}
-          </h3>
-          <p className="text-xs text-gray-400">{project.client.name}</p>
-        </Link>
+        {/* Client name (left) + Status pill (right) */}
+        <div className="flex items-center justify-between gap-2 mb-2.5">
+          <p className="text-xs text-gray-400 truncate">{project.client.name}</p>
+          <span
+            className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
+            style={badge}
+          >
+            {statusLabel(project.status)}
+          </span>
+        </div>
 
-        {/* Shoot date — prominent, right under the name */}
+        {/* Shoot date */}
         {shootDate ? (
-          <div className="flex items-center gap-1.5 mt-2.5 mb-3">
+          <div className="flex items-center gap-1.5 mb-2">
             <Calendar className="w-3.5 h-3.5 flex-shrink-0 text-gray-400" />
             <span className="text-xs font-medium text-gray-700">
               {shootDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
@@ -243,53 +281,47 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
             )}
           </div>
         ) : (
-          <div className="mt-2.5 mb-3">
+          <div className="mb-2">
             <span className="text-xs text-gray-300">No shoot date</span>
           </div>
         )}
 
-        {/* Progress */}
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs text-gray-400">Progress</span>
-            <span className="text-xs font-semibold text-gray-600">{progress}%</span>
-          </div>
-          <ProgressBar progress={progress} />
-        </div>
-
-        {/* Burn bar — only shown when actuals exist */}
-        {project.actualSpentCents > 0 && project.budgetTotalCents > 0 && (
-          <div className="mt-2">
-            <BurnBar spentCents={project.actualSpentCents} budgetCents={project.budgetTotalCents} />
-          </div>
+        {/* Burn bar — only for ACTIVE projects with actuals */}
+        {isActive && project.actualSpentCents > 0 && project.budgetTotalCents > 0 && (
+          <BurnBar spentCents={project.actualSpentCents} budgetCents={project.budgetTotalCents} />
         )}
       </div>
 
       {/* Bottom stats bar */}
       <div className="border-t border-gray-50 px-4 py-2.5 flex items-center justify-between bg-gray-50/50">
-        {/* Financial */}
+        {/* Financial — priority: paid → approved → invoiced → proposed → nothing */}
         <div className="text-xs">
-          {approvedCents !== null ? (
-            <div>
-              <span className="text-gray-400">Approved </span>
-              <span className="font-semibold text-gray-900">{formatMoney(approvedCents)}</span>
-            </div>
-          ) : paidTotal > 0 ? (
+          {paidTotal > 0 ? (
             <div>
               <span className="text-gray-400">Paid </span>
               <span className="font-semibold text-emerald-600">{formatMoney(paidTotal)}</span>
+            </div>
+          ) : approvedCents !== null ? (
+            <div>
+              <span className="text-gray-400">Approved </span>
+              <span className="font-semibold text-gray-900">{formatMoney(approvedCents)}</span>
             </div>
           ) : pendingInvoice ? (
             <div>
               <span className="text-gray-400">Invoiced </span>
               <span className="font-semibold text-amber-600">{formatMoney(pendingInvoice.totalCents)}</span>
             </div>
+          ) : latestSentProposal && project.budgetTotalCents > 0 ? (
+            <div>
+              <span className="text-gray-400">Proposed </span>
+              <span className="font-semibold text-gray-600">{formatMoney(project.budgetTotalCents)}</span>
+            </div>
           ) : (
             <span className="text-gray-300">No proposal</span>
           )}
         </div>
 
-        {/* Icons */}
+        {/* Doc icon counts */}
         <div className="flex items-center gap-2">
           <DocIcon
             icon={<FileText className="w-3.5 h-3.5" />}
@@ -329,27 +361,12 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-function ProgressBar({ progress }: { progress: number }) {
-  // Always brand-primary (purple) so the bar is visually consistent with
-  // the rest of the brand. Green only when the project is essentially done
-  // (paid invoice or wrapped) — a clear signal that no more action is needed.
-  const barColor = progress >= 85 ? '#10b981' : 'var(--brand-primary)'
-  return (
-    <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
-      <div
-        className="h-full rounded-full transition-all duration-500"
-        style={{ width: `${progress}%`, background: barColor }}
-      />
-    </div>
-  )
-}
-
 function BurnBar({ spentCents, budgetCents }: { spentCents: number; budgetCents: number }) {
-  const pct     = Math.min((spentCents / budgetCents) * 100, 100)
-  const over100 = spentCents > budgetCents
+  const pct      = Math.min((spentCents / budgetCents) * 100, 100)
+  const over100  = spentCents > budgetCents
   const barColor = over100 ? '#ef4444' : pct >= 80 ? '#f59e0b' : '#10b981'
   return (
-    <div>
+    <div className="mb-1">
       <div className="flex items-center justify-between mb-1">
         <span className="text-[10px] text-gray-400">Burn</span>
         <span className={`text-[10px] font-medium ${over100 ? 'text-red-500' : 'text-gray-500'}`}>
