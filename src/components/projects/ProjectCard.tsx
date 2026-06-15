@@ -131,6 +131,9 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
   const paidTotal          = project.invoices
     .filter(i => i.status === 'PAID')
     .reduce((s, i) => s + i.totalCents, 0)
+  const totalInvoicedCents = project.invoices
+    .filter(i => !['DRAFT', 'VOID'].includes(i.status))
+    .reduce((s, i) => s + i.totalCents, 0)
   const callSheetCount     = project.callSheets.length
   const hasSentCallSheet   = project.callSheets.some(cs => cs.status === 'SENT' || cs.status === 'FINAL')
   const shootDate          = project.shootStartDate ? new Date(project.shootStartDate) : null
@@ -182,11 +185,22 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
         )}
 
         {/* Financial pill */}
-        <div className="flex-shrink-0 text-right hidden lg:block w-24">
-          {paidTotal > 0 ? (
+        <div className="flex-shrink-0 text-right hidden lg:block w-28">
+          {isActive ? (
+            <div className="text-xs leading-snug">
+              <div>
+                <span className="text-gray-400">Appr </span>
+                <span className="font-semibold text-gray-900">{approvedCents !== null ? formatMoney(approvedCents) : '—'}</span>
+              </div>
+              <div>
+                <span className="text-gray-400">Inv </span>
+                <span className={`font-semibold ${totalInvoicedCents > 0 ? 'text-amber-600' : 'text-amber-400'}`}>
+                  {formatMoney(totalInvoicedCents)}
+                </span>
+              </div>
+            </div>
+          ) : paidTotal > 0 ? (
             <span className="text-sm font-semibold text-emerald-600">{formatMoney(paidTotal)}</span>
-          ) : approvedCents !== null ? (
-            <span className="text-sm font-semibold text-gray-900">{formatMoney(approvedCents)}</span>
           ) : latestSentProposal && project.budgetTotalCents > 0 ? (
             <span className="text-sm text-gray-500">{formatMoney(project.budgetTotalCents)}</span>
           ) : (
@@ -298,27 +312,45 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
 
       {/* Bottom stats bar */}
       <div className="border-t border-gray-50 px-4 py-2.5 flex items-center justify-between bg-gray-50/50">
-        {/* Financial — priority: paid → approved → invoiced → proposed → nothing */}
-        <div className="text-xs">
-          {paidTotal > 0 ? (
+        {/* Financial */}
+        <div className="text-xs flex flex-col gap-0.5">
+          {isActive ? (
+            <>
+              <div>
+                <span className="text-gray-400">Approved </span>
+                <span className="font-semibold text-gray-900">{approvedCents !== null ? formatMoney(approvedCents) : '—'}</span>
+              </div>
+              <div>
+                <span className="text-gray-400">Invoiced </span>
+                {totalInvoicedCents > 0 ? (
+                  <span className="font-semibold text-amber-600">{formatMoney(totalInvoicedCents)}</span>
+                ) : (
+                  <span className="font-semibold text-amber-400">$0</span>
+                )}
+              </div>
+            </>
+          ) : paidTotal > 0 ? (
             <div>
               <span className="text-gray-400">Paid </span>
               <span className="font-semibold text-emerald-600">{formatMoney(paidTotal)}</span>
             </div>
-          ) : approvedCents !== null ? (
-            <div>
-              <span className="text-gray-400">Approved </span>
-              <span className="font-semibold text-gray-900">{formatMoney(approvedCents)}</span>
-            </div>
+          ) : latestSentProposal && project.budgetTotalCents > 0 ? (
+            <>
+              <div>
+                <span className="text-gray-400">Proposed </span>
+                <span className="font-semibold text-gray-600">{formatMoney(project.budgetTotalCents)}</span>
+              </div>
+              {pendingInvoice && (
+                <div>
+                  <span className="text-gray-400">Invoiced </span>
+                  <span className="font-semibold text-amber-600">{formatMoney(pendingInvoice.totalCents)}</span>
+                </div>
+              )}
+            </>
           ) : pendingInvoice ? (
             <div>
               <span className="text-gray-400">Invoiced </span>
               <span className="font-semibold text-amber-600">{formatMoney(pendingInvoice.totalCents)}</span>
-            </div>
-          ) : latestSentProposal && project.budgetTotalCents > 0 ? (
-            <div>
-              <span className="text-gray-400">Proposed </span>
-              <span className="font-semibold text-gray-600">{formatMoney(project.budgetTotalCents)}</span>
             </div>
           ) : (
             <span className="text-gray-300">No proposal</span>
