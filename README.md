@@ -14,7 +14,7 @@ Inspired by Saturation.io but stripped down to the parts that matter for an agen
 | ORM          | Prisma (manual migration SQL in `prisma/migrations/`) |
 | Auth         | Clerk                                |
 | Email        | Resend                               |
-| File storage | Vercel Blob                          |
+| File storage | Cloudflare R2 (presigned URL upload) |
 | PDF          | @react-pdf/renderer                  |
 | Hosting      | Railway                              |
 
@@ -281,7 +281,7 @@ A persistent contact directory for the workspace — all crew, talent, and vendo
 
 - **Grid + list views** with search by name/role
 - **Role filter** — dropdown built from the union of existing contact primary roles + workspace CREW rate card roles
-- **Contact record** — name, primary role, secondary roles (tags), email, phone, Instagram, website, default rate + unit, avatar, equipment kit
+- **Contact record** — name, primary role, secondary roles (tags), email, phone, Instagram, website, default rate + unit, avatar (uploaded to R2), equipment kit
 - **Contact detail page** (`/rolodex/[id]`) — full info card, linked projects (via `ProjectMember`), and every call sheet the person appears on (scanned via `contactId` in crew/talent JSON). Edit button opens the existing `ContactModal`.
 - **Archive** — soft-delete hides a contact from the Rolodex while preserving their project history
 - **Import from call sheets** — scan all existing call sheets and bulk-import crew/talent into the Rolodex
@@ -306,7 +306,7 @@ Assign Rolodex contacts to individual projects with optional role/rate overrides
 - **Call time sync** — call times on member cards sync bi-directionally with call sheet crew/talent rows via `contactId`. Latest edit wins; sync is fire-and-forget so neither side can fail the other's save.
 - **Edit Rolodex contact from Team page** — on any `MemberCard` that is linked to a Rolodex contact (`contactId` set), clicking the **BookUser icon** fetches the contact's full record (`getContactForModal`) and opens `ContactModal` pre-populated — including kit settings — without leaving the project workspace. On save, `revalidatePath` is called on both `/projects/[id]/team` and `/rolodex` so both views update immediately.
 
-### 6. Projects dashboard metrics (`/projects`)
+### 6. Projects dashboard metrics (`/projects`)  
 
 The four KPI cards are computed server-side from the primary budget phase of each non-archived project using `calcBudgetTotals` (net subtotal + markup + tax = gross). All figures are **gross totals** — the same number a client sees on a proposal.
 
@@ -319,7 +319,28 @@ The four KPI cards are computed server-side from the primary budget phase of eac
 
 **Project card amounts** — the card footer shows financial info in priority order: Paid → Approved → Invoiced → Proposed. For WON projects, "Approved $X" uses `budgetTotalCents` (live gross from `calcBudgetTotals`) rather than the `approvedTotalCents` snapshot, which may have been stored as a net value at approval time.
 
-### 7. Actuals tracker (`/projects/[id]/actuals`)
+### 7. File uploads — Cloudflare R2 presigned URL pipeline
+
+All image uploads bypass the Next.js server entirely. The browser never holds raw credentials.
+
+**Upload flow:**
+1. User picks a file in `ImageUploader`. Client validates MIME type (JPEG / PNG / WebP) and size (≤ 2 MB) immediately.
+2. Browser calls `getPresignedUploadUrl()` (Server Action in `src/server/actions/upload.ts`). The server re-validates, generates a workspace-namespaced path (`folder/workspaceId-uuid.ext`), and issues a `PutObjectCommand` presigned URL that expires in **60 seconds**.
+3. Browser `PUT`s the binary directly to R2. Next.js never touches the file bytes.
+4. On success, `onUploadComplete(publicUrl)` fires with the permanent public URL for the caller to persist.
+
+**Preview strategy:** `ImageUploader` keeps the local `blob:` URL as the visual preview for the session — it's already rendered and doesn't depend on the R2 public URL being immediately accessible. The R2 URL is only persisted to the database.
+
+**Upload destinations:**
+
+| Folder | Use case | DB column |
+|--------|----------|-----------|
+| `avatars/` | Rolodex contact photos, user profile avatar | `Contact.avatarUrl`, `User.avatarUrl` |
+| `logos/` | Workspace branding | `Workspace.logoUrl`, `Workspace.logoDarkUrl` |
+
+**User avatar note:** `getCurrentUser()` in `src/lib/auth.ts` no longer overwrites `User.avatarUrl` with Clerk's `imageUrl` on every request — it only sets it during initial account creation. Once a custom R2 avatar is uploaded, it persists. Users can update their avatar in **Settings → My profile**.
+
+### 8. Actuals tracker (`/projects/[id]/actuals`)
 
 Post-production spend tracking per project.
 
@@ -481,7 +502,7 @@ ttp-budget/
 │   │   │   ├── RolodexClient.tsx            # Grid + list views, role filter, import, merge
 │   │   │   ├── ContactCard.tsx              # Card + amber kit badge (Briefcase icon) when hasKit = true
 │   │   │   ├── ContactDetailClient.tsx      # Edit button for /rolodex/[id] — opens ContactModal
-│   │   │   ├── ContactModal.tsx             # Create/edit contact; kit toggle → kitName + kitRateCents fields; accepts projectId for team-page revalidation
+│   │   │   ├── ContactModal.tsx             # Create/edit contact; avatar upload via ImageUploader; kit toggle → kitName + kitRateCents; accepts projectId for team-page revalidation
 │   │   │   ├── ImportFromCallSheetsModal.tsx
 │   │   │   └── MergeDuplicatesModal.tsx
 │   │   ├── team/
@@ -494,12 +515,17 @@ ttp-budget/
 │   │   │   └── PrintTrigger.tsx             # Client component: delays 800 ms then calls window.print() when ?print=1
 │   │   ├── settings/
 │   │   │   ├── DangerZone.tsx
-│   │   │   └── WorkspaceDataSection.tsx
+│   │   │   ├── WorkspaceDataSection.tsx
+│   │   │   └── SettingsForm.tsx              # Workspace tabs + "My profile" tab — avatar upload via ImageUploader
+│   │   ├── ui/
+│   │   │   └── ImageUploader.tsx            # Reusable circular avatar uploader; presigned PUT to R2; blob preview stays local
 │   │   └── invoice/
 │   ├── lib/
 │   │   ├── db.ts
 │   │   ├── db-scoped.ts                     # getScopedDb() — Prisma $extends() for row-level security
 │   │   ├── auth.ts                          # getCurrentUser, getWorkspaceId, getActiveWorkspace
+│   │   │                                    #   upsert no longer overwrites User.avatarUrl with Clerk imageUrl if already set
+│   │   ├── r2.ts                            # S3Client singleton for Cloudflare R2 (region: auto)
 │   │   ├── workspace-seeder.ts              # seedWorkspaceFromGlobals + reseedWorkspaceFromGlobals
 │   │   ├── money.ts                         # cents ↔ display, parseQtyFormula, fmtUnit
 │   │   ├── totals.ts                        # calcBudgetTotals(accounts, markupPct, taxPct) → { subtotalCents, markupCents, taxCents, grandTotalCents }
@@ -534,7 +560,9 @@ ttp-budget/
 │           │                                #   getContactForModal: lightweight fetch for team-page modal pre-fill
 │           │                                #   searchContacts: returns kit fields for LineItemModal typeahead
 │           ├── team.ts                      # sendInvitation, acceptInvitation, removeMember
+│           ├── upload.ts                    # getPresignedUploadUrl() — issues 60 s PutObjectCommand ticket to R2; never touches file bytes
 │           └── workspace.ts                 # updateProductionSettings — saves callTimeFormat
+│                                            #   updateUserAvatar(url) — persists R2 URL to User.avatarUrl in DB
 ├── .env.example
 ├── next.config.js
 ├── tailwind.config.ts
@@ -553,7 +581,15 @@ CLERK_WEBHOOK_SECRET=
 RESEND_API_KEY=
 RESEND_FROM_EMAIL="proposals@thethirdplace.co"
 
-BLOB_READ_WRITE_TOKEN=
+# Cloudflare R2 — get from Cloudflare dashboard → R2 → Manage R2 API tokens
+# Endpoint: https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+CLOUDFLARE_R2_ENDPOINT=
+CLOUDFLARE_R2_ACCESS_KEY_ID=
+CLOUDFLARE_R2_SECRET_ACCESS_KEY=
+CLOUDFLARE_R2_BUCKET_NAME=slatesuite
+# Public read URL for the bucket (custom domain or r2.dev subdomain)
+# Cloudflare dashboard → R2 → your bucket → Settings → Public access
+NEXT_PUBLIC_R2_PUBLIC_URL="https://assets.slatesuite.io"
 
 NEXT_PUBLIC_APP_URL="https://budget.thethirdplace.co"
 ```
@@ -652,4 +688,5 @@ Returns `429 Too Many Requests` with `Retry-After` and `X-RateLimit-*` headers. 
 - **Brand-safe badge contrast:** use `color-mix(in srgb, var(--brand-accent) 18%, white)` for tinted badge backgrounds instead of hardcoded colours. This adapts at browser render time to whatever brand colour the workspace sets.
 - **Project archiving:** `status = 'ARCHIVED'` + `archivedAt` timestamp. The projects list filters `status: { not: 'ARCHIVED' }` by default. Archived projects are accessible at `?archived=1`.
 - **Radix Select:** never pass `value=""` to `<SelectItem>`. Use a sentinel string like `"__none__"` and convert back to empty/null on `onValueChange`.
+- **File uploads:** always use the presigned URL pattern — call `getPresignedUploadUrl()` from `src/server/actions/upload.ts` to get a short-lived PUT ticket, then `fetch(uploadUrl, { method: 'PUT', body: file })` from the browser. Never stream file bytes through the Next.js server. Allowed MIME types: `image/jpeg`, `image/png`, `image/webp`. Max 2 MB. Paths are workspace-namespaced (`folder/workspaceId-uuid.ext`) — never use user-supplied filenames directly as R2 keys.
 - **Public tokens:** `publicToken` on Proposal, Invoice, and CallSheet must be UUID v4. Always call `generatePublicToken()` from `src/lib/secure-token.ts` at every `.create()` call site. Never use `cuid()`, `nanoid()`, or sequential IDs for public-facing tokens — the DB default is `gen_random_uuid()::text` but the app layer must also generate correctly in case the ORM layer is invoked without the DB default (e.g. raw `prisma.create` with explicit data).
