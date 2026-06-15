@@ -52,7 +52,7 @@ export function SlateSuiteHomepage() {
           <div className="hero-mockup">
             <div className="mockup-topbar">
               <div className="topbar-dots"><span></span><span></span><span></span></div>
-              <div className="topbar-url">slatesuite.com/projects</div>
+              <div className="topbar-url">slatesuite.io/projects</div>
             </div>
             <div className="mockup-layout">
               <div className="mockup-sidebar">
