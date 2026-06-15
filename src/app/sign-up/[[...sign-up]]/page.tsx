@@ -37,6 +37,7 @@ export default function SignUpPage() {
             Everything you need to pitch, produce, and get paid — in one place.
           </p>
 
+          <div style={{ maxWidth: '420px', width: '100%' }}>
           <SignUp appearance={{
             variables: {
               colorPrimary: '#5D00A4',
@@ -58,8 +59,9 @@ export default function SignUpPage() {
               headerSubtitle: { display: 'none' },
             },
           }} />
+          </div>
 
-          <p style={{ marginTop: '2rem', fontSize: '13px', color: '#9CA3AF', textAlign: 'center' }}>
+          <p style={{ marginTop: '2rem', fontSize: '13px', color: '#9CA3AF', textAlign: 'center', maxWidth: '420px', width: '100%' }}>
             Already have an account?{' '}
             <Link href="/sign-in" style={{ color: '#5D00A4', fontWeight: 500, textDecoration: 'none' }}>
               Sign in

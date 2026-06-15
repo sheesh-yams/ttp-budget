@@ -37,6 +37,7 @@ export default function SignInPage() {
             Get back to your creative business suite.
           </p>
 
+          <div style={{ maxWidth: '420px', width: '100%' }}>
           <SignIn appearance={{
             variables: {
               colorPrimary: '#5D00A4',
@@ -58,8 +59,9 @@ export default function SignInPage() {
               headerSubtitle: { display: 'none' },
             },
           }} />
+          </div>
 
-          <p style={{ marginTop: '2rem', fontSize: '13px', color: '#9CA3AF', textAlign: 'center' }}>
+          <p style={{ marginTop: '2rem', fontSize: '13px', color: '#9CA3AF', textAlign: 'center', maxWidth: '420px', width: '100%' }}>
             Don&apos;t have an account?{' '}
             <Link href="/sign-up" style={{ color: '#5D00A4', fontWeight: 500, textDecoration: 'none' }}>
               Get early access
