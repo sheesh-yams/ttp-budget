@@ -15,7 +15,13 @@ import {
   type ProjectMemberRow,
   type MemberFormData,
 } from '@/server/actions/project-members'
-import { searchContacts, type ContactSearchResult } from '@/server/actions/rolodex'
+import {
+  searchContacts,
+  getContactForModal,
+  type ContactSearchResult,
+  type ContactForModal,
+} from '@/server/actions/rolodex'
+import { ContactModal } from '@/components/rolodex/ContactModal'
 import { AddMemberModal } from './AddMemberModal'
 import { formatTime, type TimeFormat } from '@/lib/time-format'
 
@@ -318,9 +324,11 @@ function MemberCard({
   onRemoved:            () => void
   onMismatchDismissed?: (id: string) => void
 }) {
-  const [removing,    startRemove]   = useTransition()
-  const [dismissing,  startDismiss]  = useTransition()
-  const { confirm, ConfirmDialog }   = useConfirm()
+  const [removing,        startRemove]    = useTransition()
+  const [dismissing,      startDismiss]   = useTransition()
+  const [loadingContact,  setLoadingContact] = useState(false)
+  const [contactData,     setContactData]    = useState<ContactForModal | null>(null)
+  const { confirm, ConfirmDialog } = useConfirm()
 
   const isMismatch = (member as ProjectMemberRow & { mismatchFlag?: boolean }).mismatchFlag
 
@@ -343,9 +351,27 @@ function MemberCard({
     })
   }
 
+  async function handleEditRolodexContact() {
+    if (!member.contactId) return
+    setLoadingContact(true)
+    const data = await getContactForModal(member.contactId)
+    setLoadingContact(false)
+    if (data) setContactData(data)
+  }
+
   return (
     <>
       {ConfirmDialog}
+
+      {/* Rolodex contact modal — opened from the Rolodex badge */}
+      {contactData && (
+        <ContactModal
+          contact={contactData}
+          projectId={projectId}
+          onClose={() => setContactData(null)}
+        />
+      )}
+
       <div className={`group relative flex flex-col rounded-xl border p-4 transition-shadow hover:shadow-sm ${
         isMismatch
           ? 'border-red-400 bg-red-50/40 dark:bg-red-950/20'
@@ -367,7 +393,7 @@ function MemberCard({
         <div className="absolute right-2.5 top-2.5 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
           <button
             onClick={onEdit}
-            title="Edit"
+            title="Edit position"
             className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             <Edit2 className="h-3.5 w-3.5" />
@@ -386,13 +412,18 @@ function MemberCard({
         <div className="mb-3 flex items-center gap-2">
           <Initials name={member.name} />
           {member.contactId && (
-            <Link
-              href="/rolodex"
-              title="In Rolodex"
-              className="rounded-full bg-primary/10 p-1 text-primary hover:bg-primary/20 transition-colors"
+            // Clicking opens the Rolodex contact modal directly — no page navigation needed.
+            <button
+              onClick={handleEditRolodexContact}
+              disabled={loadingContact}
+              title="Edit Rolodex contact"
+              className="rounded-full bg-primary/10 p-1 text-primary hover:bg-primary/20 transition-colors disabled:opacity-40"
             >
-              <BookUser className="h-3 w-3" />
-            </Link>
+              {loadingContact
+                ? <span className="flex h-3 w-3 items-center justify-center text-[8px] leading-none">…</span>
+                : <BookUser className="h-3 w-3" />
+              }
+            </button>
           )}
         </div>
 

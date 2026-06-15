@@ -21,6 +21,11 @@ const contactSchema = z.object({
   avatarUrl:       z.string().optional().nullable(),
   defaultRateCents: z.number().int().min(0).optional().nullable(),
   defaultRateUnit: z.enum(['HOUR', 'HALF_DAY', 'DAY', 'WEEK', 'FLAT', 'EACH', 'MILE']).default('DAY'),
+  // Equipment kit — auto-inserts a companion EQUIPMENT line item when this
+  // contact is assigned as CREW on a budget.
+  hasKit:       z.boolean().default(false),
+  kitRateCents: z.number().int().min(0).optional().nullable(),
+  kitName:      z.string().max(200).optional().nullable(),
 })
 
 export type ContactFormData = z.infer<typeof contactSchema>
@@ -45,6 +50,9 @@ export async function getContacts() {
       avatarUrl:        true,
       defaultRateCents: true,
       defaultRateUnit:  true,
+      hasKit:           true,
+      kitRateCents:     true,
+      kitName:          true,
       createdAt:        true,
       // count of projects via ProjectMember
       projectMembers: {
@@ -132,7 +140,10 @@ export async function createContact(
 
 export async function updateContact(
   id: string,
-  input: ContactFormData
+  input: ContactFormData,
+  // When called from the Team page, pass the projectId so we revalidate
+  // /projects/[id]/team immediately after kit changes are saved.
+  projectId?: string,
 ): Promise<ActionResult<{ id: string }>> {
   try {
     const db   = await getScopedDb()
@@ -146,6 +157,10 @@ export async function updateContact(
     })
     revalidatePath('/rolodex')
     revalidatePath(`/rolodex/${id}`)
+    if (projectId) {
+      revalidatePath(`/projects/${projectId}/team`)
+      revalidatePath(`/projects/${projectId}`)
+    }
     return { success: true, data: { id } }
   } catch {
     return { success: false, error: 'Failed to update contact' }
@@ -353,6 +368,9 @@ export async function getContactById(id: string) {
       avatarUrl:        true,
       defaultRateCents: true,
       defaultRateUnit:  true,
+      hasKit:           true,
+      kitRateCents:     true,
+      kitName:          true,
       createdAt:        true,
       projectMembers: {
         select: {
@@ -374,6 +392,34 @@ export async function getContactById(id: string) {
 }
 
 export type ContactDetail = NonNullable<Awaited<ReturnType<typeof getContactById>>>
+
+// Lightweight fetch — just the fields ContactModal needs for pre-population.
+// Used by the Team page to open the shared modal without navigating to /rolodex.
+export async function getContactForModal(id: string) {
+  const sdb = await getScopedDb()
+  return sdb.contact.findFirst({
+    where: { id },
+    select: {
+      id:               true,
+      name:             true,
+      primaryRole:      true,
+      secondaryRoles:   true,
+      email:            true,
+      phone:            true,
+      instagram:        true,
+      website:          true,
+      notes:            true,
+      avatarUrl:        true,
+      defaultRateCents: true,
+      defaultRateUnit:  true,
+      hasKit:           true,
+      kitRateCents:     true,
+      kitName:          true,
+    },
+  })
+}
+
+export type ContactForModal = NonNullable<Awaited<ReturnType<typeof getContactForModal>>>
 
 // Patch a single phone or email field on a contact — used by call sheet editors
 // when crew/talent rows are linked to a Rolodex contact.

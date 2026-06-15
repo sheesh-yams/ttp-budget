@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useTransition, useRef, useEffect } from 'react'
-import { X, Plus } from 'lucide-react'
-import { createContact, updateContact, type ContactFormData, type ContactRow } from '@/server/actions/rolodex'
+import { X, Briefcase } from 'lucide-react'
+import { createContact, updateContact, type ContactFormData } from '@/server/actions/rolodex'
 
 const RATE_UNITS = [
   { value: 'HOUR',     label: 'per hour' },
@@ -12,34 +12,63 @@ const RATE_UNITS = [
   { value: 'FLAT',     label: 'flat' },
 ]
 
-interface Props {
-  contact?: ContactRow | null  // null = create mode
-  crewRoles?: string[]         // CREW rate card roles for primaryRole suggestions
-  onClose: () => void
-  onSaved?: (id: string) => void
+// Accepts both ContactRow (from the Rolodex list) and ContactForModal
+// (from getContactForModal), so the Team page can open this modal without
+// loading the full project-history-enriched ContactDetail.
+export interface ContactModalContact {
+  id:               string
+  name:             string
+  primaryRole:      string
+  secondaryRoles:   unknown
+  email:            string | null
+  phone:            string | null
+  instagram:        string | null
+  website:          string | null
+  notes:            string | null
+  avatarUrl:        string | null
+  defaultRateCents: number | null
+  defaultRateUnit:  string
+  hasKit?:          boolean
+  kitRateCents?:    number | null
+  kitName?:         string | null
 }
 
-export function ContactModal({ contact, crewRoles = [], onClose, onSaved }: Props) {
+interface Props {
+  contact?:   ContactModalContact | null  // null / undefined = create mode
+  crewRoles?: string[]                    // CREW rate card roles for suggestions
+  projectId?: string                      // if set, revalidates project team on save
+  onClose:    () => void
+  onSaved?:   (id: string) => void
+}
+
+export function ContactModal({ contact, crewRoles = [], projectId, onClose, onSaved }: Props) {
   const isEdit = !!contact
   const [isPending, startTransition] = useTransition()
-  const [error, setError]   = useState('')
+  const [error, setError] = useState('')
 
-  // Form state
-  const [name,         setName]         = useState(contact?.name         ?? '')
-  const [primaryRole,  setPrimaryRole]  = useState(contact?.primaryRole  ?? '')
-  const [email,        setEmail]        = useState(contact?.email        ?? '')
-  const [phone,        setPhone]        = useState(contact?.phone        ?? '')
-  const [instagram,    setInstagram]    = useState(contact?.instagram    ?? '')
-  const [website,      setWebsite]      = useState(contact?.website      ?? '')
-  const [notes,        setNotes]        = useState(contact?.notes        ?? '')
-  const [rateCents,    setRateCents]    = useState(
+  // ── Core fields ──────────────────────────────────────────────────────────────
+  const [name,        setName]        = useState(contact?.name        ?? '')
+  const [primaryRole, setPrimaryRole] = useState(contact?.primaryRole ?? '')
+  const [email,       setEmail]       = useState(contact?.email       ?? '')
+  const [phone,       setPhone]       = useState(contact?.phone       ?? '')
+  const [instagram,   setInstagram]   = useState(contact?.instagram   ?? '')
+  const [website,     setWebsite]     = useState(contact?.website     ?? '')
+  const [notes,       setNotes]       = useState(contact?.notes       ?? '')
+  const [rateDollars, setRateDollars] = useState(
     contact?.defaultRateCents != null ? String(contact.defaultRateCents / 100) : ''
   )
   const [rateUnit, setRateUnit] = useState<ContactFormData['defaultRateUnit']>(
     (contact?.defaultRateUnit as ContactFormData['defaultRateUnit']) ?? 'DAY'
   )
 
-  // Secondary roles — chip input
+  // ── Kit fields ───────────────────────────────────────────────────────────────
+  const [hasKit,         setHasKit]         = useState(contact?.hasKit         ?? false)
+  const [kitName,        setKitName]        = useState(contact?.kitName        ?? '')
+  const [kitRateDollars, setKitRateDollars] = useState(
+    contact?.kitRateCents != null ? String(contact.kitRateCents / 100) : ''
+  )
+
+  // ── Secondary roles — chip input ──────────────────────────────────────────
   const [secondaryRoles, setSecondaryRoles] = useState<string[]>(
     Array.isArray(contact?.secondaryRoles) ? contact.secondaryRoles as string[] : []
   )
@@ -95,14 +124,19 @@ export function ContactModal({ contact, crewRoles = [], onClose, onSaved }: Prop
       website:          website.trim() || null,
       notes:            notes.trim() || null,
       avatarUrl:        null,
-      defaultRateCents: rateCents.trim() ? Math.round(parseFloat(rateCents) * 100) : null,
+      defaultRateCents: rateDollars.trim() ? Math.round(parseFloat(rateDollars) * 100) : null,
       defaultRateUnit:  rateUnit,
+      hasKit,
+      kitRateCents: hasKit && kitRateDollars.trim()
+        ? Math.round(parseFloat(kitRateDollars) * 100)
+        : null,
+      kitName: hasKit && kitName.trim() ? kitName.trim() : null,
     }
 
     setError('')
     startTransition(async () => {
       const result = isEdit
-        ? await updateContact(contact.id, payload)
+        ? await updateContact(contact.id, payload, projectId)
         : await createContact(payload)
       if (result.success) {
         onSaved?.(result.data.id)
@@ -267,8 +301,8 @@ export function ContactModal({ contact, crewRoles = [], onClose, onSaved }: Prop
                 <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">$</span>
                 <input
                   type="number"
-                  value={rateCents}
-                  onChange={e => setRateCents(e.target.value)}
+                  value={rateDollars}
+                  onChange={e => setRateDollars(e.target.value)}
                   placeholder="0.00"
                   min="0"
                   step="0.01"
@@ -285,6 +319,71 @@ export function ContactModal({ contact, crewRoles = [], onClose, onSaved }: Prop
                 ))}
               </select>
             </div>
+          </div>
+
+          {/* Equipment kit */}
+          <div>
+            <label className="mb-2 flex cursor-pointer items-center gap-2.5">
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  checked={hasKit}
+                  onChange={e => setHasKit(e.target.checked)}
+                  className="peer sr-only"
+                />
+                <div className="h-4 w-4 rounded border border-border bg-background transition-colors peer-checked:border-primary peer-checked:bg-primary" />
+                {hasKit && (
+                  <svg
+                    className="pointer-events-none absolute inset-0 m-auto h-3 w-3 text-primary-foreground"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                  >
+                    <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+              </div>
+              <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <Briefcase className="h-3.5 w-3.5" />
+                Has Equipment Kit
+              </span>
+            </label>
+
+            {hasKit && (
+              <div className="mt-2 grid grid-cols-2 gap-3 rounded-lg border border-dashed border-primary/25 bg-primary/[0.03] p-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Kit name
+                  </label>
+                  <input
+                    type="text"
+                    value={kitName}
+                    onChange={e => setKitName(e.target.value)}
+                    placeholder="Sony FX3 Package"
+                    className="w-full rounded-lg border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-primary/40"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Kit day rate
+                  </label>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">$</span>
+                    <input
+                      type="number"
+                      value={kitRateDollars}
+                      onChange={e => setKitRateDollars(e.target.value)}
+                      placeholder="0.00"
+                      min="0"
+                      step="0.01"
+                      className="w-full rounded-lg border bg-background pl-7 pr-3 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-primary/40"
+                    />
+                  </div>
+                </div>
+                <p className="col-span-2 text-[11px] text-muted-foreground/70">
+                  When this person is assigned as CREW on a budget, an Equipment line item for their kit will be auto-inserted below their row.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Notes */}

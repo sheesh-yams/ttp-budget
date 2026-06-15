@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Mail, Phone, Instagram, Globe, Edit2, Archive, ExternalLink } from 'lucide-react'
+import { Mail, Phone, Instagram, Globe, Edit2, Archive, ExternalLink, Briefcase } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { archiveContact, type ContactRow } from '@/server/actions/rolodex'
 import { ContactModal } from './ContactModal'
@@ -163,6 +163,23 @@ export function ContactCard({ contact, crewRoles = [], onArchived }: Props) {
                 <span className="truncate">{contact.website}</span>
               </a>
             )}
+          </div>
+        )}
+
+        {/* Kit badge */}
+        {contact.hasKit && (
+          <div className="border-t px-5 py-2">
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400">
+              <Briefcase className="h-3 w-3 flex-shrink-0" />
+              <span className="truncate max-w-[140px]">
+                {contact.kitName ?? 'Equipment Kit'}
+              </span>
+              {contact.kitRateCents != null && (
+                <span className="text-amber-500 dark:text-amber-500">
+                  · {formatMoney(contact.kitRateCents)}/day
+                </span>
+              )}
+            </div>
           </div>
         )}
 
