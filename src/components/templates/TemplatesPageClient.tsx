@@ -3,7 +3,8 @@
 import { useState, useTransition, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Plus, Trash2, LayoutGrid, Package, ArrowRight, Upload, FileUp, CheckCircle2 } from 'lucide-react'
+import { Plus, Trash2, LayoutGrid, Package, ArrowRight, Upload, FileUp, CheckCircle2, FileText, Receipt } from 'lucide-react'
+import { ProposalTemplatePreview, type ProposalBranding } from '@/components/proposals/ProposalTemplatePreview'
 import { format } from 'date-fns'
 import type { BudgetTemplate, ShootType } from '@prisma/client'
 import { Button } from '@/components/ui/button'
@@ -524,11 +525,17 @@ function TemplateCard({
 
 // ─── Tab ──────────────────────────────────────────────────────────────────────
 
-type Tab = 'FULL' | 'PACKAGE'
+type Tab = 'FULL' | 'PACKAGE' | 'PROPOSALS' | 'INVOICES'
 
 // ─── Main page client ─────────────────────────────────────────────────────────
 
-export function TemplatesPageClient({ templates: rawTemplates }: { templates: BudgetTemplate[] }) {
+export function TemplatesPageClient({
+  templates: rawTemplates,
+  branding,
+}: {
+  templates: BudgetTemplate[]
+  branding: ProposalBranding
+}) {
   const templates = rawTemplates as unknown as BudgetTemplateExtended[]
   const [activeTab,   setActiveTab]   = useState<Tab>('FULL')
   const [showCreate,  setShowCreate]  = useState(false)
@@ -537,36 +544,42 @@ export function TemplatesPageClient({ templates: rawTemplates }: { templates: Bu
 
   const full     = templates.filter(t => (t.kind ?? 'FULL') === 'FULL')
   const packages = templates.filter(t => t.kind === 'PACKAGE')
-  const visible  = activeTab === 'FULL' ? full : packages
+  const visible  = activeTab === 'PACKAGE' ? packages : full
+  const isLibraryTab = activeTab === 'FULL' || activeTab === 'PACKAGE'
+  const modalKind: TemplateKind = activeTab === 'PACKAGE' ? 'PACKAGE' : 'FULL'
 
   return (
     <>
       {/* ── Header ── */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">Templates</h1>
+          <h1 className="text-2xl font-semibold text-foreground">Document Hub</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Full templates seed a new project&apos;s budget. Add-on packages are building blocks you can insert into any budget.
+            Reusable budgets and packages, plus branded proposal &amp; invoice templates.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setShowImport(true)}>
-            <Upload className="mr-2 h-4 w-4" />
-            Import
-          </Button>
-          <Button onClick={() => setShowCreate(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            New template
-          </Button>
-        </div>
+        {isLibraryTab && (
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setShowImport(true)}>
+              <Upload className="mr-2 h-4 w-4" />
+              Import
+            </Button>
+            <Button onClick={() => setShowCreate(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              New {activeTab === 'PACKAGE' ? 'package' : 'budget'}
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* ── Tabs ── */}
       <div className="flex gap-1 border-b border-border">
         {([
-          { id: 'FULL',    label: 'Full templates',  Icon: LayoutGrid, count: full.length },
-          { id: 'PACKAGE', label: 'Add-on packages', Icon: Package,    count: packages.length },
-        ] as { id: Tab; label: string; Icon: React.ElementType; count: number }[]).map(tab => (
+          { id: 'FULL',      label: 'Budgets',         Icon: LayoutGrid, count: full.length },
+          { id: 'PACKAGE',   label: 'Add-on Packages', Icon: Package,    count: packages.length },
+          { id: 'PROPOSALS', label: 'Proposals',       Icon: FileText,   count: null },
+          { id: 'INVOICES',  label: 'Invoices',        Icon: Receipt,    count: null },
+        ] as { id: Tab; label: string; Icon: React.ElementType; count: number | null }[]).map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
@@ -578,16 +591,47 @@ export function TemplatesPageClient({ templates: rawTemplates }: { templates: Bu
           >
             <tab.Icon className="h-4 w-4" />
             {tab.label}
-            <span className={`rounded-full px-1.5 py-0.5 text-[11px] font-medium ${
-              activeTab === tab.id ? 'bg-violet-100 text-violet-700' : 'bg-muted text-muted-foreground'
-            }`}>
-              {tab.count}
-            </span>
+            {tab.count !== null && (
+              <span className={`rounded-full px-1.5 py-0.5 text-[11px] font-medium ${
+                activeTab === tab.id ? 'bg-violet-100 text-violet-700' : 'bg-muted text-muted-foreground'
+              }`}>
+                {tab.count}
+              </span>
+            )}
           </button>
         ))}
       </div>
 
-      {/* ── Context hint ── */}
+      {/* ── Proposals tab — branded preview ── */}
+      {activeTab === 'PROPOSALS' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-[12px] text-muted-foreground">
+              Live preview — uses your workspace logo and brand color.{' '}
+              <Link href="/settings" className="font-medium text-violet-600 hover:underline">
+                Edit branding →
+              </Link>
+            </p>
+          </div>
+          <ProposalTemplatePreview branding={branding} />
+        </div>
+      )}
+
+      {/* ── Invoices tab — coming soon ── */}
+      {activeTab === 'INVOICES' && (
+        <div className="flex flex-col items-center gap-3 py-20 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
+            <Receipt className="h-6 w-6 text-muted-foreground" />
+          </div>
+          <p className="text-sm font-medium text-foreground">Invoice templates are coming soon</p>
+          <p className="max-w-sm text-sm text-muted-foreground">
+            Branded, customizable invoice layouts will live here — sharing the same logo and brand
+            color you set in workspace settings.
+          </p>
+        </div>
+      )}
+
+      {/* ── Context hint (library tabs only) ── */}
       {activeTab === 'FULL' && (
         <p className="text-[12px] text-muted-foreground -mt-1">
           These are selected when creating a new project and pre-populate the entire budget structure.
@@ -599,8 +643,8 @@ export function TemplatesPageClient({ templates: rawTemplates }: { templates: Bu
         </p>
       )}
 
-      {/* ── Grid ── */}
-      {visible.length === 0 ? (
+      {/* ── Grid (library tabs only) ── */}
+      {isLibraryTab && (visible.length === 0 ? (
         <div className="flex flex-col items-center gap-3 py-16 text-center">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
             {activeTab === 'FULL'
@@ -654,18 +698,18 @@ export function TemplatesPageClient({ templates: rawTemplates }: { templates: Bu
             <span className="text-[13px] font-medium">Import from file</span>
           </button>
         </div>
-      )}
+      ))}
 
       {/* ── Modals ── */}
       <CreateModal
         open={showCreate}
         onOpenChange={setShowCreate}
-        defaultKind={activeTab}
+        defaultKind={modalKind}
       />
       <ImportTemplateModal
         open={showImport}
         onOpenChange={setShowImport}
-        defaultKind={activeTab}
+        defaultKind={modalKind}
       />
       <DeleteModal
         template={deleting}
