@@ -1,7 +1,6 @@
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { ClientsPageClient } from '@/components/clients/ClientsPageClient'
-import { sumAccount, type AccountInput } from '@/lib/totals'
 
 export const metadata = { title: 'Clients — TTP Budget' }
 
@@ -14,65 +13,69 @@ export default async function ClientsPage() {
     include: {
       projects: {
         where: { archivedAt: null },
-        orderBy: { createdAt: 'desc' },
-        include: {
-          budgets: {
-            orderBy: { createdAt: 'asc' },
-            take: 1,
-            include: {
-              phases: {
-                where: { isPrimary: true },
-                take: 1,
-                include: {
-                  accounts: {
-                    where: { parentId: null },
-                    include: {
-                      lineItems: true,
-                      children: { include: { lineItems: true } },
-                    },
-                  },
-                },
-              },
+        orderBy: { updatedAt: 'desc' },
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          updatedAt: true,
+          invoices: {
+            select: {
+              totalCents: true,
+              status: true,
+              updatedAt: true,
             },
-          },
-          proposals: {
-            select: { id: true, status: true },
           },
         },
       },
-      _count: { select: { invoices: true } },
     },
   })
 
-  // Compute per-client totals server-side
+  const PAID_STATUSES       = new Set(['PAID'])
+  const OUTSTANDING_STATUSES = new Set(['SENT', 'VIEWED', 'OVERDUE'])
+
   const enriched = clients.map(client => {
-    let totalBudgetCents = 0
+    let ltvCents         = 0
+    let outstandingCents = 0
     let activeProjects   = 0
+    let lastEngagementAt: Date | null = null
 
     for (const project of client.projects) {
       if (project.status === 'ACTIVE') activeProjects++
-      const phase = project.budgets[0]?.phases[0]
-      if (phase) {
-        totalBudgetCents += phase.accounts.reduce(
-          (sum, acc) => sum + sumAccount(acc as unknown as AccountInput),
-          0
-        )
+
+      for (const inv of project.invoices) {
+        if (PAID_STATUSES.has(inv.status))       ltvCents         += inv.totalCents
+        if (OUTSTANDING_STATUSES.has(inv.status)) outstandingCents += inv.totalCents
+
+        // Track most recent invoice activity as the "last engagement" signal
+        if (!lastEngagementAt || inv.updatedAt > lastEngagementAt) {
+          lastEngagementAt = inv.updatedAt
+        }
+      }
+
+      // Fall back to project update time if no invoices
+      if (!lastEngagementAt || project.updatedAt > lastEngagementAt) {
+        lastEngagementAt = project.updatedAt
       }
     }
 
     return {
       id:               client.id,
       name:             client.name,
+      logoUrl:          client.logoUrl,
       contactName:      client.contactName,
       contactEmail:     client.contactEmail,
       contactPhone:     client.contactPhone,
+      website:          (client as unknown as { website: string | null }).website,
       notes:            client.notes,
+      specialNotes:     (client as unknown as { specialNotes: string | null }).specialNotes,
       createdAt:        client.createdAt.toISOString(),
       projectCount:     client.projects.length,
       activeProjects,
-      totalBudgetCents,
-      invoiceCount:     client._count.invoices,
-      recentProjectName: client.projects[0]?.name ?? null,
+      ltvCents,
+      outstandingCents,
+      lastEngagementAt: lastEngagementAt?.toISOString() ?? null,
+      recentProjectName:   client.projects[0]?.name   ?? null,
       recentProjectStatus: client.projects[0]?.status ?? null,
     }
   })
