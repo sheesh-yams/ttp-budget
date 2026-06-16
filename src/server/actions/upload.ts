@@ -16,7 +16,7 @@ const MIME_TO_EXT: Record<string, string> = {
   'image/webp': 'webp',
 }
 
-type UploadFolder = 'avatars' | 'logos'
+type UploadFolder = 'avatars' | 'logos' | 'client-logos'
 
 /**
  * Issue a short-lived (60 s) presigned PUT URL so the browser can upload
@@ -47,8 +47,9 @@ export async function getPresignedUploadUrl(
     }
 
     // ── Build a collision-safe, correctly-scoped path ─────────────────────────
-    // avatars/ → user-scoped (userId): a user is the same person across workspaces.
-    // logos/   → workspace-scoped (workspaceId): branding belongs to the workspace.
+    // avatars/       → user-scoped (userId): a user is the same person across workspaces.
+    // logos/         → workspace-scoped (workspaceId): branding belongs to the workspace.
+    // client-logos/  → workspace-scoped prefix; client-specific id is in the filename.
     const ext    = MIME_TO_EXT[contentType]
     const uuid   = generatePublicToken()           // crypto.randomUUID() UUID v4
     const prefix = folder === 'avatars' ? user.id : workspaceId

@@ -134,6 +134,8 @@ model Client {
   contactPhone   String?
   billingAddress String?  @db.Text
   logoUrl        String?  // optional, for co-branded proposals
+  website        String?
+  specialNotes   String?  @db.Text  // high-priority account callouts shown on the CRM card
   notes          String?  @db.Text
 
   archivedAt     DateTime?
