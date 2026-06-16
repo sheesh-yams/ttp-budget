@@ -199,7 +199,7 @@ export function FloatingBulkActionBar({ selectedIds, phaseId, onClear, onMutated
       </div>
 
       {/* ── Group into Account dialog ──────────────────────────────────────── */}
-      <Dialog open={groupOpen} onOpenChange={v => { setGroupOpen(v); if (!v) setGroupName('') }}>
+      <Dialog open={groupOpen} onOpenChange={v => { setGroupOpen(v); if (!v) setGroupName('') }} modal={false}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle>Group into new account</DialogTitle>
