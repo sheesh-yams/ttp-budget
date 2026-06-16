@@ -40,8 +40,8 @@ model Workspace {
   // Branding (used by proposal/invoice templates)
   logoUrl           String?  // light bg version
   logoDarkUrl       String?  // dark bg version
-  primaryColor      String   @default("#000000")
-  accentColor       String   @default("#FFD400") // placeholder — yr brand acid yellow
+  primaryColor      String   @default("#5D00A4") // SlateSuite brand purple
+  accentColor       String   @default("#04FFCC") // SlateSuite brand mint
   bodyFont          String   @default("Inter")
   displayFont       String   @default("Inter")
 

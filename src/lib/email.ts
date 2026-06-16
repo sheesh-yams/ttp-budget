@@ -60,6 +60,10 @@ interface InvoiceSentPayload {
   amountCents: number
   dueDate: Date
   invoiceUrl: string
+  /** Per-workspace branding — falls back to the SlateSuite palette when null. */
+  workspaceName?: string | null
+  brandPrimary?: string | null
+  brandAccent?: string | null
 }
 
 interface InvitationPayload {
@@ -142,6 +146,9 @@ export async function sendInvitationEmail(payload: InvitationPayload) {
 
 export async function sendInvoiceEmail(payload: InvoiceSentPayload) {
   const { to, subject, customMessage, invoiceNumber, projectName, amountCents, dueDate, invoiceUrl } = payload
+  const primary   = payload.brandPrimary || '#5D00A4'
+  const accent    = payload.brandAccent  || '#04FFCC'
+  const brandName = payload.workspaceName || 'The Third Place Creative'
   const amount = new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
@@ -173,13 +180,13 @@ export async function sendInvoiceEmail(payload: InvoiceSentPayload) {
         <!-- Header -->
         <tr>
           <td style="background:#0A0612;padding:28px 36px;display:flex;align-items:center;justify-content:space-between">
-            <p style="margin:0;font-size:13px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#04FFCC">The Third Place Creative</p>
+            <p style="margin:0;font-size:13px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:${accent}">${brandName}</p>
           </td>
         </tr>
 
         <!-- Invoice badge -->
         <tr>
-          <td style="background:#5D00A4;padding:12px 36px">
+          <td style="background:${primary};padding:12px 36px">
             <p style="margin:0;font-size:11px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:rgba(255,255,255,0.7)">Invoice</p>
             <p style="margin:4px 0 0;font-size:22px;font-weight:700;color:#fff;letter-spacing:-0.02em">${invoiceNumber}</p>
           </td>
@@ -198,7 +205,7 @@ export async function sendInvoiceEmail(payload: InvoiceSentPayload) {
               </tr>
               <tr>
                 <td style="font-size:12px;color:#888;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;padding-top:12px">Amount due</td>
-                <td style="font-size:20px;color:#5D00A4;text-align:right;font-weight:700;padding-top:12px;letter-spacing:-0.01em">${amount}</td>
+                <td style="font-size:20px;color:${primary};text-align:right;font-weight:700;padding-top:12px;letter-spacing:-0.01em">${amount}</td>
               </tr>
               <tr>
                 <td colspan="2" style="padding-top:12px;border-top:1px solid #E8E3EF">
@@ -211,7 +218,7 @@ export async function sendInvoiceEmail(payload: InvoiceSentPayload) {
             <table cellpadding="0" cellspacing="0" style="margin-top:8px">
               <tr>
                 <td>
-                  <a href="${invoiceUrl}" style="display:inline-block;background:#5D00A4;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;padding:13px 28px;border-radius:8px">
+                  <a href="${invoiceUrl}" style="display:inline-block;background:${primary};color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;padding:13px 28px;border-radius:8px">
                     View &amp; Pay Invoice →
                   </a>
                 </td>
@@ -219,7 +226,7 @@ export async function sendInvoiceEmail(payload: InvoiceSentPayload) {
             </table>
 
             <p style="margin:20px 0 0;font-size:12px;color:#aaa">
-              Or copy this link: <a href="${invoiceUrl}" style="color:#5D00A4;word-break:break-all">${invoiceUrl}</a>
+              Or copy this link: <a href="${invoiceUrl}" style="color:${primary};word-break:break-all">${invoiceUrl}</a>
             </p>
           </td>
         </tr>

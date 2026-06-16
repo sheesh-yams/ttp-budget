@@ -4,14 +4,18 @@ import { useState } from 'react'
 import { ChevronDown, ChevronRight, Check } from 'lucide-react'
 import { formatMoney, lineTotal, parseQtyFormula, fmtUnit } from '@/lib/money'
 import { sumAccount } from '@/lib/totals'
+import { lighten, darken, safeHex } from '@/lib/color'
 import type { ProposalContent, PaymentMilestone } from '@/types'
 
 // ─── Brand tokens ─────────────────────────────────────────────────────────────
+// V / V_TINT / MINT / MINT_DK resolve to per-workspace CSS variables set on the
+// document root (see the root <div> below), each with the SlateSuite hex as the
+// var() fallback so unconfigured workspaces look exactly as before.
 
-const V        = '#5D00A4'
-const V_TINT   = '#F5EDFA'
-const MINT     = '#04FFCC'
-const MINT_DK  = '#003D31'
+const V        = 'var(--brand-v, #5D00A4)'
+const V_TINT   = 'var(--brand-v-tint, #F5EDFA)'
+const MINT     = 'var(--brand-mint, #04FFCC)'
+const MINT_DK  = 'var(--brand-mint-dk, #003D31)'
 const INK      = '#0A0612'
 const BODY     = '#2C2C2A'
 const BORDER   = '#E8E0F0'
@@ -113,6 +117,10 @@ interface SerialProposal {
     contactEmail: string | null
     website: string | null
     invoiceNumberPrefix: string
+    logoUrl: string | null
+    logoDarkUrl: string | null
+    primaryColor: string | null
+    accentColor: string | null
   }
 }
 
@@ -145,6 +153,23 @@ export function ProposalPublicView({ proposal, accounts, totalCents, discountCen
   const project   = proposal.project
   const workspace = proposal.workspace
   const clientName = project.client.name
+
+  // Per-workspace brand → CSS variables consumed by V / V_TINT / MINT / MINT_DK.
+  // Falls back to the SlateSuite palette when the workspace hasn't set colors.
+  const brandPrimary = safeHex(workspace.primaryColor)
+  const brandAccent  = safeHex(workspace.accentColor)
+  const coverGradient =
+    `radial-gradient(ellipse 80% 65% at 78% 22%, ${lighten(brandPrimary, 0.18)} 0%, transparent 70%),` +
+    `radial-gradient(ellipse 60% 55% at 18% 74%, ${darken(brandPrimary, 0.45)} 0%, transparent 74%),` +
+    `radial-gradient(ellipse 65% 50% at 50% 48%, ${brandPrimary} 0%, transparent 82%),` +
+    `${darken(brandPrimary, 0.9)}`
+  const brandVars = {
+    '--brand-v':        brandPrimary,
+    '--brand-v-tint':   lighten(brandPrimary, 0.92),
+    '--brand-mint':     brandAccent,
+    '--brand-mint-dk':  darken(brandAccent, 0.55),
+    '--gradient-cover': coverGradient,
+  } as React.CSSProperties
 
   const prefix         = proposal.workspace.invoiceNumberPrefix || 'TTP'
   const proposalNumber = `${prefix}-${new Date(proposal.createdAt).getFullYear()}-${String(proposal.version).padStart(3, '0')}`
@@ -220,7 +245,7 @@ export function ProposalPublicView({ proposal, accounts, totalCents, discountCen
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ fontFamily: 'var(--font-sans, system-ui, sans-serif)', color: BODY, background: '#fff', minHeight: '100vh' }}>
+    <div style={{ ...brandVars, fontFamily: 'var(--font-sans, system-ui, sans-serif)', color: BODY, background: '#fff', minHeight: '100vh' }}>
       {/* Load script font for signature preview */}
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@600&display=swap');`}</style>
 
@@ -239,8 +264,12 @@ export function ProposalPublicView({ proposal, accounts, totalCents, discountCen
       >
         {/* Top bar */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative', zIndex: 1, marginBottom: 'clamp(28px,4vw,48px)' }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.png" alt="The Third Place Creative" style={{ height: 28, width: 'auto', display: 'block' }} />
+          {(workspace.logoDarkUrl || workspace.logoUrl) ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={(workspace.logoDarkUrl ?? workspace.logoUrl) as string} alt={workspace.name} style={{ height: 28, width: 'auto', maxWidth: 200, objectFit: 'contain', display: 'block' }} />
+          ) : (
+            <span style={{ color: '#fff', fontSize: 16, fontWeight: 800, letterSpacing: '-0.01em' }}>{workspace.name}</span>
+          )}
           <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase' }}>
             PROPOSAL · {proposalNumber}
           </span>

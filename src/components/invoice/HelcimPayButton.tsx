@@ -21,10 +21,12 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import type { HelcimEventStatus, HelcimTransactionData } from '@/lib/payments/types'
 
 // ── Brand tokens (matching InvoicePublicView) ─────────────────────────────
+// Resolve to the per-workspace CSS variables set on the InvoicePublicView root
+// (this button renders inside it), with the SlateSuite hex as the fallback.
 
-const V       = '#5D00A4'
-const MINT    = '#04FFCC'
-const MINT_DK = '#003D31'
+const V       = 'var(--brand-v, #5D00A4)'
+const MINT    = 'var(--brand-mint, #04FFCC)'
+const MINT_DK = 'var(--brand-mint-dk, #003D31)'
 const BODY    = '#2C2C2A'
 const MUTED   = '#888780'
 

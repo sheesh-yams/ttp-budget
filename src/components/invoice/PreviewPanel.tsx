@@ -98,7 +98,7 @@ export function PreviewPanel({ invoiceId, invoiceNumber, trigger }: PreviewPanel
           background: '#fff',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Eye style={{ width: 15, height: 15, color: '#5D00A4' }} />
+            <Eye style={{ width: 15, height: 15, color: 'var(--brand-primary, #5D00A4)' }} />
             <span style={{ fontSize: 13, fontWeight: 600, color: '#0A0612' }}>
               Invoice Preview
               {invoiceNumber && (

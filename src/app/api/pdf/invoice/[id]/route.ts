@@ -24,6 +24,10 @@ export async function GET(
           legalName: true,
           contactEmail: true,
           website: true,
+          logoUrl: true,
+          logoDarkUrl: true,
+          primaryColor: true,
+          accentColor: true,
           wireInstructions: true,
           achInstructions: true,
           checkPayableTo: true,
@@ -37,14 +41,20 @@ export async function GET(
     return new NextResponse('Not found', { status: 404 })
   }
 
-  // Read the logo file once and convert to base64 data URI
-  let logoSrc: string | undefined
-  try {
-    const logoPath = path.join(process.cwd(), 'public', 'logo.png')
-    const logoBuffer = fs.readFileSync(logoPath)
-    logoSrc = `data:image/png;base64,${logoBuffer.toString('base64')}`
-  } catch {
-    // logo file missing — fall back to text logo in the component
+  // Logo: prefer the workspace's own R2 logo (dark-bg variant for the dark
+  // header). Only fall back to the bundled SlateSuite logo for the workspace
+  // that actually owns it — other workspaces with no logo render their name.
+  let logoSrc: string | undefined =
+    invoice.workspace.logoDarkUrl ?? invoice.workspace.logoUrl ?? undefined
+  if (!logoSrc) {
+    try {
+      const logoPath = path.join(process.cwd(), 'public', 'logo.png')
+      const logoBuffer = fs.readFileSync(logoPath)
+      const isSlatesuiteDefault = (invoice.workspace.primaryColor ?? '#5D00A4') === '#5D00A4'
+      if (isSlatesuiteDefault) logoSrc = `data:image/png;base64,${logoBuffer.toString('base64')}`
+    } catch {
+      // logo file missing — component falls back to the workspace name
+    }
   }
 
   try {
@@ -67,6 +77,8 @@ export async function GET(
       terms:          invoice.terms,
       publicToken:    invoice.publicToken,
       logoSrc,
+      brandPrimary:   invoice.workspace.primaryColor ?? undefined,
+      brandAccent:    invoice.workspace.accentColor ?? undefined,
       workspace: {
         name:                invoice.workspace.name,
         legalName:           invoice.workspace.legalName,

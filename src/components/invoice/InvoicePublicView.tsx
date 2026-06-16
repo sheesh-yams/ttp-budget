@@ -1,14 +1,17 @@
 'use client'
 
 import { formatMoney } from '@/lib/money'
+import { lighten, darken, safeHex } from '@/lib/color'
 import type { InvoiceWithRelations, InvoiceLineItem } from '@/types'
 import { HelcimPayButton } from './HelcimPayButton'
 
 // ─── Brand tokens ─────────────────────────────────────────────────────────────
+// Brand accents resolve to per-workspace CSS variables (set on the root <div>),
+// each with the SlateSuite hex as the var() fallback.
 
-const V      = '#5D00A4'
-const MINT   = '#04FFCC'
-const MINT_DK = '#003D31'
+const V      = 'var(--brand-v, #5D00A4)'
+const MINT   = 'var(--brand-mint, #04FFCC)'
+const MINT_DK = 'var(--brand-mint-dk, #003D31)'
 const INK    = '#0A0612'
 const BODY   = '#2C2C2A'
 const BORDER = '#E8E0F0'
@@ -65,6 +68,17 @@ export function InvoicePublicView({
   const client    = invoice.client
   const project   = invoice.project
 
+  // Per-workspace brand → CSS variables consumed by V / MINT / MINT_DK, with the
+  // SlateSuite palette as the var() fallback for unconfigured workspaces.
+  const brandPrimary = safeHex(workspace.primaryColor)
+  const brandAccent  = safeHex(workspace.accentColor)
+  const brandVars = {
+    '--brand-v':       brandPrimary,
+    '--brand-v-tint':  lighten(brandPrimary, 0.92),
+    '--brand-mint':    brandAccent,
+    '--brand-mint-dk': darken(brandAccent, 0.55),
+  } as React.CSSProperties
+
   const statusCfg = STATUS_LABELS[invoice.status] ?? STATUS_LABELS.SENT
   const kindLabel = KIND_LABELS[invoice.kind] ?? 'Invoice'
   const isOverdue =
@@ -84,7 +98,7 @@ export function InvoicePublicView({
   const isVoid = invoice.status === 'VOID'
 
   return (
-    <div style={{ fontFamily: 'var(--font-sans, system-ui, sans-serif)', color: BODY, background: '#fff', minHeight: '100vh' }}>
+    <div style={{ ...brandVars, fontFamily: 'var(--font-sans, system-ui, sans-serif)', color: BODY, background: '#fff', minHeight: '100vh' }}>
 
       {/* ════════════════════ VOID BANNER ════════════════════ */}
       {isVoid && (
@@ -120,8 +134,12 @@ export function InvoicePublicView({
         className="noise-overlay"
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'clamp(28px,4vw,48px)', position: 'relative', zIndex: 1 }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.png" alt="The Third Place Creative" style={{ height: 28, width: 'auto' }} />
+          {(workspace.logoDarkUrl || workspace.logoUrl) ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={(workspace.logoDarkUrl ?? workspace.logoUrl) as string} alt={workspace.name} style={{ height: 28, width: 'auto', maxWidth: 200, objectFit: 'contain' }} />
+          ) : (
+            <span style={{ color: '#fff', fontSize: 16, fontWeight: 800, letterSpacing: '-0.01em' }}>{workspace.name}</span>
+          )}
           <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase' }}>
             {kindLabel.toUpperCase()}
           </span>

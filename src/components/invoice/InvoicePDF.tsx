@@ -1,10 +1,13 @@
 import { Document, Page, Text, View, StyleSheet, Link, Image, Font } from '@react-pdf/renderer'
 import { formatMoney } from '@/lib/money'
+import { safeHex } from '@/lib/color'
 import type { InvoiceLineItem } from '@/types'
 
 // ─── Brand colours ────────────────────────────────────────────────────────────
-const V    = '#5D00A4'
-const MINT = '#04FFCC'
+// react-pdf can't use CSS variables, so brand colours are threaded into a
+// StyleSheet factory (makeStyles) from per-invoice data; these are the defaults.
+const DEFAULT_V    = '#5D00A4'
+const DEFAULT_MINT = '#04FFCC'
 const INK  = '#0A0612'
 const BODY = '#2C2C2A'
 const MUT  = '#888780'
@@ -58,7 +61,9 @@ export interface InvoicePDFData {
   notes: string | null
   terms: string | null
   publicToken: string
-  logoSrc?: string          // base64 or file path, passed from the route
+  logoSrc?: string          // base64, file path, or R2 URL, passed from the route
+  brandPrimary?: string     // workspace primaryColor (defaults to SlateSuite)
+  brandAccent?: string      // workspace accentColor
   workspace: InvoiceWorkspace
   client: InvoiceClient
   project: InvoiceProject
@@ -79,7 +84,8 @@ const KIND_LABELS: Record<string, string> = {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const s = StyleSheet.create({
+function makeStyles(V: string, MINT: string) {
+  return StyleSheet.create({
   // Page — paddingBottom reserves space for the pinned footer
   page:     { fontFamily: 'Helvetica', fontSize: 10, color: BODY, backgroundColor: '#fff', paddingBottom: 48 },
 
@@ -155,11 +161,15 @@ const s = StyleSheet.create({
   footer:      { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: '11 48', backgroundColor: INK },
   footerName:  { fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: '#fff', marginBottom: 2 },
   footerLbl:   { fontSize: 7.5, color: 'rgba(255,255,255,0.4)' },
-})
+  })
+}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function InvoicePDF({ invoice }: { invoice: InvoicePDFData }) {
+  const V    = safeHex(invoice.brandPrimary || DEFAULT_V)
+  const MINT  = safeHex(invoice.brandAccent || DEFAULT_MINT)
+  const s    = makeStyles(V, MINT)
   const lineItems  = invoice.lineItems ?? []
   const taxPct     = Number(invoice.taxPct)
   const isPaid     = invoice.amountPaidCents >= invoice.totalCents || invoice.status === 'PAID'
@@ -185,9 +195,7 @@ export function InvoicePDF({ invoice }: { invoice: InvoicePDFData }) {
               <Image src={invoice.logoSrc} style={s.logoImg} />
             ) : (
               <View style={s.logoBox}>
-                <View style={s.logoMark}><Text style={s.logoT}>T</Text></View>
-                <Text style={s.logoName}>THE THIRD PLACE </Text>
-                <Text style={s.logoCreative}>CREATIVE</Text>
+                <Text style={s.logoName}>{invoice.workspace.name.toUpperCase()}</Text>
               </View>
             )}
             <Text style={s.invNum}>{kindLabel.toUpperCase()} · {invoice.number}</Text>

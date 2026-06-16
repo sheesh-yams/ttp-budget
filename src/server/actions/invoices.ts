@@ -140,7 +140,7 @@ export async function getInvoiceSendData(invoiceId: string) {
 
     const workspace = await db.workspace.findUnique({
       where: { id: workspaceId },
-      select: { name: true, contactEmail: true },
+      select: { name: true, contactEmail: true, primaryColor: true, accentColor: true },
     })
 
     return {
@@ -156,6 +156,8 @@ export async function getInvoiceSendData(invoiceId: string) {
       projectName:   (invoice.project as { name: string }).name,
       workspaceName: workspace?.name ?? '',
       fromEmail:     workspace?.contactEmail ?? '',
+      brandPrimary:  workspace?.primaryColor ?? null,
+      brandAccent:   workspace?.accentColor ?? null,
     }
   } catch {
     return null
@@ -177,6 +179,7 @@ export async function sendInvoice(
         totalCents: true,
         dueDate: true,
         project: { select: { name: true } },
+        workspace: { select: { name: true, primaryColor: true, accentColor: true } },
       },
     })
 
@@ -216,6 +219,9 @@ export async function sendInvoice(
       amountCents:    existing.totalCents,
       dueDate:        new Date(existing.dueDate),
       invoiceUrl:     publicUrl,
+      workspaceName:  existing.workspace?.name ?? null,
+      brandPrimary:   existing.workspace?.primaryColor ?? null,
+      brandAccent:    existing.workspace?.accentColor ?? null,
     })
 
     await logAuditEvent({
