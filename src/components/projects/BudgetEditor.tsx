@@ -608,9 +608,12 @@ function BulkCheckbox({
 }) {
   return (
     <label
-      className={['flex items-center justify-center cursor-pointer transition-opacity', className].filter(Boolean).join(' ')}
+      className={['relative flex items-center justify-center cursor-pointer transition-opacity', className].filter(Boolean).join(' ')}
       title={title}
     >
+      {/* relative on the label contains this position:absolute sr-only input —
+          otherwise it escapes to the document's containing block and extends the
+          page far below the content, creating phantom body scroll. */}
       <input
         type="checkbox"
         checked={checked}
