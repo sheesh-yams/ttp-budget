@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { X, Trash2, FolderPlus, Pencil } from 'lucide-react'
+import { X, Trash2, FolderPlus, Check } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -46,12 +46,11 @@ export function FloatingBulkActionBar({ selectedIds, phaseId, onClear, onMutated
 
   // Dialog open states
   const [groupOpen, setGroupOpen] = useState(false)
-  const [editOpen,  setEditOpen]  = useState(false)
 
   // Group form
   const [groupName, setGroupName] = useState('')
 
-  // Mass-edit form — all optional; blank = don't touch that field
+  // Inline mass-edit fields — all optional; blank = don't touch that field
   const [editQty,  setEditQty]  = useState('')
   const [editUnit, setEditUnit] = useState<RateUnit | ''>('')
   const [editRate, setEditRate] = useState('')
@@ -91,7 +90,6 @@ export function FloatingBulkActionBar({ selectedIds, phaseId, onClear, onMutated
     const rate = parseFloat(editRate)
     if (editRate.trim() && !isNaN(rate)) updates.rateCents = rateToCents(rate)
 
-    setEditOpen(false)
     setEditQty('')
     setEditUnit('')
     setEditRate('')
@@ -105,12 +103,7 @@ export function FloatingBulkActionBar({ selectedIds, phaseId, onClear, onMutated
     })
   }
 
-  function closeEdit() {
-    setEditOpen(false)
-    setEditQty('')
-    setEditUnit('')
-    setEditRate('')
-  }
+  const hasEdits = editQty.trim() !== '' || editUnit !== '' || editRate.trim() !== ''
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -127,7 +120,7 @@ export function FloatingBulkActionBar({ selectedIds, phaseId, onClear, onMutated
             : 'translate-y-16 opacity-0 pointer-events-none',
         ].join(' ')}
       >
-        <div className="flex items-center gap-1 rounded-full bg-violet-700 px-4 py-2.5 shadow-2xl shadow-violet-900/50 ring-1 ring-white/10">
+        <div className="flex items-center gap-1 rounded-xl bg-violet-700 px-4 py-2.5 shadow-2xl shadow-violet-900/50 ring-1 ring-white/10">
 
           {/* Count + clear */}
           <div className="flex items-center gap-2 pr-3 border-r border-white/20">
@@ -144,13 +137,52 @@ export function FloatingBulkActionBar({ selectedIds, phaseId, onClear, onMutated
             </button>
           </div>
 
+          {/* Inline mass-edit fields */}
+          <div className="flex items-center gap-1.5 px-3 border-r border-white/20">
+            <input
+              type="number" min="0" step="0.5"
+              value={editQty}
+              onChange={e => setEditQty(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleMassEdit() }}
+              placeholder="Qty"
+              title="Qty / Days — blank leaves each item unchanged"
+              className="w-14 rounded-md border border-white/20 bg-white/10 px-2 py-1 text-xs text-violet-50 placeholder:text-violet-300 outline-none focus:bg-white/15 focus:border-white/40 tabular-nums"
+            />
+            <Select value={editUnit} onValueChange={v => setEditUnit(v as RateUnit | '')}>
+              <SelectTrigger
+                title="Unit — blank leaves each item unchanged"
+                className="h-auto w-[5.5rem] rounded-md border-white/20 bg-white/10 px-2 py-1 text-xs text-violet-50 [&>span]:text-violet-50 data-[placeholder]:text-violet-300 focus:bg-white/15"
+              >
+                <SelectValue placeholder="Unit" />
+              </SelectTrigger>
+              <SelectContent>
+                {UNITS.map(u => (
+                  <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <input
+              type="number" min="0" step="0.01"
+              value={editRate}
+              onChange={e => setEditRate(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleMassEdit() }}
+              placeholder="Rate"
+              title="Rate ($/unit) — blank leaves each item unchanged"
+              className="w-16 rounded-md border border-white/20 bg-white/10 px-2 py-1 text-xs text-violet-50 placeholder:text-violet-300 outline-none focus:bg-white/15 focus:border-white/40 tabular-nums"
+            />
+            <button
+              type="button"
+              title="Apply"
+              onClick={handleMassEdit}
+              disabled={!hasEdits}
+              className="flex items-center justify-center rounded-md h-6 w-6 text-violet-100 hover:bg-white/15 hover:text-white transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+            >
+              <Check className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
           {/* Action buttons */}
           <div className="flex items-center pl-1">
-            <PillButton
-              icon={<Pencil className="h-3.5 w-3.5" />}
-              label="Mass edit"
-              onClick={() => setEditOpen(true)}
-            />
             <PillButton
               icon={<FolderPlus className="h-3.5 w-3.5" />}
               label="Group"
@@ -194,70 +226,6 @@ export function FloatingBulkActionBar({ selectedIds, phaseId, onClear, onMutated
             </Button>
             <Button onClick={handleGroup} disabled={!groupName.trim()}>
               Create group
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Mass edit dialog ───────────────────────────────────────────────── */}
-      <Dialog open={editOpen} onOpenChange={v => { if (!v) closeEdit(); else setEditOpen(true) }}>
-        <DialogContent className="sm:max-w-[420px]">
-          <DialogHeader>
-            <DialogTitle>
-              Mass edit {count} item{count !== 1 ? 's' : ''}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-4 py-2">
-            <p className="text-xs text-muted-foreground -mt-1">
-              Leave a field blank to keep each item&apos;s current value.
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="grid gap-1.5">
-                <Label htmlFor="bulk-qty">Qty / Days</Label>
-                <Input
-                  id="bulk-qty"
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  value={editQty}
-                  onChange={e => setEditQty(e.target.value)}
-                  placeholder="—"
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="bulk-unit">Unit</Label>
-                <Select
-                  value={editUnit}
-                  onValueChange={v => setEditUnit(v as RateUnit | '')}
-                >
-                  <SelectTrigger id="bulk-unit">
-                    <SelectValue placeholder="—" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {UNITS.map(u => (
-                      <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="bulk-rate">Rate ($/unit)</Label>
-              <Input
-                id="bulk-rate"
-                type="number"
-                min="0"
-                step="0.01"
-                value={editRate}
-                onChange={e => setEditRate(e.target.value)}
-                placeholder="—"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeEdit}>Cancel</Button>
-            <Button onClick={handleMassEdit}>
-              Apply to {count} item{count !== 1 ? 's' : ''}
             </Button>
           </DialogFooter>
         </DialogContent>

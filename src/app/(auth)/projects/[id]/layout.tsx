@@ -28,7 +28,7 @@ export default async function ProjectLayout({
   return (
     // -mx-6 -my-6 escapes the auth layout's p-6 padding so the sidebar can run
     // flush to the edges of the main scroll container.
-    <div className="flex -mx-6 -my-6 min-h-[calc(100vh-52px)]">
+    <div className="flex -mx-6 -my-6">
       {/* ── Secondary sidebar ───────────────────────────────────────────────── */}
       <aside
         className="w-44 shrink-0 border-r border-foreground/8 sticky top-0 self-start h-[calc(100vh-52px)] overflow-y-auto"
