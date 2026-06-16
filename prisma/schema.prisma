@@ -115,6 +115,7 @@ model User {
   createdBudgets   Budget[]    @relation("BudgetCreatedBy")
   createdProposals Proposal[]  @relation("ProposalCreatedBy")
   createdInvoices  Invoice[]   @relation("InvoiceCreatedBy")
+  projectComments  ProjectComment[] @relation("ProjectCommentAuthor")
 
   @@index([workspaceId])
 }
@@ -197,10 +198,37 @@ model Project {
   actualSheets   ActualSheet[]
   projectMembers ProjectMember[]
   receipts       Receipt[]
+  comments       ProjectComment[]
 
   @@index([workspaceId])
   @@index([clientId])
   @@index([workspaceId, status])
+}
+
+// ─── Project activity / comment thread ────────────────────────────────────────
+// A scrollable, ClickUp-style feed of comments on a project. Replaces the old
+// single static `Project.notes` textarea (legacy notes are surfaced as the first
+// item in the thread by getProjectActivity rather than migrated destructively).
+model ProjectComment {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // Denormalized for tenant isolation — auto-injected by getScopedDb().
+  workspaceId String
+
+  // Author = User.id (our local user row, mapped from Clerk). Resolved to
+  // name/avatar via the author relation.
+  authorId    String
+  author      User     @relation("ProjectCommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  content     String   @db.Text
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectId, createdAt])
+  @@index([workspaceId])
 }
 
 // =============================================================

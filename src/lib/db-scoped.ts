@@ -46,6 +46,7 @@ const SCOPED_MODELS = new Set([
   'Account',
   'LineItem',
   'ProjectMember',
+  'ProjectComment',
   // A9: audit log — workspaceId plain column (no FK), same injection pattern
   'AuditEvent',
   // Payments — workspace-owned config and attempt records

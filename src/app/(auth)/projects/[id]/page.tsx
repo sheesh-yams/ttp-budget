@@ -258,15 +258,13 @@ export default async function ProjectDetailPage({
           )}
           <ClientInfoPanel
             projectId={project.id}
-            projectName={project.name}
-            projectNotes={project.notes ?? null}
             client={{
               name:           project.client.name,
               contactName:    project.client.contactName ?? null,
               contactEmail:   project.client.contactEmail ?? null,
               contactPhone:   project.client.contactPhone ?? null,
               billingAddress: project.client.billingAddress ?? null,
-              notes:          (project.client as { notes?: string | null }).notes ?? null,
+              specialNotes:   (project.client as { specialNotes?: string | null }).specialNotes ?? null,
             }}
             trigger={
               <Button size="sm" variant="outline" className="flex-shrink-0">
