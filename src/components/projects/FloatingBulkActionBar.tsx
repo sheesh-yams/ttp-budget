@@ -111,16 +111,22 @@ export function FloatingBulkActionBar({ selectedIds, phaseId, onClear, onMutated
     <>
       {ConfirmDialog}
 
-      {/* ── Floating pill ─────────────────────────────────────────────────── */}
-      <div
-        className={[
-          'fixed bottom-8 left-1/2 z-50 -translate-x-1/2 transition-all duration-300 ease-out',
-          count > 0
-            ? 'translate-y-0 opacity-100'
-            : 'translate-y-16 opacity-0 pointer-events-none',
-        ].join(' ')}
-      >
-        <div className="flex items-center gap-1 rounded-xl bg-violet-700 px-4 py-2.5 shadow-2xl shadow-violet-900/50 ring-1 ring-white/10">
+      {/* ── Floating pill ─────────────────────────────────────────────────────
+          The OUTER wrapper is pinned to the viewport bottom and clips its
+          content (overflow-hidden). The INNER bar slides down via translate-y
+          to hide — because the outer clips, that off-screen translate can never
+          extend the document's scrollable area (a fixed element translated past
+          the viewport edge would otherwise add body scroll → blank space). The
+          py-2 top padding gives the bar's shadow room before the clip. */}
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center overflow-hidden px-6 pb-8 pt-6">
+        <div
+          className={[
+            'pointer-events-auto flex items-center gap-1 rounded-xl bg-violet-700 px-4 py-2.5 shadow-2xl shadow-violet-900/50 ring-1 ring-white/10 transition-all duration-300 ease-out',
+            count > 0
+              ? 'translate-y-0 opacity-100'
+              : 'translate-y-[150%] opacity-0',
+          ].join(' ')}
+        >
 
           {/* Count + clear */}
           <div className="flex items-center gap-2 pr-3 border-r border-white/20">
