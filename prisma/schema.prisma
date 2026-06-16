@@ -92,8 +92,9 @@ model Workspace {
 }
 
 enum UserRole {
-  OWNER
-  PRODUCER
+  OWNER         // org:admin — full access, billing, danger zone, member mgmt
+  PRODUCER      // full CRUD on projects/budgets, no workspace settings/members
+  COLLABORATOR  // only assigned projects; budgets are margin-blind; can edit call sheets
 }
 
 model User {
@@ -116,6 +117,7 @@ model User {
   createdProposals Proposal[]  @relation("ProposalCreatedBy")
   createdInvoices  Invoice[]   @relation("InvoiceCreatedBy")
   projectComments  ProjectComment[] @relation("ProjectCommentAuthor")
+  projectAssignments ProjectAssignment[]
 
   @@index([workspaceId])
 }
@@ -199,10 +201,32 @@ model Project {
   projectMembers ProjectMember[]
   receipts       Receipt[]
   comments       ProjectComment[]
+  assignments    ProjectAssignment[]
 
   @@index([workspaceId])
   @@index([clientId])
   @@index([workspaceId, status])
+}
+
+// ─── Project ↔ App-user assignment (RBAC visibility for Collaborators) ─────────
+// Owners/Producers see every project in the workspace. A Collaborator only sees
+// projects where a row links them here. Distinct from ProjectMember (which is
+// crew/Contact-based call-sheet data, not app-user access control).
+model ProjectAssignment {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Denormalized for tenant isolation — auto-injected by getScopedDb().
+  workspaceId String
+
+  createdAt   DateTime @default(now())
+
+  @@unique([projectId, userId])
+  @@index([userId])
+  @@index([workspaceId])
 }
 
 // ─── Project activity / comment thread ────────────────────────────────────────

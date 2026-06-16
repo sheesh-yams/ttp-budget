@@ -1,10 +1,14 @@
+import { redirect } from 'next/navigation'
 import { listTeamMembers, getPendingInvitations } from '@/server/actions/team'
 import { TeamPageClient } from '@/components/team/TeamPageClient'
-import { getActiveWorkspace } from '@/lib/auth'
+import { getActiveWorkspace, getCurrentRole } from '@/lib/auth'
 
 export const metadata = { title: 'Team — TTP Budget' }
 
 export default async function TeamPage() {
+  // Member management is OWNER-only (server-side gate, not just hidden in the UI).
+  if ((await getCurrentRole()) !== 'OWNER') redirect('/')
+
   const [members, pending, workspace] = await Promise.all([
     listTeamMembers(),
     getPendingInvitations(),

@@ -66,15 +66,21 @@ interface InvitationPayload {
   to: string
   invitedByName: string
   workspaceName: string
-  role: 'OWNER' | 'PRODUCER'
+  role: 'OWNER' | 'PRODUCER' | 'COLLABORATOR'
   token: string
   expiresAt: Date
+}
+
+const ROLE_LABELS: Record<InvitationPayload['role'], string> = {
+  OWNER:        'Owner',
+  PRODUCER:     'Producer',
+  COLLABORATOR: 'Collaborator',
 }
 
 export async function sendInvitationEmail(payload: InvitationPayload) {
   const { to, invitedByName, workspaceName, role, token, expiresAt } = payload
   const acceptUrl = `${APP_URL}/invite/${token}`
-  const roleLabel = role === 'OWNER' ? 'Owner' : 'Producer'
+  const roleLabel = ROLE_LABELS[role] ?? 'Member'
 
   await resend.emails.send({
     from: FROM,

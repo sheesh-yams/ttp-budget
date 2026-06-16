@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { auth, clerkClient } from '@clerk/nextjs/server'
 import { db } from '@/lib/db'
-import { getWorkspaceId, getCurrentUser, getActiveWorkspace } from '@/lib/auth'
+import { getWorkspaceId, getCurrentUser, getActiveWorkspace, requireRole } from '@/lib/auth'
 import { sendInvitationEmail } from '@/lib/email'
 import type { ActionResult } from '@/types'
 import type { UserRole } from '@prisma/client'
@@ -109,6 +109,8 @@ export async function inviteTeamMember(
   role: UserRole,
 ): Promise<ActionResult<void>> {
   try {
+    const gate = await requireRole(['OWNER'])
+    if (!gate.ok) return gate.error
     const [workspaceId, currentUser, workspace] = await Promise.all([
       getWorkspaceId(),
       getCurrentUser(),
@@ -179,6 +181,8 @@ export async function inviteTeamMember(
 
 export async function revokeInvitation(invitationId: string): Promise<ActionResult<void>> {
   try {
+    const gate = await requireRole(['OWNER'])
+    if (!gate.ok) return gate.error
     const workspaceId = await getWorkspaceId()
 
     // Verify the invitation belongs to this workspace before deleting
@@ -195,6 +199,63 @@ export async function revokeInvitation(invitationId: string): Promise<ActionResu
   } catch (err) {
     console.error('[revokeInvitation]', err)
     return { success: false, error: 'Failed to revoke invitation.' }
+  }
+}
+
+// ─── changeMemberRole ─────────────────────────────────────────────────────────
+// OWNER-only. Updates our DB role (source of truth) and best-effort syncs the
+// member's coarse Clerk org role (admin vs member).
+
+export async function changeMemberRole(
+  userId: string,
+  role:   UserRole,
+): Promise<ActionResult<void>> {
+  try {
+    const gate = await requireRole(['OWNER'])
+    if (!gate.ok) return gate.error
+
+    const workspaceId = await getWorkspaceId()
+
+    // Target must be a member of THIS workspace (tenant isolation).
+    const target = await db.user.findFirst({
+      where:  { id: userId, workspaceId },
+      select: { id: true, clerkId: true },
+    })
+    if (!target) return { success: false, error: 'Member not found.' }
+    if (target.id === gate.userId) {
+      return { success: false, error: "You can't change your own role." }
+    }
+
+    await db.user.update({ where: { id: target.id }, data: { role } })
+
+    // Best-effort Clerk sync — DB remains the source of truth regardless.
+    const workspace = await getActiveWorkspace()
+    if (workspace.clerkOrgId) {
+      try {
+        const clerk = await clerkClient()
+        await clerk.organizations.updateOrganizationMembership({
+          organizationId: workspace.clerkOrgId,
+          userId:         target.clerkId,
+          role:           role === 'OWNER' ? 'org:admin' : 'org:member',
+        })
+      } catch (e) {
+        console.error('[changeMemberRole] Clerk role sync failed (DB updated):', e)
+      }
+    }
+
+    await logAuditEvent({
+      workspaceId,
+      actorId:    gate.userId,
+      action:     'member.role_changed',
+      entityType: 'Member',
+      metadata:   { userId: target.id, role },
+    })
+
+    revalidatePath('/team')
+    return { success: true, data: undefined }
+  } catch (err) {
+    console.error('[changeMemberRole]', err)
+    return { success: false, error: 'Failed to change role.' }
   }
 }
 

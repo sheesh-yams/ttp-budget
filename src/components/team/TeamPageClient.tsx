@@ -2,10 +2,24 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Mail, Clock, X, UserPlus, Shield, User } from 'lucide-react'
+import { Mail, Clock, X, UserPlus, Shield, User, Eye } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { inviteTeamMember, revokeInvitation } from '@/server/actions/team'
+import { Badge } from '@/components/ui/badge'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import { inviteTeamMember, revokeInvitation, changeMemberRole } from '@/server/actions/team'
 import type { UserRole } from '@prisma/client'
+
+// ─── Role metadata ────────────────────────────────────────────────────────────
+
+const ROLE_META: Record<UserRole, { label: string; icon: React.ElementType; badge: string; blurb: string }> = {
+  OWNER:        { label: 'Owner',        icon: Shield, badge: 'bg-violet-100 text-violet-700 hover:bg-violet-100', blurb: 'Full access — settings, billing, members.' },
+  PRODUCER:     { label: 'Producer',     icon: User,   badge: 'bg-muted text-muted-foreground hover:bg-muted',     blurb: 'Create budgets, proposals, and invoices.' },
+  COLLABORATOR: { label: 'Collaborator', icon: Eye,    badge: 'bg-blue-100 text-blue-700 hover:bg-blue-100',       blurb: 'Assigned projects only · margin-blind budgets.' },
+}
+
+const ROLE_ORDER: UserRole[] = ['COLLABORATOR', 'PRODUCER', 'OWNER']
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -54,19 +68,54 @@ function Avatar({ name, email, avatarUrl }: { name: string | null; email: string
 }
 
 function RoleBadge({ role }: { role: UserRole }) {
-  if (role === 'OWNER') {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-medium text-violet-700">
-        <Shield className="h-3 w-3" />
-        Owner
-      </span>
-    )
-  }
+  const meta = ROLE_META[role]
+  const Icon = meta.icon
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-      <User className="h-3 w-3" />
-      Producer
-    </span>
+    <Badge className={`gap-1 font-medium ${meta.badge}`}>
+      <Icon className="h-3 w-3" />
+      {meta.label}
+    </Badge>
+  )
+}
+
+// Owner-only inline role editor for an existing member. The whole Team page is
+// already OWNER-gated, so every viewer here may reassign others' roles.
+function MemberRoleSelect({ userId, role }: { userId: string; role: UserRole }) {
+  const router = useRouter()
+  const [value, setValue]  = useState<UserRole>(role)
+  const [isPending, start] = useTransition()
+  const [error, setError]  = useState<string | null>(null)
+
+  function onChange(next: string) {
+    const nextRole = next as UserRole
+    const prev = value
+    setValue(nextRole)
+    setError(null)
+    start(async () => {
+      const res = await changeMemberRole(userId, nextRole)
+      if (res.success) {
+        router.refresh()
+      } else {
+        setValue(prev) // revert optimistic change
+        setError((res as { success: false; error: string }).error)
+      }
+    })
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-0.5">
+      <Select value={value} onValueChange={onChange} disabled={isPending}>
+        <SelectTrigger className="h-7 w-[140px] text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {ROLE_ORDER.map(r => (
+            <SelectItem key={r} value={r} className="text-xs">{ROLE_META[r].label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {error && <span className="text-[10px] text-red-600">{error}</span>}
+    </div>
   )
 }
 
@@ -135,7 +184,9 @@ export function TeamPageClient({ members, pendingInvitations }: Props) {
                   <p className="text-xs text-muted-foreground truncate">{member.email}</p>
                 )}
               </div>
-              <RoleBadge role={member.role} />
+              {member.isCurrentUser
+                ? <RoleBadge role={member.role} />
+                : <MemberRoleSelect userId={member.id} role={member.role} />}
             </div>
           ))}
         </div>
@@ -205,29 +256,29 @@ export function TeamPageClient({ members, pendingInvitations }: Props) {
               <label className="mb-1.5 block text-xs font-medium text-muted-foreground uppercase tracking-wide">
                 Role
               </label>
-              <div className="flex gap-2">
-                {(['PRODUCER', 'OWNER'] as const).map(r => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => setInviteRole(r)}
-                    className={`flex-1 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors ${
-                      inviteRole === r
-                        ? 'border-[var(--brand-primary,#5D00A4)] bg-violet-50 text-violet-700'
-                        : 'border-border text-muted-foreground hover:border-muted-foreground/50'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      {r === 'OWNER' ? <Shield className="h-3.5 w-3.5" /> : <User className="h-3.5 w-3.5" />}
-                      <span className="font-medium">{r === 'OWNER' ? 'Owner' : 'Producer'}</span>
-                    </div>
-                    <p className="mt-0.5 text-[11px] leading-tight opacity-70">
-                      {r === 'OWNER'
-                        ? 'Full access — can manage settings and billing.'
-                        : 'Can create budgets, proposals, and invoices.'}
-                    </p>
-                  </button>
-                ))}
+              <div className="grid grid-cols-3 gap-2">
+                {ROLE_ORDER.map(r => {
+                  const meta = ROLE_META[r]
+                  const Icon = meta.icon
+                  return (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setInviteRole(r)}
+                      className={`rounded-lg border px-3 py-2.5 text-left text-sm transition-colors ${
+                        inviteRole === r
+                          ? 'border-[var(--brand-primary,#5D00A4)] bg-violet-50 text-violet-700'
+                          : 'border-border text-muted-foreground hover:border-muted-foreground/50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Icon className="h-3.5 w-3.5" />
+                        <span className="font-medium">{meta.label}</span>
+                      </div>
+                      <p className="mt-0.5 text-[11px] leading-tight opacity-70">{meta.blurb}</p>
+                    </button>
+                  )
+                })}
               </div>
             </div>
 

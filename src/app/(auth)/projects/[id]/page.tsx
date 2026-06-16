@@ -2,12 +2,14 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { Calendar, User, TrendingUp, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { db } from '@/lib/db'
-import { getWorkspaceId } from '@/lib/auth'
+import { getWorkspaceId, getCurrentUser } from '@/lib/auth'
+import { canSeeFinancials, stripBudgetForRole } from '@/lib/budget-visibility'
 import { BudgetEditor } from '@/components/projects/BudgetEditor'
 import { ProjectProposals } from '@/components/projects/ProjectProposals'
 import { ProjectInvoices } from '@/components/projects/ProjectInvoices'
 import { ProjectHeaderActions } from '@/components/projects/ProjectHeaderActions'
 import { ClientInfoPanel } from '@/components/projects/ClientInfoPanel'
+import { AssignCollaborators } from '@/components/projects/AssignCollaborators'
 import { ProposalOverview } from '@/components/projects/ProposalOverview'
 import { createBudget } from '@/server/actions/budgets'
 import { Button } from '@/components/ui/button'
@@ -45,7 +47,8 @@ export default async function ProjectDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const workspaceId = await getWorkspaceId()
+  const [workspaceId, currentUser] = await Promise.all([getWorkspaceId(), getCurrentUser()])
+  const canSeeFin = canSeeFinancials(currentUser.role)
 
   const project = await db.project.findFirst({
     where: { id, workspaceId },
@@ -116,7 +119,20 @@ export default async function ProjectDetailPage({
 
   if (!project) notFound()
 
-  const budget = project.budgets[0] ?? null
+  // ── RBAC: Collaborators may only open projects they're assigned to. ──────────
+  if (currentUser.role === 'COLLABORATOR') {
+    const assignment = await db.projectAssignment.findUnique({
+      where: { projectId_userId: { projectId: id, userId: currentUser.id } },
+      select: { id: true },
+    })
+    if (!assignment) notFound()
+  }
+
+  // ── "Blind" budget: strip margin/markup/agency-fee data for Collaborators
+  // BEFORE any total is computed or serialised, so it never reaches the client.
+  const budget = project.budgets[0]
+    ? stripBudgetForRole(project.budgets[0], currentUser.role)
+    : null
 
   // Gross total from primary phase (includes budget-level markup + agency fee)
   let grandTotalCents = 0   // kept for back-compat with proposal components
@@ -160,7 +176,8 @@ export default async function ProjectDetailPage({
     actualsId:           string | null
   } | null = null
 
-  if (budget) {
+  // Actuals expose profit + margin — financial data hidden from Collaborators.
+  if (budget && canSeeFin) {
     const sheet = await db.actualSheet.findFirst({
       where: { budgetId: budget.id, workspaceId },
       select: {
@@ -273,6 +290,7 @@ export default async function ProjectDetailPage({
               </Button>
             }
           />
+          {canSeeFin && <AssignCollaborators projectId={project.id} />}
           <ProjectHeaderActions project={serialisedProject} />
         </div>
       </div>
@@ -389,7 +407,7 @@ export default async function ProjectDetailPage({
         {!budget ? (
           <NoBudget projectId={project.id} />
         ) : (
-          <BudgetEditor budget={budget} projectId={project.id} />
+          <BudgetEditor budget={budget} projectId={project.id} canSeeFinancials={canSeeFin} readOnly={!canSeeFin} />
         )}
       </section>
     </div>

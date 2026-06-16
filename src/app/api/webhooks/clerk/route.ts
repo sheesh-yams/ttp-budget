@@ -170,13 +170,23 @@ export async function POST(req: NextRequest) {
     })
     if (!workspace) return NextResponse.json({ received: true })
 
-    // Map Clerk org role → DB role.
-    // org:admin = OWNER (workspace creator or manually promoted).
-    // Everything else (org:member, etc.) = PRODUCER.
-    // Exception: if the joining user IS the workspace creator (their workspaceId
-    // already matches), preserve their existing OWNER role — don't downgrade them.
+    // Map Clerk org role → DB role. DB is the source of truth for the finer
+    // OWNER / PRODUCER / COLLABORATOR distinction (Clerk only has admin/member).
+    // org:admin always = OWNER. For org:member we honour the role chosen on the
+    // invitation (PRODUCER or COLLABORATOR), defaulting to PRODUCER if none found.
+    // Exception below: never downgrade the workspace creator.
     const memberEmail = (public_user_data?.identifier ?? '').toLowerCase()
-    const dbRole = clerkRole === 'org:admin' ? 'OWNER' : 'PRODUCER'
+
+    let invitedRole: 'PRODUCER' | 'COLLABORATOR' | 'OWNER' | null = null
+    if (clerkRole !== 'org:admin' && memberEmail) {
+      const invite = await db.workspaceInvitation.findFirst({
+        where: { workspaceId: workspace.id, email: memberEmail },
+        orderBy: { createdAt: 'desc' },
+        select: { role: true },
+      })
+      invitedRole = invite?.role ?? null
+    }
+    const dbRole = clerkRole === 'org:admin' ? 'OWNER' : (invitedRole ?? 'PRODUCER')
 
     const existingUser = await db.user.findUnique({
       where: { clerkId: memberClerkId },

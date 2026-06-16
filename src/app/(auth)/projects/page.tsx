@@ -1,6 +1,8 @@
 import { getScopedDb } from '@/lib/db-scoped'
 import { db } from '@/lib/db'
-import { getWorkspaceId } from '@/lib/auth'
+import { getWorkspaceId, getCurrentUser } from '@/lib/auth'
+import { canSeeFinancials } from '@/lib/budget-visibility'
+import type { Prisma } from '@prisma/client'
 import { ProjectsPageClient } from '@/components/projects/ProjectsPageClient'
 import type { ProjectForCard, ProjectMetrics, AttentionItem, UpcomingShoot, StatusCounts } from '@/components/projects/projects-types'
 import { calcBudgetTotals, type AccountInput } from '@/lib/totals'
@@ -49,10 +51,24 @@ export default async function ProjectsPage({
 }: {
   searchParams: Promise<{ status?: string; view?: string; sort?: string }>
 }) {
-  const [resolvedParams, workspaceId] = await Promise.all([
+  const [resolvedParams, workspaceId, currentUser] = await Promise.all([
     searchParams,
     getWorkspaceId(),
+    getCurrentUser(),
   ])
+
+  // ── RBAC: Collaborators only see projects they're explicitly assigned to.
+  // Owners/Producers see the whole workspace. Merged into the scoped where so
+  // it composes with the automatic workspaceId injection.
+  const visibilityWhere: Prisma.ProjectWhereInput =
+    currentUser.role === 'COLLABORATOR'
+      ? { assignments: { some: { userId: currentUser.id } } }
+      : {}
+
+  // Collaborators are margin-blind — workspace-wide financial KPIs (pipeline,
+  // outstanding, won) must not reach them. Zeroed server-side so the real
+  // figures never enter the payload; the metrics strip is also hidden in the UI.
+  const canSeeFin = canSeeFinancials(currentUser.role)
 
   const sdb         = await getScopedDb()
   const now         = new Date()
@@ -91,14 +107,14 @@ export default async function ProjectsPage({
 
     // ── All non-archived projects with rich includes ──────────────────────────
     sdb.project.findMany({
-      where: { status: { not: 'ARCHIVED' } },
+      where: { status: { not: 'ARCHIVED' }, ...visibilityWhere },
       orderBy: { updatedAt: 'desc' },
       include: PROJECT_INCLUDES,
     }),
 
     // ── Archived projects (passed to client for the Archived filter view) ─────
     sdb.project.findMany({
-      where: { status: 'ARCHIVED' },
+      where: { status: 'ARCHIVED', ...visibilityWhere },
       orderBy: { updatedAt: 'desc' },
       include: PROJECT_INCLUDES,
     }),
@@ -303,14 +319,14 @@ export default async function ProjectsPage({
   ).length
 
   const metrics: ProjectMetrics = {
-    pipelineValueCents,
+    pipelineValueCents:       canSeeFin ? pipelineValueCents : 0,
     pipelineCount:            dedupedPipelineProposals.length,
     activeCount:              openProjects.length,
     upcomingShootCount,
-    outstandingCents,
+    outstandingCents:         canSeeFin ? outstandingCents : 0,
     overdueCount,
-    wonThisQuarterCents:      wonThisQ._sum.approvedTotalCents ?? 0,
-    wonLastQuarterCents:      wonLastQ._sum.approvedTotalCents ?? 0,
+    wonThisQuarterCents:      canSeeFin ? (wonThisQ._sum.approvedTotalCents ?? 0) : 0,
+    wonLastQuarterCents:      canSeeFin ? (wonLastQ._sum.approvedTotalCents ?? 0) : 0,
     thisWeekProposalsSent,
     thisWeekInvoicesIssued,
     thisWeekProjectsCreated,
@@ -428,6 +444,7 @@ export default async function ProjectsPage({
     <ProjectsPageClient
       projects={allProjectsForClient as unknown as ProjectForCard[]}
       metrics={metrics}
+      canSeeFinancials={canSeeFin}
       attentionItems={attentionItems}
       upcomingShoots={upcomingShoots}
       statusCounts={statusCounts}

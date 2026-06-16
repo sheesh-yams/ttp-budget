@@ -24,6 +24,8 @@ import type { Client, BudgetTemplate } from '@prisma/client'
 interface Props {
   projects:      ProjectForCard[]
   metrics:       ProjectMetrics
+  /** Collaborators are margin-blind — the financial KPI strip is hidden for them. */
+  canSeeFinancials?: boolean
   attentionItems: AttentionItem[]
   upcomingShoots: UpcomingShoot[]
   statusCounts:  StatusCounts
@@ -43,6 +45,7 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 export function ProjectsPageClient({
   projects,
   metrics,
+  canSeeFinancials = true,
   attentionItems,
   upcomingShoots,
   statusCounts,
@@ -123,8 +126,8 @@ export function ProjectsPageClient({
           </Button>
         </div>
 
-        {/* ── Metrics strip ────────────────────────────────────────────────── */}
-        <ProjectMetricsStrip metrics={metrics} />
+        {/* ── Metrics strip (financial KPIs — hidden from Collaborators) ────── */}
+        {canSeeFinancials && <ProjectMetricsStrip metrics={metrics} />}
 
         {/* ── Filters + view toggle ─────────────────────────────────────────  */}
         <div className="flex flex-wrap items-center gap-3 justify-between">

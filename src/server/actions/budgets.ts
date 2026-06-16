@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
 import { getScopedDb } from '@/lib/db-scoped'
-import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
+import { getCurrentUser, getWorkspaceId, requireRole } from '@/lib/auth'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import { Prisma, type RateUnit, type RateCategory } from '@prisma/client'
@@ -31,6 +31,8 @@ function mapRateCategory(rc: RateCategory): LineItemCategory {
 
 export async function createBudget(projectId: string, templateId?: string): Promise<ActionResult<{ id: string }>> {
   try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
     const [sdb, user, workspaceId] = await Promise.all([getScopedDb(), getCurrentUser(), getWorkspaceId()])
 
     // Ownership check: scoped client ensures this project belongs to the active workspace.
@@ -73,6 +75,8 @@ const addAccountSchema = z.object({
 
 export async function addAccount(input: z.infer<typeof addAccountSchema>): Promise<ActionResult<{ id: string }>> {
   try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     const data = addAccountSchema.parse(input)
 
@@ -111,6 +115,8 @@ export async function upsertLineItem(
   input: z.infer<typeof lineItemSchema>
 ): Promise<ActionResult<{ id: string }>> {
   try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     const data = lineItemSchema.parse(input)
 
@@ -337,6 +343,8 @@ async function runCrewWorkflow(
 
 export async function deleteLineItem(id: string): Promise<ActionResult> {
   try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     // Scoped delete — WHERE id = ? AND workspaceId = ?; no-ops silently on foreign ids.
     await sdb.lineItem.delete({ where: { id } })
@@ -350,6 +358,8 @@ export async function deleteLineItem(id: string): Promise<ActionResult> {
 
 export async function updateAccount(id: string, input: { name: string; code?: string | null }): Promise<ActionResult> {
   try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     await sdb.account.update({ where: { id }, data: input })
     return { success: true, data: undefined }
@@ -364,6 +374,8 @@ export async function reorderAccounts(
   accounts: { id: string; order: number; code?: string | null }[]
 ): Promise<ActionResult> {
   try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     // Verify ALL account IDs belong to this workspace in one scoped count.
     const verified = await sdb.account.count({ where: { id: { in: accounts.map(a => a.id) } } })
@@ -387,6 +399,8 @@ export async function reorderAccounts(
 
 export async function deleteAccount(id: string): Promise<ActionResult> {
   try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     await sdb.account.delete({ where: { id } })
     return { success: true, data: undefined }
@@ -399,6 +413,8 @@ export async function deleteAccount(id: string): Promise<ActionResult> {
 
 export async function moveLineItem(itemId: string, targetAccountId: string): Promise<ActionResult> {
   try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     // Verify both the line item and target account belong to this workspace.
     const [item, account] = await Promise.all([
@@ -421,6 +437,8 @@ export async function moveLineItem(itemId: string, targetAccountId: string): Pro
 
 export async function reorderLineItems(items: { id: string; order: number }[]): Promise<ActionResult> {
   try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     // Verify all IDs belong to this workspace.
     const verified = await sdb.lineItem.count({ where: { id: { in: items.map(i => i.id) } } })
@@ -438,6 +456,8 @@ export async function reorderLineItems(items: { id: string; order: number }[]): 
 
 export async function duplicatePhase(phaseId: string, newName: string): Promise<ActionResult<{ id: string }>> {
   try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
     const [sdb, workspaceId] = await Promise.all([getScopedDb(), getWorkspaceId()])
 
     // Scoped read — returns null if phaseId belongs to another workspace.
@@ -489,6 +509,8 @@ export async function updatePhaseOverview(
   data: { description: string | null; deliverables: DeliverableInput[] }
 ): Promise<ActionResult> {
   try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     await sdb.phase.update({
       where: { id: phaseId },
@@ -508,6 +530,8 @@ export async function updatePhaseOverview(
 
 export async function updateBudgetGlobals(budgetId: string, globals: Record<string, number>): Promise<ActionResult> {
   try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     await sdb.budget.update({ where: { id: budgetId }, data: { globals } })
     return { success: true, data: undefined }
@@ -545,6 +569,8 @@ export async function updateBudgetRates(
   { markupPct, taxPct }: { markupPct: number | null; taxPct: number | null }
 ): Promise<ActionResult> {
   try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     await sdb.budget.update({ where: { id: budgetId }, data: { markupPct, taxPct } })
     return { success: true, data: undefined }
@@ -652,6 +678,8 @@ export async function insertPackageIntoPhase(
   structure: TemplateStructure
 ): Promise<ActionResult> {
   try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
     const [sdb, workspaceId] = await Promise.all([getScopedDb(), getWorkspaceId()])
 
     // Scoped read — returns null if phaseId belongs to another workspace.
@@ -732,6 +760,8 @@ async function cloneAccounts(accounts: AccountNode[], phaseId: string, parentId:
 
 export async function renamePhase(phaseId: string, name: string): Promise<ActionResult> {
   try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     // Scoped update — WHERE id = ? AND workspaceId = ?
     await sdb.phase.update({ where: { id: phaseId }, data: { name: name.trim() } })
@@ -744,6 +774,8 @@ export async function renamePhase(phaseId: string, name: string): Promise<Action
 
 export async function makePhasePrimary(phaseId: string): Promise<ActionResult> {
   try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     // Scoped read verifies ownership; budgetId is now trusted.
     const phase = await sdb.phase.findFirst({ where: { id: phaseId }, select: { budgetId: true } })
@@ -761,6 +793,8 @@ export async function makePhasePrimary(phaseId: string): Promise<ActionResult> {
 
 export async function deletePhase(phaseId: string): Promise<ActionResult> {
   try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     // Scoped read verifies ownership.
     const phase = await sdb.phase.findFirst({ where: { id: phaseId }, select: { budgetId: true, isPrimary: true } })
@@ -783,6 +817,8 @@ export async function deletePhase(phaseId: string): Promise<ActionResult> {
 
 export async function bulkDeleteLineItems(ids: string[]): Promise<ActionResult> {
   try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
     if (!ids.length) return { success: true, data: undefined }
     const sdb = await getScopedDb()
     const count = await sdb.lineItem.count({ where: { id: { in: ids } } })
@@ -800,6 +836,8 @@ export async function bulkMoveToNewAccount(
   phaseId:     string,
 ): Promise<ActionResult<{ accountId: string }>> {
   try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
     if (!ids.length) return { success: false, error: 'No items selected' }
     const sdb = await getScopedDb()
 
@@ -843,6 +881,8 @@ export async function bulkUpdateLineItems(
   updates: { quantity?: number; unit?: RateUnit; rateCents?: number },
 ): Promise<ActionResult> {
   try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
     if (!ids.length) return { success: true, data: undefined }
     const sdb = await getScopedDb()
     const count = await sdb.lineItem.count({ where: { id: { in: ids } } })

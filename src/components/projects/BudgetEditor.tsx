@@ -53,9 +53,13 @@ type DragItem = { id: string; accountId: string }
 interface Props {
   budget: BudgetWithPhases
   projectId: string
+  /** OWNER/PRODUCER see margin, agency fee and grand totals; Collaborators don't. */
+  canSeeFinancials?: boolean
+  /** Collaborators may read but not mutate budgets — hides all edit affordances. */
+  readOnly?: boolean
 }
 
-export function BudgetEditor({ budget, projectId }: Props) {
+export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readOnly = false }: Props) {
   const router = useRouter()
   const [, startRatesTransition] = useTransition()
   const [, startPhaseTransition] = useTransition()
@@ -261,7 +265,8 @@ export function BudgetEditor({ budget, projectId }: Props) {
           </div>
         </div>
 
-        {/* ── Budget rates row ── */}
+        {/* ── Budget rates row ── (markup/agency-fee — hidden from Collaborators) */}
+        {canSeeFinancials && (
         <div className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-border bg-muted/30 px-4 py-2 text-[12px]">
           <span className="font-medium text-foreground/70">Budget rates</span>
           <label className="flex items-center gap-1.5 text-muted-foreground">
@@ -292,6 +297,7 @@ export function BudgetEditor({ budget, projectId }: Props) {
           </label>
           <span className="ml-auto text-[10px] text-muted-foreground/40">Saves on blur · applied to gross total</span>
         </div>
+        )}
 
         {budget.phases.map(phase => (
           <TabsContent key={phase.id} value={phase.id}>
@@ -300,6 +306,7 @@ export function BudgetEditor({ budget, projectId }: Props) {
               budgetId={budget.id}
               projectId={projectId}
               onMutated={() => router.refresh()}
+              readOnly={readOnly}
             />
           </TabsContent>
         ))}
@@ -309,6 +316,7 @@ export function BudgetEditor({ budget, projectId }: Props) {
         accounts={currentAccounts}
         budgetMarkupPct={localMarkupPct}
         budgetTaxPct={localTaxPct}
+        canSeeFinancials={canSeeFinancials}
       />
     </div>
   )
@@ -317,12 +325,13 @@ export function BudgetEditor({ budget, projectId }: Props) {
 // ─── Phase view ───────────────────────────────────────────────────────────────
 
 function PhaseView({
-  phase, budgetId, projectId, onMutated,
+  phase, budgetId, projectId, onMutated, readOnly = false,
 }: {
   phase: BudgetWithPhases['phases'][number]
   budgetId: string
   projectId: string
   onMutated: () => void
+  readOnly?: boolean
 }) {
   const [addingToAccount, setAddingToAccount] = useState<string | null>(null)
   const [showPackages, setShowPackages]         = useState(false)
@@ -496,14 +505,16 @@ function PhaseView({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-muted/50 text-xs font-medium text-muted-foreground">
-              {/* Select-all checkbox */}
+              {/* Select-all checkbox (hidden in read-only mode) */}
               <th className="w-9 pl-2 align-middle">
-                <BulkCheckbox
-                  checked={selectedIds.size === allItemIds.length && allItemIds.length > 0}
-                  indeterminate={selectedIds.size > 0 && selectedIds.size < allItemIds.length}
-                  onChange={toggleAll}
-                  title={selectedIds.size === allItemIds.length && allItemIds.length > 0 ? 'Deselect all' : 'Select all'}
-                />
+                {!readOnly && (
+                  <BulkCheckbox
+                    checked={selectedIds.size === allItemIds.length && allItemIds.length > 0}
+                    indeterminate={selectedIds.size > 0 && selectedIds.size < allItemIds.length}
+                    onChange={toggleAll}
+                    title={selectedIds.size === allItemIds.length && allItemIds.length > 0 ? 'Deselect all' : 'Select all'}
+                  />
+                )}
               </th>
               <th className="w-7" />
               <th className="px-4 py-2.5 text-left">Description</th>
@@ -550,23 +561,26 @@ function PhaseView({
                 selectedIds={selectedIds}
                 onToggleItem={toggleItem}
                 onToggleAccount={toggleAccount}
+                readOnly={readOnly}
               />
             ))}
           </tbody>
         </table>
       </div>
 
-      <div className="mt-3 flex items-center gap-2">
-        <Button variant="outline" size="sm" onClick={handleAddAccount}>
-          <Plus className="mr-1.5 h-3.5 w-3.5" />Add account
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => setShowPackages(true)}>
-          <Package className="mr-1.5 h-3.5 w-3.5" />Insert package
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => setShowImport(true)}>
-          <Upload className="mr-1.5 h-3.5 w-3.5" />Import
-        </Button>
-      </div>
+      {!readOnly && (
+        <div className="mt-3 flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handleAddAccount}>
+            <Plus className="mr-1.5 h-3.5 w-3.5" />Add account
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowPackages(true)}>
+            <Package className="mr-1.5 h-3.5 w-3.5" />Insert package
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowImport(true)}>
+            <Upload className="mr-1.5 h-3.5 w-3.5" />Import
+          </Button>
+        </div>
+      )}
 
       {addingToAccount && (
         <LineItemModal
@@ -585,12 +599,14 @@ function PhaseView({
         target={{ type: 'budget', budgetId, projectId }} onImported={onMutated}
       />
 
-      <FloatingBulkActionBar
-        selectedIds={[...selectedIds]}
-        phaseId={phase.id}
-        onClear={() => setSelectedIds(new Set())}
-        onMutated={onMutated}
-      />
+      {!readOnly && (
+        <FloatingBulkActionBar
+          selectedIds={[...selectedIds]}
+          phaseId={phase.id}
+          onClear={() => setSelectedIds(new Set())}
+          onMutated={onMutated}
+        />
+      )}
     </div>
   )
 }
@@ -652,6 +668,7 @@ function AccountRows({
   onItemDragOverItem, onItemDragOverHeader, onItemDrop,
   // Bulk selection
   selectedIds, onToggleItem, onToggleAccount,
+  readOnly = false,
 }: {
   account: AccountWithItems
   accountIndex: number
@@ -677,6 +694,7 @@ function AccountRows({
   selectedIds: Set<string>
   onToggleItem: (id: string) => void
   onToggleAccount: (ids: string[]) => void
+  readOnly?: boolean
 }) {
   const [collapsed, setCollapsed]           = useState(false)
   const [, startTransition]                 = useTransition()
@@ -796,29 +814,35 @@ function AccountRows({
       >
         {/* Section checkbox — select all items in this account */}
         <td className="w-9 pl-2 align-middle">
-          <BulkCheckbox
-            checked={allChecked}
-            indeterminate={someChecked}
-            onChange={() => onToggleAccount(accountItemIds)}
-            title={allChecked ? 'Deselect section' : 'Select section'}
-            className={numSelected > 0 ? 'opacity-100' : 'opacity-0 group-hover/section:opacity-100'}
-          />
+          {!readOnly && (
+            <BulkCheckbox
+              checked={allChecked}
+              indeterminate={someChecked}
+              onChange={() => onToggleAccount(accountItemIds)}
+              title={allChecked ? 'Deselect section' : 'Select section'}
+              className={numSelected > 0 ? 'opacity-100' : 'opacity-0 group-hover/section:opacity-100'}
+            />
+          )}
         </td>
 
-        {/* Account drag handle */}
-        <td
-          className="w-7 cursor-grab active:cursor-grabbing pl-1"
-          draggable
-          onDragStart={e => {
-            e.dataTransfer.setData('text/plain', account.id)
-            const row = e.currentTarget.closest('tr')
-            if (row) e.dataTransfer.setDragImage(row, 0, 0)
-            onHeaderDragStart()
-          }}
-          onDragEnd={onHeaderDragEnd}
-        >
-          <GripVertical className="h-3.5 w-3.5 text-muted-foreground/40 mx-auto" />
-        </td>
+        {/* Account drag handle (disabled in read-only mode) */}
+        {readOnly ? (
+          <td className="w-7" />
+        ) : (
+          <td
+            className="w-7 cursor-grab active:cursor-grabbing pl-1"
+            draggable
+            onDragStart={e => {
+              e.dataTransfer.setData('text/plain', account.id)
+              const row = e.currentTarget.closest('tr')
+              if (row) e.dataTransfer.setDragImage(row, 0, 0)
+              onHeaderDragStart()
+            }}
+            onDragEnd={onHeaderDragEnd}
+          >
+            <GripVertical className="h-3.5 w-3.5 text-muted-foreground/40 mx-auto" />
+          </td>
+        )}
 
         {/* Name (editable) */}
         <td className="px-4 py-2" style={{ paddingLeft: `${indent + 16}px` }}>
@@ -852,13 +876,15 @@ function AccountRows({
                 )}
                 {account.name}
               </button>
-              <button
-                type="button" title="Rename"
-                className="invisible rounded p-0.5 text-muted-foreground hover:text-foreground group-hover/name:visible"
-                onClick={() => { setNameValue(account.name); setEditingName(true) }}
-              >
-                <Pencil className="h-3 w-3" />
-              </button>
+              {!readOnly && (
+                <button
+                  type="button" title="Rename"
+                  className="invisible rounded p-0.5 text-muted-foreground hover:text-foreground group-hover/name:visible"
+                  onClick={() => { setNameValue(account.name); setEditingName(true) }}
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+              )}
             </div>
           )}
         </td>
@@ -872,20 +898,24 @@ function AccountRows({
         {/* Add item + Delete section */}
         <td className="px-2">
           <div className="flex items-center justify-end gap-0.5">
-            <button
-              type="button" title="Add line item"
-              className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              onClick={onAddItem}
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button" title="Delete section"
-              className="rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-              onClick={handleDeleteAccount}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
+            {!readOnly && (
+              <>
+                <button
+                  type="button" title="Add line item"
+                  className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  onClick={onAddItem}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button" title="Delete section"
+                  className="rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  onClick={handleDeleteAccount}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </>
+            )}
           </div>
         </td>
       </tr>
@@ -911,47 +941,67 @@ function AccountRows({
           >
             {/* Row checkbox — hover-reveal, permanently visible when checked */}
             <td className="w-9 pl-2 align-middle">
-              <BulkCheckbox
-                checked={selectedIds.has(item.id)}
-                onChange={() => onToggleItem(item.id)}
-                className={selectedIds.has(item.id) ? 'opacity-100' : 'opacity-0 group-hover/item:opacity-100'}
-              />
+              {!readOnly && (
+                <BulkCheckbox
+                  checked={selectedIds.has(item.id)}
+                  onChange={() => onToggleItem(item.id)}
+                  className={selectedIds.has(item.id) ? 'opacity-100' : 'opacity-0 group-hover/item:opacity-100'}
+                />
+              )}
             </td>
 
-            {/* Item drag handle */}
-            <td
-              className="w-7 cursor-grab active:cursor-grabbing pl-1"
-              draggable
-              onDragStart={e => {
-                e.dataTransfer.setData('text/plain', item.id)
-                const row = e.currentTarget.closest('tr')
-                if (row) e.dataTransfer.setDragImage(row, 0, 0)
-                onItemDragStart({ id: item.id, accountId: account.id })
-              }}
-              onDragEnd={onItemDragEnd}
-            >
-              <GripVertical className="h-3.5 w-3.5 text-muted-foreground/25 mx-auto" />
-            </td>
-
-            {/* Description — click to open edit modal */}
-            <td className="px-4 py-1.5" style={{ paddingLeft: `${indent + 36}px` }}>
-              <button
-                type="button"
-                onClick={() => openEditModal(item)}
-                className="group/desc text-left hover:text-primary transition-colors"
+            {/* Item drag handle (disabled in read-only mode) */}
+            {readOnly ? (
+              <td className="w-7" />
+            ) : (
+              <td
+                className="w-7 cursor-grab active:cursor-grabbing pl-1"
+                draggable
+                onDragStart={e => {
+                  e.dataTransfer.setData('text/plain', item.id)
+                  const row = e.currentTarget.closest('tr')
+                  if (row) e.dataTransfer.setDragImage(row, 0, 0)
+                  onItemDragStart({ id: item.id, accountId: account.id })
+                }}
+                onDragEnd={onItemDragEnd}
               >
-                <span className="text-foreground/90 group-hover/desc:underline underline-offset-2 decoration-dotted">
-                  {item.description}
+                <GripVertical className="h-3.5 w-3.5 text-muted-foreground/25 mx-auto" />
+              </td>
+            )}
+
+            {/* Description — click to edit (static text in read-only mode) */}
+            <td className="px-4 py-1.5" style={{ paddingLeft: `${indent + 36}px` }}>
+              {readOnly ? (
+                <span className="text-left">
+                  <span className="text-foreground/90">{item.description}</span>
+                  {item.lineItemCategory && (
+                    <span className="ml-2 inline-block rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-primary/8 text-primary/70">
+                      {item.lineItemCategory}
+                    </span>
+                  )}
+                  {item.notes && (
+                    <span className="ml-2 text-xs text-muted-foreground">({item.notes})</span>
+                  )}
                 </span>
-                {item.lineItemCategory && (
-                  <span className="ml-2 inline-block rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-primary/8 text-primary/70">
-                    {item.lineItemCategory}
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => openEditModal(item)}
+                  className="group/desc text-left hover:text-primary transition-colors"
+                >
+                  <span className="text-foreground/90 group-hover/desc:underline underline-offset-2 decoration-dotted">
+                    {item.description}
                   </span>
-                )}
-                {item.notes && (
-                  <span className="ml-2 text-xs text-muted-foreground">({item.notes})</span>
-                )}
-              </button>
+                  {item.lineItemCategory && (
+                    <span className="ml-2 inline-block rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-primary/8 text-primary/70">
+                      {item.lineItemCategory}
+                    </span>
+                  )}
+                  {item.notes && (
+                    <span className="ml-2 text-xs text-muted-foreground">({item.notes})</span>
+                  )}
+                </button>
+              )}
             </td>
 
             {/* QTY */}
@@ -991,20 +1041,24 @@ function AccountRows({
             {/* Actions */}
             <td className="px-2">
               <div className="flex items-center justify-end gap-0.5">
-                <button
-                  type="button" title="Edit"
-                  className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/item:opacity-100"
-                  onClick={() => openEditModal(item)}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button" title="Delete"
-                  className="rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                  onClick={() => handleDeleteItem(item.id)}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
+                {!readOnly && (
+                  <>
+                    <button
+                      type="button" title="Edit"
+                      className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/item:opacity-100"
+                      onClick={() => openEditModal(item)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button" title="Delete"
+                      className="rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => handleDeleteItem(item.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                )}
               </div>
             </td>
           </tr>
@@ -1038,6 +1092,7 @@ function AccountRows({
           selectedIds={selectedIds}
           onToggleItem={onToggleItem}
           onToggleAccount={onToggleAccount}
+          readOnly={readOnly}
         />
       ))}
     </>

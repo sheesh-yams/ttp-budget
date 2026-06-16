@@ -147,15 +147,31 @@ interface Props {
   accounts:        AccountWithItems[]
   budgetMarkupPct: number   // e.g. 0.1 = 10% agency fee on top of production
   budgetTaxPct:    number   // e.g. 0.0875 = 8.75% tax
+  /** Collaborators are margin-blind: only Net Subtotal is shown. */
+  canSeeFinancials?: boolean
 }
 
 /** Fixed sticky bar anchored to the bottom of the content area (sidebar-aware). */
-export function BudgetSummaryBar({ accounts, budgetMarkupPct, budgetTaxPct }: Props) {
+export function BudgetSummaryBar({ accounts, budgetMarkupPct, budgetTaxPct, canSeeFinancials = true }: Props) {
   const b = computeBreakdown(accounts, budgetMarkupPct, budgetTaxPct)
 
   const markupsAndTaxCents = b.lineMarkupCents + b.lineTaxCents
   const hasAgencyFee       = budgetMarkupPct > 0
   const hasBudgetTax       = budgetTaxPct > 0
+
+  // Margin-blind view: a single Net Subtotal column, no fees/markups/grand total.
+  if (!canSeeFinancials) {
+    return (
+      <div
+        className="fixed bottom-0 right-0 z-40 border-t border-border bg-background/85 backdrop-blur-md shadow-[0_-4px_24px_-4px_rgba(0,0,0,0.08)]"
+        style={{ left: 200 }}
+      >
+        <div className="mx-auto flex max-w-[1400px] items-center px-6 py-3">
+          <SummaryCol label="Subtotal" value={formatCents(b.netSubtotalCents)} />
+        </div>
+      </div>
+    )
+  }
 
   return (
     /* left: 200px matches the sidebar w-[200px] in AuthLayout */

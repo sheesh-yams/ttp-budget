@@ -116,3 +116,69 @@ export const getWorkspaceAndUser = cache(async () => {
   ])
   return { workspace, user }
 })
+
+// =============================================================
+// RBAC — Roles & Permissions (Feature F9)
+// =============================================================
+//
+// Source of truth for a member's role is our DB `User.role` (UserRole enum),
+// NOT Clerk's coarse org:admin/org:member. Clerk still gates *authentication*
+// and org membership; we layer the finer OWNER / PRODUCER / COLLABORATOR
+// distinction on top in our own database.
+//
+// Roles:
+//   OWNER         — full access incl. workspace settings, billing, member mgmt
+//   PRODUCER      — full CRUD on projects/budgets; no settings/member mgmt
+//   COLLABORATOR  — only assigned projects; margin-blind budgets; call sheets
+
+import type { UserRole } from '@prisma/client'
+
+// ─── getCurrentRole ───────────────────────────────────────────────────────────
+// The active member's workspace role. Cached per request.
+
+export const getCurrentRole = cache(async (): Promise<UserRole> => {
+  const user = await getCurrentUser()
+  return user.role
+})
+
+// ─── requireRole ──────────────────────────────────────────────────────────────
+// Gate a server action behind an allow-list of roles. Returns a discriminated
+// result rather than throwing, so callers can early-return the standardized
+// ActionResult error (never fail silently):
+//
+//   const gate = await requireRole(['OWNER', 'PRODUCER'])
+//   if (!gate.ok) return gate.error          // { success: false, error: 'UNAUTHORIZED_ROLE' }
+//   // …authorized; gate.user / gate.role available
+//
+// `getScopedDb()` still enforces tenant isolation independently; this adds the
+// role dimension on top.
+
+// NOTE: this project compiles with `"strict": false` (strictNullChecks OFF),
+// under which TypeScript does NOT narrow discriminated unions on a boolean
+// discriminant — i.e. `if (!gate.ok) return gate.error` would fail to type-check
+// against a `Success | Failure` union. So we model the gate as a SINGLE object
+// type where `error` is always a (nullable) field. No narrowing required:
+//
+//   const gate = await requireRole(['OWNER', 'PRODUCER'])
+//   if (!gate.ok) return gate.error      // typed ActionResult failure
+//   // …authorized; gate.userId / gate.role available
+export type RoleGate = {
+  ok:          boolean
+  /** The standardized failure result when `ok` is false; null when authorized. */
+  error:       { success: false; error: 'UNAUTHORIZED_ROLE' } | null
+  role:        UserRole
+  userId:      string
+  workspaceId: string
+}
+
+export async function requireRole(allowedRoles: UserRole[]): Promise<RoleGate> {
+  const user = await getCurrentUser()
+  const ok = allowedRoles.includes(user.role)
+  return {
+    ok,
+    error: ok ? null : { success: false, error: 'UNAUTHORIZED_ROLE' },
+    role:        user.role,
+    userId:      user.id,
+    workspaceId: user.workspaceId,
+  }
+}
