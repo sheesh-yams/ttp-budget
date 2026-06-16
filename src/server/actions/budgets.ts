@@ -775,3 +775,89 @@ export async function deletePhase(phaseId: string): Promise<ActionResult> {
     return { success: false, error: 'Failed to delete phase' }
   }
 }
+
+// ─── Bulk operations ──────────────────────────────────────────────────────────
+// All three follow the same security pattern as reorderAccounts / moveLineItem:
+//   1. Use sdb (scoped) to COUNT/FIND — guarantees IDs belong to this workspace.
+//   2. Use raw db for the mutation — safe because ownership is already verified.
+
+export async function bulkDeleteLineItems(ids: string[]): Promise<ActionResult> {
+  try {
+    if (!ids.length) return { success: true, data: undefined }
+    const sdb = await getScopedDb()
+    const count = await sdb.lineItem.count({ where: { id: { in: ids } } })
+    if (count !== ids.length) return { success: false, error: 'One or more items not found' }
+    await db.lineItem.deleteMany({ where: { id: { in: ids } } })
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to delete line items' }
+  }
+}
+
+export async function bulkMoveToNewAccount(
+  ids:         string[],
+  accountName: string,
+  phaseId:     string,
+): Promise<ActionResult<{ accountId: string }>> {
+  try {
+    if (!ids.length) return { success: false, error: 'No items selected' }
+    const sdb = await getScopedDb()
+
+    // Verify items and phase belong to this workspace
+    const [itemCount, phase] = await Promise.all([
+      sdb.lineItem.count({ where: { id: { in: ids } } }),
+      sdb.phase.findFirst({ where: { id: phaseId }, select: { id: true, workspaceId: true } }),
+    ])
+    if (itemCount !== ids.length) return { success: false, error: 'One or more items not found' }
+    if (!phase) return { success: false, error: 'Phase not found' }
+
+    // Determine code and insertion order from existing top-level account count
+    const existingCount = await db.account.count({ where: { phaseId, parentId: null } })
+    const newCode = String((existingCount + 1) * 100)
+
+    const newAccount = await db.account.create({
+      data: {
+        phaseId,
+        name:  accountName,
+        code:  newCode,
+        order: existingCount,
+        ...(phase.workspaceId ? { workspaceId: phase.workspaceId } : {}),
+      },
+    })
+
+    // Move items preserving their relative order within the new account
+    await db.$transaction(
+      ids.map((id, i) =>
+        db.lineItem.update({ where: { id }, data: { accountId: newAccount.id, order: i } })
+      )
+    )
+
+    return { success: true, data: { accountId: newAccount.id } }
+  } catch {
+    return { success: false, error: 'Failed to group items' }
+  }
+}
+
+export async function bulkUpdateLineItems(
+  ids:     string[],
+  updates: { quantity?: number; unit?: RateUnit; rateCents?: number },
+): Promise<ActionResult> {
+  try {
+    if (!ids.length) return { success: true, data: undefined }
+    const sdb = await getScopedDb()
+    const count = await sdb.lineItem.count({ where: { id: { in: ids } } })
+    if (count !== ids.length) return { success: false, error: 'One or more items not found' }
+
+    // Only update the fields the caller explicitly provided
+    const data: Record<string, unknown> = {}
+    if (updates.quantity  !== undefined) data.quantity  = updates.quantity
+    if (updates.unit      !== undefined) data.unit      = updates.unit
+    if (updates.rateCents !== undefined) data.rateCents = updates.rateCents
+    if (!Object.keys(data).length) return { success: true, data: undefined }
+
+    await db.lineItem.updateMany({ where: { id: { in: ids } }, data })
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to update line items' }
+  }
+}

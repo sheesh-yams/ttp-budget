@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition, useEffect } from 'react'
+import { useState, useTransition, useEffect, useMemo } from 'react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import {
   Plus, Trash2, ChevronRight, ChevronDown, Package,
@@ -26,6 +26,7 @@ import { sumAccount, type AccountInput } from '@/lib/totals'
 import type { BudgetWithPhases, AccountWithItems } from '@/types'
 import { useRouter } from 'next/navigation'
 import type { RateUnit } from '@prisma/client'
+import { FloatingBulkActionBar } from './FloatingBulkActionBar'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -336,6 +337,45 @@ function PhaseView({
     setLocalAccounts(phase.accounts as AccountWithItems[])
   }, [phase.accounts])
 
+  // ── Bulk selection ────────────────────────────────────────────────────────
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+
+  const allItemIds = useMemo(() => {
+    function collect(accounts: AccountWithItems[]): string[] {
+      return accounts.flatMap(acc => [
+        ...acc.lineItems.map(i => i.id),
+        ...(acc.children ? collect(acc.children as AccountWithItems[]) : []),
+      ])
+    }
+    return collect(localAccounts)
+  }, [localAccounts])
+
+  function toggleItem(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  function toggleAccount(ids: string[]) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      const allSel = ids.every(id => next.has(id))
+      if (allSel) ids.forEach(id => next.delete(id))
+      else        ids.forEach(id => next.add(id))
+      return next
+    })
+  }
+
+  function toggleAll() {
+    setSelectedIds(prev =>
+      prev.size === allItemIds.length && allItemIds.length > 0
+        ? new Set()
+        : new Set(allItemIds)
+    )
+  }
+
   // ── Account drag state ────────────────────────────────────────────────────
   const [dragAccountId, setDragAccountId] = useState<string | null>(null)
   const [dropAccountId, setDropAccountId] = useState<string | null>(null)
@@ -456,6 +496,17 @@ function PhaseView({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-muted/50 text-xs font-medium text-muted-foreground">
+              {/* Select-all checkbox */}
+              <th className="w-9 pl-2">
+                <input
+                  type="checkbox"
+                  title={selectedIds.size === allItemIds.length && allItemIds.length > 0 ? 'Deselect all' : 'Select all'}
+                  checked={selectedIds.size === allItemIds.length && allItemIds.length > 0}
+                  ref={el => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < allItemIds.length }}
+                  onChange={toggleAll}
+                  className="h-3.5 w-3.5 cursor-pointer rounded accent-violet-600"
+                />
+              </th>
               <th className="w-7" />
               <th className="px-4 py-2.5 text-left">Description</th>
               <th className="px-3 py-2.5 text-right w-14" title="Headcount — how many people of this role">Qty</th>
@@ -497,6 +548,10 @@ function PhaseView({
                 onItemDrop={handleItemDrop}
                 // Account delete
                 onAccountDeleted={onMutated}
+                // Bulk selection
+                selectedIds={selectedIds}
+                onToggleItem={toggleItem}
+                onToggleAccount={toggleAccount}
               />
             ))}
           </tbody>
@@ -531,6 +586,13 @@ function PhaseView({
         open={showImport} onOpenChange={setShowImport}
         target={{ type: 'budget', budgetId, projectId }} onImported={onMutated}
       />
+
+      <FloatingBulkActionBar
+        selectedIds={[...selectedIds]}
+        phaseId={phase.id}
+        onClear={() => setSelectedIds(new Set())}
+        onMutated={onMutated}
+      />
     </div>
   )
 }
@@ -546,6 +608,8 @@ function AccountRows({
   dragItem, dropZone,
   onItemDragStart, onItemDragEnd,
   onItemDragOverItem, onItemDragOverHeader, onItemDrop,
+  // Bulk selection
+  selectedIds, onToggleItem, onToggleAccount,
 }: {
   account: AccountWithItems
   accountIndex: number
@@ -567,6 +631,10 @@ function AccountRows({
   onItemDragOverItem: (beforeItemId: string) => void
   onItemDragOverHeader: () => void
   onItemDrop: () => void
+  // Bulk selection
+  selectedIds: Set<string>
+  onToggleItem: (id: string) => void
+  onToggleAccount: (ids: string[]) => void
 }) {
   const [collapsed, setCollapsed]           = useState(false)
   const [, startTransition]                 = useTransition()
@@ -577,6 +645,17 @@ function AccountRows({
 
   const totalCents = sumAccount(account as unknown as AccountInput)
   const indent     = depth * 20
+
+  // ── Per-section selection helpers ─────────────────────────────────────────
+  const accountItemIds = useMemo(() => {
+    function collect(acc: AccountWithItems): string[] {
+      return [...acc.lineItems.map(i => i.id), ...(acc.children ?? []).flatMap(collect)]
+    }
+    return collect(account)
+  }, [account])
+  const numSelected  = accountItemIds.filter(id => selectedIds.has(id)).length
+  const allChecked   = accountItemIds.length > 0 && numSelected === accountItemIds.length
+  const someChecked  = numSelected > 0 && !allChecked
 
   // ── Account name ──────────────────────────────────────────────────────────
   function saveAccountName() {
@@ -650,7 +729,7 @@ function AccountRows({
       {/* ── Account header row ─────────────────────────────────────────────── */}
       <tr
         className={[
-          'border-b bg-secondary/40 font-medium transition-colors',
+          'group/section border-b bg-secondary/40 font-medium transition-colors',
           isDragging          ? 'opacity-40' : '',
           isDragOver          ? 'outline outline-1 outline-primary/50 bg-primary/5' : '',
           isItemDropTargetHeader ? 'outline outline-1 outline-violet-400/60 bg-violet-50/40' : '',
@@ -673,6 +752,21 @@ function AccountRows({
           }
         }}
       >
+        {/* Section checkbox — select all items in this account */}
+        <td className="w-9 pl-2">
+          <input
+            type="checkbox"
+            checked={allChecked}
+            ref={el => { if (el) el.indeterminate = someChecked }}
+            onChange={() => onToggleAccount(accountItemIds)}
+            title={allChecked ? 'Deselect section' : 'Select section'}
+            className={[
+              'h-3.5 w-3.5 cursor-pointer rounded accent-violet-600 transition-opacity',
+              numSelected > 0 ? 'opacity-100' : 'opacity-0 group-hover/section:opacity-100',
+            ].join(' ')}
+          />
+        </td>
+
         {/* Account drag handle */}
         <td
           className="w-7 cursor-grab active:cursor-grabbing pl-1"
@@ -777,6 +871,21 @@ function AccountRows({
             onDragOver={e => { e.preventDefault(); onItemDragOverItem(item.id) }}
             onDrop={e => { e.preventDefault(); onItemDrop() }}
           >
+            {/* Row checkbox — hover-reveal, permanently visible when checked */}
+            <td className="w-9 pl-2">
+              <input
+                type="checkbox"
+                checked={selectedIds.has(item.id)}
+                onChange={() => onToggleItem(item.id)}
+                className={[
+                  'h-3.5 w-3.5 cursor-pointer rounded accent-violet-600 transition-opacity',
+                  selectedIds.has(item.id)
+                    ? 'opacity-100'
+                    : 'opacity-0 group-hover/item:opacity-100',
+                ].join(' ')}
+              />
+            </td>
+
             {/* Item drag handle */}
             <td
               className="w-7 cursor-grab active:cursor-grabbing pl-1"
@@ -894,6 +1003,9 @@ function AccountRows({
           onItemDragOverItem={onItemDragOverItem}
           onItemDragOverHeader={onItemDragOverHeader}
           onItemDrop={onItemDrop}
+          selectedIds={selectedIds}
+          onToggleItem={onToggleItem}
+          onToggleAccount={onToggleAccount}
         />
       ))}
     </>
