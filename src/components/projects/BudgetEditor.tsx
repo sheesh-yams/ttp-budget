@@ -4,7 +4,7 @@ import { useState, useTransition, useEffect, useMemo } from 'react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import {
   Plus, Trash2, ChevronRight, ChevronDown, Package,
-  Upload, GripVertical, Pencil, Star, Copy,
+  Upload, GripVertical, Pencil, Star, Copy, Check,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -497,14 +497,12 @@ function PhaseView({
           <thead>
             <tr className="border-b bg-muted/50 text-xs font-medium text-muted-foreground">
               {/* Select-all checkbox */}
-              <th className="w-9 pl-2">
-                <input
-                  type="checkbox"
-                  title={selectedIds.size === allItemIds.length && allItemIds.length > 0 ? 'Deselect all' : 'Select all'}
+              <th className="w-9 pl-2 align-middle">
+                <BulkCheckbox
                   checked={selectedIds.size === allItemIds.length && allItemIds.length > 0}
-                  ref={el => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < allItemIds.length }}
+                  indeterminate={selectedIds.size > 0 && selectedIds.size < allItemIds.length}
                   onChange={toggleAll}
-                  className="h-3.5 w-3.5 cursor-pointer rounded accent-violet-600"
+                  title={selectedIds.size === allItemIds.length && allItemIds.length > 0 ? 'Deselect all' : 'Select all'}
                 />
               </th>
               <th className="w-7" />
@@ -594,6 +592,47 @@ function PhaseView({
         onMutated={onMutated}
       />
     </div>
+  )
+}
+
+// ─── Bulk checkbox ────────────────────────────────────────────────────────────
+
+function BulkCheckbox({
+  checked, indeterminate, onChange, title, className,
+}: {
+  checked: boolean
+  indeterminate?: boolean
+  onChange: () => void
+  title?: string
+  className?: string
+}) {
+  return (
+    <label
+      className={['flex items-center justify-center cursor-pointer transition-opacity', className].filter(Boolean).join(' ')}
+      title={title}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        ref={el => { if (el) el.indeterminate = !!indeterminate }}
+        onChange={onChange}
+        className="sr-only"
+      />
+      <div
+        className={[
+          'h-3.5 w-3.5 rounded-[3px] border transition-all flex items-center justify-center shrink-0',
+          checked || indeterminate
+            ? 'bg-violet-600 border-violet-600'
+            : 'border-border/50 bg-transparent',
+        ].join(' ')}
+      >
+        {indeterminate ? (
+          <span className="block h-[1.5px] w-2 rounded-full bg-white" />
+        ) : checked ? (
+          <Check className="h-2 w-2 text-white stroke-[3]" />
+        ) : null}
+      </div>
+    </label>
   )
 }
 
@@ -729,7 +768,7 @@ function AccountRows({
       {/* ── Account header row ─────────────────────────────────────────────── */}
       <tr
         className={[
-          'group/section border-b bg-secondary/40 font-medium transition-colors',
+          'group/section border-b bg-secondary/40 font-medium transition-colors hover:bg-secondary/70',
           isDragging          ? 'opacity-40' : '',
           isDragOver          ? 'outline outline-1 outline-primary/50 bg-primary/5' : '',
           isItemDropTargetHeader ? 'outline outline-1 outline-violet-400/60 bg-violet-50/40' : '',
@@ -753,17 +792,13 @@ function AccountRows({
         }}
       >
         {/* Section checkbox — select all items in this account */}
-        <td className="w-9 pl-2">
-          <input
-            type="checkbox"
+        <td className="w-9 pl-2 align-middle">
+          <BulkCheckbox
             checked={allChecked}
-            ref={el => { if (el) el.indeterminate = someChecked }}
+            indeterminate={someChecked}
             onChange={() => onToggleAccount(accountItemIds)}
             title={allChecked ? 'Deselect section' : 'Select section'}
-            className={[
-              'h-3.5 w-3.5 cursor-pointer rounded accent-violet-600 transition-opacity',
-              numSelected > 0 ? 'opacity-100' : 'opacity-0 group-hover/section:opacity-100',
-            ].join(' ')}
+            className={numSelected > 0 ? 'opacity-100' : 'opacity-0 group-hover/section:opacity-100'}
           />
         </td>
 
@@ -864,7 +899,7 @@ function AccountRows({
           <tr
             key={item.id}
             className={[
-              'group/item border-b transition-colors hover:bg-muted/20',
+              'group/item border-b transition-colors hover:bg-muted/40',
               isBeingDragged   ? 'opacity-40'       : '',
               isDropBefore     ? 'border-t-2 border-t-violet-400' : '',
             ].join(' ')}
@@ -872,17 +907,11 @@ function AccountRows({
             onDrop={e => { e.preventDefault(); onItemDrop() }}
           >
             {/* Row checkbox — hover-reveal, permanently visible when checked */}
-            <td className="w-9 pl-2">
-              <input
-                type="checkbox"
+            <td className="w-9 pl-2 align-middle">
+              <BulkCheckbox
                 checked={selectedIds.has(item.id)}
                 onChange={() => onToggleItem(item.id)}
-                className={[
-                  'h-3.5 w-3.5 cursor-pointer rounded accent-violet-600 transition-opacity',
-                  selectedIds.has(item.id)
-                    ? 'opacity-100'
-                    : 'opacity-0 group-hover/item:opacity-100',
-                ].join(' ')}
+                className={selectedIds.has(item.id) ? 'opacity-100' : 'opacity-0 group-hover/item:opacity-100'}
               />
             </td>
 
