@@ -29,11 +29,32 @@ The app is fully multi-tenant. Every user signs up into their own **workspace**,
 - **Danger zone** (Settings) — workspace owner can permanently delete the workspace with name confirmation. Non-owner members can leave.
 
 ### Row-level security scoped models
-`Client`, `Project`, `RateCard`, `BudgetTemplate`, `Budget`, `Proposal`, `Invoice`, `CallSheet`, `Contact`
+Auto-scoped through `getScopedDb()` (see `SCOPED_MODELS` in `src/lib/db-scoped.ts`):
+`Client`, `Project`, `RateCard`, `BudgetTemplate`, `Budget`, `Proposal`, `Invoice`, `CallSheet`, `Contact`, `Phase`, `Account`, `LineItem`, `ProjectMember`, `ProjectComment`, `ProjectAssignment`, `AuditEvent`, `WorkspacePaymentConfig`, `PaymentAttempt`
 
-Non-scoped (shared or workspace-metadata): `Workspace`, `User`, `Phase`, `Account`, `LineItem`, `ProposalView`, `InvoiceView`, `ProjectMember`
+Non-scoped (shared or workspace-metadata): `Workspace`, `User`, `ProposalView`, `InvoiceView`, `WebhookEvent`
 
-> **Note:** `ProjectMember` does have a `workspaceId` column (backfilled via `scripts/backfill-workspace-ids.ts`) used for IDOR protection, but the model is not fully scoped through `getScopedDb()`. Scoping is enforced by joining through the `project` relation.
+> **Note:** child models (`Phase`, `Account`, `LineItem`, `ProjectMember`, `ProjectComment`, `ProjectAssignment`) carry a denormalized `workspaceId` column (backfilled via `scripts/backfill-workspace-ids.ts`) so they can be scoped directly — a crafted foreign `phaseId` / `lineItemId` / `commentId` returns not-found rather than data.
+
+## Roles & Permissions (RBAC — Feature F9)
+
+Three workspace roles, stored on `User.role` (`UserRole` enum). **The DB is the source of truth** — Clerk Organizations only carry the coarse `org:admin` / `org:member` distinction; the finer role lives in our database.
+
+| Role | Access |
+|------|--------|
+| **OWNER** | Full access — workspace settings, billing, danger zone, member management |
+| **PRODUCER** | Full CRUD on projects/budgets; no workspace settings or member management |
+| **COLLABORATOR** | Only projects they're explicitly assigned to; budgets are **margin-blind**; can edit call sheets |
+
+Enforced at three layers:
+
+- **Server actions** — `requireRole(allowedRoles)` from `src/lib/auth.ts` gates mutations and returns a typed `{ success: false, error: 'UNAUTHORIZED_ROLE' }` (never fails silently). All budget mutations + invite/revoke/role-change are gated. Returns a single nullable-`error` object rather than a discriminated union, because the repo compiles with `strict: false` (which disables discriminated-union narrowing on a boolean discriminant).
+- **Database / payload** — the "blind budget": for a Collaborator, `stripBudgetForRole()` (`src/lib/budget-visibility.ts`) removes the budget markup (agency fee) and every per-line markup **on the server, before serialization**, so margin data never enters the RSC payload. The `/projects` dashboard financial KPIs are likewise zeroed for Collaborators.
+- **UI** — `BudgetEditor` renders read-only and hides the rates row, agency fee, and grand-total blocks for Collaborators. `settings/layout.tsx` and the `/team` page redirect non-Owners server-side.
+
+**Project assignment** — Collaborators only see projects linked to them via the `ProjectAssignment` join table (`projectId` + `userId`). Owners/Producers assign them via the **Assign** dialog (`AssignCollaborators`) on the project header. Projects list and detail page both filter/guard on this.
+
+**Role persistence** — invites carry the chosen role; the `organizationMembership.created` webhook reads the invitation's role so `COLLABORATOR` / `PRODUCER` persist correctly (Clerk membership is `org:member` for both). `getCurrentRole()` resolves the active role; the `/team` page lets Owners reassign roles via `changeMemberRole`.
 
 ## Global Library
 
@@ -54,7 +75,8 @@ GlobalTemplate  ─┘  (global catalog; seeded into new workspaces on creation)
 
 Workspace (1)
   ├── callTimeFormat   "12H" | "24H"  (workspace-level display preference for call times)
-  ├── Users (you + producers, via Clerk org membership)
+  ├── primaryColor / accentColor / logoUrl / logoDarkUrl  (per-workspace branding; defaults #5D00A4 / #04FFCC)
+  ├── Users (OWNER | PRODUCER | COLLABORATOR — User.role; see Roles & Permissions)
   ├── RateCards (workspace-owned copies, seeded from global library)
   ├── BudgetTemplates (workspace-owned copies, seeded from global library)
   ├── Contacts (Rolodex — persistent across projects)
@@ -82,6 +104,8 @@ Workspace (1)
   │           │                       └── quantityFormula  (A×B multiplier, e.g. "3x2" = 3 people × 2 days)
   │           ├── Proposals (public /p/[token] page + PDF)
   │           ├── Invoices  (public /i/[token] page + PDF)
+  │           ├── ProjectComments  (activity feed — see Project hub)
+  │           ├── ProjectAssignments (Collaborator visibility — see Roles & Permissions)
   │           └── CallSheets (public /cs/[token] page)
   │                 ├── crew          JSON — [{ dept, members: [{ name, role, callTime, phone, email, contactId? }] }]
   │                 ├── talent        JSON — [{ name, role/character, callTime, phone, email, contactId? }]
@@ -131,20 +155,20 @@ Rate cards are the **source of defaults** but never retroactively change histori
 | `/invoices` | Invoice list with metrics |
 | `/invoices/[id]/edit` | Invoice editor |
 | `/rates` | Workspace rate card list |
-| `/templates` | Budget templates — full templates & add-on packages |
+| `/templates` | **Document Hub** — tabbed: Budgets, Add-on Packages, Proposals (branded preview), Invoices (coming soon) |
 | `/templates/[id]` | Template detail + structure editor |
 | `/library` | Global library catalog — browse + add to workspace |
 | `/rolodex` | Contact directory — grid + list view, role filter, archive |
 | `/rolodex/[id]` | Contact detail — info, project history, call sheet appearances |
-| `/team` | Workspace team members + invite by email |
-| `/settings` | Branding, payment instructions, production preferences (call time format), workspace data, danger zone |
+| `/team` | **(OWNER only)** Workspace team members + invite by email + role badges/picker + change roles |
+| `/settings` | **(OWNER only)** Branding, payment instructions, production preferences (call time format), workspace data, danger zone |
 | `/onboarding` | First-time setup wizard (redirected automatically for new users) |
 
 ### Public (no auth, tokenized)
 | Route | Description |
 |-------|-------------|
-| `/p/[token]` | Branded proposal — approve, download PDF, request changes. DRAFT status renders a preview banner instead of 404. |
-| `/i/[token]` | Branded invoice — wire/ACH details, download PDF |
+| `/p/[token]` | Proposal — approve, download PDF, request changes. Uses the **workspace's own brand color + logo** (see Per-workspace Branding). DRAFT renders a preview banner instead of 404. |
+| `/i/[token]` | Invoice — wire/ACH details, download PDF. Same per-workspace branding. |
 | `/cs/[token]` | Call sheet for crew — desktop 2-col layout, mobile single-column. DRAFT shows a preview banner. `?print=1` auto-triggers `window.print()`. |
 | `/invite/[token]` | Team invitation acceptance page |
 
@@ -164,7 +188,8 @@ Key behaviours:
 - **Cross-account drag** — drag handles for reordering accounts and line items, including across account sections
 - **Delete account** — removes account and all children; auto-renumbers codes
 - **Per-item markup & tax** — each line item can override budget-level markup/tax, or opt out of the agency fee entirely
-- **Sticky summary bar** — fixed at bottom: Net Subtotal, Markups & Taxes, Agency Fee & Tax, Grand Total
+- **Bulk actions** — hover-reveal checkboxes on every line item + per-section and whole-budget "select all" (indeterminate states). A floating action bar (slides up, brand-purple pill) offers **Mass edit** (inline Qty / Unit / Rate fields — blank leaves a field unchanged), **Group into account** (moves the selection into a new account), and **Delete**. Custom transparent checkboxes (`BulkCheckbox`) inherit the row background.
+- **Sticky summary bar** — fixed at bottom: Net Subtotal, Markups & Taxes, Agency Fee & Tax, Grand Total. Collapses to a single Net Subtotal for margin-blind (Collaborator) views.
 
 **Phase versioning** — each budget can have multiple phases (tabs):
 - Rename, duplicate (copies all accounts + line items), make primary, delete
@@ -372,13 +397,34 @@ Each dialog type has a stable `key`. When shown, a **"Don't show again"** checkb
 
 To reset a suppressed dialog: `localStorage.removeItem('ttp_confirm_skip:<key>')` in the browser console.
 
-## Budget Templates (`/templates`)
+## Document Hub (`/templates`)
 
-Two template kinds:
-- **Full Template** — seeds an entire project budget (all accounts + line items)
-- **Add-on Package** — a building block inserted into any existing budget phase via "Insert package"
+A tabbed hub (`TemplatesPageClient`) with four tabs:
 
-Templates are tagged by shoot type. The template detail page has a structure editor plus bulk import support.
+- **Budgets** — Full Templates that seed an entire project budget (all accounts + line items). Tagged by shoot type; structure editor + bulk import on the detail page.
+- **Add-on Packages** — building blocks inserted into any existing budget phase via "Insert package".
+- **Proposals** — a live `ProposalTemplatePreview`: a polished client-facing proposal mockup (Overview / Scope / Estimate) that renders the workspace's R2 logo and applies its brand color dynamically to every accent. Links to Settings → Branding.
+- **Invoices** — "Coming Soon" placeholder for branded invoice templates.
+
+> Budgets and Add-on Packages are both `BudgetTemplate` rows distinguished by `kind` (`FULL` | `PACKAGE`).
+
+## Project Activity Feed
+
+The project's `ClientInfoPanel` drawer hosts a ClickUp-style activity thread (`ActivitySidebar` + `CommentInput`) backed by the `ProjectComment` model, replacing the old static project-notes textarea:
+
+- **Client Notes callout** pinned at the top (read-only `Client.specialNotes`).
+- **Scrollable comment thread** — bordered cards with author avatar, name, and `date-fns` timestamps ("Today at 2:15 PM", "Nov 17 at 3:01 PM"); only the thread scrolls.
+- **Sticky composer** — auto-growing textarea, Enter to send / Shift+Enter for newline, `useActionState` pending state, clears on success.
+- **Non-destructive legacy migration** — `getProjectActivity()` surfaces any pre-existing `Project.notes` text as the first **pinned** comment (authored by the project creator) rather than migrating it destructively. The `Project.notes` column is read-only now; the old `updateProjectNotes` action was removed.
+
+## Per-workspace Branding
+
+Client-facing documents render with each workspace's own `primaryColor` / `accentColor` / `logoUrl`, set in **Settings → Branding** (R2 logo upload + color picker). Defaults are the SlateSuite palette (`#5D00A4` purple, `#04FFCC` mint).
+
+- **Web views** (`ProposalPublicView`, `InvoicePublicView`) — brand colors flow via CSS variables set on the document root (`--brand-v`, `--brand-mint`, `--gradient-cover`), each with the SlateSuite hex as the `var()` fallback. The logo prefers the workspace's dark-bg variant and falls back to the **workspace name** — never the TTP logo.
+- **Invoice PDF** (`InvoicePDF`, `@react-pdf/renderer`) — can't use CSS variables, so its `StyleSheet` is a `makeStyles(V, MINT)` factory fed from invoice data; logo prefers the workspace R2 URL.
+- **Invoice email** (`sendInvoiceEmail`) + its send-modal preview + the Helcim pay button — same per-workspace colors.
+- Color math lives in `src/lib/color.ts` (`lighten` / `darken` / `safeHex`). A workspace that never customizes inherits the SlateSuite purple default.
 
 ## Bulk Import Format
 
@@ -445,12 +491,13 @@ ttp-budget/
 │   │   │   ├── rolodex/
 │   │   │   │   ├── page.tsx                 # Contact directory (grid + list + role filter)
 │   │   │   │   └── [id]/page.tsx            # Contact detail — info, projects, call sheet history
-│   │   │   ├── team/                        # Workspace team members + invite
+│   │   │   ├── team/                        # Workspace team members + invite (page redirects non-OWNER)
 │   │   │   ├── onboarding/                  # First-time setup wizard
 │   │   │   └── settings/
+│   │   │       └── layout.tsx               # RBAC gate — redirects non-OWNER to /
 │   │   ├── (public)/
-│   │   │   ├── p/[token]/page.tsx           # Proposal public view (draft-aware)
-│   │   │   ├── i/[token]/page.tsx           # Invoice public view
+│   │   │   ├── p/[token]/page.tsx           # Proposal public view (draft-aware; per-workspace branded)
+│   │   │   ├── i/[token]/page.tsx           # Invoice public view (per-workspace branded)
 │   │   │   ├── cs/[token]/page.tsx          # Call sheet public view (draft-aware)
 │   │   │   └── invite/[token]/page.tsx      # Team invitation acceptance
 │   │   └── api/
@@ -479,7 +526,9 @@ ttp-budget/
 │   │   │   ├── Sidebar.tsx                  # Workspace switcher, nav, user footer + sign-out
 │   │   │   └── TopBar.tsx
 │   │   ├── proposals/
-│   │   │   └── ProposalsKanban.tsx          # Drag-and-drop Kanban; WON + LOST columns droppable
+│   │   │   ├── ProposalsKanban.tsx          # Drag-and-drop Kanban; WON + LOST columns droppable
+│   │   │   ├── ProposalsTable.tsx           # All-proposals table with per-row delete
+│   │   │   └── ProposalTemplatePreview.tsx  # Branded proposal mockup (Document Hub → Proposals tab)
 │   │   ├── projects/
 │   │   │   ├── projects-types.ts            # Shared types (ProjectForCard, ProjectInvoiceSnap incl. amountPaidCents, …)
 │   │   │   ├── ProjectMetricsStrip.tsx      # 4 solid-color KPI cards; metrics exclude ARCHIVED projects
@@ -495,6 +544,11 @@ ttp-budget/
 │   │   │   ├── ProjectTeam.tsx              # Per-project crew list; MemberCard BookUser button opens ContactModal inline
 │   │   │   ├── ProposalModal.tsx            # Create/edit/send proposals + payment schedule + discounts
 │   │   │   ├── ProjectInvoices.tsx
+│   │   │   ├── FloatingBulkActionBar.tsx    # Budget bulk actions — mass edit / group / delete
+│   │   │   ├── ClientInfoPanel.tsx          # Drawer hosting the activity feed (ActivitySidebar)
+│   │   │   ├── ActivitySidebar.tsx          # Project comment thread + client-notes callout + sticky composer
+│   │   │   ├── CommentInput.tsx             # Auto-grow composer; useActionState; Enter to send
+│   │   │   ├── AssignCollaborators.tsx      # OWNER/PRODUCER dialog — assign Collaborators to a project
 │   │   │   └── ProposalOverview.tsx
 │   │   ├── actuals/
 │   │   │   └── WrapReportPDF.tsx            # @react-pdf/renderer Document for the wrap report PDF
@@ -524,7 +578,10 @@ ttp-budget/
 │   │   ├── db.ts
 │   │   ├── db-scoped.ts                     # getScopedDb() — Prisma $extends() for row-level security
 │   │   ├── auth.ts                          # getCurrentUser, getWorkspaceId, getActiveWorkspace
+│   │   │                                    #   getCurrentRole() + requireRole(roles) → typed UNAUTHORIZED_ROLE (RBAC)
 │   │   │                                    #   upsert no longer overwrites User.avatarUrl with Clerk imageUrl if already set
+│   │   ├── budget-visibility.ts             # canSeeFinancials(role) + stripBudgetForRole() — server-side margin redaction
+│   │   ├── color.ts                         # lighten / darken / safeHex — per-workspace document branding
 │   │   ├── r2.ts                            # S3Client singleton for Cloudflare R2 (region: auto)
 │   │   ├── workspace-seeder.ts              # seedWorkspaceFromGlobals + reseedWorkspaceFromGlobals
 │   │   ├── money.ts                         # cents ↔ display, parseQtyFormula, fmtUnit
@@ -559,10 +616,12 @@ ttp-budget/
 │           │                                #   updateContact: optional projectId → revalidates /projects/[id]/team
 │           │                                #   getContactForModal: lightweight fetch for team-page modal pre-fill
 │           │                                #   searchContacts: returns kit fields for LineItemModal typeahead
-│           ├── team.ts                      # sendInvitation, acceptInvitation, removeMember
+│           ├── team.ts                      # invite/revoke/accept + changeMemberRole (OWNER-gated); webhook honours invited role
+│           ├── comments.ts                  # getProjectActivity (legacy notes → pinned comment) + addProjectComment
+│           ├── assignments.ts               # getProjectAssignees + setProjectAssignment (Collaborator visibility; OWNER/PRODUCER-gated)
 │           ├── upload.ts                    # getPresignedUploadUrl() — issues 60 s PutObjectCommand ticket to R2; never touches file bytes
-│           └── workspace.ts                 # updateProductionSettings — saves callTimeFormat
-│                                            #   updateUserAvatar(url) — persists R2 URL to User.avatarUrl in DB
+│           └── workspace.ts                 # updateBrandingSettings (primaryColor/accentColor), getLogoUploadUrl/saveWorkspaceLogo
+│                                            #   updateProductionSettings — saves callTimeFormat; updateUserAvatar(url)
 ├── .env.example
 ├── next.config.js
 ├── tailwind.config.ts
@@ -686,6 +745,8 @@ Returns `429 Too Many Requests` with `Retry-After` and `X-RateLimit-*` headers. 
 - **Call sheet draft preview:** public `/cs/[token]` and `/p/[token]` both render for DRAFT status with a sticky amber banner. View analytics are skipped for drafts.
 - **Global library isolation:** `GlobalRateCard` and `GlobalTemplate` are seeded once by the app. Workspace copies are independent — never update globals from workspace data, and never propagate global changes to existing workspaces.
 - **Brand-safe badge contrast:** use `color-mix(in srgb, var(--brand-accent) 18%, white)` for tinted badge backgrounds instead of hardcoded colours. This adapts at browser render time to whatever brand colour the workspace sets.
+- **RBAC:** gate every mutating server action behind `requireRole([...])` from `src/lib/auth.ts` and early-return `gate.error` (the typed `UNAUTHORIZED_ROLE`) — never let a Collaborator fail silently. For financial data, redact on the **server** via `stripBudgetForRole()` / zeroed KPIs before serialization; do **not** rely on CSS or conditional rendering to hide margins from a Collaborator (the data must not exist in the network payload). `requireRole` returns a single nullable-`error` object, not a `Success | Failure` union, because the repo's `strict: false` config disables discriminated-union narrowing.
+- **Per-workspace document branding:** never hardcode `#5D00A4` / `#04FFCC` / `/logo.png` in client-facing documents. Thread the workspace `primaryColor` / `accentColor` / `logoUrl` through. For HTML views set CSS variables on the document root (`--brand-v`, `--brand-mint`) with the SlateSuite hex as the `var()` fallback; for `@react-pdf/renderer` (no CSS vars) use a `makeStyles(V, MINT)` factory. Derive tints/shades with `lighten` / `darken` from `src/lib/color.ts`. Logo fallback is the **workspace name**, never another workspace's logo.
 - **Project archiving:** `status = 'ARCHIVED'` + `archivedAt` timestamp. The projects list filters `status: { not: 'ARCHIVED' }` by default. Archived projects are accessible at `?archived=1`.
 - **Radix Select:** never pass `value=""` to `<SelectItem>`. Use a sentinel string like `"__none__"` and convert back to empty/null on `onValueChange`.
 - **File uploads:** always use the presigned URL pattern — call `getPresignedUploadUrl()` from `src/server/actions/upload.ts` to get a short-lived PUT ticket, then `fetch(uploadUrl, { method: 'PUT', body: file })` from the browser. Never stream file bytes through the Next.js server. Allowed MIME types: `image/jpeg`, `image/png`, `image/webp`. Max 2 MB. Paths are workspace-namespaced (`folder/workspaceId-uuid.ext`) — never use user-supplied filenames directly as R2 keys.
