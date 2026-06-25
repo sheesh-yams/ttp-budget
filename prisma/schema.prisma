@@ -988,6 +988,10 @@ model PaymentAttempt {
 
   // Helcim transactionId — set after successful confirm
   providerRef     String?
+  // Our reference sent to the provider at init (as Helcim invoiceNumber) and
+  // echoed back on the transaction. Lets an inbound webhook map a bare
+  // transactionId back to this attempt even when the browser confirm never fired.
+  checkoutRef     String?         @unique
   // HelcimPay.js checkoutToken returned to the client for modal rendering
   checkoutToken   String?
   // SHA-256(secretToken) — stored for audit; raw secretToken never persisted

@@ -16,6 +16,12 @@ export type InitializeCheckoutInput = {
   currency: string
   /** Idempotency key — caller-generated, used to detect duplicate requests. */
   idempotencyKey: string
+  /**
+   * Opaque reference attached to the provider transaction (sent as Helcim
+   * `invoiceNumber`) and echoed back on lookups. Lets an inbound webhook map a
+   * bare transactionId back to our PaymentAttempt. Caller stores it on the row.
+   */
+  reference?: string
 }
 
 export type InitializeCheckoutResult = {
@@ -39,6 +45,8 @@ export type ProviderTransaction = {
   currency: string
   /** Provider-normalised status string, e.g. "APPROVED". */
   status: string
+  /** The reference we attached at init (Helcim `invoiceNumber`), if present. */
+  reference?: string
 }
 
 // ── Adapter interface ───────────────────────────────────────────────────────

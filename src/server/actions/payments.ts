@@ -14,6 +14,7 @@
  *     isolation is enforced automatically.
  */
 
+import { randomUUID } from 'crypto'
 import { getScopedDb } from '@/lib/db-scoped'
 import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
 import { helcimAdapter } from '@/lib/payments/helcim'
@@ -147,20 +148,25 @@ export async function initiatePayment(
         findFirst: (args: object) => Promise<{
           id: string
           idempotencyKey: string
+          checkoutRef: string | null
         } | null>
       }
     }).paymentAttempt.findFirst({
       where: { invoiceId, status: 'INITIATED' },
-      select: { id: true, idempotencyKey: true },
+      select: { id: true, idempotencyKey: true, checkoutRef: true },
     })
 
     if (existingAttempt) {
+      // Fresh ref each init (each initialize creates its own Helcim invoice).
+      const checkoutRef = `pay_${randomUUID()}`
+
       // Re-initialize with Helcim to get fresh tokens (secretToken cannot
       // be recovered — we only store its hash). Update the existing row.
       const { checkoutToken, secretToken } = await helcimAdapter.initializeCheckout({
         amountCents:     invoice.totalCents,
         currency:        'USD',
         idempotencyKey:  existingAttempt.idempotencyKey,
+        reference:       checkoutRef,
       })
 
       await (sdb as unknown as {
@@ -172,6 +178,7 @@ export async function initiatePayment(
         data: {
           checkoutToken,
           secretTokenHash: sha256Hex(secretToken),
+          checkoutRef,
           // reset createdAt window by updating resolvedAt? No — keep original createdAt.
           // The expiry check uses createdAt; we're renewing within the window.
         },
@@ -189,11 +196,13 @@ export async function initiatePayment(
 
     // ── 6. New attempt: call Helcim + create PaymentAttempt row ───────────
     const idempotencyKey = `${workspaceId}:${invoiceId}:${Date.now()}`
+    const checkoutRef = `pay_${randomUUID()}`
 
     const { checkoutToken, secretToken } = await helcimAdapter.initializeCheckout({
       amountCents:    invoice.totalCents,
       currency:       'USD',
       idempotencyKey,
+      reference:      checkoutRef,
     })
 
     const attempt = await (sdb as unknown as {
@@ -210,6 +219,7 @@ export async function initiatePayment(
         checkoutToken,
         secretTokenHash: sha256Hex(secretToken),
         idempotencyKey,
+        checkoutRef,
       },
       select: { id: true },
     })

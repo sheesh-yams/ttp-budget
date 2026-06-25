@@ -18,7 +18,7 @@
  */
 
 import 'server-only'
-import { createHash } from 'crypto'
+import { createHash, createHmac } from 'crypto'
 import type {
   PaymentProviderAdapter,
   InitializeCheckoutInput,
@@ -83,23 +83,57 @@ async function safeErrorMessage(res: Response): Promise<string> {
 async function initializeCheckout(
   input: InitializeCheckoutInput,
 ): Promise<InitializeCheckoutResult> {
-  const token = getApiToken()
-
   const amountDollars = centsToHelcimDollars(input.amountCents)
+
+  // Base body. We optionally attach an `invoiceRequest` so our reference rides
+  // along as the Helcim invoiceNumber (echoed back on the transaction → lets a
+  // webhook map a bare transactionId to our PaymentAttempt).
+  const baseBody: Record<string, unknown> = {
+    paymentType: 'purchase',
+    amount: amountDollars,
+    currency: input.currency,
+    // Show both credit card and bank account (ACH/EFT) tabs in the modal.
+    paymentMethod: 'cc-ach',
+  }
+
+  if (input.reference) {
+    // Helcim creates an invoice from this; the line-item total must equal amount.
+    // NOTE: if the exact invoiceRequest shape is wrong, the first call fails and
+    // we transparently retry WITHOUT it (below) so payments never break — the
+    // only cost is that specific payment has no webhook backstop. Watch server
+    // logs for "[helcim] initialize: retrying without invoiceRequest" to know
+    // the shape needs adjusting.
+    const withRef: Record<string, unknown> = {
+      ...baseBody,
+      invoiceRequest: {
+        invoiceNumber: input.reference,
+        currency: input.currency,
+        lineItems: [
+          { description: 'Invoice payment', quantity: 1, price: amountDollars },
+        ],
+      },
+    }
+    try {
+      return await postInitialize(withRef)
+    } catch (err) {
+      console.error('[helcim] initialize: retrying without invoiceRequest —', (err as Error).message)
+      return await postInitialize(baseBody)
+    }
+  }
+
+  return await postInitialize(baseBody)
+}
+
+/** POST to the HelcimPay initialize endpoint and parse the token pair. */
+async function postInitialize(body: Record<string, unknown>): Promise<InitializeCheckoutResult> {
+  const token = getApiToken()
 
   let res: Response
   try {
     res = await fetch(INITIALIZE_ENDPOINT, {
       method: 'POST',
       headers: buildHeaders(token),
-      body: JSON.stringify({
-        paymentType: 'purchase',
-        amount: amountDollars,
-        currency: input.currency,
-        // Show both credit card and bank account (ACH/EFT) tabs in the modal.
-        // Customers can pick whichever method they prefer.
-        paymentMethod: 'cc-ach',
-      }),
+      body: JSON.stringify(body),
     })
   } catch (fetchErr) {
     // Network-level error — safe to log the message (no headers in scope)
@@ -111,14 +145,14 @@ async function initializeCheckout(
     throw new Error(`[helcim] initialize: ${res.status} — ${msg}`)
   }
 
-  let body: unknown
+  let parsed: unknown
   try {
-    body = await res.json()
+    parsed = await res.json()
   } catch {
     throw new Error('[helcim] initialize: response is not valid JSON')
   }
 
-  const { checkoutToken, secretToken } = body as {
+  const { checkoutToken, secretToken } = parsed as {
     checkoutToken?: string
     secretToken?: string
   }
@@ -172,6 +206,7 @@ async function getTransaction(providerRef: string): Promise<ProviderTransaction>
     amount?: number | string
     currency?: string
     status?: string
+    invoiceNumber?: string
   }
 
   if (!tx.transactionId || tx.amount == null || !tx.status) {
@@ -184,7 +219,56 @@ async function getTransaction(providerRef: string): Promise<ProviderTransaction>
     amountCents: helcimDollarsToCents(tx.amount),
     currency: (tx.currency ?? 'USD').toUpperCase(),
     status: tx.status,
+    reference: tx.invoiceNumber ? String(tx.invoiceNumber) : undefined,
   }
+}
+
+// ── verifyWebhookSignature ───────────────────────────────────────────────────
+
+/**
+ * Verify an inbound Helcim webhook signature (Svix-compatible scheme).
+ *
+ * Signed content:  `${webhookId}.${webhookTimestamp}.${rawBody}`
+ * Key:             base64-decoded account Verifier Token (strip any `whsec_` prefix)
+ * MAC:             HMAC-SHA256 → base64
+ * Header:          `webhook-signature` is a space-separated list of
+ *                  `v1,<base64sig>` entries; a match against ANY entry passes.
+ *
+ * `verifierToken` is passed in (read from env by the caller) so this module
+ * stays free of env reads at module scope. Returns true on a valid signature.
+ */
+export function verifyWebhookSignature(params: {
+  webhookId:        string
+  webhookTimestamp: string
+  rawBody:          string
+  signatureHeader:  string
+  verifierToken:    string
+}): boolean {
+  const { webhookId, webhookTimestamp, rawBody, signatureHeader, verifierToken } = params
+  if (!webhookId || !webhookTimestamp || !rawBody || !signatureHeader || !verifierToken) {
+    return false
+  }
+
+  // Verifier tokens may be distributed with a `whsec_` prefix (Svix convention).
+  const secret = verifierToken.startsWith('whsec_') ? verifierToken.slice(6) : verifierToken
+
+  let key: Buffer
+  try {
+    key = Buffer.from(secret, 'base64')
+  } catch {
+    return false
+  }
+
+  const signedContent = `${webhookId}.${webhookTimestamp}.${rawBody}`
+  const expectedSig = createHmac('sha256', key).update(signedContent, 'utf8').digest('base64')
+
+  // Header may carry multiple space-separated signatures, each `v<n>,<sig>`.
+  for (const part of signatureHeader.split(' ')) {
+    const comma = part.indexOf(',')
+    const sig = comma === -1 ? part : part.slice(comma + 1)
+    if (sig && timingSafeCompare(sig, expectedSig)) return true
+  }
+  return false
 }
 
 // ── validateHelcimHash ─────────────────────────────────────────────────────

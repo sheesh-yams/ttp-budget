@@ -697,6 +697,27 @@ The `/api/webhooks/clerk` endpoint must be registered in the Clerk dashboard. Re
 
 The webhook uses `svix` signature verification. Set `CLERK_WEBHOOK_SECRET` from the Clerk dashboard endpoint page.
 
+## Payments (Helcim)
+
+Online invoice payments use **HelcimPay.js** (the hosted iFrame). Flow:
+
+1. `POST /api/payments/initiate` (public, authed by invoice `publicToken`) → `initializeCheckout()` returns `checkoutToken` + `secretToken`. A `PaymentAttempt` row is created/refreshed with a unique `checkoutRef` that's attached to the Helcim transaction (as `invoiceNumber`) so an async webhook can map back to it.
+2. `HelcimPayButton` opens the iFrame; the customer pays.
+3. The iFrame returns transaction data + a hash → browser `POST /api/payments/confirm` → hash validated, transaction re-fetched server-to-server, amount verified, invoice flipped to `PAID`.
+
+### Webhooks — the async backstop (`/api/webhooks/helcim`)
+
+If the browser confirm never fires (closed tab, lost signal, or async ACH/EFT that settles later), the Helcim webhook settles the invoice instead. The payload is thin (`{ id, type }`), so the handler:
+
+1. **Verifies the signature** — HMAC-SHA256 (Svix scheme) over `${webhook-id}.${webhook-timestamp}.${rawBody}` keyed by the base64-decoded **Verifier Token** (`HELCIM_WEBHOOK_VERIFIER_TOKEN`). Invalid → 401. Timestamp outside ±5 min → 400.
+2. **Idempotency** — records `webhook-id` in `WebhookEvent` (`@@unique([provider, eventId])`); duplicates short-circuit.
+3. **Maps to the attempt** — `getTransaction(id)` returns the `invoiceNumber` we set at init (= our `checkoutRef`) → finds the `PaymentAttempt`.
+4. **Settles** — shared `settlePaymentAttempt()` (same path as confirm). The atomic `INITIATED → SUCCEEDED` compare-and-set + `@@unique([provider, providerRef])` mean confirm and webhook can never double-settle.
+
+> The init call attaches the reference via Helcim's `invoiceRequest`. If that body shape is rejected, `initializeCheckout()` **transparently retries without it** so payments never break — that one payment just loses its webhook backstop. Watch logs for `retrying without invoiceRequest`.
+
+**Setup:** in the Helcim dashboard (All Tools → Integrations → Webhooks), enable webhooks, set the deliver URL to `https://<your-app>/api/webhooks/helcim`, subscribe to **Card Transaction** events, and copy the **Verifier Token** into `HELCIM_WEBHOOK_VERIFIER_TOKEN`. `HELCIM_API_TOKEN` (Integrations → API Access) must also be set.
+
 ## Security
 
 ### Public token generation

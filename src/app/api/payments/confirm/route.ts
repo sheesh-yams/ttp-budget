@@ -20,6 +20,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { validateHelcimHash, sha256Hex, helcimAdapter } from '@/lib/payments/helcim'
+import { settlePaymentAttempt } from '@/lib/payments/settle'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -123,43 +124,24 @@ export async function POST(req: NextRequest) {
     // This is the canonical source of truth — we never trust the client for amount.
     const tx = await helcimAdapter.getTransaction(transactionId)
 
-    // ── 7. Amount tamper check ─────────────────────────────────────────────
-    if (tx.amountCents !== attempt.amountCents) {
-      console.error('[confirm] amount mismatch — possible tampering', {
-        attemptId,
-        attemptAmountCents: attempt.amountCents,
-        txAmountCents: tx.amountCents,
-      })
-      return NextResponse.json({ error: 'Payment amount does not match invoice' }, { status: 422 })
-    }
-
-    // ── 8. Settle in a DB transaction ──────────────────────────────────────
-    // Both writes succeed or both fail together.
-    // The @@unique([provider, providerRef]) constraint on PaymentAttempt will
-    // throw P2002 if the same transactionId is confirmed twice concurrently.
-    await db.$transaction(async (t) => {
-      const tdb = t as unknown as {
-        paymentAttempt: { update: (args: object) => Promise<unknown> }
-      }
-
-      await tdb.paymentAttempt.update({
-        where: { id: attempt.id },
-        data: {
-          status: 'SUCCEEDED',
-          providerRef: transactionId,
-          resolvedAt: new Date(),
-        },
-      })
-
-      await t.invoice.update({
-        where: { id: attempt.invoiceId },
-        data: {
-          status: 'PAID',
-          amountPaidCents: attempt.amountCents,
-          paidAt: new Date(),
-        },
-      })
+    // ── 7. Settle (shared idempotent path with the webhook) ────────────────
+    // Amount tamper check + atomic INITIATED → SUCCEEDED transition live here.
+    const settled = await settlePaymentAttempt({
+      attemptId:     attempt.id,
+      transactionId,
+      txAmountCents: tx.amountCents,
     })
+
+    if (!settled.ok) {
+      if (settled.reason === 'amount_mismatch') {
+        console.error('[confirm] amount mismatch — possible tampering', {
+          attemptId, attemptAmountCents: attempt.amountCents, txAmountCents: tx.amountCents,
+        })
+        return NextResponse.json({ error: 'Payment amount does not match invoice' }, { status: 422 })
+      }
+      // not_found shouldn't happen here (we fetched it above); treat as already done.
+      return NextResponse.json({ error: 'Payment already processed' }, { status: 409 })
+    }
 
     return NextResponse.json({ success: true })
   } catch (err) {

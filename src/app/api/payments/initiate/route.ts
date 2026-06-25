@@ -15,13 +15,14 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { randomUUID } from 'crypto'
 import { db } from '@/lib/db'
 import { helcimAdapter, sha256Hex } from '@/lib/payments/helcim'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
 type PaymentAttemptModel = {
-  findFirst: (args: object) => Promise<{ id: string; idempotencyKey: string } | null>
+  findFirst: (args: object) => Promise<{ id: string; idempotencyKey: string; checkoutRef: string | null } | null>
   updateMany: (args: object) => Promise<unknown>
   update: (args: object) => Promise<unknown>
   create: (args: object) => Promise<{ id: string }>
@@ -121,19 +122,25 @@ export async function POST(req: NextRequest) {
     // (the raw secretToken cannot be recovered from the stored hash).
     const existing = await pdb.paymentAttempt.findFirst({
       where: { invoiceId, status: 'INITIATED' },
-      select: { id: true, idempotencyKey: true },
+      select: { id: true, idempotencyKey: true, checkoutRef: true },
     })
 
     if (existing) {
+      // Fresh ref each init: every initialize creates its own Helcim invoice
+      // record, so reusing a number would collide. The active modal uses the
+      // latest ref, which is what we store and what the webhook maps on.
+      const checkoutRef = `pay_${randomUUID()}`
+
       const { checkoutToken, secretToken } = await helcimAdapter.initializeCheckout({
         amountCents: balanceCents,
         currency: 'USD',
         idempotencyKey: existing.idempotencyKey,
+        reference: checkoutRef,
       })
 
       await pdb.paymentAttempt.update({
         where: { id: existing.id },
-        data: { checkoutToken, secretTokenHash: sha256Hex(secretToken) },
+        data: { checkoutToken, secretTokenHash: sha256Hex(secretToken), checkoutRef },
       })
 
       return NextResponse.json({ attemptId: existing.id, checkoutToken, secretToken })
@@ -141,11 +148,13 @@ export async function POST(req: NextRequest) {
 
     // ── 7. New attempt ─────────────────────────────────────────────────────
     const idempotencyKey = `${workspaceId}:${invoiceId}:${Date.now()}`
+    const checkoutRef = `pay_${randomUUID()}`
 
     const { checkoutToken, secretToken } = await helcimAdapter.initializeCheckout({
       amountCents: balanceCents,
       currency: 'USD',
       idempotencyKey,
+      reference: checkoutRef,
     })
 
     const attempt = await pdb.paymentAttempt.create({
@@ -159,6 +168,7 @@ export async function POST(req: NextRequest) {
         checkoutToken,
         secretTokenHash: sha256Hex(secretToken),
         idempotencyKey,
+        checkoutRef,
       },
       select: { id: true },
     })
