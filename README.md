@@ -30,11 +30,11 @@ The app is fully multi-tenant. Every user signs up into their own **workspace**,
 
 ### Row-level security scoped models
 Auto-scoped through `getScopedDb()` (see `SCOPED_MODELS` in `src/lib/db-scoped.ts`):
-`Client`, `Project`, `RateCard`, `BudgetTemplate`, `Budget`, `Proposal`, `Invoice`, `CallSheet`, `Contact`, `Phase`, `Account`, `LineItem`, `ProjectMember`, `ProjectComment`, `ProjectAssignment`, `AuditEvent`, `WorkspacePaymentConfig`, `PaymentAttempt`
+`Client`, `Project`, `RateCard`, `BudgetTemplate`, `Budget`, `Proposal`, `Invoice`, `CallSheet`, `Contact`, `Phase`, `BudgetSection`, `Account`, `LineItem`, `ProjectMember`, `ProjectComment`, `ProjectAssignment`, `AuditEvent`, `WorkspacePaymentConfig`, `PaymentAttempt`
 
 Non-scoped (shared or workspace-metadata): `Workspace`, `User`, `ProposalView`, `InvoiceView`, `WebhookEvent`
 
-> **Note:** child models (`Phase`, `Account`, `LineItem`, `ProjectMember`, `ProjectComment`, `ProjectAssignment`) carry a denormalized `workspaceId` column (backfilled via `scripts/backfill-workspace-ids.ts`) so they can be scoped directly — a crafted foreign `phaseId` / `lineItemId` / `commentId` returns not-found rather than data.
+> **Note:** child models (`Phase`, `BudgetSection`, `Account`, `LineItem`, `ProjectMember`, `ProjectComment`, `ProjectAssignment`) carry a denormalized `workspaceId` column (backfilled via `scripts/backfill-workspace-ids.ts`) so they can be scoped directly — a crafted foreign `phaseId` / `lineItemId` / `commentId` returns not-found rather than data.
 
 ## Roles & Permissions (RBAC — Feature F9)
 
@@ -92,16 +92,20 @@ Workspace (1)
   │           │     ├── markupPct  (agency fee %)
   │           │     ├── taxPct     (global tax %)
   │           │     └── Phases (v1, v2, Approved, …)
-  │           │           ├── description   (shown on proposal cover / "The Project" section)
-  │           │           ├── deliverables  (JSON array — shown in proposal scope section)
-  │           │           └── Accounts (nested tree)
-  │           │                 └── LineItems
-  │           │                       ├── rateCents        (snapshot at insert)
-  │           │                       ├── lineItemCategory (CREW | LOCATION | EQUIPMENT | SERVICE | DELIVERABLE)
-  │           │                       ├── contactId        (Rolodex contact fulfilling this line item — CREW only)
-  │           │                       ├── hasMarkup        (opt-out of agency fee)
-  │           │                       ├── taxRate          (per-item tax override)
-  │           │                       └── quantityFormula  (A×B multiplier, e.g. "3x2" = 3 people × 2 days)
+  │           │           ├── description                  (shown on proposal cover / "The Project" section)
+  │           │           ├── deliverables                 (JSON array — shown in proposal scope section)
+  │           │           ├── pageBreakBetweenAccounts     Boolean — PDF inserts a page break before each Account
+  │           │           ├── sectionsNudgeDismissedAt     Timestamp — suppress the "split into sections" nudge
+  │           │           └── BudgetSections (≥ 1 per phase; default section title is "Main")
+  │           │                 ├── title / description / orderIndex
+  │           │                 └── Accounts (nested tree; each Account carries a sectionId FK)
+  │           │                       └── LineItems
+  │           │                             ├── rateCents        (snapshot at insert)
+  │           │                             ├── lineItemCategory (CREW | LOCATION | EQUIPMENT | SERVICE | DELIVERABLE)
+  │           │                             ├── contactId        (Rolodex contact fulfilling this line item — CREW only)
+  │           │                             ├── hasMarkup        (opt-out of agency fee)
+  │           │                             ├── taxRate          (per-item tax override)
+  │           │                             └── quantityFormula  (A×B multiplier, e.g. "3x2" = 3 people × 2 days)
   │           ├── Proposals (public /p/[token] page + PDF)
   │           ├── Invoices  (public /i/[token] page + PDF)
   │           ├── ProjectComments  (activity feed — see Project hub)
@@ -167,7 +171,7 @@ Rate cards are the **source of defaults** but never retroactively change histori
 ### Public (no auth, tokenized)
 | Route | Description |
 |-------|-------------|
-| `/p/[token]` | Proposal — approve, download PDF, request changes. Uses the **workspace's own brand color + logo** (see Per-workspace Branding). DRAFT renders a preview banner instead of 404. |
+| `/p/[token]` | Proposal — approve, download PDF, request changes. Uses the **workspace's own brand color + logo** (see Per-workspace Branding). DRAFT renders a preview banner instead of 404. Multi-section budgets render section headings, subtotals, and clickable deliverable cards that scroll + highlight the linked section. |
 | `/i/[token]` | Invoice — wire/ACH details, download PDF. Same per-workspace branding. |
 | `/cs/[token]` | Call sheet for crew — desktop 2-col layout, mobile single-column. DRAFT shows a preview banner. `?print=1` auto-triggers `window.print()`. |
 | `/invite/[token]` | Team invitation acceptance page |
@@ -191,6 +195,16 @@ Key behaviours:
 - **Bulk actions** — hover-reveal checkboxes on every line item + per-section and whole-budget "select all" (indeterminate states). A floating action bar (slides up, brand-purple pill) offers **Mass edit** (inline Qty / Unit / Rate fields — blank leaves a field unchanged), **Group into account** (moves the selection into a new account), and **Delete**. Custom transparent checkboxes (`BulkCheckbox`) inherit the row background.
 - **Sticky summary bar** — fixed at bottom: Net Subtotal, Markups & Taxes, Agency Fee & Tax, Grand Total. Collapses to a single Net Subtotal for margin-blind (Collaborator) views.
 
+**Budget Sections** — an optional grouping layer between a Phase and its Accounts. Every phase starts with a single "Main" section (transparent — no section UI is shown when there is only one). When two or more sections exist the editor switches to multi-section mode:
+
+- **Section dividers** — each section renders as a labelled block with a drag target. Accounts can be dragged across sections.
+- **Inline rename** — click the section title to edit it in-place; confirm with Enter or by clicking outside.
+- **Kebab menu** (`MoreHorizontal` icon) per section — Rename, Move Up, Move Down, Delete.
+- **Add Section** (`+ Add Section`) — first time: prompts to rename the current "Main" section and name the new one. Subsequent additions: names the new section only. Both flows use `AddSectionModal`.
+- **Delete Section** (`DeleteSectionModal`) — empty sections delete immediately. Sections with accounts prompt you to pick a target section to receive them. The last remaining section cannot be deleted (`CANNOT_DELETE_ONLY_SECTION` guard).
+- **Heuristic nudge** — when a phase has > 40 line items and only one section (and hasn't been dismissed), a banner appears with a "Split into sections" button and a "Dismiss" button. Dismissal sets `sectionsNudgeDismissedAt` on the phase.
+- **Page break between accounts** — a per-phase toggle that inserts a PDF page break before every account in the export (useful for long budgets).
+
 **Phase versioning** — each budget can have multiple phases (tabs):
 - Rename, duplicate (copies all accounts + line items), make primary, delete
 - The primary phase is used by default for proposals and invoices
@@ -209,7 +223,7 @@ All crew side effects use `sdb` (scoped Prisma client) so no explicit `workspace
 
 ### 2. Proposal builder + dual render (web + PDF)
 
-**Proposal Overview** (on the project page) — fill in the project description and deliverables. These live on the `Phase` record, so they travel with the budget version you choose to send.
+**Proposal Overview** (on the project page) — fill in the project description and deliverables. These live on the `Phase` record, so they travel with the budget version you choose to send. When the phase has more than one budget section, each deliverable row shows a **section link multi-select** — a checkbox dropdown that lets you tie a deliverable to one or more budget sections. Linked section names appear on the read-only view and are stored as `sectionIds` on the deliverable JSON.
 
 **Payment schedule** — flexible multi-payment terms set in the proposal modal:
 - Default: 2 payments (50% on signing, 50% on delivery)
@@ -220,6 +234,17 @@ All crew side effects use `sdb` (scoped Prisma client) so no explicit `workspace
 **Proposal discounts** — add a named discount line (percentage or flat amount) in the proposal modal. Renders in the proposal total section on web, PDF, and the public page.
 
 **Draft preview** — "Save Draft" stores the proposal. The public `/p/[token]` URL works for drafts with a sticky amber "Draft Preview" banner; sign-off section hidden.
+
+**Public proposal — budget sections** (when the sent phase has > 1 section):
+- Each section renders with a labeled heading and a shaded **subtotal row** as the last row of its accordion table.
+- Each section heading has an anchor (`id="section-{sectionId}"`) so section links are deep-linkable.
+- Deliverables with linked sections render as clickable **"See in budget →" buttons**. Clicking one scrolls to the first linked section and triggers a 1.8 s CSS highlight pulse (`section-highlight-fade` keyframe) on all linked sections.
+
+**Proposal PDF — budget sections** (when the sent phase has > 1 section):
+- Each section starts on a new page (page break before every section after the first).
+- Section heading row shows the section title and subtotal in the PDF's accent color.
+- Deliverables with linked sections show a `See: §Section Title` reference line below the description.
+- `pageBreakBetweenAccounts` (phase-level toggle) inserts an additional page break before each account within a section.
 
 **Status lifecycle:** `DRAFT → SENT → VIEWED → CHANGES_NEEDED → SENT → …` or `APPROVED` (Won) / `LOST` / `EXPIRED`.
 
@@ -458,12 +483,18 @@ ttp-budget/
 │       ├── 20260614000001_add_call_time_format/migration.sql
 │       ├── 20260614000002_add_mismatch_flag/migration.sql
 │       ├── 20260614000003_secure_public_tokens/migration.sql
-│       └── 20260615000001_crew_workflow/migration.sql
-│                                            #   Contact: hasKit, kitRateCents, kitName
-│                                            #   LineItem: contactId → Contact (ON DELETE SET NULL)
+│       ├── 20260615000001_crew_workflow/migration.sql
+│       │                                    #   Contact: hasKit, kitRateCents, kitName
+│       │                                    #   LineItem: contactId → Contact (ON DELETE SET NULL)
+│       └── 20260627000001_budget_sections/migration.sql
+│                                            #   BudgetSection table (workspaceId, phaseId, title, orderIndex)
+│                                            #   Account.sectionId FK (NOT NULL after backfill)
+│                                            #   Phase.pageBreakBetweenAccounts, Phase.sectionsNudgeDismissedAt
+│                                            #   Backfills one "Main" section per existing phase
 ├── scripts/
 │   ├── backfill-callsheet-contacts.ts      # F6: link existing crew/talent rows to Rolodex contacts by name+email (--apply to write)
 │   ├── backfill-workspace-ids.ts           # A1: fill workspaceId on Phase/Account/LineItem/ProjectMember rows
+│   ├── backfill-deliverable-ids.ts         # Add stable UUIDs to existing deliverable JSON items (prerequisite for section linking)
 │   ├── backfill-clerk-orgs.ts              # One-time: create Clerk orgs for workspaces that lack one
 │   ├── dedupe-workspaces.ts                # Find + remove duplicate workspaces by name/owner
 │   ├── fix-workspace-links.ts              # Audit + repair Clerk org ↔ DB workspace mapping
@@ -563,8 +594,8 @@ ttp-budget/
 │   │   │   ├── TeamPageClient.tsx           # Workspace members + invite form
 │   │   │   └── InviteAcceptClient.tsx       # /invite/[token] acceptance UI
 │   │   ├── proposal/
-│   │   │   ├── ProposalPublicView.tsx
-│   │   │   └── ProposalPDF.tsx
+│   │   │   ├── ProposalPublicView.tsx       # Multi-section: section anchors, highlight animation, subtotal rows, clickable deliverable cards
+│   │   │   └── ProposalPDF.tsx             # Multi-section: page breaks between sections, section headings + subtotals, §deliverable refs
 │   │   ├── public/
 │   │   │   └── PrintTrigger.tsx             # Client component: delays 800 ms then calls window.print() when ?print=1
 │   │   ├── settings/
@@ -595,6 +626,10 @@ ttp-budget/
 │   └── server/
 │       └── actions/
 │           ├── budgets.ts                   # upsertLineItem: CREW + contactId → runCrewWorkflow (member upsert + auto-kit line item)
+│           ├── sections.ts                  # BudgetSection CRUD: create, rename, reorder, delete, moveAccountToSection
+│           │                                #   setDeliverableSectionLinks — saves sectionIds on deliverable JSON items
+│           │                                #   togglePageBreakBetweenAccounts — phase-level PDF setting
+│           │                                #   dismissSectionsNudge — sets sectionsNudgeDismissedAt
 │           ├── call-sheets.ts               # CRUD + importCrewFromBudget + fetchLocationData
 │           │                                #   createCallSheet seeds crew from Teams page members (not rate cards)
 │           │                                #   updateCallSheet: syncSheetCallTimesToMembers (callTime→Teams) +
@@ -679,6 +714,10 @@ npx tsx scripts/seed-existing-workspaces.ts --seed  # seed them
 npx tsx scripts/backfill-callsheet-contacts.ts         # dry-run (no writes)
 npx tsx scripts/backfill-callsheet-contacts.ts --apply # apply changes
 
+# BudgetSections: add stable UUIDs to existing deliverable JSON items (prerequisite for section linking):
+npx tsx scripts/backfill-deliverable-ids.ts            # dry-run (shows what would change)
+npx tsx scripts/backfill-deliverable-ids.ts --apply    # write UUIDs to DB
+
 # Rotate public tokens — upgrades CUID1 tokens to UUID v4:
 npx tsx scripts/rotate-public-tokens.ts                  # dry-run (preview what would change)
 npx tsx scripts/rotate-public-tokens.ts --live           # rotate DRAFT records only (safe)
@@ -704,6 +743,7 @@ Online invoice payments use **HelcimPay.js** (the hosted iFrame). Flow:
 1. `POST /api/payments/initiate` (public, authed by invoice `publicToken`) → `initializeCheckout()` returns `checkoutToken` + `secretToken`. A `PaymentAttempt` row is created/refreshed with a unique `checkoutRef` that's attached to the Helcim transaction (as `invoiceNumber`) so an async webhook can map back to it.
 2. `HelcimPayButton` opens the iFrame; the customer pays.
 3. The iFrame returns transaction data + a hash → browser `POST /api/payments/confirm` → hash validated, transaction re-fetched server-to-server, amount verified, invoice flipped to `PAID`.
+4. On settlement (whether via browser confirm or webhook), a **payment receipt email** is sent to the client via Resend. The email includes the invoice number, amount paid, and a link back to the invoice. Sent deduped — only fires once per `PaymentAttempt`, even if both paths race.
 
 ### Webhooks — the async backstop (`/api/webhooks/payments`)
 
