@@ -542,17 +542,25 @@ export function ProposalPublicView({
               return (
                 <div>
                   {budgetSections.map(section => {
-                    const sectionAccounts = bySection[section.id] ?? []
-                    const isHighlighted   = highlightedSections.has(section.id)
+                    const sectionAccounts  = bySection[section.id] ?? []
+                    const isHighlighted    = highlightedSections.has(section.id)
+                    const sectionTotal     = sectionAccounts.reduce((sum, acc) => sum + sumAccount(acc), 0)
                     return (
                       <div
                         key={section.id}
                         id={`section-${section.id}`}
                         className={isHighlighted ? 'section-highlight' : undefined}
-                        style={{ marginBottom: 32, scrollMarginTop: 24 }}
+                        style={{ marginBottom: 36, scrollMarginTop: 24 }}
                       >
-                        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: V, marginBottom: 10, paddingLeft: 2 }}>
-                          {section.title}
+                        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10, paddingLeft: 2 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: V }}>
+                            {section.title}
+                          </span>
+                          {sectionAccounts.length > 0 && (
+                            <span style={{ fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: MUTED }}>
+                              {formatMoney(sectionTotal)}
+                            </span>
+                          )}
                         </div>
                         <div style={{ border: `0.5px solid ${BORDER}`, borderRadius: '10px 10px 0 0', overflow: 'hidden' }}>
                           {sectionAccounts.length === 0 ? (
