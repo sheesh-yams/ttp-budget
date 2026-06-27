@@ -406,17 +406,38 @@ model Phase {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  accounts      Account[]
+  sections                  BudgetSection[]
+  accounts                  Account[]
+  pageBreakBetweenAccounts  Boolean   @default(false)
+  sectionsNudgeDismissedAt  DateTime?
 
   @@index([budgetId])
   @@index([workspaceId])
   @@unique([budgetId, name])
 }
 
+model BudgetSection {
+  id           String   @id @default(cuid())
+  workspaceId  String   // denormalized for getScopedDb() — REQUIRED
+  phaseId      String
+  phase        Phase    @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  title        String
+  description  String?
+  orderIndex   Int      @default(0)
+  accounts     Account[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([phaseId, orderIndex])
+  @@index([workspaceId])
+}
+
 model Account {
-  id            String   @id @default(cuid())
+  id            String        @id @default(cuid())
   phaseId       String
-  phase         Phase    @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  phase         Phase         @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  sectionId     String        // NOT NULL; source of truth for grouping; phaseId is denormalized shortcut
+  section       BudgetSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
 
   // Self-referencing tree
   parentId      String?
@@ -437,6 +458,7 @@ model Account {
   lineItems     LineItem[]
 
   @@index([phaseId])
+  @@index([sectionId])
   @@index([parentId])
   @@index([workspaceId])
 }

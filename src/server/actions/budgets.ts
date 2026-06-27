@@ -8,6 +8,22 @@ import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import { Prisma, type RateUnit, type RateCategory } from '@prisma/client'
 
+// ─── Section helper ───────────────────────────────────────────────────────────
+
+async function getOrCreateDefaultSection(phaseId: string, workspaceId: string): Promise<string> {
+  const existing = await db.budgetSection.findFirst({
+    where:   { phaseId },
+    select:  { id: true },
+    orderBy: { orderIndex: 'asc' },
+  })
+  if (existing) return existing.id
+  const created = await db.budgetSection.create({
+    data:   { phaseId, workspaceId, title: 'Main', orderIndex: 0 },
+    select: { id: true },
+  })
+  return created.id
+}
+
 // ─── Category mapping ─────────────────────────────────────────────────────────
 
 type LineItemCategory = 'CREW' | 'LOCATION' | 'EQUIPMENT' | 'SERVICE' | 'DELIVERABLE'
@@ -48,6 +64,14 @@ export async function createBudget(projectId: string, templateId?: string): Prom
       } as unknown as Parameters<typeof sdb.budget.create>[0]['data'],
     })
 
+    // Every new phase needs a default "Main" section immediately.
+    const newPhase = await db.phase.findFirst({ where: { budgetId: budget.id }, select: { id: true } })
+    if (newPhase) {
+      await db.budgetSection.create({
+        data: { phaseId: newPhase.id, workspaceId, title: 'Main', orderIndex: 0 },
+      })
+    }
+
     if (templateId) {
       const template = await sdb.budgetTemplate.findFirst({ where: { id: templateId } })
       if (template) {
@@ -81,10 +105,11 @@ export async function addAccount(input: z.infer<typeof addAccountSchema>): Promi
     const data = addAccountSchema.parse(input)
 
     // Verify the phase belongs to this workspace before creating a child account.
-    const phase = await sdb.phase.findFirst({ where: { id: data.phaseId }, select: { id: true } })
+    const phase = await sdb.phase.findFirst({ where: { id: data.phaseId }, select: { id: true, workspaceId: true } })
     if (!phase) return { success: false, error: 'Phase not found' }
 
-    const account = await sdb.account.create({ data: data as Prisma.AccountUncheckedCreateInput })
+    const sectionId = await getOrCreateDefaultSection(data.phaseId, phase.workspaceId ?? '')
+    const account = await sdb.account.create({ data: { ...data, sectionId } as Prisma.AccountUncheckedCreateInput })
     return { success: true, data: { id: account.id } }
   } catch {
     return { success: false, error: 'Failed to add account' }
@@ -491,7 +516,11 @@ export async function duplicatePhase(phaseId: string, newName: string): Promise<
       },
     })
 
-    await cloneAccounts(source.accounts as unknown as AccountNode[], newPhase.id, null, workspaceId)
+    const newSection = await db.budgetSection.create({
+      data:   { phaseId: newPhase.id, workspaceId, title: 'Main', orderIndex: 0 },
+      select: { id: true },
+    })
+    await cloneAccounts(source.accounts as unknown as AccountNode[], newPhase.id, newSection.id, null, workspaceId)
 
     revalidatePath('/')
     return { success: true, data: { id: newPhase.id } }
@@ -606,6 +635,8 @@ async function materialiseTemplate(budgetId: string, structure: TemplateStructur
   const phase = await db.phase.findFirst({ where: { budgetId } })
   if (!phase) return
 
+  const sectionId = await getOrCreateDefaultSection(phase.id, workspaceId)
+
   const rateCardIds = structure.accounts
     .flatMap(a => [...a.items, ...(a.children?.flatMap(c => c.items) ?? [])])
     .map(i => i.rateCardId)
@@ -615,7 +646,7 @@ async function materialiseTemplate(budgetId: string, structure: TemplateStructur
   for (let i = 0; i < structure.accounts.length; i++) {
     const acc = structure.accounts[i]
     const account = await db.account.create({
-      data: { phaseId: phase.id, workspaceId, name: acc.name, code: acc.code ?? String((i + 1) * 100), order: i },
+      data: { phaseId: phase.id, sectionId, workspaceId, name: acc.name, code: acc.code ?? String((i + 1) * 100), order: i },
     })
     for (let j = 0; j < acc.items.length; j++) {
       const item = acc.items[j]
@@ -686,6 +717,8 @@ export async function insertPackageIntoPhase(
     const phase = await sdb.phase.findFirst({ where: { id: phaseId }, select: { id: true } })
     if (!phase) return { success: false, error: 'Phase not found' }
 
+    const sectionId = await getOrCreateDefaultSection(phaseId, workspaceId)
+
     const rateCardIds = structure.accounts
       .flatMap(a => a.items)
       .map(i => i.rateCardId)
@@ -696,7 +729,7 @@ export async function insertPackageIntoPhase(
     for (let i = 0; i < structure.accounts.length; i++) {
       const acc = structure.accounts[i]
       const account = await db.account.create({
-        data: { phaseId, workspaceId, name: acc.name, code: acc.code, order: existingCount + i },
+        data: { phaseId, sectionId, workspaceId, name: acc.name, code: acc.code, order: existingCount + i },
       })
       for (let j = 0; j < acc.items.length; j++) {
         const item = acc.items[j]
@@ -726,10 +759,10 @@ export async function insertPackageIntoPhase(
   }
 }
 
-async function cloneAccounts(accounts: AccountNode[], phaseId: string, parentId: string | null, workspaceId: string) {
+async function cloneAccounts(accounts: AccountNode[], phaseId: string, sectionId: string, parentId: string | null, workspaceId: string) {
   for (const acc of accounts) {
     const newAcc = await db.account.create({
-      data: { phaseId, parentId, workspaceId, name: acc.name, code: acc.code, order: acc.order, notes: acc.notes },
+      data: { phaseId, sectionId, parentId, workspaceId, name: acc.name, code: acc.code, order: acc.order, notes: acc.notes },
     })
     for (const item of acc.lineItems) {
       await db.lineItem.create({
@@ -751,7 +784,7 @@ async function cloneAccounts(accounts: AccountNode[], phaseId: string, parentId:
       })
     }
     if (acc.children && acc.children.length) {
-      await cloneAccounts(acc.children, phaseId, newAcc.id, workspaceId)
+      await cloneAccounts(acc.children, phaseId, sectionId, newAcc.id, workspaceId)
     }
   }
 }
@@ -849,6 +882,8 @@ export async function bulkMoveToNewAccount(
     if (itemCount !== ids.length) return { success: false, error: 'One or more items not found' }
     if (!phase) return { success: false, error: 'Phase not found' }
 
+    const sectionId = await getOrCreateDefaultSection(phaseId, phase.workspaceId ?? '')
+
     // Determine code and insertion order from existing top-level account count
     const existingCount = await db.account.count({ where: { phaseId, parentId: null } })
     const newCode = String((existingCount + 1) * 100)
@@ -856,6 +891,7 @@ export async function bulkMoveToNewAccount(
     const newAccount = await db.account.create({
       data: {
         phaseId,
+        sectionId,
         name:  accountName,
         code:  newCode,
         order: existingCount,

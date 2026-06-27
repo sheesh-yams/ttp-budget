@@ -43,6 +43,7 @@ const SCOPED_MODELS = new Set([
   'Contact',
   // Child models — denormalized workspaceId added in A1 migration
   'Phase',
+  'BudgetSection',
   'Account',
   'LineItem',
   'ProjectMember',

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { z }              from 'zod'
+import { db }             from '@/lib/db'
 import { getScopedDb }    from '@/lib/db-scoped'
 import {
   importPayloadSchema,
@@ -76,6 +77,15 @@ export async function importToBudget(
       }))
     if (!phase) return { success: false, error: 'No phases found in this budget' }
 
+    // Look up the default section for this phase (created by migration for existing phases,
+    // or created on-demand for brand-new phases via getOrCreateDefaultSection in budgets.ts).
+    const defaultSection = await db.budgetSection.findFirst({
+      where:   { phaseId: phase.id },
+      select:  { id: true, workspaceId: true },
+      orderBy: { orderIndex: 'asc' },
+    })
+    if (!defaultSection) return { success: false, error: 'No section found for phase' }
+
     const groups = groupByAccount(rows)
 
     let accountsCreated = 0
@@ -101,7 +111,7 @@ export async function importToBudget(
       } else {
         // sdb.create auto-injects workspaceId.
         account = await sdb.account.create({
-          data:   { phaseId: phase.id, name: accountName, order: nextAccountOrder++ },
+          data:   { phaseId: phase.id, sectionId: defaultSection.id, name: accountName, order: nextAccountOrder++ },
           select: { id: true },
         })
         accountsCreated++
