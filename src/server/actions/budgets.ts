@@ -531,7 +531,7 @@ export async function duplicatePhase(phaseId: string, newName: string): Promise<
 
 // ─── Update phase overview (description + deliverables) ──────────────────────
 
-interface DeliverableInput { title: string; description: string; number?: string }
+interface DeliverableInput { id?: string; title: string; description: string; number?: string; sectionIds?: string[] }
 
 export async function updatePhaseOverview(
   phaseId: string,
