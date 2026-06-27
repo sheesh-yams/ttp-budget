@@ -27,6 +27,10 @@ async function captureBudgetSnapshot(sdb: ScopedDb, budgetId: string, discount?:
   const budgetTaxPct    = budget?.taxPct    != null ? Number(budget.taxPct)    : 0
 
   const phaseInclude = {
+    sections: {
+      orderBy: { orderIndex: 'asc' as const },
+      select:  { id: true, title: true, orderIndex: true },
+    },
     accounts: {
       where: { parentId: null },
       orderBy: { order: 'asc' as const },
@@ -45,11 +49,14 @@ async function captureBudgetSnapshot(sdb: ScopedDb, budgetId: string, discount?:
     await sdb.phase.findFirst({ where: { budgetId, isPrimary: true }, include: phaseInclude }) ??
     await sdb.phase.findFirst({ where: { budgetId }, orderBy: { order: 'asc' }, include: phaseInclude })
 
+  const sections = (primaryPhase?.sections ?? []).map(s => ({ id: s.id, title: s.title }))
+
   const accounts = (primaryPhase?.accounts ?? []).map(acc => ({
-    id:       acc.id,
-    name:     acc.name,
-    code:     acc.code,
-    order:    acc.order,
+    id:        acc.id,
+    name:      acc.name,
+    code:      acc.code,
+    order:     acc.order,
+    sectionId: (acc as unknown as { sectionId?: string }).sectionId ?? null,
     lineItems: acc.lineItems.map(i => ({
       id:              i.id,
       description:     i.description,
@@ -103,7 +110,7 @@ async function captureBudgetSnapshot(sdb: ScopedDb, budgetId: string, discount?:
   const taxCents      = Math.round(afterDiscount * budgetTaxPct)
   const totalCents    = afterDiscount + taxCents
 
-  return { accounts, productionCents, budgetMarkupPct, budgetTaxPct, discountCents, discountLabel, totalCents }
+  return { accounts, sections, productionCents, budgetMarkupPct, budgetTaxPct, discountCents, discountLabel, totalCents }
 }
 
 // ─── Create proposal from a budget ───────────────────────────────────────────
@@ -260,7 +267,7 @@ export async function createSentProposal(input: {
     })
 
     const phaseAbout = primaryPhase?.description ?? ''
-    const phaseDeliverables = (primaryPhase?.deliverables as { title: string; description: string }[] | null) ?? []
+    const phaseDeliverables = (primaryPhase?.deliverables as { title: string; description: string; sectionIds?: string[] }[] | null) ?? []
 
     const content = buildContent({ ...input, about: phaseAbout, deliverables: phaseDeliverables })
     const snapshot = await captureBudgetSnapshot(sdb, input.budgetId, input.discount)
@@ -321,7 +328,7 @@ export async function createDraftProposal(input: {
     })
 
     const phaseAbout = primaryPhase?.description ?? ''
-    const phaseDeliverables = (primaryPhase?.deliverables as { title: string; description: string }[] | null) ?? []
+    const phaseDeliverables = (primaryPhase?.deliverables as { title: string; description: string; sectionIds?: string[] }[] | null) ?? []
 
     const content = buildContent({ ...input, about: phaseAbout, deliverables: phaseDeliverables })
 
@@ -381,7 +388,7 @@ export async function updateDraftProposal(
       select: { description: true, deliverables: true },
     })
     const phaseAbout = primaryPhase?.description ?? ''
-    const phaseDeliverables = (primaryPhase?.deliverables as { title: string; description: string }[] | null) ?? []
+    const phaseDeliverables = (primaryPhase?.deliverables as { title: string; description: string; sectionIds?: string[] }[] | null) ?? []
     const content = buildContent({ ...input, about: phaseAbout, deliverables: phaseDeliverables })
     const proposal = await sdb.proposal.update({
       where: { id: proposalId },
@@ -472,7 +479,7 @@ export async function createProposalRevision(
 
 function buildContent(input: {
   about: string
-  deliverables: { title: string; description: string }[]
+  deliverables: { title: string; description: string; sectionIds?: string[] }[]
   milestones: { id: string; name: string; percentPct: number; trigger: string; customDate?: string }[]
   totalCents: number
   discount?: ProposalDiscount
@@ -486,9 +493,10 @@ function buildContent(input: {
         type: 'scope',
         title: 'Deliverables',
         items: input.deliverables.map((d, i) => ({
-          number: String(i + 1).padStart(2, '0'),
-          title: d.title,
+          number:     String(i + 1).padStart(2, '0'),
+          title:      d.title,
           description: d.description,
+          ...(d.sectionIds?.length ? { sectionIds: d.sectionIds } : {}),
         })),
       },
       { type: 'budget', detailLevel: 'SUMMARY' },

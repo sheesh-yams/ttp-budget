@@ -149,7 +149,7 @@ export interface ProposalContent {
 
 export type ProposalSection =
   | { type: 'about'; title: string; body: string }
-  | { type: 'scope'; title: string; items: { number: string; title: string; description: string }[] }
+  | { type: 'scope'; title: string; items: { number: string; title: string; description: string; sectionIds?: string[] }[] }
   | { type: 'budget'; detailLevel: ProposalDetailLevel }
   | { type: 'terms'; title: string; body: string; milestones: PaymentMilestone[] }
   | { type: 'custom'; title: string; body: string }

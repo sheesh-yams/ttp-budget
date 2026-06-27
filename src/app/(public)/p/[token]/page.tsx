@@ -79,6 +79,7 @@ export default async function PublicProposalPage({ params }: Props) {
   let totalCents: number
   let discountCents = 0
   let discountLabel = 'Discount'
+  let budgetSections: { id: string; title: string }[] = []
 
   if (snapshot?.accounts) {
     // Proposal was sent with a frozen snapshot — use it
@@ -86,44 +87,41 @@ export default async function PublicProposalPage({ params }: Props) {
     totalCents = snapshot.totalCents
     discountCents = snapshot.discountCents ?? 0
     discountLabel = snapshot.discountLabel || 'Discount'
+    budgetSections = (snapshot as unknown as { sections?: { id: string; title: string }[] }).sections ?? []
   } else {
     // Legacy / draft: fall back to live budget query
+    const phaseInclude = {
+      sections: {
+        orderBy: { orderIndex: 'asc' as const },
+        select:  { id: true, title: true },
+      },
+      accounts: {
+        where: { parentId: null as null },
+        orderBy: { order: 'asc' as const },
+        include: {
+          lineItems: { orderBy: { order: 'asc' as const } },
+          children: {
+            orderBy: { order: 'asc' as const },
+            include: { lineItems: { orderBy: { order: 'asc' as const } } },
+          },
+        },
+      },
+    }
     const primaryPhase = await db.phase.findFirst({
       where: { budgetId: proposal.budgetId, isPrimary: true },
-      include: {
-        accounts: {
-          where: { parentId: null },
-          orderBy: { order: 'asc' },
-          include: {
-            lineItems: { orderBy: { order: 'asc' } },
-            children: {
-              orderBy: { order: 'asc' },
-              include: { lineItems: { orderBy: { order: 'asc' } } },
-            },
-          },
-        },
-      },
+      include: phaseInclude,
     }) ?? await db.phase.findFirst({
       where: { budgetId: proposal.budgetId },
-      orderBy: { order: 'asc' },
-      include: {
-        accounts: {
-          where: { parentId: null },
-          orderBy: { order: 'asc' },
-          include: {
-            lineItems: { orderBy: { order: 'asc' } },
-            children: {
-              orderBy: { order: 'asc' },
-              include: { lineItems: { orderBy: { order: 'asc' } } },
-            },
-          },
-        },
-      },
+      orderBy: { order: 'asc' as const },
+      include: phaseInclude,
     })
+
+    budgetSections = (primaryPhase?.sections ?? []).map(s => ({ id: s.id, title: s.title }))
 
     const accounts = primaryPhase?.accounts ?? []
     serialisedAccounts = accounts.map(acc => ({
       ...acc,
+      sectionId: (acc as unknown as { sectionId?: string }).sectionId ?? null,
       lineItems: acc.lineItems.map(item => ({
         ...item,
         quantity:  Number(item.quantity),
@@ -193,6 +191,7 @@ export default async function PublicProposalPage({ params }: Props) {
       discountCents={discountCents}
       discountLabel={discountLabel}
       isDraft={isDraft}
+      budgetSections={budgetSections}
     />
   )
 }

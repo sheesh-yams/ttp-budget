@@ -85,12 +85,18 @@ interface SerialAccount {
   id: string
   name: string
   code: string | null
+  sectionId?: string | null
   lineItems: SerialLineItem[]
   children: Array<{
     id: string
     name: string
     lineItems: SerialLineItem[]
   }>
+}
+
+interface SerialBudgetSection {
+  id:    string
+  title: string
 }
 
 interface SerialProposal {
@@ -133,11 +139,16 @@ interface Props {
   discountCents?: number
   discountLabel?: string
   isDraft?: boolean
+  budgetSections?: SerialBudgetSection[]
+  deliverableLinkMode?: 'scroll' | 'filter'
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function ProposalPublicView({ proposal, accounts, totalCents, discountCents = 0, discountLabel = 'Discount', isDraft = false }: Props) {
+export function ProposalPublicView({
+  proposal, accounts, totalCents, discountCents = 0, discountLabel = 'Discount',
+  isDraft = false, budgetSections = [], deliverableLinkMode = 'scroll',
+}: Props) {
   const content     = proposal.content as ProposalContent
   const sections    = content?.sections ?? []
 
@@ -197,6 +208,23 @@ export function ProposalPublicView({ proposal, accounts, totalCents, discountCen
       return next
     })
   }
+
+  // Section highlight (1.8s pulse after deliverable click)
+  const [highlightedSections, setHighlightedSections] = useState<Set<string>>(new Set())
+
+  function handleDeliverableClick(sectionIds: string[]) {
+    if (deliverableLinkMode === 'filter') {
+      // TODO: filter-view behavior — hide sections not in sectionIds, show only matching ones
+      return
+    }
+    const firstId = sectionIds[0]
+    const el = document.getElementById(`section-${firstId}`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    setHighlightedSections(new Set(sectionIds))
+    setTimeout(() => setHighlightedSections(new Set()), 1800)
+  }
+
+  const multiSection = budgetSections.length > 1
 
   // Budget-level agency fee — read from frozen snapshot stored in content
   type BudgetSnapshot = { productionCents: number; budgetMarkupPct: number; budgetTaxPct: number }
@@ -345,24 +373,47 @@ export function ProposalPublicView({ proposal, accounts, totalCents, discountCen
           <div style={{ maxWidth: 960, margin: '0 auto' }}>
             <SectionHeader label="Deliverables" />
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 20 }}>
-              {deliverables.map((item, i) => (
-                <div
-                  key={i}
-                  style={{
-                    background: '#fff',
-                    border: `0.5px solid ${BORDER}`,
-                    borderTop: `3px solid ${V}`,
-                    borderRadius: 10,
-                    padding: '24px 24px 28px',
-                  }}
-                >
-                  <p style={{ color: V, fontSize: 30, fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1, margin: '0 0 14px' }}>
-                    {item.number ?? String(i + 1).padStart(2, '0')}
-                  </p>
-                  <p style={{ fontSize: 15, fontWeight: 700, color: BODY, margin: '0 0 8px' }}>{item.title}</p>
-                  <p style={{ fontSize: 13, color: MUTED, lineHeight: 1.65, margin: 0 }}>{item.description}</p>
-                </div>
-              ))}
+              {deliverables.map((item, i) => {
+                const linked = (item as typeof item & { sectionIds?: string[] }).sectionIds
+                const isLinked = multiSection && linked && linked.length > 0
+                const cardStyle = {
+                  background: '#fff',
+                  border: `0.5px solid ${BORDER}`,
+                  borderTop: `3px solid ${V}`,
+                  borderRadius: 10,
+                  padding: '24px 24px 28px',
+                  cursor: isLinked ? 'pointer' : 'default',
+                  transition: 'box-shadow 0.15s',
+                }
+                const inner = (
+                  <>
+                    <p style={{ color: V, fontSize: 30, fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1, margin: '0 0 14px' }}>
+                      {item.number ?? String(i + 1).padStart(2, '0')}
+                    </p>
+                    <p style={{ fontSize: 15, fontWeight: 700, color: BODY, margin: '0 0 8px' }}>{item.title}</p>
+                    <p style={{ fontSize: 13, color: MUTED, lineHeight: 1.65, margin: 0 }}>{item.description}</p>
+                    {isLinked && (
+                      <p style={{ marginTop: 12, fontSize: 11, fontWeight: 700, color: V, letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        See in budget →
+                      </p>
+                    )}
+                  </>
+                )
+                return isLinked ? (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => handleDeliverableClick(linked)}
+                    style={{ ...cardStyle, textAlign: 'left', width: '100%', fontFamily: 'inherit' }}
+                    onMouseEnter={e => (e.currentTarget.style.boxShadow = `0 4px 16px ${V}22`)}
+                    onMouseLeave={e => (e.currentTarget.style.boxShadow = '')}
+                  >
+                    {inner}
+                  </button>
+                ) : (
+                  <div key={i} style={cardStyle}>{inner}</div>
+                )
+              })}
             </div>
           </div>
         </section>
@@ -374,19 +425,31 @@ export function ProposalPublicView({ proposal, accounts, totalCents, discountCen
           <div style={{ maxWidth: 960, margin: '0 auto' }}>
             <SectionHeader label="Budget Summary" />
 
-            {/* Accordion */}
-            <div style={{ border: `0.5px solid ${BORDER}`, borderRadius: '10px 10px 0 0', overflow: 'hidden' }}>
-              {accounts.map((account, idx) => {
+            {/* Highlight keyframe */}
+            <style>{`
+              @keyframes section-highlight-fade {
+                0%   { background: var(--brand-v-tint, #F5EDFA); border-left-color: var(--brand-v, #5D00A4); }
+                80%  { background: var(--brand-v-tint, #F5EDFA); border-left-color: var(--brand-v, #5D00A4); }
+                100% { background: transparent; border-left-color: transparent; }
+              }
+              .section-highlight {
+                animation: section-highlight-fade 1.8s ease-out forwards;
+                border-left: 3px solid transparent;
+                padding-left: 12px;
+                margin-left: -12px;
+              }
+            `}</style>
+
+            {/* Accordion — section-aware */}
+            {(() => {
+              function renderAccountRow(account: SerialAccount, idx: number, isLast: boolean) {
                 const accTotal   = sumAccount(account)
                 const isOpen     = expanded.has(account.id)
                 const ownCount   = account.lineItems.length
                 const childCount = account.children?.reduce((s, c) => s + c.lineItems.length, 0) ?? 0
                 const itemCount  = ownCount + childCount
-                const isLast     = idx === accounts.length - 1
-
                 return (
                   <div key={account.id}>
-                    {/* Row header */}
                     <button
                       type="button"
                       onClick={() => toggle(account.id)}
@@ -416,25 +479,13 @@ export function ProposalPublicView({ proposal, accounts, totalCents, discountCen
                         {formatMoney(accTotal)}
                       </span>
                     </button>
-
-                    {/* Expanded line items */}
                     {isOpen && (
                       <div style={{ background: CANVAS, borderBottom: `0.5px solid ${BORDER}` }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                           <thead>
                             <tr style={{ borderBottom: `0.5px solid ${BORDER}` }}>
                               {(['Description', 'Qty', 'Unit', 'Total'] as const).map((h, hi) => (
-                                <th
-                                  key={h}
-                                  style={{
-                                    padding: hi === 0 ? '9px 16px 9px 44px' : '9px 16px',
-                                    textAlign: hi === 0 ? 'left' : 'right',
-                                    fontSize: 11, fontWeight: 600, letterSpacing: '0.08em',
-                                    textTransform: 'uppercase', color: MUTED,
-                                    width: hi === 0 ? 'auto' : hi === 3 ? 100 : hi === 1 ? 90 : 60,
-                                    whiteSpace: 'nowrap',
-                                  }}
-                                >{h}</th>
+                                <th key={h} style={{ padding: hi === 0 ? '9px 16px 9px 44px' : '9px 16px', textAlign: hi === 0 ? 'left' : 'right', fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, width: hi === 0 ? 'auto' : hi === 3 ? 100 : hi === 1 ? 90 : 60, whiteSpace: 'nowrap' }}>{h}</th>
                               ))}
                             </tr>
                           </thead>
@@ -470,8 +521,53 @@ export function ProposalPublicView({ proposal, accounts, totalCents, discountCen
                     )}
                   </div>
                 )
-              })}
-            </div>
+              }
+
+              if (!multiSection) {
+                return (
+                  <div style={{ border: `0.5px solid ${BORDER}`, borderRadius: '10px 10px 0 0', overflow: 'hidden' }}>
+                    {accounts.map((account, idx) => renderAccountRow(account, idx, idx === accounts.length - 1))}
+                  </div>
+                )
+              }
+
+              // Multi-section: group accounts by sectionId, render with anchors
+              const bySection: Record<string, SerialAccount[]> = {}
+              for (const s of budgetSections) bySection[s.id] = []
+              for (const acc of accounts) {
+                const sid = acc.sectionId ?? budgetSections[0]?.id
+                if (sid && bySection[sid]) bySection[sid].push(acc)
+              }
+
+              return (
+                <div>
+                  {budgetSections.map(section => {
+                    const sectionAccounts = bySection[section.id] ?? []
+                    const isHighlighted   = highlightedSections.has(section.id)
+                    return (
+                      <div
+                        key={section.id}
+                        id={`section-${section.id}`}
+                        className={isHighlighted ? 'section-highlight' : undefined}
+                        style={{ marginBottom: 32, scrollMarginTop: 24 }}
+                      >
+                        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: V, marginBottom: 10, paddingLeft: 2 }}>
+                          {section.title}
+                        </div>
+                        <div style={{ border: `0.5px solid ${BORDER}`, borderRadius: '10px 10px 0 0', overflow: 'hidden' }}>
+                          {sectionAccounts.length === 0 ? (
+                            <div style={{ padding: '16px 20px', fontSize: 13, color: MUTED, fontStyle: 'italic' }}>No accounts in this section.</div>
+                          ) : (
+                            sectionAccounts.map((account, idx) => renderAccountRow(account, idx, idx === sectionAccounts.length - 1))
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
+
 
             {/* Totals rows */}
             <div style={{ borderLeft: `0.5px solid ${BORDER}`, borderRight: `0.5px solid ${BORDER}` }}>
