@@ -46,6 +46,16 @@ type WebhookDb = typeof db & {
   paymentAttempt: AttemptLookupModel
 }
 
+// Helcim (and uptime checks) may probe this URL with GET/HEAD when validating
+// the webhook config on save. Without these handlers Next.js returns 405, which
+// fails the dashboard's reachability check. Always 200.
+export function GET() {
+  return NextResponse.json({ ok: true })
+}
+export function HEAD() {
+  return new NextResponse(null, { status: 200 })
+}
+
 export async function POST(req: NextRequest) {
   // ── 1. Read raw body + signature headers ─────────────────────────────────
   // The raw text is required — re-serializing JSON would change the bytes the
@@ -55,10 +65,26 @@ export async function POST(req: NextRequest) {
   const webhookTs   = req.headers.get('webhook-timestamp') ?? ''
   const webhookSig  = req.headers.get('webhook-signature') ?? ''
 
+  // IMPORTANT — handshake tolerance:
+  // Helcim probes this URL when you click "Save" in the dashboard, and it
+  // rejects the whole config (400 in the dashboard) if the probe gets any
+  // non-2xx. That probe is unsigned and arrives before the Verifier Token even
+  // exists. So we ACK every non-actionable request with 200 and only ever
+  // SETTLE on a fully valid, signed event. The single non-2xx path is a genuine
+  // processing error after verification (5xx → Helcim retries the real event).
+  const ack = (extra: Record<string, unknown> = {}) => NextResponse.json({ received: true, ...extra })
+
   const verifierToken = process.env.HELCIM_WEBHOOK_VERIFIER_TOKEN
   if (!verifierToken) {
-    console.error('[helcim-webhook] HELCIM_WEBHOOK_VERIFIER_TOKEN is not configured')
-    return NextResponse.json({ error: 'Webhook not configured' }, { status: 500 })
+    // Unconfigured (or the save-time probe before the token exists). Ack so the
+    // dashboard save succeeds; real events can't be processed until it's set.
+    console.warn('[helcim-webhook] HELCIM_WEBHOOK_VERIFIER_TOKEN not set — acking probe, not processing')
+    return ack({ configured: false })
+  }
+
+  // Unsigned request → reachability/handshake probe. Nothing to process.
+  if (!webhookId || !webhookTs || !webhookSig) {
+    return ack({ probe: true })
   }
 
   // ── 2. Verify signature ──────────────────────────────────────────────────
@@ -70,15 +96,18 @@ export async function POST(req: NextRequest) {
     verifierToken,
   })
   if (!valid) {
-    console.error('[helcim-webhook] signature verification failed', { webhookId })
-    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
+    // Could be a forgery or a token mismatch. We never settle without a valid
+    // signature, so acking (200) is safe — and we log loudly so a misconfigured
+    // token is visible rather than silently dropping real events.
+    console.error('[helcim-webhook] signature verification FAILED — check HELCIM_WEBHOOK_VERIFIER_TOKEN', { webhookId })
+    return ack({ verified: false })
   }
 
   // ── 3. Timestamp tolerance (replay guard) ────────────────────────────────
   const tsSec = Number(webhookTs)
   if (!Number.isFinite(tsSec) || Math.abs(Date.now() / 1000 - tsSec) > TIMESTAMP_TOLERANCE_SEC) {
-    console.error('[helcim-webhook] timestamp outside tolerance', { webhookId, webhookTs })
-    return NextResponse.json({ error: 'Stale webhook' }, { status: 400 })
+    console.error('[helcim-webhook] timestamp outside tolerance — skipping', { webhookId, webhookTs })
+    return ack({ stale: true })
   }
 
   // ── 4. Parse payload ─────────────────────────────────────────────────────
@@ -86,7 +115,7 @@ export async function POST(req: NextRequest) {
   try {
     payload = JSON.parse(rawBody)
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+    return ack({ parsed: false })
   }
 
   // We only act on card transactions. Acknowledge everything else (200) so
