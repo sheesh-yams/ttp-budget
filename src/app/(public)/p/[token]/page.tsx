@@ -15,12 +15,12 @@ interface Props {
 export async function generateMetadata({ params }: Props) {
   const { token } = await params
   const proposal = await db.proposal.findUnique({
-    where: { publicToken: token },
-    include: { project: { include: { client: true } } },
+    where:  { publicToken: token },
+    select: { title: true },
   })
   if (!proposal) return { title: 'Proposal not found' }
   return {
-    title: `${proposal.title} — The Third Place Creative`,
+    title: { absolute: `${proposal.title} | Proposal` },
     robots: { index: false },
   }
 }

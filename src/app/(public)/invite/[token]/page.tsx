@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { getInvitationByToken } from '@/server/actions/team'
 import { InviteAcceptClient } from '@/components/team/InviteAcceptClient'
 
-export const metadata = { title: 'Accept invitation — TTP Budget' }
+export const metadata = { title: 'Accept Invitation' }
 
 export default async function InvitePage({
   params,
@@ -43,7 +43,7 @@ export default async function InvitePage({
       >
         {/* Header */}
         <p className="mb-6 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/30">
-          TTP Budget
+          SlateSuite
         </p>
 
         {/* Workspace logo placeholder */}
@@ -126,7 +126,7 @@ function InviteStatus({ status, workspaceName }: { status: 'accepted' | 'expired
         className="w-full max-w-[420px] rounded-2xl border border-white/10 p-8 shadow-2xl text-center"
         style={{ background: '#130B22' }}
       >
-        <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/30">TTP Budget</p>
+        <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/30">SlateSuite</p>
         {status === 'accepted' ? (
           <>
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-green-900/40 text-green-400 text-2xl">✓</div>

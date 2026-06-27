@@ -5,7 +5,7 @@ import { getWorkspaceId } from '@/lib/auth'
 import { formatMoney } from '@/lib/money'
 import { InvoicesTable } from '@/components/invoices/InvoicesTable'
 
-export const metadata = { title: 'Invoices — TTP Budget' }
+export const metadata = { title: 'Invoices' }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 

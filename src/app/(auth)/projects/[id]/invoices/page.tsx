@@ -21,7 +21,7 @@ export async function generateMetadata({ params }: Props) {
   const { id } = await params
   const workspaceId = await getWorkspaceId()
   const project = await db.project.findFirst({ where: { id, workspaceId }, select: { name: true } })
-  return { title: project ? `Invoices — ${project.name}` : 'Invoices' }
+  return { title: project ? `${project.name} | Invoices` : 'Invoices' }
 }
 
 export default async function InvoicesSubPage({ params }: Props) {

@@ -14,12 +14,13 @@ interface Props {
 export async function generateMetadata({ params }: Props) {
   const { token } = await params
   const invoice = await db.invoice.findUnique({
-    where: { publicToken: token },
-    include: { client: true },
+    where:  { publicToken: token },
+    select: { number: true, title: true, workspace: { select: { name: true } } },
   })
   if (!invoice) return { title: 'Invoice not found' }
+  const label = invoice.title ?? `Invoice ${invoice.number}`
   return {
-    title: `Invoice ${invoice.number} — The Third Place Creative`,
+    title: { absolute: `${label} | Invoice` },
     robots: { index: false },
   }
 }

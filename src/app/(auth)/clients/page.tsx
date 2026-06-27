@@ -2,7 +2,7 @@ import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { ClientsPageClient } from '@/components/clients/ClientsPageClient'
 
-export const metadata = { title: 'Clients — TTP Budget' }
+export const metadata = { title: 'Clients' }
 
 export default async function ClientsPage() {
   const workspaceId = await getWorkspaceId()

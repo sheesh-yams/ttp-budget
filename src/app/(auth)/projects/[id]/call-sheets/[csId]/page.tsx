@@ -15,7 +15,7 @@ export async function generateMetadata({
 }) {
   const { csId } = await params
   const cs = await db.callSheet.findUnique({ where: { id: csId }, select: { title: true } })
-  return { title: cs ? `${cs.title} — TTP Budget` : 'Call Sheet' }
+  return { title: cs ? `${cs.title} | Call Sheet` : 'Call Sheet' }
 }
 
 export default async function CallSheetPage({

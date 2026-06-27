@@ -38,7 +38,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const { id } = await params
   const workspaceId = await getWorkspaceId()
   const project = await db.project.findFirst({ where: { id, workspaceId }, select: { name: true } })
-  return { title: project ? `${project.name} — TTP Budget` : 'Project' }
+  return { title: project ? project.name : 'Project' }
 }
 
 export default async function ProjectDetailPage({

@@ -6,7 +6,7 @@ import { DangerZone } from '@/components/settings/DangerZone'
 import { WorkspaceDataSection } from '@/components/settings/WorkspaceDataSection'
 import { ActivityFeed } from '@/components/settings/ActivityFeed'
 
-export const metadata = { title: 'Settings — TTP Budget' }
+export const metadata = { title: 'Settings' }
 
 export default async function SettingsPage() {
   const [user, workspaceId] = await Promise.all([getCurrentUser(), getWorkspaceId()])

@@ -14,7 +14,7 @@ export async function generateMetadata({
     where: { id, workspaceId },
     select: { name: true },
   })
-  return { title: project ? `Call Sheets — ${project.name} — TTP Budget` : 'Call Sheets' }
+  return { title: project ? `${project.name} | Call Sheets` : 'Call Sheets' }
 }
 
 export default async function CallSheetsPage({

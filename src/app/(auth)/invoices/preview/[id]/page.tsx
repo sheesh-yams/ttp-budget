@@ -19,7 +19,7 @@ interface Props {
 
 export async function generateMetadata({ params }: Props) {
   const { id } = await params
-  return { title: `Preview — Invoice · TTP Budget`, robots: { index: false } }
+  return { title: `Invoice Preview`, robots: { index: false } }
 }
 
 export default async function InvoicePreviewPage({ params }: Props) {

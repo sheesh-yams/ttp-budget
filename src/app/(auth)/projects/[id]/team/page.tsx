@@ -16,7 +16,7 @@ export async function generateMetadata({
     where: { id, workspaceId },
     select: { name: true },
   })
-  return { title: project ? `Team — ${project.name} — TTP Budget` : 'Team' }
+  return { title: project ? `${project.name} | Team` : 'Team' }
 }
 
 export default async function ProjectTeamPage({

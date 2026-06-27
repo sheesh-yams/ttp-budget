@@ -3,7 +3,7 @@ import { listTeamMembers, getPendingInvitations } from '@/server/actions/team'
 import { TeamPageClient } from '@/components/team/TeamPageClient'
 import { getActiveWorkspace, getCurrentRole } from '@/lib/auth'
 
-export const metadata = { title: 'Team — TTP Budget' }
+export const metadata = { title: 'Team' }
 
 export default async function TeamPage() {
   // Member management is OWNER-only (server-side gate, not just hidden in the UI).

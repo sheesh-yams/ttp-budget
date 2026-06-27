@@ -6,10 +6,10 @@ import '@/styles/globals.css'
 
 export const metadata: Metadata = {
   title: {
-    default: 'The Third Place Creative — Budgeting',
-    template: '%s | TTP Budget',
+    default: 'SlateSuite',
+    template: '%s | SlateSuite',
   },
-  description: 'Internal production budgeting and invoicing for The Third Place Creative.',
+  description: 'Production budgeting and invoicing for creative studios.',
   robots: { index: false, follow: false },
 }
 

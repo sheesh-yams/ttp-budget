@@ -7,7 +7,7 @@ import { ProjectsPageClient } from '@/components/projects/ProjectsPageClient'
 import type { ProjectForCard, ProjectMetrics, AttentionItem, UpcomingShoot, StatusCounts } from '@/components/projects/projects-types'
 import { calcBudgetTotals, type AccountInput } from '@/lib/totals'
 
-export const metadata = { title: 'Projects — SLATESUITE' }
+export const metadata = { title: 'Projects' }
 
 // Shared project includes — used for both allProjects and archivedProjects queries
 const PROJECT_INCLUDES = {
