@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useTransition, useEffect, useMemo } from 'react'
+import { useState, useTransition, useEffect, useMemo, useRef } from 'react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import {
-  Plus, Trash2, ChevronRight, ChevronDown, Package,
-  Upload, GripVertical, Pencil, Star, Copy, Check,
+  Plus, Trash2, ChevronRight, ChevronDown, ChevronUp, Package,
+  Upload, GripVertical, Pencil, Star, Copy, Check, MoreHorizontal, Layers,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -21,9 +21,13 @@ import {
   updateAccount, reorderAccounts, reorderLineItems, moveLineItem,
   updateBudgetRates, duplicatePhase, renamePhase, makePhasePrimary, deletePhase,
 } from '@/server/actions/budgets'
+import {
+  createBudgetSection, renameBudgetSection, deleteBudgetSection,
+  reorderBudgetSections, moveAccountToSection,
+} from '@/server/actions/sections'
 import { formatMoney, lineTotal, centsToRate, rateToCents, parseQtyFormula, fmtUnit } from '@/lib/money'
 import { sumAccount, type AccountInput } from '@/lib/totals'
-import type { BudgetWithPhases, AccountWithItems } from '@/types'
+import type { BudgetWithPhases, AccountWithItems, SectionSummary } from '@/types'
 import { useRouter } from 'next/navigation'
 import type { RateUnit } from '@prisma/client'
 import { FloatingBulkActionBar } from './FloatingBulkActionBar'
@@ -338,6 +342,22 @@ function PhaseView({
   const [showImport, setShowImport]             = useState(false)
   const [, startTransition] = useTransition()
 
+  // ── Sections local state ──────────────────────────────────────────────────
+  const [localSections, setLocalSections] = useState<SectionSummary[]>(
+    (phase.sections ?? []) as SectionSummary[]
+  )
+  useEffect(() => {
+    setLocalSections((phase.sections ?? []) as SectionSummary[])
+  }, [phase.sections])
+
+  const multiSection = localSections.length >= 2
+
+  // Section modal state
+  const [showAddSection, setShowAddSection]     = useState(false)
+  const [deletingSection, setDeletingSection]   = useState<SectionSummary | null>(null)
+  const [renamingSection, setRenamingSection]   = useState<string | null>(null)  // sectionId
+  const [renameSectionVal, setRenameSectionVal] = useState('')
+
   // ── Full local account+item state (allows cross-account optimistic updates) ──
   const [localAccounts, setLocalAccounts] = useState<AccountWithItems[]>(
     phase.accounts as AccountWithItems[]
@@ -458,6 +478,63 @@ function PhaseView({
     }
   }
 
+  // ── Section handlers ──────────────────────────────────────────────────────
+
+  function handleSectionMoveUp(sectionId: string) {
+    const idx = localSections.findIndex(s => s.id === sectionId)
+    if (idx <= 0) return
+    const next = [...localSections]
+    ;[next[idx - 1], next[idx]] = [next[idx], next[idx - 1]]
+    setLocalSections(next)
+    startTransition(async () => {
+      await reorderBudgetSections(phase.id, next.map(s => s.id))
+      onMutated()
+    })
+  }
+
+  function handleSectionMoveDown(sectionId: string) {
+    const idx = localSections.findIndex(s => s.id === sectionId)
+    if (idx === -1 || idx >= localSections.length - 1) return
+    const next = [...localSections]
+    ;[next[idx], next[idx + 1]] = [next[idx + 1], next[idx]]
+    setLocalSections(next)
+    startTransition(async () => {
+      await reorderBudgetSections(phase.id, next.map(s => s.id))
+      onMutated()
+    })
+  }
+
+  function handleSectionRenameCommit(sectionId: string) {
+    const trimmed = renameSectionVal.trim()
+    setRenamingSection(null)
+    if (!trimmed) return
+    const current = localSections.find(s => s.id === sectionId)
+    if (trimmed === current?.title) return
+    setLocalSections(prev => prev.map(s => s.id === sectionId ? { ...s, title: trimmed } : s))
+    startTransition(async () => {
+      await renameBudgetSection(sectionId, trimmed)
+      onMutated()
+    })
+  }
+
+  function handleCrossSectionAccountDrop(accountId: string, toSectionId: string) {
+    const account = localAccounts.find(a => a.id === accountId)
+    if (!account || (account as unknown as { sectionId: string }).sectionId === toSectionId) return
+    const toSectionAccounts = localAccounts.filter(a =>
+      (a as unknown as { sectionId: string }).sectionId === toSectionId
+    )
+    const newOrder = toSectionAccounts.length
+    setLocalAccounts(prev => prev.map(a =>
+      a.id === accountId
+        ? { ...a, sectionId: toSectionId, order: newOrder } as AccountWithItems
+        : a
+    ))
+    startTransition(async () => {
+      await moveAccountToSection(accountId, toSectionId, newOrder)
+      onMutated()
+    })
+  }
+
   function handleAddAccount() {
     const name = prompt('Account name (e.g. Camera, Post Production)')
     if (!name?.trim()) return
@@ -499,13 +576,66 @@ function PhaseView({
     )
   }
 
+  // ── Section-aware account grouping ──────────────────────────────────────
+  const accountsBySection = useMemo(() => {
+    const map: Record<string, AccountWithItems[]> = {}
+    for (const s of localSections) map[s.id] = []
+    for (const acc of localAccounts) {
+      const sid = (acc as unknown as { sectionId: string }).sectionId
+      if (map[sid]) map[sid].push(acc)
+      else {
+        // Account's section not in localSections yet (race) — put in first section
+        const fallback = localSections[0]?.id
+        if (fallback) {
+          if (!map[fallback]) map[fallback] = []
+          map[fallback].push(acc)
+        }
+      }
+    }
+    return map
+  }, [localAccounts, localSections])
+
+  // Render accounts for a given section (or all accounts for single-section mode)
+  function renderAccounts(accounts: AccountWithItems[]) {
+    return accounts.map((account, accountIndex) => (
+      <AccountRows
+        key={account.id}
+        account={account}
+        accountIndex={accountIndex}
+        items={account.lineItems}
+        depth={0}
+        onAddItem={() => setAddingToAccount(account.id)}
+        onMutated={onMutated}
+        isDragging={dragAccountId === account.id}
+        isDragOver={dropAccountId === account.id && !dragItem}
+        onHeaderDragStart={() => setDragAccountId(account.id)}
+        onHeaderDragOver={() => !dragItem && setDropAccountId(account.id)}
+        onHeaderDragEnd={() => { setDragAccountId(null); setDropAccountId(null) }}
+        onHeaderDrop={() => handleAccountDrop(account.id)}
+        dragItem={dragItem}
+        dropZone={dropZone}
+        onItemDragStart={setDragItem}
+        onItemDragEnd={() => { setDragItem(null); setDropZone(null) }}
+        onItemDragOverItem={(beforeItemId) =>
+          setDropZone({ accountId: account.id, beforeItemId })
+        }
+        onItemDragOverHeader={() => setDropZone({ accountId: account.id })}
+        onItemDrop={handleItemDrop}
+        onAccountDeleted={onMutated}
+        selectedIds={selectedIds}
+        onToggleItem={toggleItem}
+        onToggleAccount={toggleAccount}
+        readOnly={readOnly}
+      />
+    ))
+  }
+
   return (
     <div>
       <div className="overflow-x-auto rounded-xl border">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-muted/50 text-xs font-medium text-muted-foreground">
-              {/* Select-all checkbox (hidden in read-only mode) */}
               <th className="w-9 pl-2 align-middle">
                 {!readOnly && (
                   <BulkCheckbox
@@ -526,44 +656,41 @@ function PhaseView({
             </tr>
           </thead>
           <tbody>
-            {localAccounts.map((account, accountIndex) => (
-              <AccountRows
-                key={account.id}
-                account={account}
-                accountIndex={accountIndex}
-                // Pass the per-account items from the shared local state
-                items={account.lineItems}
-                depth={0}
-                onAddItem={() => setAddingToAccount(account.id)}
-                onMutated={onMutated}
-                // Account drag
-                isDragging={dragAccountId === account.id}
-                isDragOver={dropAccountId === account.id && !dragItem}
-                onHeaderDragStart={() => setDragAccountId(account.id)}
-                onHeaderDragOver={() => !dragItem && setDropAccountId(account.id)}
-                onHeaderDragEnd={() => { setDragAccountId(null); setDropAccountId(null) }}
-                onHeaderDrop={() => handleAccountDrop(account.id)}
-                // Item drag (lifted)
-                dragItem={dragItem}
-                dropZone={dropZone}
-                onItemDragStart={setDragItem}
-                onItemDragEnd={() => { setDragItem(null); setDropZone(null) }}
-                onItemDragOverItem={(beforeItemId) =>
-                  setDropZone({ accountId: account.id, beforeItemId })
-                }
-                onItemDragOverHeader={() =>
-                  setDropZone({ accountId: account.id })
-                }
-                onItemDrop={handleItemDrop}
-                // Account delete
-                onAccountDeleted={onMutated}
-                // Bulk selection
-                selectedIds={selectedIds}
-                onToggleItem={toggleItem}
-                onToggleAccount={toggleAccount}
-                readOnly={readOnly}
-              />
-            ))}
+            {/* ── Single-section mode: render exactly as before ──────────── */}
+            {!multiSection && renderAccounts(localAccounts)}
+
+            {/* ── Multi-section mode: render section dividers + grouped accounts ── */}
+            {multiSection && localSections.map((section, sectionIdx) => {
+              const sectionAccounts = accountsBySection[section.id] ?? []
+              return (
+                <SectionRows
+                  key={section.id}
+                  section={section}
+                  sectionIdx={sectionIdx}
+                  totalSections={localSections.length}
+                  isRenaming={renamingSection === section.id}
+                  renameVal={renameSectionVal}
+                  onRenameValChange={setRenameSectionVal}
+                  onRenameStart={() => { setRenameSectionVal(section.title); setRenamingSection(section.id) }}
+                  onRenameCommit={() => handleSectionRenameCommit(section.id)}
+                  onRenameCancel={() => setRenamingSection(null)}
+                  onMoveUp={() => handleSectionMoveUp(section.id)}
+                  onMoveDown={() => handleSectionMoveDown(section.id)}
+                  onDelete={() => setDeletingSection(section)}
+                  onDropAccount={(accountId) => handleCrossSectionAccountDrop(accountId, section.id)}
+                  readOnly={readOnly}
+                >
+                  {renderAccounts(sectionAccounts)}
+                  {sectionAccounts.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="px-8 py-3 text-xs text-muted-foreground italic">
+                        No accounts — drag accounts here or add one below.
+                      </td>
+                    </tr>
+                  )}
+                </SectionRows>
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -578,6 +705,14 @@ function PhaseView({
           </Button>
           <Button variant="outline" size="sm" onClick={() => setShowImport(true)}>
             <Upload className="mr-1.5 h-3.5 w-3.5" />Import
+          </Button>
+          <Button
+            variant="outline" size="sm"
+            className={multiSection ? 'border-primary/30 text-primary' : ''}
+            onClick={() => setShowAddSection(true)}
+          >
+            <Layers className="mr-1.5 h-3.5 w-3.5" />
+            {multiSection ? `Sections · ${localSections.length}` : 'Add sections'}
           </Button>
         </div>
       )}
@@ -599,6 +734,27 @@ function PhaseView({
         target={{ type: 'budget', budgetId, projectId }} onImported={onMutated}
       />
 
+      {/* ── Add / first-time activation section modal ── */}
+      {showAddSection && (
+        <AddSectionModal
+          phaseId={phase.id}
+          currentSections={localSections}
+          onClose={() => setShowAddSection(false)}
+          onCreated={onMutated}
+        />
+      )}
+
+      {/* ── Delete section confirm ── */}
+      {deletingSection && (
+        <DeleteSectionModal
+          section={deletingSection}
+          otherSections={localSections.filter(s => s.id !== deletingSection.id)}
+          hasAccounts={(accountsBySection[deletingSection.id]?.length ?? 0) > 0}
+          onClose={() => setDeletingSection(null)}
+          onDeleted={onMutated}
+        />
+      )}
+
       {!readOnly && (
         <FloatingBulkActionBar
           selectedIds={[...selectedIds]}
@@ -607,6 +763,302 @@ function PhaseView({
           onMutated={onMutated}
         />
       )}
+    </div>
+  )
+}
+
+// ─── Section rows (divider + accounts wrapper) ────────────────────────────────
+
+function SectionRows({
+  section, sectionIdx, totalSections,
+  isRenaming, renameVal, onRenameValChange,
+  onRenameStart, onRenameCommit, onRenameCancel,
+  onMoveUp, onMoveDown, onDelete, onDropAccount,
+  readOnly, children,
+}: {
+  section:             SectionSummary
+  sectionIdx:          number
+  totalSections:       number
+  isRenaming:          boolean
+  renameVal:           string
+  onRenameValChange:   (v: string) => void
+  onRenameStart:       () => void
+  onRenameCommit:      () => void
+  onRenameCancel:      () => void
+  onMoveUp:            () => void
+  onMoveDown:          () => void
+  onDelete:            () => void
+  onDropAccount:       (accountId: string) => void
+  readOnly:            boolean
+  children:            React.ReactNode
+}) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [isDragOver, setIsDragOver] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!menuOpen) return
+    function handler(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [menuOpen])
+
+  return (
+    <>
+      {/* Section divider row */}
+      <tr
+        className={[
+          'border-b-2 border-t transition-colors',
+          isDragOver ? 'bg-primary/5 border-primary/30' : 'border-border/60 bg-muted/20',
+        ].join(' ')}
+        onDragOver={e => { e.preventDefault(); setIsDragOver(true) }}
+        onDragLeave={() => setIsDragOver(false)}
+        onDrop={e => {
+          e.preventDefault()
+          setIsDragOver(false)
+          const id = e.dataTransfer.getData('text/plain')
+          if (id) onDropAccount(id)
+        }}
+      >
+        <td colSpan={2} />
+        <td className="px-4 py-2">
+          <div className="flex items-center gap-2">
+            {isRenaming ? (
+              <input
+                autoFocus
+                className="rounded border border-primary/50 bg-background px-2 py-0.5 text-sm font-semibold outline-none ring-1 ring-primary/30 w-48"
+                value={renameVal}
+                onChange={e => onRenameValChange(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter')  { e.stopPropagation(); onRenameCommit() }
+                  if (e.key === 'Escape') { e.stopPropagation(); onRenameCancel() }
+                }}
+                onBlur={onRenameCommit}
+                onClick={e => e.stopPropagation()}
+              />
+            ) : (
+              <span className="text-sm font-semibold text-foreground">{section.title}</span>
+            )}
+          </div>
+        </td>
+        <td colSpan={4} />
+        <td className="px-2 py-2">
+          {!readOnly && !isRenaming && (
+            <div className="relative flex items-center justify-end gap-0.5" ref={menuRef}>
+              <button
+                type="button"
+                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                onClick={() => setMenuOpen(v => !v)}
+                title="Section options"
+              >
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </button>
+              {menuOpen && (
+                <div className="absolute right-0 top-full z-50 mt-1 min-w-[140px] rounded-lg border border-border bg-popover p-1 shadow-md text-[13px]">
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left hover:bg-accent"
+                    onClick={() => { setMenuOpen(false); onRenameStart() }}
+                  >
+                    <Pencil className="h-3 w-3" /> Rename
+                  </button>
+                  {sectionIdx > 0 && (
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left hover:bg-accent"
+                      onClick={() => { setMenuOpen(false); onMoveUp() }}
+                    >
+                      <ChevronUp className="h-3 w-3" /> Move up
+                    </button>
+                  )}
+                  {sectionIdx < totalSections - 1 && (
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left hover:bg-accent"
+                      onClick={() => { setMenuOpen(false); onMoveDown() }}
+                    >
+                      <ChevronDown className="h-3 w-3" /> Move down
+                    </button>
+                  )}
+                  <div className="my-1 border-t border-border" />
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-destructive hover:bg-destructive/10"
+                    onClick={() => { setMenuOpen(false); onDelete() }}
+                  >
+                    <Trash2 className="h-3 w-3" /> Delete
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </td>
+      </tr>
+      {children}
+    </>
+  )
+}
+
+// ─── Add section modal ────────────────────────────────────────────────────────
+
+function AddSectionModal({
+  phaseId, currentSections, onClose, onCreated,
+}: {
+  phaseId:         string
+  currentSections: SectionSummary[]
+  onClose:         () => void
+  onCreated:       () => void
+}) {
+  const [, startTransition] = useTransition()
+  const firstTime = currentSections.length === 1
+  const [currentName, setCurrentName] = useState(currentSections[0]?.title ?? 'Main')
+  const [newName, setNewName]         = useState('')
+  const [pending, setPending]         = useState(false)
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const trimmedNew = newName.trim()
+    if (!trimmedNew) return
+    setPending(true)
+    startTransition(async () => {
+      if (firstTime) {
+        const trimmedCurrent = currentName.trim()
+        // Rename the existing "Main" section if the name changed
+        if (trimmedCurrent && trimmedCurrent !== currentSections[0]?.title) {
+          await renameBudgetSection(currentSections[0].id, trimmedCurrent)
+        }
+      }
+      await createBudgetSection(phaseId, trimmedNew, currentSections.length)
+      onCreated()
+      onClose()
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="w-full max-w-sm rounded-2xl border border-border bg-background p-6 shadow-xl">
+        <h2 className="mb-1 text-base font-semibold">
+          {firstTime ? 'Split into sections' : 'Add section'}
+        </h2>
+        {firstTime && (
+          <p className="mb-4 text-[13px] text-muted-foreground">
+            Give your current content a name, then name the new section.
+          </p>
+        )}
+        <form onSubmit={handleSubmit} className="space-y-3 mt-4">
+          {firstTime && (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                Current section name
+              </label>
+              <input
+                autoFocus
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+                value={currentName}
+                onChange={e => setCurrentName(e.target.value)}
+                placeholder="Main"
+              />
+            </div>
+          )}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
+              {firstTime ? 'New section name' : 'Section name'}
+            </label>
+            <input
+              autoFocus={!firstTime}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              placeholder="e.g. Post Production"
+              onKeyDown={e => { if (e.key === 'Escape') onClose() }}
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+            <Button type="submit" size="sm" disabled={pending || !newName.trim()}>
+              {pending ? 'Saving…' : firstTime ? 'Activate sections' : 'Add section'}
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ─── Delete section modal ─────────────────────────────────────────────────────
+
+function DeleteSectionModal({
+  section, otherSections, hasAccounts, onClose, onDeleted,
+}: {
+  section:       SectionSummary
+  otherSections: SectionSummary[]
+  hasAccounts:   boolean
+  onClose:       () => void
+  onDeleted:     () => void
+}) {
+  const [, startTransition] = useTransition()
+  const [moveTo, setMoveTo] = useState(otherSections[0]?.id ?? '')
+  const [pending, setPending] = useState(false)
+
+  function handleDelete() {
+    setPending(true)
+    startTransition(async () => {
+      const result = await deleteBudgetSection(
+        section.id,
+        hasAccounts && moveTo ? moveTo : undefined,
+      )
+      if ('error' in result && result.error === 'CANNOT_DELETE_ONLY_SECTION') {
+        alert('Cannot delete the only section in a phase.')
+        setPending(false)
+        return
+      }
+      onDeleted()
+      onClose()
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="w-full max-w-sm rounded-2xl border border-border bg-background p-6 shadow-xl">
+        <h2 className="mb-1 text-base font-semibold">Delete "{section.title}"?</h2>
+        {hasAccounts ? (
+          <>
+            <p className="mb-4 text-[13px] text-muted-foreground">
+              This section has accounts. Move them to another section before deleting.
+            </p>
+            <div className="mb-4">
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Move accounts to</label>
+              <Select value={moveTo} onValueChange={setMoveTo}>
+                <SelectTrigger className="w-full text-sm">
+                  <SelectValue placeholder="Select section" />
+                </SelectTrigger>
+                <SelectContent>
+                  {otherSections.map(s => (
+                    <SelectItem key={s.id} value={s.id}>{s.title}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </>
+        ) : (
+          <p className="mb-4 text-[13px] text-muted-foreground">
+            This section is empty and will be permanently removed.
+          </p>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+          <Button
+            type="button" variant="destructive" size="sm"
+            disabled={pending || (hasAccounts && !moveTo)}
+            onClick={handleDelete}
+          >
+            {pending ? 'Deleting…' : 'Delete section'}
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }

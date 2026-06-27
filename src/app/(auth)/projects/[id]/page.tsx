@@ -60,6 +60,10 @@ export default async function ProjectDetailPage({
           phases: {
             orderBy: { order: 'asc' },
             include: {
+              sections: {
+                orderBy: { orderIndex: 'asc' },
+                select: { id: true, title: true, description: true, orderIndex: true },
+              },
               accounts: {
                 where: { parentId: null },
                 orderBy: { order: 'asc' },

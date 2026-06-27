@@ -52,12 +52,20 @@ export type ProjectFull = Project & {
   invoices: Invoice[]
 }
 
+export type SectionSummary = {
+  id:          string
+  title:       string
+  description: string | null
+  orderIndex:  number
+}
+
 export type BudgetWithPhases = Budget & {
   phases: PhaseWithAccounts[]
 }
 
 export type PhaseWithAccounts = Phase & {
-  accounts: AccountWithItems[]
+  sections?: SectionSummary[]
+  accounts:  AccountWithItems[]
 }
 
 export type AccountWithItems = Account & {
