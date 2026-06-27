@@ -99,10 +99,15 @@ export function HelcimPayButton({
 
     let payload: HelcimMessagePayload
     try {
-      payload = JSON.parse(event.data as string) as HelcimMessagePayload
+      // HelcimPay.js may deliver event.data as a JSON string or a plain object
+      // depending on the browser / flow. Handle both to avoid silently dropping events.
+      payload = (typeof event.data === 'string'
+        ? JSON.parse(event.data)
+        : event.data) as HelcimMessagePayload
     } catch {
       return
     }
+    if (!payload || typeof payload.eventName !== 'string') return
 
     // ── HIDE / ABORTED ─────────────────────────────────────────────────
     if (payload.eventName === 'HIDE') {

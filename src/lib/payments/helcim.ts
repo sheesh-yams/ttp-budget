@@ -109,7 +109,7 @@ async function initializeCheckout(
         invoiceNumber: input.reference,
         currency: input.currency,
         lineItems: [
-          { description: 'Invoice payment', quantity: 1, price: amountDollars },
+          { description: 'Invoice payment', quantity: 1, price: amountDollars, total: amountDollars },
         ],
       },
     }
