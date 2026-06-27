@@ -4,7 +4,7 @@ import 'server-only'
  * payments/settle.ts — single idempotent settlement path.
  *
  * Both the browser confirm route (`/api/payments/confirm`) and the inbound
- * Helcim webhook (`/api/webhooks/helcim`) call this. Whichever arrives first
+ * Helcim webhook (`/api/webhooks/payments`) call this. Whichever arrives first
  * settles; the loser is a no-op. Safety relies on:
  *
  *  1. A guarded compare-and-set: the attempt only transitions INITIATED →

@@ -705,7 +705,7 @@ Online invoice payments use **HelcimPay.js** (the hosted iFrame). Flow:
 2. `HelcimPayButton` opens the iFrame; the customer pays.
 3. The iFrame returns transaction data + a hash → browser `POST /api/payments/confirm` → hash validated, transaction re-fetched server-to-server, amount verified, invoice flipped to `PAID`.
 
-### Webhooks — the async backstop (`/api/webhooks/helcim`)
+### Webhooks — the async backstop (`/api/webhooks/payments`)
 
 If the browser confirm never fires (closed tab, lost signal, or async ACH/EFT that settles later), the Helcim webhook settles the invoice instead. The payload is thin (`{ id, type }`), so the handler:
 
@@ -716,7 +716,7 @@ If the browser confirm never fires (closed tab, lost signal, or async ACH/EFT th
 
 > The init call attaches the reference via Helcim's `invoiceRequest`. If that body shape is rejected, `initializeCheckout()` **transparently retries without it** so payments never break — that one payment just loses its webhook backstop. Watch logs for `retrying without invoiceRequest`.
 
-**Setup:** in the Helcim dashboard (All Tools → Integrations → Webhooks), enable webhooks, set the deliver URL to `https://<your-app>/api/webhooks/helcim`, subscribe to **Card Transaction** events, and copy the **Verifier Token** into `HELCIM_WEBHOOK_VERIFIER_TOKEN`. `HELCIM_API_TOKEN` (Integrations → API Access) must also be set.
+**Setup:** in the Helcim dashboard (All Tools → Integrations → Webhooks), enable webhooks, set the deliver URL to `https://<your-app>/api/webhooks/payments`, subscribe to **Card Transaction** events, and copy the **Verifier Token** into `HELCIM_WEBHOOK_VERIFIER_TOKEN`. `HELCIM_API_TOKEN` (Integrations → API Access) must also be set.
 
 ## Security
 

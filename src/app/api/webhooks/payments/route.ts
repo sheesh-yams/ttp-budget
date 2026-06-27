@@ -1,5 +1,5 @@
 /**
- * POST /api/webhooks/helcim
+ * POST /api/webhooks/payments
  *
  * Inbound Helcim webhook — fires server-to-server when a transaction completes,
  * independent of the browser. This is the safety net for payments where the
