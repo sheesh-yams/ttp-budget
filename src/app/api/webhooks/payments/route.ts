@@ -30,6 +30,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { helcimAdapter, verifyWebhookSignature } from '@/lib/payments/helcim'
 import { settlePaymentAttempt } from '@/lib/payments/settle'
+import { sendPaymentReceiptEmails } from '@/lib/email'
 
 // Reject events whose timestamp is more than this far from now (replay guard).
 const TIMESTAMP_TOLERANCE_SEC = 5 * 60
@@ -39,7 +40,7 @@ type WebhookEventModel = {
   update: (args: object) => Promise<unknown>
 }
 type AttemptLookupModel = {
-  findUnique: (args: object) => Promise<{ id: string; amountCents: number } | null>
+  findUnique: (args: object) => Promise<{ id: string; amountCents: number; invoiceId: string } | null>
 }
 type WebhookDb = typeof db & {
   webhookEvent: WebhookEventModel
@@ -165,7 +166,7 @@ export async function POST(req: NextRequest) {
 
     const attempt = await wdb.paymentAttempt.findUnique({
       where:  { checkoutRef: tx.reference },
-      select: { id: true, amountCents: true },
+      select: { id: true, amountCents: true, invoiceId: true },
     })
     if (!attempt) {
       console.error('[helcim-webhook] no PaymentAttempt for reference', { reference: tx.reference, transactionId })
@@ -186,6 +187,12 @@ export async function POST(req: NextRequest) {
       console.error('[helcim-webhook] amount mismatch — not settling', {
         attemptId: attempt.id, attemptAmountCents: attempt.amountCents, txAmountCents: tx.amountCents,
       })
+    }
+
+    if (settled.ok) {
+      sendPaymentReceiptEmails(attempt.invoiceId).catch(err =>
+        console.error('[helcim-webhook] payment receipt email failed', err),
+      )
     }
 
     await markProcessed(wdb, eventRowId)

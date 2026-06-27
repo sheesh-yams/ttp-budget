@@ -21,6 +21,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { validateHelcimHash, sha256Hex, helcimAdapter } from '@/lib/payments/helcim'
 import { settlePaymentAttempt } from '@/lib/payments/settle'
+import { sendPaymentReceiptEmails } from '@/lib/email'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -142,6 +143,11 @@ export async function POST(req: NextRequest) {
       // not_found shouldn't happen here (we fetched it above); treat as already done.
       return NextResponse.json({ error: 'Payment already processed' }, { status: 409 })
     }
+
+    // Fire receipt emails after settlement — failure must not block the response
+    sendPaymentReceiptEmails(attempt.invoiceId).catch(err =>
+      console.error('[confirm] payment receipt email failed', err),
+    )
 
     return NextResponse.json({ success: true })
   } catch (err) {
