@@ -552,21 +552,30 @@ export function ProposalPublicView({
                         className={isHighlighted ? 'section-highlight' : undefined}
                         style={{ marginBottom: 36, scrollMarginTop: 24 }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10, paddingLeft: 2 }}>
+                        <div style={{ marginBottom: 10, paddingLeft: 2 }}>
                           <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: V }}>
                             {section.title}
                           </span>
-                          {sectionAccounts.length > 0 && (
-                            <span style={{ fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: MUTED }}>
-                              {formatMoney(sectionTotal)}
-                            </span>
-                          )}
                         </div>
                         <div style={{ border: `0.5px solid ${BORDER}`, borderRadius: '10px 10px 0 0', overflow: 'hidden' }}>
                           {sectionAccounts.length === 0 ? (
                             <div style={{ padding: '16px 20px', fontSize: 13, color: MUTED, fontStyle: 'italic' }}>No accounts in this section.</div>
                           ) : (
-                            sectionAccounts.map((account, idx) => renderAccountRow(account, idx, idx === sectionAccounts.length - 1))
+                            sectionAccounts.map((account, idx) => renderAccountRow(account, idx, false))
+                          )}
+                          {/* Section subtotal — shaded final row */}
+                          {sectionAccounts.length > 0 && (
+                            <div style={{
+                              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                              padding: '11px 20px',
+                              background: CANVAS,
+                              borderTop: `0.5px solid ${BORDER}`,
+                            }}>
+                              <span style={{ fontSize: 12, color: MUTED, fontWeight: 500 }}>{section.title} subtotal</span>
+                              <span style={{ fontSize: 14, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: BODY }}>
+                                {formatMoney(sectionTotal)}
+                              </span>
+                            </div>
                           )}
                         </div>
                       </div>
