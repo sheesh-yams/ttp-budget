@@ -25,8 +25,14 @@ interface LineItem {
 }
 interface Account {
   id: string; name: string; code: string | null;
+  sectionId?: string | null;
   lineItems: LineItem[];
   children: Array<{ id: string; name: string; lineItems: LineItem[] }>;
+}
+
+interface BudgetSection {
+  id:    string
+  title: string
 }
 interface ProposalData {
   id: string; title: string; publicToken: string; version: number;
@@ -50,6 +56,8 @@ interface Props {
   totalCents: number
   discountCents?: number
   discountLabel?: string
+  budgetSections?: BudgetSection[]
+  pageBreakBetweenAccounts?: boolean
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -116,6 +124,7 @@ const s = StyleSheet.create({
   delNum:      { fontSize: 20, fontFamily: 'Helvetica-Bold', color: V, marginBottom: 8, lineHeight: 1 },
   delTitle:    { fontSize: 11, fontFamily: 'Helvetica-Bold', color: BODY, marginBottom: 5 },
   delDesc:     { fontSize: 9.5, color: MUT, lineHeight: 1.55 },
+  delSeeRef:   { fontSize: 8.5, color: V, marginTop: 8, fontStyle: 'italic' },
 
   // Budget table
   budgetCard:  { borderWidth: 0.5, borderColor: BDR, borderRadius: 8, overflow: 'hidden', marginBottom: 0 },
@@ -168,7 +177,7 @@ function SectionLabel({ label }: { label: string }) {
 
 // ─── Main PDF component ───────────────────────────────────────────────────────
 
-export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0, discountLabel = 'Discount' }: Props) {
+export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0, discountLabel = 'Discount', budgetSections = [], pageBreakBetweenAccounts = false }: Props) {
   const content  = proposal.content as ProposalContent
   const sections = content?.sections ?? []
 
@@ -281,76 +290,132 @@ export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0,
           <View style={s.sectionAlt} wrap={false}>
             <SectionLabel label="Deliverables" />
             <View style={s.delGrid}>
-              {deliverables.map((d, i) => (
-                <View key={i} style={s.delCard}>
-                  <Text style={s.delNum}>{d.number ?? String(i + 1).padStart(2, '0')}</Text>
-                  <Text style={s.delTitle}>{d.title}</Text>
-                  <Text style={s.delDesc}>{d.description}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
-
-        {/* ══ BUDGET SUMMARY ══ */}
-        {accounts.length > 0 && (
-          <View style={s.section} break>
-            <SectionLabel label="Budget Summary" />
-
-            <View style={s.budgetCard}>
-              <View style={s.budgetHead}>
-                <Text style={[s.col1, s.headText]}>Description</Text>
-                <Text style={[s.colSm, s.headText]}>Qty</Text>
-                <Text style={[s.colUnit, s.headText]}>Unit</Text>
-                <Text style={[s.colR, s.headText]}>Total</Text>
-              </View>
-
-              {accounts.map((acc, ai) => {
-                const accTotal = sumAccount(acc as unknown as AccountInput)
-                const isLast   = ai === accounts.length - 1
+              {deliverables.map((d, i) => {
+                const linked = (d as typeof d & { sectionIds?: string[] }).sectionIds
+                const sectionTitles = linked?.length
+                  ? linked.map(sid => budgetSections.find(s => s.id === sid)?.title).filter((t): t is string => !!t)
+                  : []
                 return (
-                  <View key={acc.id}>
-                    <View style={[s.budgetRow, { backgroundColor: '#F9F7FC' }, isLast && !acc.lineItems.length ? s.budgetLast : {}]}>
-                      <View style={[s.col1, { flexDirection: 'row', alignItems: 'center' }]}>
-                        {acc.code && <Text style={s.acctCode}>{acc.code}</Text>}
-                        <Text style={s.acctName}>{acc.name}</Text>
-                      </View>
-                      <Text style={[s.colSm, s.headText]} />
-                      <Text style={[s.colUnit, s.headText]} />
-                      <Text style={[s.acctAmt, s.colR]}>{formatMoney(accTotal)}</Text>
-                    </View>
-
-                    {acc.lineItems.map((item, ii) => {
-                      const tot  = lineTotal(item.quantity, item.rateCents, item.markupPct)
-                      const last = ii === acc.lineItems.length - 1 && (!acc.children || acc.children.length === 0)
-                      return (
-                        <View key={item.id} style={[s.budgetRow, last && isLast ? s.budgetLast : {}]}>
-                          <Text style={[s.col1, s.lineDesc]}>{item.description}</Text>
-                          {(() => { const [hc, days] = parseQtyFormula(Number(item.quantity), item.quantityFormula); return (<><Text style={[s.colSm, s.lineVal, { opacity: hc === 1 ? 0.35 : 1 }]}>{hc}</Text><Text style={[s.colUnit, s.lineVal]}>{fmtUnit(days, item.unit)}</Text></>); })()}
-                          <Text style={[s.colR, s.lineAmt]}>{formatMoney(tot)}</Text>
-                        </View>
-                      )
-                    })}
-
-                    {acc.children?.flatMap(child =>
-                      child.lineItems.map((item) => {
-                        const tot = lineTotal(item.quantity, item.rateCents, item.markupPct)
-                        return (
-                          <View key={item.id} style={s.budgetRow}>
-                            <View style={[s.col1, { flexDirection: 'row' }]}>
-                              <Text style={[s.lineDesc, { color: MUT, fontSize: 8.5, marginRight: 4 }]}>{child.name} · </Text>
-                              <Text style={s.lineDesc}>{item.description}</Text>
-                            </View>
-                            {(() => { const [hc, days] = parseQtyFormula(Number(item.quantity), item.quantityFormula); return (<><Text style={[s.colSm, s.lineVal, { opacity: hc === 1 ? 0.35 : 1 }]}>{hc}</Text><Text style={[s.colUnit, s.lineVal]}>{fmtUnit(days, item.unit)}</Text></>); })()}
-                            <Text style={[s.colR, s.lineAmt]}>{formatMoney(tot)}</Text>
-                          </View>
-                        )
-                      })
+                  <View key={i} style={s.delCard}>
+                    <Text style={s.delNum}>{d.number ?? String(i + 1).padStart(2, '0')}</Text>
+                    <Text style={s.delTitle}>{d.title}</Text>
+                    <Text style={s.delDesc}>{d.description}</Text>
+                    {sectionTitles.length > 0 && (
+                      <Text style={s.delSeeRef}>See: {sectionTitles.map(t => `§${t}`).join(', ')}</Text>
                     )}
                   </View>
                 )
               })}
             </View>
+          </View>
+        )}
+
+        {/* ══ BUDGET SUMMARY ══ */}
+        {accounts.length > 0 && (() => {
+          const multiSection = budgetSections.length > 1
+
+          // ── shared account renderer ──────────────────────────────────────────
+          function renderAccount(acc: Account, isLast: boolean, forceBreak: boolean) {
+            const accTotal = sumAccount(acc as unknown as AccountInput)
+            return (
+              <View key={acc.id} break={forceBreak || undefined}>
+                <View style={[s.budgetRow, { backgroundColor: '#F9F7FC' }, isLast && !acc.lineItems.length ? s.budgetLast : {}]}>
+                  <View style={[s.col1, { flexDirection: 'row', alignItems: 'center' }]}>
+                    {acc.code && <Text style={s.acctCode}>{acc.code}</Text>}
+                    <Text style={s.acctName}>{acc.name}</Text>
+                  </View>
+                  <Text style={[s.colSm, s.headText]} />
+                  <Text style={[s.colUnit, s.headText]} />
+                  <Text style={[s.acctAmt, s.colR]}>{formatMoney(accTotal)}</Text>
+                </View>
+                {acc.lineItems.map((item, ii) => {
+                  const tot  = lineTotal(item.quantity, item.rateCents, item.markupPct)
+                  const last = ii === acc.lineItems.length - 1 && (!acc.children || acc.children.length === 0)
+                  return (
+                    <View key={item.id} style={[s.budgetRow, last && isLast ? s.budgetLast : {}]}>
+                      <Text style={[s.col1, s.lineDesc]}>{item.description}</Text>
+                      {(() => { const [hc, days] = parseQtyFormula(Number(item.quantity), item.quantityFormula); return (<><Text style={[s.colSm, s.lineVal, { opacity: hc === 1 ? 0.35 : 1 }]}>{hc}</Text><Text style={[s.colUnit, s.lineVal]}>{fmtUnit(days, item.unit)}</Text></>); })()}
+                      <Text style={[s.colR, s.lineAmt]}>{formatMoney(tot)}</Text>
+                    </View>
+                  )
+                })}
+                {acc.children?.flatMap(child =>
+                  child.lineItems.map(item => {
+                    const tot = lineTotal(item.quantity, item.rateCents, item.markupPct)
+                    return (
+                      <View key={item.id} style={s.budgetRow}>
+                        <View style={[s.col1, { flexDirection: 'row' }]}>
+                          <Text style={[s.lineDesc, { color: MUT, fontSize: 8.5, marginRight: 4 }]}>{child.name} · </Text>
+                          <Text style={s.lineDesc}>{item.description}</Text>
+                        </View>
+                        {(() => { const [hc, days] = parseQtyFormula(Number(item.quantity), item.quantityFormula); return (<><Text style={[s.colSm, s.lineVal, { opacity: hc === 1 ? 0.35 : 1 }]}>{hc}</Text><Text style={[s.colUnit, s.lineVal]}>{fmtUnit(days, item.unit)}</Text></>); })()}
+                        <Text style={[s.colR, s.lineAmt]}>{formatMoney(tot)}</Text>
+                      </View>
+                    )
+                  })
+                )}
+              </View>
+            )
+          }
+
+          const tableHeader = (
+            <View style={s.budgetHead}>
+              <Text style={[s.col1, s.headText]}>Description</Text>
+              <Text style={[s.colSm, s.headText]}>Qty</Text>
+              <Text style={[s.colUnit, s.headText]}>Unit</Text>
+              <Text style={[s.colR, s.headText]}>Total</Text>
+            </View>
+          )
+
+          return (
+          <View style={s.section} break>
+            <SectionLabel label="Budget Summary" />
+
+            {!multiSection ? (
+              // ── Single-section: flat render (today's behaviour) ─────────────
+              <View style={s.budgetCard}>
+                {tableHeader}
+                {accounts.map((acc, ai) => renderAccount(acc, ai === accounts.length - 1, pageBreakBetweenAccounts && ai > 0))}
+              </View>
+            ) : (
+              // ── Multi-section: section page breaks + per-section headings ──
+              (() => {
+                const bySection: Record<string, Account[]> = {}
+                for (const sec of budgetSections) bySection[sec.id] = []
+                for (const acc of accounts) {
+                  const sid = acc.sectionId ?? budgetSections[0]?.id
+                  if (sid && bySection[sid]) bySection[sid].push(acc)
+                }
+                return budgetSections.map((sec, si) => {
+                  const sectionAccounts = bySection[sec.id] ?? []
+                  const sectionTotal    = sectionAccounts.reduce((sum, acc) => sum + sumAccount(acc as unknown as AccountInput), 0)
+                  return (
+                    <View key={sec.id} break={si > 0}>
+                      {/* Section heading */}
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <View style={{ width: 3, height: 14, backgroundColor: V, borderRadius: 2 }} />
+                          <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: V, letterSpacing: 1.4, textTransform: 'uppercase' }}>{sec.title}</Text>
+                        </View>
+                        {sectionAccounts.length > 0 && (
+                          <Text style={{ fontSize: 9, color: MUT }}>{formatMoney(sectionTotal)}</Text>
+                        )}
+                      </View>
+                      <View style={s.budgetCard}>
+                        {tableHeader}
+                        {sectionAccounts.length === 0 ? (
+                          <View style={s.budgetRow}>
+                            <Text style={[s.col1, s.lineDesc, { color: MUT, fontStyle: 'italic' }]}>No accounts in this section.</Text>
+                          </View>
+                        ) : (
+                          sectionAccounts.map((acc, ai) => renderAccount(acc, ai === sectionAccounts.length - 1, pageBreakBetweenAccounts && ai > 0))
+                        )}
+                      </View>
+                    </View>
+                  )
+                })
+              })()
+            )}
 
             {/* Totals — kept together with wrap={false} */}
             <View
@@ -388,7 +453,8 @@ export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0,
               </View>
             </View>
           </View>
-        )}
+          )
+        })()}
 
         {/* ══ PAYMENT TERMS ══ */}
         {milestones.length > 0 && (

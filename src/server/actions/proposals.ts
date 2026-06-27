@@ -110,7 +110,9 @@ async function captureBudgetSnapshot(sdb: ScopedDb, budgetId: string, discount?:
   const taxCents      = Math.round(afterDiscount * budgetTaxPct)
   const totalCents    = afterDiscount + taxCents
 
-  return { accounts, sections, productionCents, budgetMarkupPct, budgetTaxPct, discountCents, discountLabel, totalCents }
+  const pageBreakBetweenAccounts = (primaryPhase as unknown as { pageBreakBetweenAccounts?: boolean })?.pageBreakBetweenAccounts ?? false
+
+  return { accounts, sections, pageBreakBetweenAccounts, productionCents, budgetMarkupPct, budgetTaxPct, discountCents, discountLabel, totalCents }
 }
 
 // ─── Create proposal from a budget ───────────────────────────────────────────

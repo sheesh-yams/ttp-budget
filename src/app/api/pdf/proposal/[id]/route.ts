@@ -44,49 +44,51 @@ export async function GET(
   let totalCents: number
   let discountCents = 0
   let discountLabel = 'Discount'
+  let budgetSections: { id: string; title: string }[] = []
+  let pageBreakBetweenAccounts = false
 
   if (snapshot?.accounts) {
-    accounts = snapshot.accounts
-    totalCents = snapshot.totalCents
+    accounts     = snapshot.accounts
+    totalCents   = snapshot.totalCents
     discountCents = snapshot.discountCents ?? 0
     discountLabel = snapshot.discountLabel || 'Discount'
+    const snap = snapshot as unknown as { sections?: { id: string; title: string }[]; pageBreakBetweenAccounts?: boolean }
+    budgetSections           = snap.sections ?? []
+    pageBreakBetweenAccounts = snap.pageBreakBetweenAccounts ?? false
   } else {
+    const phaseInclude = {
+      sections: {
+        orderBy: { orderIndex: 'asc' as const },
+        select:  { id: true, title: true },
+      },
+      accounts: {
+        where:   { parentId: null as null },
+        orderBy: { order: 'asc' as const },
+        include: {
+          lineItems: { orderBy: { order: 'asc' as const } },
+          children:  {
+            orderBy: { order: 'asc' as const },
+            include: { lineItems: { orderBy: { order: 'asc' as const } } },
+          },
+        },
+      },
+    }
     const primaryPhase = await db.phase.findFirst({
       where: { budgetId: proposal.budgetId, isPrimary: true },
-      include: {
-        accounts: {
-          where: { parentId: null },
-          orderBy: { order: 'asc' },
-          include: {
-            lineItems: { orderBy: { order: 'asc' } },
-            children: {
-              orderBy: { order: 'asc' },
-              include: { lineItems: { orderBy: { order: 'asc' } } },
-            },
-          },
-        },
-      },
+      include: phaseInclude,
     }) ?? await db.phase.findFirst({
-      where: { budgetId: proposal.budgetId },
-      orderBy: { order: 'asc' },
-      include: {
-        accounts: {
-          where: { parentId: null },
-          orderBy: { order: 'asc' },
-          include: {
-            lineItems: { orderBy: { order: 'asc' } },
-            children: {
-              orderBy: { order: 'asc' },
-              include: { lineItems: { orderBy: { order: 'asc' } } },
-            },
-          },
-        },
-      },
+      where:   { budgetId: proposal.budgetId },
+      orderBy: { order: 'asc' as const },
+      include: phaseInclude,
     })
+
+    budgetSections           = (primaryPhase?.sections ?? []).map(s => ({ id: s.id, title: s.title }))
+    pageBreakBetweenAccounts = (primaryPhase as unknown as { pageBreakBetweenAccounts?: boolean })?.pageBreakBetweenAccounts ?? false
 
     const rawAccounts = primaryPhase?.accounts ?? []
     accounts = rawAccounts.map(acc => ({
       ...acc,
+      sectionId: (acc as unknown as { sectionId?: string }).sectionId ?? null,
       lineItems: acc.lineItems.map(i => ({
         ...i, quantity: Number(i.quantity), markupPct: i.markupPct != null ? Number(i.markupPct) : null,
       })),
@@ -156,6 +158,8 @@ export async function GET(
         totalCents,
         discountCents,
         discountLabel,
+        budgetSections,
+        pageBreakBetweenAccounts,
       }) as Parameters<typeof renderToBuffer>[0]
     )
 
