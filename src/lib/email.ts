@@ -331,11 +331,14 @@ export async function sendPaymentReceiptEmails(invoiceId: string): Promise<void>
     )
   }
 
-  if (inv.createdBy?.email) {
+  // Only send the team notification if the address differs from the client's —
+  // avoids duplicate emails when the invoice owner and client contact are the same.
+  const teamEmail = inv.createdBy?.email
+  if (teamEmail && teamEmail !== inv.client?.contactEmail) {
     sends.push(
       resend.emails.send({
         from:    FROM,
-        to:      inv.createdBy.email,
+        to:      teamEmail,
         subject: `Payment received: ${inv.number} — ${clientName} paid ${amount}`,
         html:    teamNotice,
       }),

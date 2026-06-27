@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
       where: { publicToken },
       select: {
         id: true,
+        number: true,
         status: true,
         totalCents: true,
         amountPaidCents: true,
@@ -126,16 +127,14 @@ export async function POST(req: NextRequest) {
     })
 
     if (existing) {
-      // Fresh ref each init: every initialize creates its own Helcim invoice
-      // record, so reusing a number would collide. The active modal uses the
-      // latest ref, which is what we store and what the webhook maps on.
       const checkoutRef = `pay_${randomUUID()}`
+      const invoiceNumber = (invoice as unknown as { number: string }).number
 
       const { checkoutToken, secretToken } = await helcimAdapter.initializeCheckout({
         amountCents: balanceCents,
         currency: 'USD',
         idempotencyKey: existing.idempotencyKey,
-        reference: checkoutRef,
+        reference: invoiceNumber,
       })
 
       await pdb.paymentAttempt.update({
@@ -149,12 +148,13 @@ export async function POST(req: NextRequest) {
     // ── 7. New attempt ─────────────────────────────────────────────────────
     const idempotencyKey = `${workspaceId}:${invoiceId}:${Date.now()}`
     const checkoutRef = `pay_${randomUUID()}`
+    const invoiceNumber = (invoice as unknown as { number: string }).number
 
     const { checkoutToken, secretToken } = await helcimAdapter.initializeCheckout({
       amountCents: balanceCents,
       currency: 'USD',
       idempotencyKey,
-      reference: checkoutRef,
+      reference: invoiceNumber,
     })
 
     const attempt = await pdb.paymentAttempt.create({

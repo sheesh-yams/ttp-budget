@@ -89,13 +89,14 @@ export async function initiatePayment(
       invoice: {
         findFirst: (args: object) => Promise<{
           id: string
+          number: string
           status: string
           totalCents: number
         } | null>
       }
     }).invoice.findFirst({
       where: { id: invoiceId },
-      select: { id: true, status: true, totalCents: true },
+      select: { id: true, number: true, status: true, totalCents: true },
     })
 
     if (!invoice) {
@@ -157,16 +158,13 @@ export async function initiatePayment(
     })
 
     if (existingAttempt) {
-      // Fresh ref each init (each initialize creates its own Helcim invoice).
       const checkoutRef = `pay_${randomUUID()}`
 
-      // Re-initialize with Helcim to get fresh tokens (secretToken cannot
-      // be recovered — we only store its hash). Update the existing row.
       const { checkoutToken, secretToken } = await helcimAdapter.initializeCheckout({
         amountCents:     invoice.totalCents,
         currency:        'USD',
         idempotencyKey:  existingAttempt.idempotencyKey,
-        reference:       checkoutRef,
+        reference:       invoice.number,
       })
 
       await (sdb as unknown as {
@@ -202,7 +200,7 @@ export async function initiatePayment(
       amountCents:    invoice.totalCents,
       currency:       'USD',
       idempotencyKey,
-      reference:      checkoutRef,
+      reference:      invoice.number,
     })
 
     const attempt = await (sdb as unknown as {

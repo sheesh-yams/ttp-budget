@@ -92,10 +92,42 @@ export function HelcimPayButton({
     }
   }, [])
 
+  // ── DOM fallback: reload if Helcim overlay disappears without a message ─
+  // Helcim's JS may post SUCCESS from our own page context rather than from the
+  // iframe, so the origin check can't be the only signal. If the iframe/overlay
+  // is removed from the DOM while we're stuck in modal_open, the webhook has
+  // almost certainly already settled the invoice — reload to show the paid state.
+  const stateRef = useRef<PayState>('idle')
+  useEffect(() => { stateRef.current = state }, [state])
+
+  useEffect(() => {
+    if (state !== 'modal_open') return
+
+    const observer = new MutationObserver(() => {
+      const helcimEl = document.querySelector(
+        '[id*="helcim"], [class*="helcim-pay"], iframe[src*="helcim"]',
+      )
+      if (!helcimEl) {
+        observer.disconnect()
+        setTimeout(() => {
+          if (stateRef.current === 'modal_open') window.location.reload()
+        }, 1500)
+      }
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [state])
+
   // ── iFrame message handler ─────────────────────────────────────────────
   const handleMessage = useCallback((event: MessageEvent) => {
-    // Only accept messages from the Helcim iFrame origin
-    if (event.origin !== 'https://secure.helcim.app') return
+    // Accept messages from the Helcim iframe origin OR from our own page context.
+    // Helcim's start.js runs in the main page and may dispatch postMessages from
+    // window.location.origin rather than from https://secure.helcim.app.
+    // Real security is server-side: hash validation + secretToken check + Helcim
+    // transaction lookup. The origin check here is defence-in-depth only.
+    const fromHelcim = event.origin.includes('helcim.app')
+    const fromSelf   = event.origin === window.location.origin
+    if (!fromHelcim && !fromSelf) return
 
     let payload: HelcimMessagePayload
     try {

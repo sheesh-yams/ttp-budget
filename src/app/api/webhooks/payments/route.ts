@@ -40,11 +40,15 @@ type WebhookEventModel = {
   update: (args: object) => Promise<unknown>
 }
 type AttemptLookupModel = {
-  findUnique: (args: object) => Promise<{ id: string; amountCents: number; invoiceId: string } | null>
+  findFirst: (args: object) => Promise<{ id: string; amountCents: number; invoiceId: string } | null>
+}
+type InvoiceLookupModel = {
+  findFirst: (args: object) => Promise<{ id: string } | null>
 }
 type WebhookDb = typeof db & {
   webhookEvent: WebhookEventModel
   paymentAttempt: AttemptLookupModel
+  invoice: InvoiceLookupModel
 }
 
 // Helcim (and uptime checks) may probe this URL with GET/HEAD when validating
@@ -156,20 +160,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ received: true, status: tx.status })
     }
 
-    // ── 7. Map back to our attempt via the reference we set at init ────────
-    // tx.reference is the Helcim invoiceNumber we attached (our checkoutRef).
+    // ── 7. Map back to our attempt via the invoice number reference ────────
+    // tx.reference is the invoiceRequest.invoiceNumber we set at init — our
+    // Invoice.number (e.g. "TTP-2026-007"). Look up the invoice then take the
+    // most recent INITIATED attempt for it.
     if (!tx.reference) {
       console.error('[helcim-webhook] transaction has no reference — cannot map to an attempt', { transactionId })
       await markProcessed(wdb, eventRowId)
       return NextResponse.json({ received: true, unmapped: true })
     }
 
-    const attempt = await wdb.paymentAttempt.findUnique({
-      where:  { checkoutRef: tx.reference },
-      select: { id: true, amountCents: true, invoiceId: true },
+    const invoice = await wdb.invoice.findFirst({
+      where:  { number: tx.reference },
+      select: { id: true },
+    })
+    if (!invoice) {
+      console.error('[helcim-webhook] no Invoice for reference', { reference: tx.reference, transactionId })
+      await markProcessed(wdb, eventRowId)
+      return NextResponse.json({ received: true, unmapped: true })
+    }
+
+    const attempt = await wdb.paymentAttempt.findFirst({
+      where:   { invoiceId: invoice.id, status: 'INITIATED' },
+      orderBy: { createdAt: 'desc' },
+      select:  { id: true, amountCents: true, invoiceId: true },
     })
     if (!attempt) {
-      console.error('[helcim-webhook] no PaymentAttempt for reference', { reference: tx.reference, transactionId })
+      console.error('[helcim-webhook] no INITIATED PaymentAttempt for invoice', { reference: tx.reference, transactionId })
       await markProcessed(wdb, eventRowId)
       return NextResponse.json({ received: true, unmapped: true })
     }
