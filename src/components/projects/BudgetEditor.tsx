@@ -23,7 +23,7 @@ import {
 } from '@/server/actions/budgets'
 import {
   createBudgetSection, renameBudgetSection, deleteBudgetSection,
-  reorderBudgetSections, moveAccountToSection,
+  reorderBudgetSections, moveAccountToSection, dismissSectionsNudge,
 } from '@/server/actions/sections'
 import { formatMoney, lineTotal, centsToRate, rateToCents, parseQtyFormula, fmtUnit } from '@/lib/money'
 import { sumAccount, type AccountInput } from '@/lib/totals'
@@ -547,6 +547,18 @@ function PhaseView({
     })
   }
 
+  // ── Nudge banner ─────────────────────────────────────────────────────────
+  const totalLineItems = useMemo(() =>
+    localAccounts.reduce((sum, a) => sum + a.lineItems.length, 0),
+  [localAccounts])
+  const showNudge =
+    !readOnly &&
+    localSections.length === 1 &&
+    totalLineItems > 40 &&
+    !phase.sectionsNudgeDismissedAt
+
+  const [nudgeDismissed, setNudgeDismissed] = useState(false)
+
   // ── Section-aware account grouping ──────────────────────────────────────
   // Must be declared before any early return (Rules of Hooks)
   const accountsBySection = useMemo(() => {
@@ -633,6 +645,36 @@ function PhaseView({
 
   return (
     <div>
+      {/* ── Sections nudge banner ─────────────────────────────────────────── */}
+      {showNudge && !nudgeDismissed && (
+        <div className="mb-3 flex items-start justify-between gap-4 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
+          <p className="text-foreground">
+            This budget has <strong>{totalLineItems}</strong> line items in one section.{' '}
+            Split into sections to make it easier to navigate and produce cleaner proposals.
+          </p>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              size="sm"
+              onClick={() => setShowAddSection(true)}
+            >
+              <Layers className="mr-1.5 h-3.5 w-3.5" />Split into sections
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setNudgeDismissed(true)
+                startTransition(async () => {
+                  await dismissSectionsNudge(phase.id)
+                })
+              }}
+            >
+              Dismiss
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="overflow-x-auto rounded-xl border">
         <table className="w-full text-sm">
           <thead>
