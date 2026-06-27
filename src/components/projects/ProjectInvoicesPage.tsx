@@ -65,6 +65,7 @@ interface Props {
   proposal: ProposalRef | null
   budgetTotalCents: number
   invoices: InvoiceRow[]
+  invoiceExpiryDays?: number
 }
 
 // ── Status config ───────────────────────────────────────────────────────────
@@ -119,6 +120,7 @@ export function ProjectInvoicesPage({
   proposal,
   budgetTotalCents,
   invoices,
+  invoiceExpiryDays = 30,
 }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -484,6 +486,7 @@ export function ProjectInvoicesPage({
           }}
           liveTotalCents={budgetTotalCents}
           defaultMilestoneIdx={newInvMilestoneIdx}
+          invoiceExpiryDays={invoiceExpiryDays}
         />
       )}
 

@@ -66,10 +66,9 @@ const STATUS_STYLES: Record<string, { label: string; bg: string; text: string }>
 // All stages available in the status dropdown
 const ACTIVE_STATUSES = ['DRAFT', 'SENT', 'VIEWED', 'CHANGES_NEEDED', 'APPROVED', 'LOST']
 
-function isTerminal(status: string, expiresAt: Date | string | null): boolean {
-  if (['APPROVED', 'DECLINED', 'LOST'].includes(status)) return true
-  if (expiresAt && new Date(expiresAt) < new Date() && !['APPROVED', 'LOST'].includes(status)) return true
-  return false
+function isTerminal(status: string, _expiresAt: Date | string | null): boolean {
+  // Expired proposals are NOT terminal — they stay in their status column and remain draggable
+  return ['APPROVED', 'DECLINED', 'LOST'].includes(status)
 }
 
 function effectiveStatus(status: string, expiresAt: Date | string | null): string {
@@ -77,10 +76,10 @@ function effectiveStatus(status: string, expiresAt: Date | string | null): strin
   return status
 }
 
-function getColumnId(status: string, expiresAt: Date | string | null): ColumnId {
+function getColumnId(status: string, _expiresAt: Date | string | null): ColumnId {
   if (status === 'APPROVED') return 'WON'
   if (['DECLINED', 'LOST'].includes(status)) return 'LOST'
-  if (expiresAt && new Date(expiresAt) < new Date()) return 'LOST' // expired → Lost
+  // Expired proposals stay in their status column — an Expired badge is shown on the card
   if (status === 'SENT')           return 'SENT'
   if (status === 'VIEWED')         return 'VIEWED'
   if (status === 'CHANGES_NEEDED') return 'CHANGES_NEEDED'

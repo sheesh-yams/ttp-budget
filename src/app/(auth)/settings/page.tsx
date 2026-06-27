@@ -39,6 +39,8 @@ export default async function SettingsPage() {
       checkMailingAddress:     true,
       defaultInvoiceTerms:     true,
       defaultProposalTerms:    true,
+      proposalExpiryDays:      true,
+      invoiceExpiryDays:       true,
       callTimeFormat:          true,
     },
   })

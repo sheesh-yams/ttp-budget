@@ -50,7 +50,8 @@ export default async function ProjectDetailPage({
   const [workspaceId, currentUser] = await Promise.all([getWorkspaceId(), getCurrentUser()])
   const canSeeFin = canSeeFinancials(currentUser.role)
 
-  const project = await db.project.findFirst({
+  const [project, workspaceDefaults] = await Promise.all([
+  db.project.findFirst({
     where: { id, workspaceId },
     include: {
       client: true,
@@ -119,7 +120,12 @@ export default async function ProjectDetailPage({
         },
       },
     },
-  })
+  }),
+  db.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { proposalExpiryDays: true, invoiceExpiryDays: true },
+  }),
+  ])
 
   if (!project) notFound()
 
@@ -360,6 +366,8 @@ export default async function ProjectDetailPage({
           clientId={project.clientId}
           budgetId={budget?.id ?? null}
           totalCents={grandTotalCents}
+          proposalExpiryDays={workspaceDefaults?.proposalExpiryDays ?? 30}
+          invoiceExpiryDays={workspaceDefaults?.invoiceExpiryDays ?? 30}
         />
       </section>
 

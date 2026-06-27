@@ -30,6 +30,8 @@ interface Props {
   clientId: string
   budgetId: string | null
   totalCents: number
+  proposalExpiryDays?: number
+  invoiceExpiryDays?: number
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; fg: string; icon: React.ReactNode }> = {
@@ -71,7 +73,7 @@ function extractFromContent(content: unknown): {
   }
 }
 
-export function ProjectProposals({ proposals, projectId, projectName, clientId, budgetId, totalCents }: Props) {
+export function ProjectProposals({ proposals, projectId, projectName, clientId, budgetId, totalCents, proposalExpiryDays = 30, invoiceExpiryDays = 30 }: Props) {
   const router = useRouter()
 
   // Proposal modal state
@@ -322,6 +324,7 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
           existing={existing}
           prefill={modalMode === 'create' ? prefill : undefined}
           onDone={() => router.refresh()}
+          proposalExpiryDays={proposalExpiryDays}
         />
       )}
 
@@ -339,6 +342,7 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
             content: invoiceProposal.content,
           }}
           liveTotalCents={totalCents}
+          invoiceExpiryDays={invoiceExpiryDays}
         />
       )}
 

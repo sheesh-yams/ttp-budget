@@ -47,6 +47,8 @@ export interface WorkspaceSettings {
   checkMailingAddress:     string | null
   defaultInvoiceTerms:     string | null
   defaultProposalTerms:    string | null
+  proposalExpiryDays:      number
+  invoiceExpiryDays:       number
   callTimeFormat:          TimeFormat
 }
 
@@ -307,18 +309,20 @@ export function SettingsForm({
   const brandingSave = useSave()
 
   // ── Invoice defaults ───────────────────────────────────────────────────────
-  const [invPrefix, setInvPrefix]     = useState(workspace.invoiceNumberPrefix || 'TTP')
-  const [termsDays, setTermsDays]     = useState(String(workspace.defaultPaymentTermsDays ?? 30))
-  const [taxPct, setTaxPct]           = useState(String(Number((workspace.defaultTaxPct ?? 0) * 100).toFixed(2)))
-  const [wire, setWire]               = useState(str(workspace.wireInstructions))
-  const [ach, setAch]                 = useState(str(workspace.achInstructions))
-  const [checkTo, setCheckTo]         = useState(str(workspace.checkPayableTo))
-  const [checkAddr, setCheckAddr]     = useState(str(workspace.checkMailingAddress))
-  const [invTerms, setInvTerms]       = useState(str(workspace.defaultInvoiceTerms))
+  const [invPrefix, setInvPrefix]         = useState(workspace.invoiceNumberPrefix || 'TTP')
+  const [termsDays, setTermsDays]         = useState(String(workspace.defaultPaymentTermsDays ?? 30))
+  const [taxPct, setTaxPct]               = useState(String(Number((workspace.defaultTaxPct ?? 0) * 100).toFixed(2)))
+  const [invoiceExpiryDays, setInvoiceExpiryDays] = useState(String(workspace.invoiceExpiryDays ?? 30))
+  const [wire, setWire]                   = useState(str(workspace.wireInstructions))
+  const [ach, setAch]                     = useState(str(workspace.achInstructions))
+  const [checkTo, setCheckTo]             = useState(str(workspace.checkPayableTo))
+  const [checkAddr, setCheckAddr]         = useState(str(workspace.checkMailingAddress))
+  const [invTerms, setInvTerms]           = useState(str(workspace.defaultInvoiceTerms))
   const invoiceSave = useSave()
 
   // ── Proposal defaults ──────────────────────────────────────────────────────
-  const [propTerms, setPropTerms]     = useState(str(workspace.defaultProposalTerms))
+  const [proposalExpiryDays, setProposalExpiryDays] = useState(String(workspace.proposalExpiryDays ?? 30))
+  const [propTerms, setPropTerms]         = useState(str(workspace.defaultProposalTerms))
   const proposalSave = useSave()
 
   // ── Production settings ────────────────────────────────────────────────────
@@ -352,6 +356,7 @@ export function SettingsForm({
       invoiceNumberPrefix: invPrefix,
       defaultPaymentTermsDays: Number(termsDays) || 30,
       defaultTaxPct: Number(taxPct) || 0,
+      invoiceExpiryDays: Math.max(1, Number(invoiceExpiryDays) || 30),
       wireInstructions: wire || null, achInstructions: ach || null,
       checkPayableTo: checkTo || null, checkMailingAddress: checkAddr || null,
       defaultInvoiceTerms: invTerms || null,
@@ -360,6 +365,7 @@ export function SettingsForm({
 
   function saveProposal() {
     proposalSave.save(() => updateProposalDefaults({
+      proposalExpiryDays: Math.max(1, Number(proposalExpiryDays) || 30),
       defaultProposalTerms: propTerms || null,
     }))
   }
@@ -506,9 +512,15 @@ export function SettingsForm({
       <TabsContent value="invoices">
         <div className="space-y-6">
           <SettingsCard title="Numbering & terms" description="Applied when new invoices are created.">
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
               <Field label="Invoice prefix" hint='e.g. "TTP" → TTP-2026-001'>
                 <Input value={invPrefix} onChange={e => setInvPrefix(e.target.value)} className="mt-1 font-mono" maxLength={20} />
+              </Field>
+              <Field label="Default tax rate" hint="Applied to new invoices (editable per invoice).">
+                <div className="mt-1 flex items-center gap-2">
+                  <Input type="number" min={0} max={100} step={0.1} value={taxPct} onChange={e => setTaxPct(e.target.value)} className="w-24" />
+                  <span className="text-sm text-muted-foreground">%</span>
+                </div>
               </Field>
               <Field label="Default payment terms" hint="Days until invoice is due.">
                 <div className="mt-1 flex items-center gap-2">
@@ -516,10 +528,10 @@ export function SettingsForm({
                   <span className="text-sm text-muted-foreground">days</span>
                 </div>
               </Field>
-              <Field label="Default tax rate" hint="Applied to new invoices (editable per invoice).">
+              <Field label="Invoice expires after" hint="New invoices auto-set this due date. Overridable per invoice.">
                 <div className="mt-1 flex items-center gap-2">
-                  <Input type="number" min={0} max={100} step={0.1} value={taxPct} onChange={e => setTaxPct(e.target.value)} className="w-24" />
-                  <span className="text-sm text-muted-foreground">%</span>
+                  <Input type="number" min={1} max={365} value={invoiceExpiryDays} onChange={e => setInvoiceExpiryDays(e.target.value)} className="w-24" />
+                  <span className="text-sm text-muted-foreground">days</span>
                 </div>
               </Field>
             </div>
@@ -568,15 +580,32 @@ export function SettingsForm({
 
       {/* ── PROPOSAL DEFAULTS ── */}
       <TabsContent value="proposals">
-        <SettingsCard title="Default proposal terms" description="Pre-filled in every new proposal. Editable per proposal.">
-          <TextArea
-            value={propTerms}
-            onChange={setPropTerms}
-            rows={10}
-            placeholder="This proposal is valid for 30 days from the date of issue. All work is subject to a signed agreement…"
-          />
-          <SaveButton state={proposalSave.state} onClick={saveProposal} />
-        </SettingsCard>
+        <div className="space-y-6">
+          <SettingsCard title="Expiry" description="How long a new proposal stays valid before it expires.">
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={1}
+                max={365}
+                value={proposalExpiryDays}
+                onChange={e => setProposalExpiryDays(e.target.value)}
+                className="w-24"
+              />
+              <span className="text-sm text-muted-foreground">days after creation</span>
+            </div>
+            <SaveButton state={proposalSave.state} onClick={saveProposal} />
+          </SettingsCard>
+
+          <SettingsCard title="Default proposal terms" description="Pre-filled in every new proposal. Editable per proposal.">
+            <TextArea
+              value={propTerms}
+              onChange={setPropTerms}
+              rows={10}
+              placeholder="This proposal is valid for 30 days from the date of issue. All work is subject to a signed agreement…"
+            />
+            <SaveButton state={proposalSave.state} onClick={saveProposal} />
+          </SettingsCard>
+        </div>
       </TabsContent>
 
       {/* ── PRODUCTION ── */}

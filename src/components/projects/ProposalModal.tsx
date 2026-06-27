@@ -115,6 +115,7 @@ interface Props {
   existing?: ExistingProposal
   prefill?: { milestones?: PaymentMilestone[]; about?: string; deliverables?: unknown[] }
   onDone: () => void
+  proposalExpiryDays?: number
 }
 
 const MODE_TITLE: Record<ProposalModalMode, string> = {
@@ -123,9 +124,9 @@ const MODE_TITLE: Record<ProposalModalMode, string> = {
   'revision':   'New Revision',
 }
 
-function defaultExpiry() {
+function defaultExpiry(days = 30) {
   const d = new Date()
-  d.setDate(d.getDate() + 30)
+  d.setDate(d.getDate() + days)
   return d.toISOString().split('T')[0]
 }
 
@@ -142,11 +143,12 @@ export function ProposalModal({
   existing,
   prefill,
   onDone,
+  proposalExpiryDays = 30,
 }: Props) {
   const [pending, startTransition] = useTransition()
 
   const [title,      setTitle]      = useState('')
-  const [expiresAt,  setExpiresAt]  = useState(defaultExpiry)
+  const [expiresAt,  setExpiresAt]  = useState(() => defaultExpiry(proposalExpiryDays))
   const [milestones, setMilestones] = useState<LocalMilestone[]>(defaultMilestones)
   const [error,      setError]      = useState('')
   const [successToken,   setSuccessToken]   = useState<string | null>(null)
@@ -164,7 +166,7 @@ export function ProposalModal({
     if (!open) return
     if (existing) {
       setTitle(existing.title)
-      setExpiresAt(existing.expiresAt ? existing.expiresAt.split('T')[0] : defaultExpiry())
+      setExpiresAt(existing.expiresAt ? existing.expiresAt.split('T')[0] : defaultExpiry(proposalExpiryDays))
       setMilestones(existing.milestones?.length ? fromPaymentMilestones(existing.milestones) : defaultMilestones())
       const d = existing.discount
       if (d) {
@@ -177,7 +179,7 @@ export function ProposalModal({
       }
     } else {
       setTitle(`${projectName} — Proposal`)
-      setExpiresAt(defaultExpiry())
+      setExpiresAt(defaultExpiry(proposalExpiryDays))
       setMilestones(prefill?.milestones?.length ? fromPaymentMilestones(prefill.milestones) : defaultMilestones())
       setDiscountType('none'); setDiscountLabel('Discount'); setDiscountFlat(''); setDiscountPct('')
     }

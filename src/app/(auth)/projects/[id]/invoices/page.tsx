@@ -28,7 +28,8 @@ export default async function InvoicesSubPage({ params }: Props) {
   const { id } = await params
   const workspaceId = await getWorkspaceId()
 
-  const project = await db.project.findFirst({
+  const [project, workspaceDefaults] = await Promise.all([
+  db.project.findFirst({
     where: { id, workspaceId },
     select: {
       id:       true,
@@ -98,7 +99,12 @@ export default async function InvoicesSubPage({ params }: Props) {
         },
       },
     },
-  })
+  }),
+  db.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { invoiceExpiryDays: true },
+  }),
+  ])
 
   if (!project) notFound()
 
@@ -150,6 +156,7 @@ export default async function InvoicesSubPage({ params }: Props) {
       } : null}
       budgetTotalCents={budgetTotalCents}
       invoices={serializedInvoices}
+      invoiceExpiryDays={workspaceDefaults?.invoiceExpiryDays ?? 30}
     />
   )
 }

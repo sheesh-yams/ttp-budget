@@ -107,6 +107,7 @@ interface Props {
   liveTotalCents: number
   /** Pre-select a specific milestone by index (0-based). */
   defaultMilestoneIdx?: number
+  invoiceExpiryDays?: number
 }
 
 type InvoiceOption =
@@ -115,9 +116,9 @@ type InvoiceOption =
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function defaultDueDate() {
+function defaultDueDate(days = 30) {
   const d = new Date()
-  d.setDate(d.getDate() + 30)
+  d.setDate(d.getDate() + days)
   return d.toISOString().split('T')[0]
 }
 
@@ -138,6 +139,7 @@ export function NewInvoiceModal({
   proposal,
   liveTotalCents,
   defaultMilestoneIdx,
+  invoiceExpiryDays = 30,
 }: Props) {
   const router = useRouter()
 
@@ -214,7 +216,7 @@ export function NewInvoiceModal({
     return opt ? buildLineItemsForOption(opt).map(liToRow) : [blankRow()]
   })
   const [title, setTitle]               = useState('')
-  const [dueDate, setDueDate]           = useState(defaultDueDate)
+  const [dueDate, setDueDate]           = useState(() => defaultDueDate(invoiceExpiryDays))
   const [taxPct, setTaxPct]             = useState(0)
   const [notes, setNotes]               = useState('')
   const [submitting, setSubmitting]     = useState(false)
@@ -238,7 +240,7 @@ export function NewInvoiceModal({
       setTitle('')
       setTaxPct(0)
       setNotes('')
-      setDueDate(defaultDueDate())
+      setDueDate(defaultDueDate(invoiceExpiryDays))
       setError('')
       setShowLineItems(false)
     }

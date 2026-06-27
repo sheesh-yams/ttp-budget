@@ -63,6 +63,10 @@ model Workspace {
   defaultProposalTerms String? @db.Text
   defaultInvoiceTerms  String? @db.Text
 
+  // Auto-expiry defaults (days from creation/send)
+  proposalExpiryDays Int @default(30)
+  invoiceExpiryDays  Int @default(30)
+
   // Production preferences
   callTimeFormat    String   @default("12H")  // "12H" → "7:00 AM" | "24H" → "07:00"
 

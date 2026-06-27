@@ -39,6 +39,7 @@ const invoiceDefaultsSchema = z.object({
   invoiceNumberPrefix:     z.string().min(1).max(20),
   defaultPaymentTermsDays: z.number().int().min(0).max(365),
   defaultTaxPct:           z.number().min(0).max(100),
+  invoiceExpiryDays:       z.number().int().min(1).max(365),
   wireInstructions:        z.string().max(2000).optional().nullable(),
   achInstructions:         z.string().max(2000).optional().nullable(),
   checkPayableTo:          z.string().max(200).optional().nullable(),
@@ -47,6 +48,7 @@ const invoiceDefaultsSchema = z.object({
 })
 
 const proposalDefaultsSchema = z.object({
+  proposalExpiryDays:   z.number().int().min(1).max(365),
   defaultProposalTerms: z.string().max(5000).optional().nullable(),
 })
 
@@ -127,6 +129,7 @@ export async function updateInvoiceDefaults(
         invoiceNumberPrefix:     data.invoiceNumberPrefix,
         defaultPaymentTermsDays: data.defaultPaymentTermsDays,
         defaultTaxPct:           data.defaultTaxPct / 100, // store as decimal
+        invoiceExpiryDays:       data.invoiceExpiryDays,
         wireInstructions:        data.wireInstructions || null,
         achInstructions:         data.achInstructions || null,
         checkPayableTo:          data.checkPayableTo || null,
@@ -475,6 +478,7 @@ export async function updateProposalDefaults(
     await db.workspace.update({
       where: { id: workspaceId },
       data: {
+        proposalExpiryDays:   data.proposalExpiryDays,
         defaultProposalTerms: data.defaultProposalTerms || null,
       },
     })
