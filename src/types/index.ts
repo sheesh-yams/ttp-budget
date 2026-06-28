@@ -147,9 +147,20 @@ export interface ProposalContent {
   sections: ProposalSection[]
 }
 
+export type DeliverableItemType = 'DELIVERABLE' | 'SERVICE' | 'RAW_FOOTAGE' | 'OTHER'
+
+export interface ScopeItem {
+  number:     string
+  title:      string
+  description: string
+  sectionIds?: string[]
+  type?:       DeliverableItemType
+  quantity?:   number
+}
+
 export type ProposalSection =
   | { type: 'about'; title: string; body: string }
-  | { type: 'scope'; title: string; items: { number: string; title: string; description: string; sectionIds?: string[] }[] }
+  | { type: 'scope'; title: string; items: ScopeItem[] }
   | { type: 'budget'; detailLevel: ProposalDetailLevel }
   | { type: 'terms'; title: string; body: string; milestones: PaymentMilestone[] }
   | { type: 'custom'; title: string; body: string }

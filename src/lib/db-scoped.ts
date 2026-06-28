@@ -54,6 +54,12 @@ const SCOPED_MODELS = new Set([
   // Payments — workspace-owned config and attempt records
   'WorkspacePaymentConfig',
   'PaymentAttempt',
+  // Delivery — client-facing deliverable pages and assets
+  'DeliveryPage',
+  'DeliverableSection',
+  'DeliverableAsset',
+  'DeliverableVersion',
+  'DeliverableView',
   // NOTE: WebhookEvent is NOT workspace-scoped (keyed by provider+eventId only)
 ])
 

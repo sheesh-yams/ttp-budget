@@ -206,6 +206,7 @@ model Project {
   receipts       Receipt[]
   comments       ProjectComment[]
   assignments    ProjectAssignment[]
+  deliveryPage   DeliveryPage?
 
   @@index([workspaceId])
   @@index([clientId])
@@ -1102,4 +1103,147 @@ model Receipt {
   @@index([projectId])
   @@index([actualEntryId])
   @@index([projectId, actualEntryId])
+}
+
+// =============================================================
+// DELIVERY — client-facing deliverable pages
+// =============================================================
+
+enum DeliveryPageStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum DeliverableType {
+  DELIVERABLE
+  SERVICE
+  RAW_FOOTAGE
+  OTHER
+}
+
+enum AssetStatus {
+  DRAFT
+  SHARED
+}
+
+enum EmbedProvider {
+  FRAME_IO
+  SHADE
+  GDRIVE_FILE
+  GDRIVE_FOLDER
+  DROPBOX_FILE
+  DROPBOX_FOLDER
+  DIRECT_IMAGE
+  DIRECT_VIDEO
+  YOUTUBE
+  VIMEO
+  GENERIC_LINK
+}
+
+enum RenderMode {
+  IFRAME
+  NATIVE_MEDIA
+  EXTERNAL_ONLY
+}
+
+// One per project (lazy-created). Public URL: /d/[publicToken]
+model DeliveryPage {
+  id              String              @id @default(cuid())
+  workspaceId     String
+  projectId       String              @unique
+  project         Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  publicToken     String              @unique @default(dbgenerated("gen_random_uuid()::text"))
+  title           String?
+  subtitle        String?
+  customMessage   String?             @db.Text
+  coverImageUrl   String?
+  status          DeliveryPageStatus  @default(DRAFT)
+  lastPublishedAt DateTime?
+  sections        DeliverableSection[]
+  deliverables    DeliverableAsset[]
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([workspaceId])
+}
+
+// Logical grouping within a DeliveryPage (e.g. "Edited Photos", "Raw Footage")
+model DeliverableSection {
+  id                  String              @id @default(cuid())
+  workspaceId         String
+  deliveryPageId      String
+  deliveryPage        DeliveryPage        @relation(fields: [deliveryPageId], references: [id], onDelete: Cascade)
+  title               String
+  description         String?             @db.Text
+  orderIndex          Int                 @default(0)
+  sourceDeliverableId String?             // back-ref to Phase.deliverables JSON item id
+  deliverables        DeliverableAsset[]
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  @@index([deliveryPageId, orderIndex])
+  @@index([workspaceId])
+}
+
+// One card per deliverable file/link the client can view
+model DeliverableAsset {
+  id                  String              @id @default(cuid())
+  workspaceId         String
+  deliveryPageId      String
+  deliveryPage        DeliveryPage        @relation(fields: [deliveryPageId], references: [id], onDelete: Cascade)
+  sectionId           String?
+  section             DeliverableSection? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  title               String
+  description         String?             @db.Text
+  orderIndex          Int                 @default(0)
+  type                DeliverableType
+  status              AssetStatus         @default(DRAFT)
+  publicToken         String              @unique @default(dbgenerated("gen_random_uuid()::text"))
+  currentVersionId    String?             @unique
+  currentVersion      DeliverableVersion? @relation("CurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  versions            DeliverableVersion[] @relation("AllVersions")
+  sourceDeliverableId String?             // which proposal deliverable spawned this
+  sourceCardIndex     Int?                // 0-based index within that deliverable's quantity
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  @@index([deliveryPageId, orderIndex])
+  @@index([sectionId, orderIndex])
+  @@index([workspaceId])
+}
+
+// Each version is a URL / embed. The asset points to its currentVersion.
+model DeliverableVersion {
+  id                String           @id @default(cuid())
+  workspaceId       String
+  deliverableId     String
+  deliverable       DeliverableAsset @relation("AllVersions", fields: [deliverableId], references: [id], onDelete: Cascade)
+  versionNumber     Int
+  url               String
+  provider          EmbedProvider
+  renderMode        RenderMode
+  embedHtml         String?          @db.Text  // sanitized iframe HTML when user pasted an embed
+  thumbnailUrl      String?
+  note              String?          @db.Text
+  firstClientViewAt DateTime?        // null = unseen badge active; set on first real client view
+  createdAt         DateTime         @default(now())
+  currentForAsset   DeliverableAsset? @relation("CurrentVersion")
+
+  @@unique([deliverableId, versionNumber])
+  @@index([workspaceId])
+}
+
+// Append-only view log for analytics + unseen-badge tracking
+model DeliverableView {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  deliverableId String
+  versionId     String
+  ipHash        String   // SHA-256(ip + DELIVERY_VIEW_SALT) — no raw IPs stored
+  userAgent     String?
+  createdAt     DateTime @default(now())
+
+  @@index([deliverableId, versionId])
+  @@index([workspaceId])
 }

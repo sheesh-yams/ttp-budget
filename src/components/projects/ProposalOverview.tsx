@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useTransition, useRef, useEffect } from 'react'
-import { Plus, X, Check, Pencil, Link2 } from 'lucide-react'
+import { Plus, X, Check, Pencil, Link2, ChevronDown } from 'lucide-react'
 import { updatePhaseOverview } from '@/server/actions/budgets'
+import type { DeliverableItemType } from '@/types'
 
 interface Deliverable {
   id?:          string
@@ -10,6 +11,8 @@ interface Deliverable {
   description:  string
   number?:      string
   sectionIds?:  string[]
+  type?:        DeliverableItemType
+  quantity?:    number
 }
 
 interface SectionOption {
@@ -29,6 +32,24 @@ interface Props {
   phase: Phase
 }
 
+const TYPE_OPTIONS: { value: DeliverableItemType; label: string }[] = [
+  { value: 'DELIVERABLE',  label: 'Deliverable'  },
+  { value: 'SERVICE',      label: 'Service'       },
+  { value: 'RAW_FOOTAGE',  label: 'Raw Footage'   },
+  { value: 'OTHER',        label: 'Other'         },
+]
+
+const TYPE_LABELS: Record<DeliverableItemType, string> = {
+  DELIVERABLE: 'Deliverable',
+  SERVICE:     'Service',
+  RAW_FOOTAGE: 'Raw Footage',
+  OTHER:       'Other',
+}
+
+function blankDeliverable(): Deliverable {
+  return { id: crypto.randomUUID(), title: '', description: '', type: 'DELIVERABLE', quantity: 1 }
+}
+
 export function ProposalOverview({ phase }: Props) {
   const [, startTransition] = useTransition()
 
@@ -39,19 +60,19 @@ export function ProposalOverview({ phase }: Props) {
   const [deliverables, setDeliverables] = useState<Deliverable[]>(
     phase.deliverables && phase.deliverables.length > 0
       ? phase.deliverables
-      : [{ title: '', description: '' }]
+      : [blankDeliverable()]
   )
   const [saved, setSaved] = useState(false)
 
   function addDeliverable() {
-    setDeliverables(prev => [...prev, { id: crypto.randomUUID(), title: '', description: '' }])
+    setDeliverables(prev => [...prev, blankDeliverable()])
   }
 
   function removeDeliverable(i: number) {
     setDeliverables(prev => prev.filter((_, idx) => idx !== i))
   }
 
-  function updateDeliverable(i: number, field: keyof Deliverable, value: string | string[]) {
+  function updateDeliverable<K extends keyof Deliverable>(i: number, field: K, value: Deliverable[K]) {
     setDeliverables(prev => prev.map((d, idx) => idx === i ? { ...d, [field]: value } : d))
   }
 
@@ -73,7 +94,7 @@ export function ProposalOverview({ phase }: Props) {
     setDeliverables(
       phase.deliverables && phase.deliverables.length > 0
         ? phase.deliverables
-        : [{ title: '', description: '' }]
+        : [blankDeliverable()]
     )
     setEditing(false)
   }
@@ -152,55 +173,81 @@ export function ProposalOverview({ phase }: Props) {
           </div>
 
           {editing ? (
-            <div className="space-y-2">
+            <div className="space-y-3">
               {deliverables.map((d, i) => (
-                <div key={i} className="group/deliv flex items-start gap-2">
-                  <div className={`grid gap-2 flex-1 ${multiSection ? 'grid-cols-[90px_1fr_140px]' : 'grid-cols-[90px_1fr]'}`}>
-                    <div className="grid gap-1">
-                      <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">
-                        {String(i + 1).padStart(2, '0')}
-                      </span>
-                      <input
-                        placeholder="Title"
-                        value={d.title}
-                        onChange={e => updateDeliverable(i, 'title', e.target.value)}
-                        className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                      />
-                    </div>
-                    <div className="grid gap-1">
-                      <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">
-                        Description
-                      </span>
-                      <input
-                        placeholder="Short description…"
-                        value={d.description}
-                        onChange={e => updateDeliverable(i, 'description', e.target.value)}
-                        className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                      />
-                    </div>
-                    {multiSection && (
+                <div key={i} className="group/deliv space-y-1.5">
+                  {/* Primary row: index + title + description + delete */}
+                  <div className="flex items-start gap-2">
+                    <div className="grid grid-cols-[90px_1fr] gap-2 flex-1">
                       <div className="grid gap-1">
                         <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">
-                          Link to section
+                          {String(i + 1).padStart(2, '0')}
                         </span>
-                        <SectionMultiSelect
-                          sections={phase.sections ?? []}
-                          selected={d.sectionIds ?? []}
-                          onChange={ids => updateDeliverable(i, 'sectionIds', ids)}
+                        <input
+                          placeholder="Title"
+                          value={d.title}
+                          onChange={e => updateDeliverable(i, 'title', e.target.value)}
+                          className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                         />
                       </div>
-                    )}
-                  </div>
-                  {deliverables.length > 1 && (
+                      <div className="grid gap-1">
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">
+                          Description
+                        </span>
+                        <input
+                          placeholder="Short description…"
+                          value={d.description}
+                          onChange={e => updateDeliverable(i, 'description', e.target.value)}
+                          className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        />
+                      </div>
+                    </div>
                     <button
                       type="button"
                       onClick={() => removeDeliverable(i)}
                       title="Remove"
-                      className="mt-5 rounded p-0.5 text-muted-foreground opacity-0 group-hover/deliv:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-all"
+                      className={`mt-5 rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-all ${deliverables.length > 1 ? 'opacity-0 group-hover/deliv:opacity-100' : 'invisible'}`}
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
-                  )}
+                  </div>
+
+                  {/* Secondary row: type + qty + sections */}
+                  <div className={`pl-[calc(90px+0.5rem)] grid gap-2 ${multiSection ? 'grid-cols-[130px_72px_1fr]' : 'grid-cols-[130px_72px]'}`}>
+                    {/* Type */}
+                    <div className="relative">
+                      <select
+                        value={d.type ?? 'DELIVERABLE'}
+                        onChange={e => updateDeliverable(i, 'type', e.target.value as DeliverableItemType)}
+                        className="w-full appearance-none rounded-md border border-input bg-transparent pl-2 pr-7 py-1.5 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-muted-foreground"
+                      >
+                        {TYPE_OPTIONS.map(o => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                    </div>
+                    {/* Qty */}
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={d.quantity ?? 1}
+                        onChange={e => updateDeliverable(i, 'quantity', Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-muted-foreground"
+                        placeholder="Qty"
+                      />
+                    </div>
+                    {/* Sections */}
+                    {multiSection && (
+                      <SectionMultiSelect
+                        sections={phase.sections ?? []}
+                        selected={d.sectionIds ?? []}
+                        onChange={ids => updateDeliverable(i, 'sectionIds', ids)}
+                      />
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -217,15 +264,27 @@ export function ProposalOverview({ phase }: Props) {
                       {d.description && (
                         <p className="text-xs text-muted-foreground">{d.description}</p>
                       )}
-                      {multiSection && (d.sectionIds?.length ?? 0) > 0 && (
-                        <p className="mt-1.5 flex items-center gap-1 text-[10px] text-violet-500 font-medium">
-                          <Link2 className="h-2.5 w-2.5" />
-                          {phase.sections
-                            ?.filter(s => d.sectionIds?.includes(s.id))
-                            .map(s => s.title)
-                            .join(', ')}
-                        </p>
-                      )}
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        {d.type && d.type !== 'DELIVERABLE' && (
+                          <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                            {TYPE_LABELS[d.type]}
+                          </span>
+                        )}
+                        {(d.quantity ?? 1) > 1 && (
+                          <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-600">
+                            ×{d.quantity}
+                          </span>
+                        )}
+                        {multiSection && (d.sectionIds?.length ?? 0) > 0 && (
+                          <span className="flex items-center gap-1 text-[10px] text-violet-500 font-medium">
+                            <Link2 className="h-2.5 w-2.5" />
+                            {phase.sections
+                              ?.filter(s => d.sectionIds?.includes(s.id))
+                              .map(s => s.title)
+                              .join(', ')}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -284,7 +343,7 @@ function SectionMultiSelect({
       <button
         type="button"
         onClick={() => setOpen(v => !v)}
-        className="flex w-full items-center justify-between gap-1 rounded-md border border-input bg-transparent px-2 py-1.5 text-sm shadow-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="flex w-full items-center justify-between gap-1 rounded-md border border-input bg-transparent px-2 py-1.5 text-xs shadow-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
         <span className={`truncate ${selected.length === 0 ? 'text-muted-foreground' : ''}`}>
           {label}
