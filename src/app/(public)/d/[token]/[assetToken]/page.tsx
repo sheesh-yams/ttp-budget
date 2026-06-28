@@ -55,6 +55,7 @@ export default async function PublicAssetPage({ params }: Props) {
           embedHtml:    true,
           thumbnailUrl: true,
           note:         true,
+          isVertical:   true,
         },
       },
       deliveryPage: {
@@ -181,7 +182,7 @@ export default async function PublicAssetPage({ params }: Props) {
               <p style={{ color: '#555', fontSize: 14 }}>No version available yet.</p>
             </div>
           ) : v.renderMode === 'IFRAME' ? (
-            <IframeViewer embedHtml={v.embedHtml} url={v.url} provider={v.provider} />
+            <IframeViewer embedHtml={v.embedHtml} url={v.url} provider={v.provider} isVertical={v.isVertical} />
           ) : v.renderMode === 'NATIVE_MEDIA' ? (
             <NativeMediaViewer url={v.url} provider={v.provider} thumbnailUrl={v.thumbnailUrl} />
           ) : (
@@ -196,19 +197,25 @@ export default async function PublicAssetPage({ params }: Props) {
 
 // ─── Iframe viewer ────────────────────────────────────────────────────────────
 
-// Providers whose players are full interactive UIs (video + comments panel).
-// Forcing 16:9 squishes vertical content — give these a tall viewport instead.
-const FULL_UI_PROVIDERS = new Set(['SHADE', 'FRAME_IO'])
-
+// Shade always uses a tall container — its player is a full review UI and looks
+// fine at any orientation. Frame.io uses a tall container only when the content
+// is flagged as vertical; horizontal Frame.io stays at 16:9.
 const PROVIDER_NAMES: Record<string, string> = {
   SHADE:    'Shade',
   FRAME_IO: 'Frame.io',
 }
 
-function IframeViewer({ embedHtml, url, provider }: { embedHtml: string | null; url: string; provider: string }) {
-  const isFullUi = FULL_UI_PROVIDERS.has(provider)
+function IframeViewer({
+  embedHtml, url, provider, isVertical,
+}: {
+  embedHtml:  string | null
+  url:        string
+  provider:   string
+  isVertical: boolean
+}) {
+  const useTallContainer = provider === 'SHADE' || (provider === 'FRAME_IO' && isVertical)
 
-  const wrapStyle: React.CSSProperties = isFullUi
+  const wrapStyle: React.CSSProperties = useTallContainer
     ? { width: '100%', borderRadius: 12, overflow: 'hidden', height: '85vh', minHeight: 560, background: '#111', position: 'relative' }
     : { width: '100%', borderRadius: 12, overflow: 'hidden', aspectRatio: '16/9', background: '#111' }
 
@@ -226,10 +233,10 @@ function IframeViewer({ embedHtml, url, provider }: { embedHtml: string | null; 
     </div>
   )
 
-  if (!isFullUi) return content
+  const providerName = PROVIDER_NAMES[provider]
+  if (!providerName) return content
 
-  // Full-UI providers: show the iframe + an escape-hatch link to open natively
-  const providerName = PROVIDER_NAMES[provider] ?? 'review tool'
+  // Known review-tool providers: show the iframe + an escape-hatch link
   return (
     <>
       {content}

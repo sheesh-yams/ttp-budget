@@ -377,6 +377,7 @@ export async function addVersion(
     urlOrEmbed:   string
     note?:        string
     renderMode?:  'IFRAME' | 'NATIVE_MEDIA' | 'EXTERNAL_ONLY'
+    isVertical?:  boolean
   },
 ): Promise<ActionResult<{ id: string; versionNumber: number }>> {
   try {
@@ -406,6 +407,7 @@ export async function addVersion(
         renderMode,
         embedHtml:     detected.embedHtml ?? null,
         note:          input.note?.trim() ?? null,
+        isVertical:    input.isVertical ?? false,
         workspaceId:   gate.workspaceId,
       },
     })
@@ -430,6 +432,7 @@ export async function updateVersion(
   patch: {
     note?:         string | null
     thumbnailUrl?: string | null
+    isVertical?:   boolean
   },
 ): Promise<ActionResult<void>> {
   try {
@@ -535,6 +538,7 @@ export async function getAssetVersions(assetId: string): Promise<ActionResult<{
   thumbnailUrl:      string | null
   firstClientViewAt: Date | null
   note:              string | null
+  isVertical:        boolean
 }[]>> {
   try {
     const gate = await requireRole(['OWNER', 'PRODUCER'])
@@ -552,6 +556,7 @@ export async function getAssetVersions(assetId: string): Promise<ActionResult<{
         thumbnailUrl:      true,
         firstClientViewAt: true,
         note:              true,
+        isVertical:        true,
       },
     })
     return { success: true, data: versions }

@@ -1226,6 +1226,7 @@ model DeliverableVersion {
   embedHtml         String?          @db.Text  // sanitized iframe HTML when user pasted an embed
   thumbnailUrl      String?
   note              String?          @db.Text
+  isVertical        Boolean          @default(false) // portrait/9:16 content — affects embed container height
   firstClientViewAt DateTime?        // null = unseen badge active; set on first real client view
   createdAt         DateTime         @default(now())
   currentForAsset   DeliverableAsset? @relation("CurrentVersion")

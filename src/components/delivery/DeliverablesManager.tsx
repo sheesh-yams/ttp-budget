@@ -26,6 +26,7 @@ interface Version {
   renderMode:       string
   thumbnailUrl:     string | null
   firstClientViewAt: Date | string | null
+  isVertical:       boolean
 }
 
 interface Asset {

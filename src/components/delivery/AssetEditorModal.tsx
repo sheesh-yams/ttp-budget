@@ -20,6 +20,7 @@ interface Version {
   thumbnailUrl:     string | null
   firstClientViewAt: Date | string | null
   note?:            string | null
+  isVertical:       boolean
 }
 
 interface Asset {
@@ -273,6 +274,7 @@ function VersionsTab({ asset, pendingDetails }: {
   const [detectedMode,    setDetectedMode]    = useState<'IFRAME' | 'NATIVE_MEDIA' | 'EXTERNAL_ONLY' | null>(null)
   const [detectedProvider, setDetectedProvider] = useState<string | null>(null)
   const [renderOverride,  setRenderOverride]  = useState<'IFRAME' | 'NATIVE_MEDIA' | 'EXTERNAL_ONLY' | ''>('')
+  const [isVertical,      setIsVertical]      = useState(false)
   const [addError,        setAddError]        = useState<string | null>(null)
   const [adding,          setAdding]          = useState(false)
 
@@ -281,6 +283,7 @@ function VersionsTab({ asset, pendingDetails }: {
     setAddError(null)
     if (!val.trim()) {
       setDetectedLabel(null); setDetectedMode(null); setDetectedProvider(null); setRenderOverride('')
+      setIsVertical(false)
       return
     }
     const result = detectEmbed(val.trim())
@@ -317,6 +320,7 @@ function VersionsTab({ asset, pendingDetails }: {
       urlOrEmbed: urlOrEmbed.trim(),
       note:       note.trim() || undefined,
       renderMode: renderOverride || undefined,
+      isVertical,
     })
     setAdding(false)
     if (!result.success) {
@@ -332,11 +336,13 @@ function VersionsTab({ asset, pendingDetails }: {
       thumbnailUrl:      null,
       firstClientViewAt: null,
       note:              note.trim() || null,
+      isVertical,
     }
     setLocalVersions(prev => [...prev, newVersion])
     setCurVersionId(result.data.id)
     setUrlOrEmbed('')
     setNote('')
+    setIsVertical(false)
     setDetectedLabel(null)
     setDetectedMode(null)
     setDetectedProvider(null)
@@ -392,6 +398,9 @@ function VersionsTab({ asset, pendingDetails }: {
                     )}
                     <span className="text-[10px] text-muted-foreground">{PROVIDER_LABELS[v.provider] ?? v.provider}</span>
                     <span className="text-[10px] text-muted-foreground">{v.renderMode.replace('_', ' ').toLowerCase()}</span>
+                    {v.isVertical && (
+                      <span className="text-[10px] text-sky-500 font-medium">Vertical</span>
+                    )}
                     {v.firstClientViewAt === null && (
                       <span className="text-[10px] text-violet-600 font-medium">Unseen</span>
                     )}
@@ -463,6 +472,19 @@ function VersionsTab({ asset, pendingDetails }: {
           placeholder="Version note (optional)"
           className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
+
+        {/* Show orientation toggle for Frame.io — affects iframe container height on the client page */}
+        {detectedProvider === 'FRAME_IO' && (
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={isVertical}
+              onChange={e => setIsVertical(e.target.checked)}
+              className="rounded border-input"
+            />
+            <span className="text-xs text-muted-foreground">Vertical video (9:16)</span>
+          </label>
+        )}
 
         <button
           type="button"

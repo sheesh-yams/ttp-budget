@@ -72,6 +72,7 @@ export default async function DeliveryDeliverablesPage({ params }: Props) {
                   renderMode:        true,
                   thumbnailUrl:      true,
                   firstClientViewAt: true,
+                  isVertical:        true,
                 },
               },
             },
