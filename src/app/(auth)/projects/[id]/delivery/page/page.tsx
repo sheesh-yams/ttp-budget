@@ -16,10 +16,11 @@ export async function generateMetadata({ params }: Props) {
 
 export default async function DeliveryClientPage({ params }: Props) {
   const { id } = await params
-  const workspaceId = await getWorkspaceId()
 
   const gate = await requireRole(['OWNER', 'PRODUCER'])
   if (!gate.ok) return <p className="text-sm text-muted-foreground">Access denied.</p>
+
+  const workspaceId = gate.workspaceId
 
   const project = await db.project.findFirst({
     where:  { id, workspaceId },
@@ -38,14 +39,19 @@ export default async function DeliveryClientPage({ params }: Props) {
       customMessage:   true,
       coverImageUrl:   true,
       lastPublishedAt: true,
-      _count: { select: { sections: true } },
+      sections:        { select: { id: true } },
     },
   })
+
+  // Reshape to what ClientPagePreview expects
+  const page = deliveryPage
+    ? { ...deliveryPage, sectionCount: deliveryPage.sections.length, sections: undefined }
+    : null
 
   return (
     <ClientPagePreview
       project={project}
-      deliveryPage={deliveryPage}
+      deliveryPage={page}
     />
   )
 }

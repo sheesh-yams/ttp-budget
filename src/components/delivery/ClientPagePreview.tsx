@@ -18,7 +18,7 @@ interface DeliveryPage {
   customMessage:   string | null
   coverImageUrl:   string | null
   lastPublishedAt: Date | string | null
-  _count:          { sections: number }
+  sectionCount:    number
 }
 
 interface Props {
@@ -163,7 +163,7 @@ export function ClientPagePreview({ project, deliveryPage: initial }: Props) {
           <Row label="Title"    value={page.title ?? <em className="text-muted-foreground">{project.name} (default)</em>} />
           <Row label="Subtitle" value={page.subtitle ?? <em className="text-muted-foreground">None</em>} />
           <Row label="Message"  value={page.customMessage ?? <em className="text-muted-foreground">None</em>} />
-          <Row label="Sections" value={`${page._count.sections}`} />
+          <Row label="Sections" value={`${page.sectionCount}`} />
         </dl>
         <p className="text-[11px] text-muted-foreground pt-1">
           Edit title, subtitle, and message from the{' '}
