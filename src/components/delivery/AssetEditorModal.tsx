@@ -76,13 +76,19 @@ const RENDER_MODE_OPTIONS = [
 export function AssetEditorModal({ asset, onClose }: Props) {
   const [tab, setTab] = useState<'details' | 'versions'>('details')
 
+  // Shared state at modal level so it persists when switching tabs
+  const [title,       setTitle]       = useState(asset.title)
+  const [description, setDescription] = useState(asset.description ?? '')
+  const [type,        setType]        = useState<DeliverableItemType>(asset.type)
+  const [status,      setStatus]      = useState<'DRAFT' | 'SHARED'>(asset.status)
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => onClose()} />
       <div className="relative z-10 w-full max-w-lg max-h-[90vh] rounded-2xl border border-border bg-card shadow-xl mx-4 flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-shrink-0">
-          <p className="text-sm font-semibold text-foreground truncate">{asset.title}</p>
+          <p className="text-sm font-semibold text-foreground truncate">{title || asset.title}</p>
           <button
             type="button"
             onClick={() => onClose()}
@@ -113,8 +119,18 @@ export function AssetEditorModal({ asset, onClose }: Props) {
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-5">
           {tab === 'details'
-            ? <DetailsTab asset={asset} onClose={onClose} />
-            : <VersionsTab asset={asset} />
+            ? <DetailsTab
+                asset={asset}
+                title={title}        setTitle={setTitle}
+                description={description} setDescription={setDescription}
+                type={type}          setType={setType}
+                status={status}      setStatus={setStatus}
+                onClose={onClose}
+              />
+            : <VersionsTab
+                asset={asset}
+                pendingDetails={{ title: title.trim(), description: description.trim() || null, type, status }}
+              />
           }
         </div>
       </div>
@@ -124,13 +140,22 @@ export function AssetEditorModal({ asset, onClose }: Props) {
 
 // ─── Details tab ──────────────────────────────────────────────────────────────
 
-function DetailsTab({ asset, onClose }: { asset: Asset; onClose: (updates?: AssetUpdates) => void }) {
-  const [title,       setTitle]       = useState(asset.title)
-  const [description, setDescription] = useState(asset.description ?? '')
-  const [type,        setType]        = useState<DeliverableItemType>(asset.type)
-  const [status,      setStatus]      = useState<'DRAFT' | 'SHARED'>(asset.status)
-  const [saving,      setSaving]      = useState(false)
-  const [saveError,   setSaveError]   = useState<string | null>(null)
+function DetailsTab({
+  asset, title, setTitle, description, setDescription, type, setType, status, setStatus, onClose,
+}: {
+  asset:          Asset
+  title:          string
+  setTitle:       (v: string) => void
+  description:    string
+  setDescription: (v: string) => void
+  type:           DeliverableItemType
+  setType:        (v: DeliverableItemType) => void
+  status:         'DRAFT' | 'SHARED'
+  setStatus:      (v: 'DRAFT' | 'SHARED') => void
+  onClose:        (updates?: AssetUpdates) => void
+}) {
+  const [saving,    setSaving]    = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   async function handleSave() {
     setSaving(true)
@@ -187,7 +212,7 @@ function DetailsTab({ asset, onClose }: { asset: Asset; onClose: (updates?: Asse
           <label className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground">Visibility</label>
           <button
             type="button"
-            onClick={() => setStatus(s => s === 'DRAFT' ? 'SHARED' : 'DRAFT')}
+            onClick={() => setStatus(status === 'DRAFT' ? 'SHARED' : 'DRAFT')}
             className={`w-full rounded-md border px-3 py-2 text-sm font-medium text-left transition-colors ${
               status === 'SHARED'
                 ? 'border-green-300 bg-green-50 text-green-700'
@@ -220,7 +245,10 @@ function DetailsTab({ asset, onClose }: { asset: Asset; onClose: (updates?: Asse
 
 // ─── Versions tab ─────────────────────────────────────────────────────────────
 
-function VersionsTab({ asset }: { asset: Asset }) {
+function VersionsTab({ asset, pendingDetails }: {
+  asset:          Asset
+  pendingDetails: AssetUpdates
+}) {
   const [, startTransition] = useTransition()
   const { confirm, ConfirmDialog } = useConfirm()
 
@@ -261,6 +289,22 @@ function VersionsTab({ asset }: { asset: Asset }) {
     if (!urlOrEmbed.trim()) return
     setAdding(true)
     setAddError(null)
+
+    // Auto-save unsaved details so the user doesn't lose title/description/etc.
+    const detailsDirty =
+      pendingDetails.title       !== asset.title ||
+      pendingDetails.description !== (asset.description ?? null) ||
+      pendingDetails.type        !== asset.type ||
+      pendingDetails.status      !== asset.status
+    if (detailsDirty) {
+      const saveResult = await updateAsset(asset.id, pendingDetails)
+      if (!saveResult.success) {
+        setAddError('Could not save asset details. Please try again.')
+        setAdding(false)
+        return
+      }
+    }
+
     const result = await addVersion(asset.id, {
       urlOrEmbed: urlOrEmbed.trim(),
       note:       note.trim() || undefined,

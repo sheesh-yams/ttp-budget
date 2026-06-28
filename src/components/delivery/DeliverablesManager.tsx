@@ -101,6 +101,9 @@ export function DeliverablesManager({ project, deliveryPage: initialPage, hasApp
   const [publishPending, setPublishPending] = useState(false)
   const [copied,         setCopied]         = useState(false)
 
+  // Track which section is mid-creation to prevent double-clicks
+  const [addingAssetSectionId, setAddingAssetSectionId] = useState<string | null>(null)
+
   // Drag state for section reorder
   const [dragSectionId,  setDragSectionId]  = useState<string | null>(null)
   const [dropSectionId,  setDropSectionId]  = useState<string | null>(null)
@@ -236,11 +239,51 @@ export function DeliverablesManager({ project, deliveryPage: initialPage, hasApp
   // ── Add asset ──────────────────────────────────────────────────────────────
 
   async function handleAddAsset(sectionId: string) {
-    if (!page) return
-    startTransition(async () => {
-      const result = await createAsset(page.id, sectionId, { title: 'New Asset', type: 'DELIVERABLE' })
-      if (result.success) router.refresh()
+    if (!page || addingAssetSectionId) return
+    setAddingAssetSectionId(sectionId)
+
+    // Show a placeholder card immediately so the user gets instant feedback
+    const tempId = `__temp_${Date.now()}`
+    setPage(prev => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        sections: prev.sections.map(s =>
+          s.id !== sectionId ? s : {
+            ...s,
+            deliverables: [...s.deliverables, {
+              id:             tempId,
+              title:          'New Asset',
+              description:    null,
+              type:           'DELIVERABLE' as DeliverableItemType,
+              status:         'DRAFT' as const,
+              publicToken:    '',
+              orderIndex:     s.deliverables.length,
+              currentVersion: null,
+            }],
+          }
+        ),
+      }
     })
+
+    const result = await createAsset(page.id, sectionId, { title: 'New Asset', type: 'DELIVERABLE' })
+    setAddingAssetSectionId(null)
+
+    if (result.success) {
+      router.refresh() // Replaces the placeholder with the real server record
+    } else {
+      // Roll back the optimistic card
+      setPage(prev => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          sections: prev.sections.map(s => ({
+            ...s,
+            deliverables: s.deliverables.filter(a => a.id !== tempId),
+          })),
+        }
+      })
+    }
   }
 
   // ── Delete asset ───────────────────────────────────────────────────────────
@@ -387,6 +430,7 @@ export function DeliverablesManager({ project, deliveryPage: initialPage, hasApp
               onDragEnd={() => { setDragSectionId(null); setDropSectionId(null) }}
               onRename={() => setEditingSectionId(section.id)}
               onDelete={() => handleDeleteSection(section.id, section.title)}
+              addingAsset={addingAssetSectionId === section.id}
               onAddAsset={() => handleAddAsset(section.id)}
               onEditAsset={asset => setEditingAsset(asset)}
               onDeleteAsset={(id, title) => handleDeleteAsset(id, title)}
@@ -597,7 +641,7 @@ function SectionCard({
   section, allSections,
   isDragging, isDropTarget,
   onDragStart, onDragOver, onDrop, onDragEnd,
-  onRename, onDelete, onAddAsset,
+  onRename, onDelete, addingAsset, onAddAsset,
   onEditAsset, onDeleteAsset,
   dragAssetId, onAssetDragStart, onAssetDrop,
   dropAssetSectionId, onAssetDragOver, onAssetDragEnd,
@@ -612,6 +656,7 @@ function SectionCard({
   onDragEnd:   () => void
   onRename:    () => void
   onDelete:    () => void
+  addingAsset: boolean
   onAddAsset:  () => void
   onEditAsset: (a: Asset) => void
   onDeleteAsset: (id: string, title: string) => void
@@ -709,10 +754,15 @@ function SectionCard({
         <button
           type="button"
           onClick={onAddAsset}
-          className="mt-2 flex w-full items-center justify-center gap-1 rounded-lg border border-dashed py-2 text-xs font-medium text-muted-foreground hover:border-foreground/30 hover:text-foreground transition-colors"
+          disabled={addingAsset}
+          className={`mt-2 flex w-full items-center justify-center gap-1 rounded-lg border border-dashed py-2 text-xs font-medium text-muted-foreground transition-colors ${
+            addingAsset ? 'opacity-60 cursor-not-allowed' : 'hover:border-foreground/30 hover:text-foreground'
+          }`}
         >
-          <Plus className="h-3 w-3" />
-          Add asset
+          {addingAsset
+            ? <Loader2 className="h-3 w-3 animate-spin" />
+            : <Plus className="h-3 w-3" />}
+          {addingAsset ? 'Adding…' : 'Add asset'}
         </button>
       </div>
     </div>
