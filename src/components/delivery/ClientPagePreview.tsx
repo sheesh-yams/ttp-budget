@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Globe, Copy, Check, ExternalLink, Loader2, Package } from 'lucide-react'
 import {
@@ -32,6 +32,8 @@ export function ClientPagePreview({ project, deliveryPage: initial }: Props) {
   const [publishPending, setPublishPending] = useState(false)
   const [creating,       setCreating]       = useState(false)
   const [copied,         setCopied]         = useState(false)
+
+  useEffect(() => { setPage(initial) }, [initial])
 
   const rawAppUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
   const appUrl    = rawAppUrl && !rawAppUrl.startsWith('http') ? `https://${rawAppUrl}` : rawAppUrl
