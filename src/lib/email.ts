@@ -11,7 +11,8 @@ const FROM = process.env.RESEND_FROM_EMAIL ?? 'proposals@thethirdplace.co'
 function resolveAppUrl(): string {
   const configured = process.env.NEXT_PUBLIC_APP_URL
   if (configured && !configured.includes('localhost') && !configured.includes('127.0.0.1')) {
-    return configured.replace(/\/$/, '')
+    const withProto = configured.startsWith('http') ? configured : `https://${configured}`
+    return withProto.replace(/\/$/, '')
   }
   if (process.env.RAILWAY_PUBLIC_DOMAIN) {
     return `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`

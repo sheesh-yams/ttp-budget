@@ -113,7 +113,9 @@ export function DeliverablesManager({ project, deliveryPage: initialPage, hasApp
   // useState(initialPage) only uses the prop on first mount; this keeps it live.
   useEffect(() => { setPage(initialPage) }, [initialPage])
 
-  const publicUrl = page ? `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/d/${page.publicToken}` : null
+  const rawAppUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
+  const appUrl    = rawAppUrl && !rawAppUrl.startsWith('http') ? `https://${rawAppUrl}` : rawAppUrl
+  const publicUrl = page ? `${appUrl.replace(/\/$/, '')}/d/${page.publicToken}` : null
 
   // ── Page creation ──────────────────────────────────────────────────────────
 

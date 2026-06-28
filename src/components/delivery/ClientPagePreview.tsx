@@ -33,8 +33,9 @@ export function ClientPagePreview({ project, deliveryPage: initial }: Props) {
   const [creating,       setCreating]       = useState(false)
   const [copied,         setCopied]         = useState(false)
 
-  const appUrl    = process.env.NEXT_PUBLIC_APP_URL ?? ''
-  const publicUrl = page ? `${appUrl}/d/${page.publicToken}` : null
+  const rawAppUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
+  const appUrl    = rawAppUrl && !rawAppUrl.startsWith('http') ? `https://${rawAppUrl}` : rawAppUrl
+  const publicUrl = page ? `${appUrl.replace(/\/$/, '')}/d/${page.publicToken}` : null
 
   async function handleCreate() {
     setCreating(true)
