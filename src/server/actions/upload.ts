@@ -16,7 +16,7 @@ const MIME_TO_EXT: Record<string, string> = {
   'image/webp': 'webp',
 }
 
-type UploadFolder = 'avatars' | 'logos' | 'client-logos'
+type UploadFolder = 'avatars' | 'logos' | 'client-logos' | 'delivery-covers'
 
 /**
  * Issue a short-lived (60 s) presigned PUT URL so the browser can upload
