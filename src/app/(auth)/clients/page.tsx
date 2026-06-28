@@ -75,8 +75,7 @@ export default async function ClientsPage() {
       ltvCents,
       outstandingCents,
       lastEngagementAt: lastEngagementAt?.toISOString() ?? null,
-      recentProjectName:   client.projects[0]?.name   ?? null,
-      recentProjectStatus: client.projects[0]?.status ?? null,
+      projects: client.projects.map(p => ({ id: p.id, name: p.name, status: p.status })),
     }
   })
 

@@ -36,8 +36,8 @@ const navGroups = [
   {
     section: 'Work',
     items: [
-      { label: 'Clients',   href: '/clients',   icon: Users },
       { label: 'Projects',  href: '/projects',  icon: FolderOpen },
+      { label: 'Clients',   href: '/clients',   icon: Users },
       { label: 'Proposals', href: '/proposals', icon: FileText },
       { label: 'Invoices',  href: '/invoices',  icon: Receipt },
       { label: 'Rolodex',   href: '/rolodex',   icon: BookUser },

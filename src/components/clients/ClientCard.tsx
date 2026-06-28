@@ -1,8 +1,9 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import {
-  MoreHorizontal, Archive, Mail, Globe, TrendingUp, AlertCircle,
+  MoreHorizontal, Archive, Mail, Globe, AlertCircle,
   FolderOpen, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import { formatMoney } from '@/lib/money'
@@ -23,8 +24,7 @@ export interface ClientRow {
   ltvCents:         number
   outstandingCents: number
   lastEngagementAt: string | null
-  recentProjectName:   string | null
-  recentProjectStatus: string | null
+  projects: { id: string; name: string; status: string }[]
 }
 
 interface Props {
@@ -64,11 +64,23 @@ function formatEngagement(iso: string | null): string {
   return `${Math.floor(diffDays / 365)}y ago`
 }
 
+const PROJECT_STATUS_COLORS: Record<string, string> = {
+  LEAD:     'bg-yellow-100 text-yellow-800',
+  ACTIVE:   'bg-emerald-100 text-emerald-700',
+  WRAPPED:  'bg-blue-100 text-blue-700',
+  ARCHIVED: 'bg-gray-100 text-gray-500',
+}
+
+const PREVIEW_COUNT = 3
+
 export function ClientCard({ client: c, onEdit, onArchive }: Props) {
-  const [menuOpen, setMenuOpen]   = useState(false)
-  const [expanded, setExpanded]   = useState(false)
+  const [menuOpen,      setMenuOpen]      = useState(false)
+  const [expanded,      setExpanded]      = useState(false)
+  const [showAllProjects, setShowAllProjects] = useState(false)
 
   const hasSpecialNotes = !!c.specialNotes?.trim()
+  const visibleProjects = showAllProjects ? c.projects : c.projects.slice(0, PREVIEW_COUNT)
+  const hiddenCount     = c.projects.length - PREVIEW_COUNT
 
   return (
     <div
@@ -126,17 +138,6 @@ export function ClientCard({ client: c, onEdit, onArchive }: Props) {
             {c.contactName && (
               <p className="text-[12px] text-muted-foreground mt-0.5">{c.contactName}</p>
             )}
-            {c.recentProjectName && (
-              <div className="mt-1.5 flex items-center gap-1.5">
-                <span className="text-[10px] text-muted-foreground/60">Latest:</span>
-                <span className="truncate text-[10px] text-muted-foreground font-medium max-w-[140px]">{c.recentProjectName}</span>
-                {c.recentProjectStatus && (
-                  <span className={`shrink-0 rounded-full px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide ${STATUS_COLORS[c.recentProjectStatus] ?? ''}`}>
-                    {c.recentProjectStatus.charAt(0) + c.recentProjectStatus.slice(1).toLowerCase()}
-                  </span>
-                )}
-              </div>
-            )}
           </div>
         </div>
 
@@ -159,24 +160,56 @@ export function ClientCard({ client: c, onEdit, onArchive }: Props) {
           </div>
         </div>
 
-        {/* ── Pulse ── */}
-        <div className="flex items-center gap-4 text-[12px] text-muted-foreground">
-          <div className="flex items-center gap-1.5">
-            <FolderOpen className="h-3.5 w-3.5 shrink-0" />
-            <span>
-              <span className="font-semibold text-foreground">{c.projectCount}</span>
-              {' '}project{c.projectCount !== 1 ? 's' : ''}
-            </span>
-            {c.activeProjects > 0 && (
-              <span className="ml-0.5 font-medium text-emerald-600">({c.activeProjects} active)</span>
+        {/* ── Projects list ── */}
+        {c.projects.length > 0 ? (
+          <div className="space-y-1">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                Projects
+              </p>
+              {c.lastEngagementAt && (
+                <span className="text-[10px] text-muted-foreground/50">
+                  {formatEngagement(c.lastEngagementAt)}
+                </span>
+              )}
+            </div>
+            {visibleProjects.map(p => (
+              <Link
+                key={p.id}
+                href={`/projects/${p.id}`}
+                onClick={e => e.stopPropagation()}
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/60 transition-colors group/proj"
+              >
+                <FolderOpen className="h-3 w-3 shrink-0 text-muted-foreground group-hover/proj:text-foreground" />
+                <span className="flex-1 truncate text-[12px] font-medium text-foreground">{p.name}</span>
+                <span className={`shrink-0 rounded-full px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide ${PROJECT_STATUS_COLORS[p.status] ?? 'bg-gray-100 text-gray-500'}`}>
+                  {p.status.charAt(0) + p.status.slice(1).toLowerCase()}
+                </span>
+              </Link>
+            ))}
+            {hiddenCount > 0 && (
+              <button
+                type="button"
+                onClick={e => { e.stopPropagation(); setShowAllProjects(v => !v) }}
+                className="flex items-center gap-1 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {showAllProjects ? (
+                  <><ChevronUp className="h-3 w-3" /> Show less</>
+                ) : (
+                  <><ChevronDown className="h-3 w-3" /> +{hiddenCount} more</>
+                )}
+              </button>
             )}
           </div>
-          {c.lastEngagementAt && (
-            <span className="ml-auto text-[11px] text-muted-foreground/70">
-              {formatEngagement(c.lastEngagementAt)}
-            </span>
-          )}
-        </div>
+        ) : (
+          <div className="flex items-center gap-2 text-[12px] text-muted-foreground/50">
+            <FolderOpen className="h-3.5 w-3.5" />
+            <span>No projects yet</span>
+            {c.lastEngagementAt && (
+              <span className="ml-auto text-[11px]">{formatEngagement(c.lastEngagementAt)}</span>
+            )}
+          </div>
+        )}
 
         {/* ── Contact ── */}
         {(c.contactEmail || c.website) && (

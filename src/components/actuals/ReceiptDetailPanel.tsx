@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition, useEffect, useCallback } from 'react'
-import { FileText, Link2, Link2Off, PlusCircle, Search, Check, ChevronDown, ChevronRight } from 'lucide-react'
+import { FileText, Link2, Link2Off, PlusCircle, Search, Check, ChevronRight, ExternalLink } from 'lucide-react'
 import {
   Sheet,
   SheetContent,
@@ -41,26 +41,27 @@ function toInputDate(d: Date | string | null): string {
 function ReceiptPreview({ receipt }: { receipt: ReceiptDb }) {
   if (isImage(receipt.fileType)) {
     return (
-      <a href={receipt.fileUrl} target="_blank" rel="noreferrer" className="block">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={receipt.fileUrl}
-          alt={receipt.fileName}
-          className="w-full rounded-xl object-contain max-h-72 bg-muted"
-        />
-      </a>
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={receipt.fileUrl}
+        alt={receipt.fileName}
+        className="w-full rounded-xl object-contain max-h-72 bg-muted"
+      />
     )
   }
+  // PDF — inline iframe so the user doesn't have to navigate away
   return (
-    <a
-      href={receipt.fileUrl}
-      target="_blank"
-      rel="noreferrer"
-      className="flex h-40 w-full items-center justify-center gap-3 rounded-xl border border-border bg-muted text-muted-foreground hover:bg-muted/80 transition-colors"
-    >
-      <FileText className="h-10 w-10" />
-      <span className="text-sm font-medium">Open PDF</span>
-    </a>
+    <div className="relative w-full overflow-hidden rounded-xl border border-border bg-muted" style={{ height: 380 }}>
+      <iframe
+        src={receipt.fileUrl}
+        title={receipt.fileName}
+        className="h-full w-full border-none"
+      />
+      {/* Fallback icon shown if the browser can't render the PDF inline */}
+      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 opacity-0">
+        <FileText className="h-10 w-10 text-muted-foreground" />
+      </div>
+    </div>
   )
 }
 
@@ -210,9 +211,22 @@ export function ReceiptDetailPanel({ open, onClose, receipt, projectId, onUpdate
     <Sheet open={open} onOpenChange={v => { if (!v) onClose() }}>
       <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
         <SheetHeader className="pr-10">
-          <SheetTitle className="truncate text-sm">
-            {receipt?.fileName ?? 'Receipt'}
-          </SheetTitle>
+          <div className="flex items-center gap-2">
+            <SheetTitle className="flex-1 truncate text-sm">
+              {receipt?.fileName ?? 'Receipt'}
+            </SheetTitle>
+            {receipt && (
+              <a
+                href={receipt.fileUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                title="Open in new tab"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            )}
+          </div>
         </SheetHeader>
 
         {receipt && (
