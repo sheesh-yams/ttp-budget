@@ -111,6 +111,7 @@ export default async function PublicDeliveryPage({ params }: Props) {
 
   return (
     <div style={{ ...brandVars, fontFamily: 'var(--font-sans, system-ui, sans-serif)', color: '#1a1a1a', background: '#f8f8f8', minHeight: '100vh' }}>
+      <style>{`.dl-asset-card:hover{box-shadow:0 4px 16px rgba(0,0,0,0.10)}`}</style>
 
       {/* ── Hero ──────────────────────────────────────────────────────────── */}
       <div style={{ position: 'relative', background: heroBg, padding: '48px 24px 52px', overflow: 'hidden' }}>
@@ -235,6 +236,7 @@ function AssetCard({ asset }: AssetCardProps) {
 
   return (
     <div
+      className="dl-asset-card"
       style={{
         background:   '#fff',
         borderRadius: 12,
@@ -243,8 +245,6 @@ function AssetCard({ asset }: AssetCardProps) {
         transition:   'box-shadow 0.15s',
         cursor:       'pointer',
       }}
-      onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 16px rgba(0,0,0,0.10)' }}
-      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.boxShadow = 'none' }}
     >
       {/* Thumbnail */}
       <div style={{ aspectRatio: '16/9', background: '#f0f0f0', position: 'relative', overflow: 'hidden' }}>
