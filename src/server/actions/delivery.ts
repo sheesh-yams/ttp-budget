@@ -8,6 +8,41 @@ import { detectEmbed }    from '@/lib/embed-detection'
 import type { ActionResult } from '@/types'
 import type { DeliverableItemType } from '@/types'
 
+// ─── Thumbnail auto-fetch ─────────────────────────────────────────────────────
+
+/**
+ * Attempts to resolve a thumbnail URL for known providers.
+ * Returns null silently on any error — thumbnails are best-effort.
+ */
+async function tryFetchThumbnail(provider: string, canonicalUrl: string): Promise<string | null> {
+  try {
+    if (provider === 'YOUTUBE') {
+      // canonicalUrl: https://www.youtube-nocookie.com/embed/{videoId}?autoplay=0
+      const match = canonicalUrl.match(/\/embed\/([^?/]+)/)
+      if (!match) return null
+      // hqdefault (480×360) always exists for any public video; maxresdefault may 404
+      return `https://img.youtube.com/vi/${match[1]}/hqdefault.jpg`
+    }
+
+    if (provider === 'VIMEO') {
+      // canonicalUrl: https://player.vimeo.com/video/{id}?...
+      const match = canonicalUrl.match(/\/video\/(\d+)/)
+      if (!match) return null
+      const res = await fetch(
+        `https://vimeo.com/api/oembed.json?url=https%3A%2F%2Fvimeo.com%2F${match[1]}`,
+        { headers: { 'User-Agent': 'SlateSuite/1.0' }, signal: AbortSignal.timeout(4000) },
+      )
+      if (!res.ok) return null
+      const data = await res.json() as { thumbnail_url?: string }
+      return data.thumbnail_url ?? null
+    }
+
+    return null
+  } catch {
+    return null
+  }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async function revalidateDelivery(projectId: string) {
@@ -421,6 +456,16 @@ export async function addVersion(
       where: { id: assetId },
       data:  { currentVersionId: version.id },
     })
+
+    // Auto-thumbnail for supported providers (runs before revalidation so the
+    // thumbnail is present on the first page refresh)
+    const thumbnailUrl = await tryFetchThumbnail(detected.provider, detected.canonicalUrl)
+    if (thumbnailUrl) {
+      await sdb.deliverableVersion.update({
+        where: { id: version.id },
+        data:  { thumbnailUrl },
+      })
+    }
 
     const projectId = await getProjectIdFromAsset(sdb, assetId)
     if (projectId) revalidateDelivery(projectId)

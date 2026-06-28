@@ -1,12 +1,13 @@
 'use client'
 
-import { useState, useTransition, useEffect } from 'react'
-import { X, Loader2, Plus, Check } from 'lucide-react'
+import { useState, useTransition, useEffect, useRef } from 'react'
+import { X, Loader2, Plus, Check, ImageIcon } from 'lucide-react'
 import { detectEmbed } from '@/lib/embed-detection'
 import {
   updateAsset, addVersion,
-  setCurrentVersion, deleteVersion, getAssetVersions,
+  setCurrentVersion, deleteVersion, getAssetVersions, updateVersion,
 } from '@/server/actions/delivery'
+import { getPresignedUploadUrl } from '@/server/actions/upload'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import type { DeliverableItemType } from '@/types'
 
@@ -244,6 +245,68 @@ function DetailsTab({
   )
 }
 
+// ─── Thumbnail uploader ───────────────────────────────────────────────────────
+
+function ThumbnailUploader({ versionId, hasThumbnail, onUploaded }: {
+  versionId:    string
+  hasThumbnail: boolean
+  onUploaded:   (url: string) => void
+}) {
+  const [uploading, setUploading] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  async function handleFile(file: File) {
+    setUploading(true)
+    const presign = await getPresignedUploadUrl(file.name, file.type, file.size, 'delivery-thumbnails')
+    if (!presign.success) {
+      alert('error' in presign ? presign.error : 'Upload failed.')
+      setUploading(false)
+      return
+    }
+    const put = await fetch(presign.data.uploadUrl, {
+      method:  'PUT',
+      body:    file,
+      headers: { 'Content-Type': file.type },
+    })
+    if (!put.ok) {
+      alert('Upload to storage failed.')
+      setUploading(false)
+      return
+    }
+    await updateVersion(versionId, { thumbnailUrl: presign.data.publicUrl })
+    onUploaded(presign.data.publicUrl)
+    setUploading(false)
+  }
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        className="hidden"
+        onChange={e => {
+          const file = e.target.files?.[0]
+          if (file) void handleFile(file)
+          e.target.value = ''
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        disabled={uploading}
+        title={hasThumbnail ? 'Replace thumbnail' : 'Upload thumbnail'}
+        className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-50"
+      >
+        {uploading
+          ? <Loader2 className="h-3 w-3 animate-spin" />
+          : <ImageIcon className="h-3 w-3" />
+        }
+      </button>
+    </>
+  )
+}
+
 // ─── Versions tab ─────────────────────────────────────────────────────────────
 
 function VersionsTab({ asset, pendingDetails }: {
@@ -356,6 +419,10 @@ function VersionsTab({ asset, pendingDetails }: {
     })
   }
 
+  function handleThumbnailUpdate(versionId: string, url: string) {
+    setLocalVersions(prev => prev.map(v => v.id === versionId ? { ...v, thumbnailUrl: url } : v))
+  }
+
   async function handleDeleteVersion(versionId: string, versionNumber: number) {
     const ok = await confirm(`Delete v${versionNumber}? This cannot be undone.`, {
       title: 'Delete version',
@@ -390,6 +457,14 @@ function VersionsTab({ asset, pendingDetails }: {
             const isCurrent = v.id === curVersionId
             return (
               <div key={v.id} className={`flex items-start gap-3 rounded-lg border p-3 ${isCurrent ? 'border-primary/40 bg-primary/5' : ''}`}>
+                {/* Thumbnail preview */}
+                <div className="flex-shrink-0 w-14 h-10 rounded overflow-hidden bg-secondary/40 flex items-center justify-center">
+                  {v.thumbnailUrl
+                    // eslint-disable-next-line @next/next/no-img-element
+                    ? <img src={v.thumbnailUrl} alt="" className="w-full h-full object-cover" />
+                    : <ImageIcon className="h-4 w-4 text-muted-foreground/40" />
+                  }
+                </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
                     <span className="text-xs font-semibold text-foreground">v{v.versionNumber}</span>
@@ -408,6 +483,11 @@ function VersionsTab({ asset, pendingDetails }: {
                   {v.note && <p className="text-xs text-muted-foreground">{v.note}</p>}
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
+                  <ThumbnailUploader
+                    versionId={v.id}
+                    hasThumbnail={!!v.thumbnailUrl}
+                    onUploaded={url => handleThumbnailUpdate(v.id, url)}
+                  />
                   {!isCurrent && (
                     <button
                       type="button"
