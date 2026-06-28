@@ -32,9 +32,16 @@ interface Asset {
   versions?:      Version[]
 }
 
+interface AssetUpdates {
+  title:       string
+  description: string | null
+  type:        DeliverableItemType
+  status:      'DRAFT' | 'SHARED'
+}
+
 interface Props {
   asset:   Asset
-  onClose: () => void
+  onClose: (updates?: AssetUpdates) => void
 }
 
 const TYPE_OPTIONS: { value: DeliverableItemType; label: string }[] = [
@@ -71,14 +78,14 @@ export function AssetEditorModal({ asset, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => onClose()} />
       <div className="relative z-10 w-full max-w-lg max-h-[90vh] rounded-2xl border border-border bg-card shadow-xl mx-4 flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-shrink-0">
           <p className="text-sm font-semibold text-foreground truncate">{asset.title}</p>
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => onClose()}
             className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           >
             <X className="h-4 w-4" />
@@ -117,18 +124,29 @@ export function AssetEditorModal({ asset, onClose }: Props) {
 
 // ─── Details tab ──────────────────────────────────────────────────────────────
 
-function DetailsTab({ asset, onClose }: { asset: Asset; onClose: () => void }) {
+function DetailsTab({ asset, onClose }: { asset: Asset; onClose: (updates?: AssetUpdates) => void }) {
   const [title,       setTitle]       = useState(asset.title)
   const [description, setDescription] = useState(asset.description ?? '')
   const [type,        setType]        = useState<DeliverableItemType>(asset.type)
   const [status,      setStatus]      = useState<'DRAFT' | 'SHARED'>(asset.status)
   const [saving,      setSaving]      = useState(false)
+  const [saveError,   setSaveError]   = useState<string | null>(null)
 
   async function handleSave() {
     setSaving(true)
-    await updateAsset(asset.id, { title, description: description.trim() || null, type, status })
+    setSaveError(null)
+    const result = await updateAsset(asset.id, {
+      title:       title.trim(),
+      description: description.trim() || null,
+      type,
+      status,
+    })
     setSaving(false)
-    onClose()
+    if (!result.success) {
+      setSaveError(('error' in result ? result.error : null) ?? 'Failed to save.')
+      return
+    }
+    onClose({ title: title.trim(), description: description.trim() || null, type, status })
   }
 
   return (
@@ -181,8 +199,11 @@ function DetailsTab({ asset, onClose }: { asset: Asset; onClose: () => void }) {
         </div>
       </div>
 
+      {saveError && (
+        <p className="text-xs text-destructive">{saveError}</p>
+      )}
       <div className="flex gap-2 justify-end pt-2">
-        <button type="button" onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground">Cancel</button>
+        <button type="button" onClick={() => onClose()} className="text-sm text-muted-foreground hover:text-foreground">Cancel</button>
         <button
           type="button"
           onClick={handleSave}
@@ -203,29 +224,36 @@ function VersionsTab({ asset }: { asset: Asset }) {
   const [, startTransition] = useTransition()
   const { confirm, ConfirmDialog } = useConfirm()
 
-  // Add-version form state
-  const [urlOrEmbed,     setUrlOrEmbed]     = useState('')
-  const [note,           setNote]           = useState('')
-  const [detectedLabel,  setDetectedLabel]  = useState<string | null>(null)
-  const [detectedMode,   setDetectedMode]   = useState<'IFRAME' | 'NATIVE_MEDIA' | 'EXTERNAL_ONLY' | null>(null)
-  const [renderOverride, setRenderOverride] = useState<'IFRAME' | 'NATIVE_MEDIA' | 'EXTERNAL_ONLY' | ''>('')
-  const [addError,       setAddError]       = useState<string | null>(null)
-  const [adding,         setAdding]         = useState(false)
+  // Local version list so UI updates immediately without a page refresh
+  const [localVersions,   setLocalVersions]   = useState<Version[]>(
+    asset.versions ?? (asset.currentVersion ? [asset.currentVersion] : [])
+  )
+  const [curVersionId,    setCurVersionId]    = useState<string | null>(asset.currentVersion?.id ?? null)
 
-  // Optimistic version list — start empty, refresh via parent onClose
-  const versions: Version[] = asset.versions ?? (asset.currentVersion ? [asset.currentVersion] : [])
+  // Add-version form state
+  const [urlOrEmbed,      setUrlOrEmbed]      = useState('')
+  const [note,            setNote]            = useState('')
+  const [detectedLabel,   setDetectedLabel]   = useState<string | null>(null)
+  const [detectedMode,    setDetectedMode]    = useState<'IFRAME' | 'NATIVE_MEDIA' | 'EXTERNAL_ONLY' | null>(null)
+  const [detectedProvider, setDetectedProvider] = useState<string | null>(null)
+  const [renderOverride,  setRenderOverride]  = useState<'IFRAME' | 'NATIVE_MEDIA' | 'EXTERNAL_ONLY' | ''>('')
+  const [addError,        setAddError]        = useState<string | null>(null)
+  const [adding,          setAdding]          = useState(false)
 
   function handleEmbedChange(val: string) {
     setUrlOrEmbed(val)
     setAddError(null)
-    if (!val.trim()) { setDetectedLabel(null); setDetectedMode(null); setRenderOverride(''); return }
+    if (!val.trim()) {
+      setDetectedLabel(null); setDetectedMode(null); setDetectedProvider(null); setRenderOverride('')
+      return
+    }
     const result = detectEmbed(val.trim())
     if ('error' in result) {
-      setDetectedLabel(null)
-      setDetectedMode(null)
+      setDetectedLabel(null); setDetectedMode(null); setDetectedProvider(null)
     } else {
       setDetectedLabel(`${PROVIDER_LABELS[result.provider] ?? result.provider} · ${result.renderMode.replace('_', ' ').toLowerCase()}`)
       setDetectedMode(result.renderMode)
+      setDetectedProvider(result.provider)
     }
   }
 
@@ -243,16 +271,30 @@ function VersionsTab({ asset }: { asset: Asset }) {
       setAddError(('error' in result ? result.error : null) ?? 'Failed to add version.')
       return
     }
+    // Optimistically append new version and promote it to current
+    const newVersion: Version = {
+      id:                result.data.id,
+      versionNumber:     result.data.versionNumber,
+      provider:          detectedProvider ?? 'GENERIC_LINK',
+      renderMode:        (renderOverride || detectedMode) ?? 'EXTERNAL_ONLY',
+      thumbnailUrl:      null,
+      firstClientViewAt: null,
+      note:              note.trim() || null,
+    }
+    setLocalVersions(prev => [...prev, newVersion])
+    setCurVersionId(result.data.id)
     setUrlOrEmbed('')
     setNote('')
     setDetectedLabel(null)
     setDetectedMode(null)
+    setDetectedProvider(null)
     setRenderOverride('')
   }
 
   async function handleSetCurrent(versionId: string) {
     startTransition(async () => {
       await setCurrentVersion(asset.id, versionId)
+      setCurVersionId(versionId)
     })
   }
 
@@ -265,6 +307,9 @@ function VersionsTab({ asset }: { asset: Asset }) {
       const result = await deleteVersion(versionId)
       if (!result.success) {
         alert('error' in result ? result.error : 'Delete failed')
+      } else {
+        setLocalVersions(prev => prev.filter(v => v.id !== versionId))
+        if (curVersionId === versionId) setCurVersionId(null)
       }
     })
   }
@@ -274,12 +319,12 @@ function VersionsTab({ asset }: { asset: Asset }) {
       {ConfirmDialog}
 
       {/* Existing versions */}
-      {versions.length === 0 ? (
+      {localVersions.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-4">No versions yet — add one below.</p>
       ) : (
         <div className="space-y-2">
-          {[...versions].sort((a, b) => b.versionNumber - a.versionNumber).map(v => {
-            const isCurrent = v.id === asset.currentVersion?.id
+          {[...localVersions].sort((a, b) => b.versionNumber - a.versionNumber).map(v => {
+            const isCurrent = v.id === curVersionId
             return (
               <div key={v.id} className={`flex items-start gap-3 rounded-lg border p-3 ${isCurrent ? 'border-primary/40 bg-primary/5' : ''}`}>
                 <div className="flex-1 min-w-0">

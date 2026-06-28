@@ -152,7 +152,8 @@ export function DeliverablesManager({ project, deliveryPage: initialPage, hasApp
   // ── Section drag ───────────────────────────────────────────────────────────
 
   function handleSectionDrop(targetId: string) {
-    if (!dragSectionId || dragSectionId === targetId || !page) {
+    // Ignore if an asset drag is in progress — the bubbled section drag is spurious
+    if (dragAssetId || !dragSectionId || dragSectionId === targetId || !page) {
       setDragSectionId(null); setDropSectionId(null); return
     }
     const sections = [...page.sections]
@@ -253,6 +254,30 @@ export function DeliverablesManager({ project, deliveryPage: initialPage, hasApp
       await deleteAsset(assetId)
       router.refresh()
     })
+  }
+
+  // ── Optimistic asset update after modal save ───────────────────────────────
+
+  function handleAssetModalClose(
+    assetId: string,
+    updates?: { title: string; description: string | null; type: DeliverableItemType; status: 'DRAFT' | 'SHARED' },
+  ) {
+    if (updates) {
+      setPage(prev => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          sections: prev.sections.map(s => ({
+            ...s,
+            deliverables: s.deliverables.map(a =>
+              a.id === assetId ? { ...a, ...updates } : a
+            ),
+          })),
+        }
+      })
+    }
+    setEditingAsset(null)
+    router.refresh()
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -357,7 +382,7 @@ export function DeliverablesManager({ project, deliveryPage: initialPage, hasApp
               isDragging={dragSectionId === section.id}
               isDropTarget={dropSectionId === section.id}
               onDragStart={() => setDragSectionId(section.id)}
-              onDragOver={e => { e.preventDefault(); setDropSectionId(section.id) }}
+              onDragOver={e => { e.preventDefault(); if (!dragAssetId) setDropSectionId(section.id) }}
               onDrop={() => handleSectionDrop(section.id)}
               onDragEnd={() => { setDragSectionId(null); setDropSectionId(null) }}
               onRename={() => setEditingSectionId(section.id)}
@@ -389,7 +414,7 @@ export function DeliverablesManager({ project, deliveryPage: initialPage, hasApp
       {editingAsset && (
         <AssetEditorModal
           asset={editingAsset}
-          onClose={() => { setEditingAsset(null); router.refresh() }}
+          onClose={(updates) => handleAssetModalClose(editingAsset.id, updates)}
         />
       )}
 
@@ -717,16 +742,16 @@ function AssetCard({
   return (
     <div
       draggable
-      onDragStart={onDragStart}
-      onDragOver={e => e.preventDefault()}
-      onDrop={e => { e.preventDefault(); onDrop() }}
-      onDragEnd={onDragEnd}
-      className={`group/asset relative rounded-lg border bg-card overflow-hidden transition-all ${
+      onDragStart={e => { e.stopPropagation(); onDragStart() }}
+      onDragOver={e => { e.stopPropagation(); e.preventDefault() }}
+      onDrop={e => { e.stopPropagation(); e.preventDefault(); onDrop() }}
+      onDragEnd={e => { e.stopPropagation(); onDragEnd() }}
+      className={`group/asset relative rounded-lg border bg-card transition-all ${
         isDragging ? 'opacity-40 scale-[0.97]' : 'hover:border-foreground/20'
       }`}
     >
       {/* Thumbnail or placeholder */}
-      <div className="aspect-video bg-secondary/40 flex items-center justify-center relative">
+      <div className="aspect-video bg-secondary/40 flex items-center justify-center relative overflow-hidden">
         {asset.currentVersion?.thumbnailUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={asset.currentVersion.thumbnailUrl} alt="" className="w-full h-full object-cover" />
