@@ -8,6 +8,32 @@ import { detectEmbed }    from '@/lib/embed-detection'
 import type { ActionResult } from '@/types'
 import type { DeliverableItemType } from '@/types'
 
+// ─── Vimeo URL resolution ─────────────────────────────────────────────────────
+
+/**
+ * Converts a vimeo.com/{user}/{slug} URL to a player.vimeo.com/video/{id} URL
+ * via the Vimeo oEmbed API.  Returns null on any error so the caller can
+ * surface a helpful message instead of silently falling through.
+ */
+async function resolveVimeoPlayerUrl(vimeoUrl: string): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `https://vimeo.com/api/oembed.json?url=${encodeURIComponent(vimeoUrl)}`,
+      { headers: { 'User-Agent': 'SlateSuite/1.0' }, signal: AbortSignal.timeout(5000) },
+    )
+    if (!res.ok) return null
+    const data = await res.json() as { video_id?: number; html?: string }
+    if (data.video_id) return `https://player.vimeo.com/video/${data.video_id}`
+    if (data.html) {
+      const m = data.html.match(/player\.vimeo\.com\/video\/(\d+)/)
+      if (m) return `https://player.vimeo.com/video/${m[1]}`
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 // ─── Thumbnail auto-fetch ─────────────────────────────────────────────────────
 
 /**
@@ -426,6 +452,24 @@ export async function addVersion(
       return { success: false, error: detected.error }
     }
 
+    // Vimeo creator-portfolio URLs (vimeo.com/{user}/{slug}) can't be converted
+    // to a player URL synchronously — detectEmbed returns the original URL.
+    // Resolve to player.vimeo.com/video/{id} via oEmbed before storing.
+    let canonicalUrl = detected.canonicalUrl
+    if (
+      detected.provider === 'VIMEO' &&
+      !canonicalUrl.startsWith('https://player.vimeo.com')
+    ) {
+      const playerUrl = await resolveVimeoPlayerUrl(canonicalUrl)
+      if (!playerUrl) {
+        return {
+          success: false,
+          error:   'Could not resolve this Vimeo URL. Try pasting the embed code from Vimeo\'s share dialog instead.',
+        }
+      }
+      canonicalUrl = playerUrl
+    }
+
     const renderMode = input.renderMode ?? detected.renderMode
 
     // Next version number
@@ -441,7 +485,7 @@ export async function addVersion(
       data: {
         deliverableId: assetId,
         versionNumber,
-        url:           detected.canonicalUrl,
+        url:           canonicalUrl,
         provider:      detected.provider,
         renderMode,
         embedHtml:     detected.provider === 'VIMEO' ? null : (detected.embedHtml ?? null),
@@ -457,14 +501,17 @@ export async function addVersion(
       data:  { currentVersionId: version.id },
     })
 
-    // Auto-thumbnail for supported providers (runs before revalidation so the
-    // thumbnail is present on the first page refresh)
-    const thumbnailUrl = await tryFetchThumbnail(detected.provider, detected.canonicalUrl)
-    if (thumbnailUrl) {
-      await sdb.deliverableVersion.update({
-        where: { id: version.id },
-        data:  { thumbnailUrl },
-      })
+    // Auto-thumbnail — best-effort, never fails the action
+    try {
+      const thumbnailUrl = await tryFetchThumbnail(detected.provider, canonicalUrl)
+      if (thumbnailUrl) {
+        await sdb.deliverableVersion.update({
+          where: { id: version.id },
+          data:  { thumbnailUrl },
+        })
+      }
+    } catch (err) {
+      console.error('[delivery] thumbnail update (non-fatal):', err)
     }
 
     const projectId = await getProjectIdFromAsset(sdb, assetId)

@@ -155,11 +155,17 @@ function toYoutubeEmbed(url: URL): string | null {
 }
 
 function toVimeoEmbed(url: URL): string | null {
-  // vimeo.com/{id} or vimeo.com/{id}/...
-  const match = url.pathname.match(/^\/(\d+)/)
-  if (!match) return null
-  const videoId = match[1]
-  return `https://player.vimeo.com/video/${videoId}`
+  // Standard: vimeo.com/{numericId} or vimeo.com/{numericId}/...
+  const numericMatch = url.pathname.match(/^\/(\d+)/)
+  if (numericMatch) return `https://player.vimeo.com/video/${numericMatch[1]}`
+
+  // Creator portfolio / custom slug: vimeo.com/{user}/{slug}
+  // Can't resolve to player URL synchronously; return the original URL.
+  // The server action (addVersion) will call oEmbed to resolve the player URL.
+  const segments = url.pathname.split('/').filter(Boolean)
+  if (segments.length >= 2) return url.href
+
+  return null
 }
 
 function toGDrivePreview(url: URL): string {
@@ -193,8 +199,16 @@ function sanitizeIframe(html: string): DetectEmbedResult {
 
   const attrsRaw = iframeMatch[1]
 
-  const src = extractAttr(attrsRaw, 'src')
-  if (!src) return { error: 'iframe is missing a src attribute' }
+  const rawSrc = extractAttr(attrsRaw, 'src')
+  if (!rawSrc) return { error: 'iframe is missing a src attribute' }
+  // Decode HTML entities — embed codes encode & as &amp; in attribute values.
+  // Without this the stored URL would have &amp; instead of & which breaks
+  // query params like app_id that Vimeo requires for embed authorisation.
+  const src = rawSrc
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
 
   // Validate src against the same URL allow-list
   const classified = classifyUrl(src)
