@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition, useRef } from 'react'
+import { useState, useTransition, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, Globe, Copy, Check, Settings, Loader2, MoreHorizontal, GripVertical, Pencil, Trash2, ChevronDown, ArrowRight } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
@@ -108,6 +108,10 @@ export function DeliverablesManager({ project, deliveryPage: initialPage, hasApp
   const [dragAssetId,    setDragAssetId]    = useState<string | null>(null)
   const [dragAssetSection, setDragAssetSection] = useState<string | null>(null)
   const [dropAssetSectionId, setDropAssetSectionId] = useState<string | null>(null)
+
+  // Sync local state whenever router.refresh() delivers new server props.
+  // useState(initialPage) only uses the prop on first mount; this keeps it live.
+  useEffect(() => { setPage(initialPage) }, [initialPage])
 
   const publicUrl = page ? `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/d/${page.publicToken}` : null
 

@@ -1,6 +1,7 @@
 import { notFound }                    from 'next/navigation'
 import { db }                          from '@/lib/db'
 import { getWorkspaceId, requireRole } from '@/lib/auth'
+import { generatePublicToken }         from '@/lib/secure-token'
 import { DeliverablesManager }         from '@/components/delivery/DeliverablesManager'
 import { getDeliveryAnalytics }        from '@/server/actions/delivery'
 
@@ -27,6 +28,13 @@ export default async function DeliveryDeliverablesPage({ params }: Props) {
     select: { id: true, name: true },
   })
   if (!project) notFound()
+
+  // Auto-create the delivery page on first visit so users never see an empty state
+  await db.deliveryPage.upsert({
+    where:  { projectId: id },
+    create: { projectId: id, workspaceId, publicToken: generatePublicToken() },
+    update: {},
+  })
 
   const deliveryPage = await db.deliveryPage.findUnique({
     where:  { projectId: id },
