@@ -473,9 +473,13 @@ export async function addVersion(
 
     const renderMode = input.renderMode ?? detectedRenderMode
 
-    // Next version number
-    const existing = await sdb.deliverableVersion.count({ where: { deliverableId: assetId } })
-    const versionNumber = existing + 1
+    // Next version number — use MAX rather than COUNT so deleted versions
+    // don't cause unique-constraint collisions on (deliverableId, versionNumber).
+    const agg = await sdb.deliverableVersion.aggregate({
+      where: { deliverableId: assetId },
+      _max: { versionNumber: true },
+    })
+    const versionNumber = (agg._max.versionNumber ?? 0) + 1
 
     // Create version then promote atomically.
     // For VIMEO, don't store embedHtml — sanitizeIframe strips the padding wrapper
@@ -519,9 +523,8 @@ export async function addVersion(
     if (projectId) revalidateDelivery(projectId)
     return { success: true, data: { id: version.id, versionNumber } }
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
     console.error('[delivery] addVersion', err)
-    return { success: false, error: `Failed to add version: ${msg}` }
+    return { success: false, error: 'Failed to add version.' }
   }
 }
 
