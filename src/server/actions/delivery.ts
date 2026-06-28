@@ -454,23 +454,24 @@ export async function addVersion(
 
     // Vimeo creator-portfolio URLs (vimeo.com/{user}/{slug}) can't be converted
     // to a player URL synchronously — detectEmbed returns the original URL.
-    // Resolve to player.vimeo.com/video/{id} via oEmbed before storing.
+    // Try oEmbed to get a proper player.vimeo.com URL; if that fails (private video,
+    // network timeout, etc.) fall back to EXTERNAL_ONLY so the version is always
+    // created. isVertical is stored either way — it only drives display.
     let canonicalUrl = detected.canonicalUrl
+    let detectedRenderMode = detected.renderMode
     if (
       detected.provider === 'VIMEO' &&
       !canonicalUrl.startsWith('https://player.vimeo.com')
     ) {
       const playerUrl = await resolveVimeoPlayerUrl(canonicalUrl)
-      if (!playerUrl) {
-        return {
-          success: false,
-          error:   'Could not resolve this Vimeo URL. Try pasting the embed code from Vimeo\'s share dialog instead.',
-        }
+      if (playerUrl) {
+        canonicalUrl = playerUrl
+      } else {
+        detectedRenderMode = 'EXTERNAL_ONLY'
       }
-      canonicalUrl = playerUrl
     }
 
-    const renderMode = input.renderMode ?? detected.renderMode
+    const renderMode = input.renderMode ?? detectedRenderMode
 
     // Next version number
     const existing = await sdb.deliverableVersion.count({ where: { deliverableId: assetId } })
