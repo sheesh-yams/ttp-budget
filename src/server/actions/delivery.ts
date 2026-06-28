@@ -519,8 +519,9 @@ export async function addVersion(
     if (projectId) revalidateDelivery(projectId)
     return { success: true, data: { id: version.id, versionNumber } }
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
     console.error('[delivery] addVersion', err)
-    return { success: false, error: 'Failed to add version.' }
+    return { success: false, error: `Failed to add version: ${msg}` }
   }
 }
 
