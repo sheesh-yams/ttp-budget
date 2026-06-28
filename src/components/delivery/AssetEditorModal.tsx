@@ -473,8 +473,8 @@ function VersionsTab({ asset, pendingDetails }: {
           className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
 
-        {/* Show orientation toggle for Frame.io — affects iframe container height on the client page */}
-        {detectedProvider === 'FRAME_IO' && (
+        {/* Orientation toggle — affects iframe container height on the client page */}
+        {(detectedProvider === 'FRAME_IO' || detectedProvider === 'SHADE' || detectedProvider === 'VIMEO') && (
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <input
               type="checkbox"

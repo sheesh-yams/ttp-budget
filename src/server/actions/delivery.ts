@@ -397,7 +397,11 @@ export async function addVersion(
     const existing = await sdb.deliverableVersion.count({ where: { deliverableId: assetId } })
     const versionNumber = existing + 1
 
-    // Create version then promote atomically
+    // Create version then promote atomically.
+    // For VIMEO, don't store embedHtml — sanitizeIframe strips the padding wrapper
+    // from Vimeo's responsive embed code and leaves a bare <iframe> with no CSS.
+    // The canonicalUrl already carries all needed params; rendering via <iframe src>
+    // fills the container correctly.
     const version = await sdb.deliverableVersion.create({
       data: {
         deliverableId: assetId,
@@ -405,7 +409,7 @@ export async function addVersion(
         url:           detected.canonicalUrl,
         provider:      detected.provider,
         renderMode,
-        embedHtml:     detected.embedHtml ?? null,
+        embedHtml:     detected.provider === 'VIMEO' ? null : (detected.embedHtml ?? null),
         note:          input.note?.trim() ?? null,
         isVertical:    input.isVertical ?? false,
         workspaceId:   gate.workspaceId,

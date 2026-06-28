@@ -197,10 +197,8 @@ export default async function PublicAssetPage({ params }: Props) {
 
 // ─── Iframe viewer ────────────────────────────────────────────────────────────
 
-// Shade always uses a tall container — its player is a full review UI and looks
-// fine at any orientation. Frame.io uses a tall container only when the content
-// is flagged as vertical; horizontal Frame.io stays at 16:9.
-const PROVIDER_NAMES: Record<string, string> = {
+// Providers that have their own review UI — show an "Open in X" escape link
+const REVIEW_PROVIDER_NAMES: Record<string, string> = {
   SHADE:    'Shade',
   FRAME_IO: 'Frame.io',
 }
@@ -213,7 +211,8 @@ function IframeViewer({
   provider:   string
   isVertical: boolean
 }) {
-  const useTallContainer = provider === 'SHADE' || (provider === 'FRAME_IO' && isVertical)
+  // Any provider can be vertical — use the tall container when flagged
+  const useTallContainer = isVertical
 
   const wrapStyle: React.CSSProperties = useTallContainer
     ? { width: '100%', borderRadius: 12, overflow: 'hidden', height: '85vh', minHeight: 560, background: '#111', position: 'relative' }
@@ -233,7 +232,7 @@ function IframeViewer({
     </div>
   )
 
-  const providerName = PROVIDER_NAMES[provider]
+  const providerName = REVIEW_PROVIDER_NAMES[provider]
   if (!providerName) return content
 
   // Known review-tool providers: show the iframe + an escape-hatch link
