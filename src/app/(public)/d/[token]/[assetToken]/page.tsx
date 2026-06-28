@@ -196,11 +196,19 @@ export default async function PublicAssetPage({ params }: Props) {
 
 // ─── Iframe viewer ────────────────────────────────────────────────────────────
 
-function IframeViewer({ embedHtml, url, provider }: { embedHtml: string | null; url: string; provider: string }) {
-  // Shade review pages are full interactive UIs — don't force 16:9; let them breathe
-  const isShade = provider === 'SHADE'
+// Providers whose players are full interactive UIs (video + comments panel).
+// Forcing 16:9 squishes vertical content — give these a tall viewport instead.
+const FULL_UI_PROVIDERS = new Set(['SHADE', 'FRAME_IO'])
 
-  const wrapStyle: React.CSSProperties = isShade
+const PROVIDER_NAMES: Record<string, string> = {
+  SHADE:    'Shade',
+  FRAME_IO: 'Frame.io',
+}
+
+function IframeViewer({ embedHtml, url, provider }: { embedHtml: string | null; url: string; provider: string }) {
+  const isFullUi = FULL_UI_PROVIDERS.has(provider)
+
+  const wrapStyle: React.CSSProperties = isFullUi
     ? { width: '100%', borderRadius: 12, overflow: 'hidden', height: '85vh', minHeight: 560, background: '#111', position: 'relative' }
     : { width: '100%', borderRadius: 12, overflow: 'hidden', aspectRatio: '16/9', background: '#111' }
 
@@ -218,9 +226,10 @@ function IframeViewer({ embedHtml, url, provider }: { embedHtml: string | null; 
     </div>
   )
 
-  if (!isShade) return content
+  if (!isFullUi) return content
 
-  // For Shade: show the iframe + an "Open in Shade" escape hatch below it
+  // Full-UI providers: show the iframe + an escape-hatch link to open natively
+  const providerName = PROVIDER_NAMES[provider] ?? 'review tool'
   return (
     <>
       {content}
@@ -232,7 +241,7 @@ function IframeViewer({ embedHtml, url, provider }: { embedHtml: string | null; 
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'rgba(255,255,255,0.4)', textDecoration: 'none', fontSize: 12, fontWeight: 500 }}
         >
           <ExternalLink size={13} />
-          Open full review in Shade
+          Open in {providerName}
         </a>
       </div>
     </>
