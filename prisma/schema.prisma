@@ -1095,6 +1095,11 @@ model Receipt {
   fileType      String       // MIME type: image/jpeg | image/png | image/webp | application/pdf
   fileSizeBytes Int?         // file size in bytes
 
+  // Details filled in after upload — drive actuals reconciliation
+  amountCents   Int?         // amount on this receipt
+  merchantName  String?      // vendor / merchant name
+  receiptDate   DateTime?    // date of the expense (may differ from upload date)
+
   uploadedAt    DateTime     @default(now())
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
