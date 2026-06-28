@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition, useEffect, useRef } from 'react'
-import { X, Loader2, Plus, Check, ImageIcon } from 'lucide-react'
+import { X, Loader2, Plus, Check, ImageIcon, Upload, AlertCircle } from 'lucide-react'
 import { detectEmbed } from '@/lib/embed-detection'
 import {
   updateAsset, addVersion,
@@ -76,7 +76,7 @@ const RENDER_MODE_OPTIONS = [
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function AssetEditorModal({ asset, onClose }: Props) {
-  const [tab, setTab] = useState<'details' | 'versions'>('details')
+  const [tab, setTab] = useState<'details' | 'versions' | 'thumbnail'>('details')
 
   // Shared state at modal level so it persists when switching tabs
   const [title,       setTitle]       = useState(asset.title)
@@ -102,7 +102,7 @@ export function AssetEditorModal({ asset, onClose }: Props) {
 
         {/* Tabs */}
         <div className="flex border-b border-border px-5 flex-shrink-0">
-          {(['details', 'versions'] as const).map(t => (
+          {(['details', 'versions', 'thumbnail'] as const).map(t => (
             <button
               key={t}
               type="button"
@@ -113,27 +113,30 @@ export function AssetEditorModal({ asset, onClose }: Props) {
                   : 'border-transparent text-muted-foreground hover:text-foreground'
               }`}
             >
-              {t === 'details' ? 'Details' : 'Versions'}
+              {t === 'details' ? 'Details' : t === 'versions' ? 'Versions' : 'Thumbnail'}
             </button>
           ))}
         </div>
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-5">
-          {tab === 'details'
-            ? <DetailsTab
-                asset={asset}
-                title={title}        setTitle={setTitle}
-                description={description} setDescription={setDescription}
-                type={type}          setType={setType}
-                status={status}      setStatus={setStatus}
-                onClose={onClose}
-              />
-            : <VersionsTab
-                asset={asset}
-                pendingDetails={{ title: title.trim(), description: description.trim() || null, type, status }}
-              />
-          }
+          {tab === 'details' ? (
+            <DetailsTab
+              asset={asset}
+              title={title}        setTitle={setTitle}
+              description={description} setDescription={setDescription}
+              type={type}          setType={setType}
+              status={status}      setStatus={setStatus}
+              onClose={onClose}
+            />
+          ) : tab === 'versions' ? (
+            <VersionsTab
+              asset={asset}
+              pendingDetails={{ title: title.trim(), description: description.trim() || null, type, status }}
+            />
+          ) : (
+            <ThumbnailTab asset={asset} />
+          )}
         </div>
       </div>
     </div>
@@ -245,7 +248,159 @@ function DetailsTab({
   )
 }
 
-// ─── Thumbnail uploader ───────────────────────────────────────────────────────
+// ─── Thumbnail tab ────────────────────────────────────────────────────────────
+
+function ThumbnailTab({ asset }: { asset: Asset }) {
+  const versionId = asset.currentVersion?.id ?? null
+  const [currentUrl, setCurrentUrl] = useState(asset.currentVersion?.thumbnailUrl ?? null)
+  const [dragging,   setDragging]   = useState(false)
+  const [uploading,  setUploading]  = useState(false)
+  const [error,      setError]      = useState<string | null>(null)
+  const inputRef    = useRef<HTMLInputElement>(null)
+  const dragCounter = useRef(0)
+
+  async function handleFile(file: File) {
+    if (!versionId) return
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setError('Only JPEG, PNG, or WebP images are allowed.')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError('File must be under 5 MB.')
+      return
+    }
+    setError(null)
+    setUploading(true)
+
+    const presign = await getPresignedUploadUrl(file.name, file.type, file.size, 'delivery-thumbnails')
+    if (!presign.success) {
+      setError('error' in presign ? presign.error : 'Failed to start upload.')
+      setUploading(false)
+      return
+    }
+
+    const put = await fetch(presign.data.uploadUrl, {
+      method:  'PUT',
+      body:    file,
+      headers: { 'Content-Type': file.type },
+    })
+    if (!put.ok) {
+      setError('Upload to storage failed. Please try again.')
+      setUploading(false)
+      return
+    }
+
+    const save = await updateVersion(versionId, { thumbnailUrl: presign.data.publicUrl })
+    if (!save.success) {
+      setError('error' in save ? save.error : 'Failed to save thumbnail.')
+      setUploading(false)
+      return
+    }
+
+    setCurrentUrl(presign.data.publicUrl)
+    setUploading(false)
+  }
+
+  function onDragEnter(e: React.DragEvent) {
+    e.preventDefault(); dragCounter.current += 1; setDragging(true)
+  }
+  function onDragLeave(e: React.DragEvent) {
+    e.preventDefault(); dragCounter.current -= 1
+    if (dragCounter.current === 0) setDragging(false)
+  }
+  function onDragOver(e: React.DragEvent) { e.preventDefault() }
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault(); dragCounter.current = 0; setDragging(false)
+    const file = e.dataTransfer.files?.[0]
+    if (file) void handleFile(file)
+  }
+  function onPaste(e: React.ClipboardEvent) {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of Array.from(items)) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const file = item.getAsFile()
+        if (file) { e.preventDefault(); void handleFile(file); break }
+      }
+    }
+  }
+
+  if (!versionId) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-center">
+        <p className="text-sm text-muted-foreground">No version yet — add a version first.</p>
+      </div>
+    )
+  }
+
+  const dropLabel = uploading
+    ? 'Uploading…'
+    : dragging
+      ? 'Drop to upload'
+      : currentUrl ? 'Drop, click, or paste to replace' : 'Drop, click, or paste to upload'
+
+  return (
+    <div className="space-y-4" onPaste={onPaste}>
+      {/* Current thumbnail preview */}
+      {currentUrl && (
+        <div className="relative rounded-lg overflow-hidden bg-secondary/40">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={currentUrl} alt="Current thumbnail" className="w-full max-h-52 object-contain" />
+          <span className="absolute bottom-2 right-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] text-white font-medium">
+            Current
+          </span>
+        </div>
+      )}
+
+      {/* Drop zone */}
+      <div
+        role="button"
+        tabIndex={0}
+        onDragEnter={onDragEnter}
+        onDragLeave={onDragLeave}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
+        onClick={() => !uploading && inputRef.current?.click()}
+        onKeyDown={e => e.key === 'Enter' && !uploading && inputRef.current?.click()}
+        className={[
+          'relative flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed gap-2 py-8 transition-colors',
+          dragging
+            ? 'border-primary bg-primary/5 text-primary'
+            : 'border-border bg-muted/30 text-muted-foreground hover:border-primary/50 hover:bg-muted/50',
+          uploading ? 'opacity-60 cursor-not-allowed' : '',
+        ].join(' ')}
+      >
+        {uploading
+          ? <Loader2 className="h-8 w-8 animate-spin" />
+          : <Upload className="h-8 w-8" />
+        }
+        <p className="text-sm font-medium">{dropLabel}</p>
+        <p className="text-xs">JPEG, PNG, WebP · max 5 MB</p>
+        <p className="text-xs opacity-70">Paste from clipboard (⌘V) also works</p>
+        <input
+          ref={inputRef}
+          type="file"
+          className="sr-only"
+          accept="image/jpeg,image/png,image/webp"
+          onChange={e => {
+            const file = e.target.files?.[0]
+            if (file) void handleFile(file)
+            e.target.value = ''
+          }}
+        />
+      </div>
+
+      {error && (
+        <p className="flex items-center gap-1.5 text-xs text-destructive">
+          <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ─── Per-row thumbnail uploader (quick replace in Versions tab) ───────────────
 
 function ThumbnailUploader({ versionId, hasThumbnail, onUploaded }: {
   versionId:    string
