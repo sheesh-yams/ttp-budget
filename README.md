@@ -110,7 +110,25 @@ Workspace (1)
   │           ├── Invoices  (public /i/[token] page + PDF)
   │           ├── ProjectComments  (activity feed — see Project hub)
   │           ├── ProjectAssignments (Collaborator visibility — see Roles & Permissions)
-  │           └── CallSheets (public /cs/[token] page)
+  │           ├── CallSheets (public /cs/[token] page)
+  │           └── DeliveryPage (public /d/[token] portal)
+  │                 ├── status            DRAFT | PUBLISHED
+  │                 ├── publicToken       UUID v4
+  │                 └── DeliverableSection[]
+  │                       ├── title / orderIndex
+  │                       └── DeliverableAsset[]
+  │                             ├── title / description / type / status / orderIndex
+  │                             ├── publicToken       UUID v4 (used in /d/[token]/[assetToken])
+  │                             ├── currentVersionId  FK → DeliverableVersion
+  │                             └── DeliverableVersion[]
+  │                                   ├── versionNumber
+  │                                   ├── url             canonical embed/player URL
+  │                                   ├── provider        FRAME_IO | SHADE | VIMEO | YOUTUBE | …
+  │                                   ├── renderMode      IFRAME | NATIVE_MEDIA | EXTERNAL_ONLY
+  │                                   ├── isVertical      Boolean — portrait/9:16; switches embed container to 85vh
+  │                                   ├── thumbnailUrl    String? — auto-set for Vimeo/YouTube; manual R2 upload otherwise
+  │                                   ├── note            String? — version note shown on client page
+  │                                   └── firstClientViewAt DateTime? — null = unseen badge active
   │                 ├── crew          JSON — [{ dept, members: [{ name, role, callTime, phone, email, contactId? }] }]
   │                 ├── talent        JSON — [{ name, role/character, callTime, phone, email, contactId? }]
   │                 ├── schedule      JSON — [{ startTime, endTime, label, whoNeeded, notes }]
@@ -155,6 +173,8 @@ Rate cards are the **source of defaults** but never retroactively change histori
 | `/projects/[id]/actuals` | Actuals tracker — per-line-item spend, ad-hoc entries, status (Pending/Approved), date, vendor |
 | `/projects/[id]/actuals/wrap` | Wrap report — budgeted vs. actual by account, margin, top overages, PDF download |
 | `/projects/[id]/call-sheets/[csId]` | Call sheet editor |
+| `/projects/[id]/delivery/deliverables` | Deliverables manager — sections, asset cards, drag-and-drop, asset editor modal (Details / Versions / Thumbnail tabs) |
+| `/projects/[id]/delivery/page` | Client page preview — shows what `/d/[token]` looks like; publish/unpublish |
 | `/proposals` | All proposals — Kanban view + full list table |
 | `/invoices` | Invoice list with metrics |
 | `/invoices/[id]/edit` | Invoice editor |
@@ -175,8 +195,10 @@ Rate cards are the **source of defaults** but never retroactively change histori
 | `/i/[token]` | Invoice — wire/ACH details, download PDF. Same per-workspace branding. |
 | `/cs/[token]` | Call sheet for crew — desktop 2-col layout, mobile single-column. DRAFT shows a preview banner. `?print=1` auto-triggers `window.print()`. |
 | `/invite/[token]` | Team invitation acceptance page |
+| `/d/[token]` | Public delivery portal — asset listing with sections, thumbnails, provider badges, unseen indicators |
+| `/d/[token]/[assetToken]` | Public individual deliverable — iframe embed, native media, or external link depending on provider + render mode |
 
-## The Five Core Features
+## Core Features
 
 ### 1. Budget editor (`/projects/[id]/budgets/[budgetId]`)
 
@@ -356,7 +378,73 @@ Assign Rolodex contacts to individual projects with optional role/rate overrides
 - **Call time sync** — call times on member cards sync bi-directionally with call sheet crew/talent rows via `contactId`. Latest edit wins; sync is fire-and-forget so neither side can fail the other's save.
 - **Edit Rolodex contact from Team page** — on any `MemberCard` that is linked to a Rolodex contact (`contactId` set), clicking the **BookUser icon** fetches the contact's full record (`getContactForModal`) and opens `ContactModal` pre-populated — including kit settings — without leaving the project workspace. On save, `revalidatePath` is called on both `/projects/[id]/team` and `/rolodex` so both views update immediately.
 
-### 6. Projects dashboard metrics (`/projects`)  
+### 6. Delivery (`/projects/[id]/delivery`)
+
+A client-facing deliverable portal for sharing video and creative assets from a project. Replaces the need to share raw Frame.io or Shade links directly — clients get a branded URL (`/d/[token]`) listing all deliverables organized into sections.
+
+**Admin side (`/projects/[id]/delivery/deliverables`):**
+
+- **Sections** — group deliverables into named sections (e.g. "Social Cuts", "Hero Film"); drag to reorder sections and assets independently
+- **Asset cards** — each asset shows title, provider badge, unseen indicator ("Unseen" in violet when no client has viewed it), and a thumbnail if available
+- **Kebab menu per asset** — Edit, Move to another section (future), Delete
+- **Drag-and-drop** — reorder assets within a section; drag a section header to reorder sections. Drag events are `stopPropagation()`-isolated so dragging an asset never accidentally moves its parent section
+- **Add asset** — optimistic UI: a placeholder card appears immediately; rolls back on failure
+- **Asset editor modal** — three tabs:
+  - **Details** — title, description, type (`DELIVERABLE` | `RAW` | `REFERENCE`), status (`DRAFT` | `SHARED`)
+  - **Versions** — full version history (loaded from server on open); add a new version by pasting a URL or `<iframe>` embed code; auto-detects provider + render mode; "Vertical video (9:16)" checkbox appears for Frame.io, Shade, and Vimeo; per-version camera icon for quick thumbnail replace
+  - **Thumbnail** — drag-and-drop, click to browse, or paste (⌘V) to upload a thumbnail image. Shows current thumbnail preview with a "Current" badge. Uploads direct to R2 via presigned URL.
+
+**Client page preview (`/projects/[id]/delivery/page`):**
+
+- Preview of what the client will see at `/d/[token]`
+- Shows published vs. draft status, section count, asset count
+
+**Public delivery pages (no auth — `/d/[token]`):**
+
+Fully public. Token-authenticated at the route level — not Clerk-auth-gated. Rate-limited via the existing middleware.
+
+- **`/d/[token]`** — Asset listing page: workspace logo, sections, asset cards with thumbnail + provider badge. "Unseen" badge for assets the client hasn't opened yet.
+- **`/d/[token]/[assetToken]`** — Individual asset view, specific to the current version. Renders one of:
+  - **IFRAME** — embed player (Frame.io, Shade, Vimeo, YouTube, Google Drive, etc.)
+  - **NATIVE_MEDIA** — `<video>` tag or `<img>` for direct file URLs
+  - **EXTERNAL_ONLY** — a branded link card to open in the source app
+
+**Embed provider support:**
+
+| Provider | Detection | Render |
+|---|---|---|
+| Frame.io (`f.io`, `app.frame.io`, `next.frame.io`) | URL | IFRAME |
+| Shade (`shade.inc`, `*.shade.inc`) | URL | IFRAME |
+| Vimeo | URL or `<iframe>` embed code | IFRAME |
+| YouTube / YouTube Nocookie | URL | IFRAME |
+| Google Drive (file) | URL | IFRAME |
+| Google Drive (folder) | URL | EXTERNAL_ONLY |
+| Dropbox | URL | EXTERNAL_ONLY |
+| Direct image (`.jpg`, `.png`, `.webp`, etc.) | URL extension | NATIVE_MEDIA |
+| Direct video (`.mp4`, `.webm`, `.mov`) | URL extension | NATIVE_MEDIA |
+| Unknown URL | URL | EXTERNAL_ONLY |
+
+Embed code (`<iframe>` HTML snippets) are sanitized by `detectEmbed()` in `src/lib/embed-detection.ts` — scripts stripped, only known providers accepted, only safe attributes kept. The canonical URL (with all query params) is stored; raw `embedHtml` is not stored for VIMEO (the canonical URL covers it and renders with fill styles).
+
+**Vertical video sizing:**
+
+The `IframeViewer` on the public asset page uses `aspectRatio: 16/9` by default. When a version is flagged `isVertical = true`, it switches to `height: 85vh / min 560px` — wide enough for portrait content and review-tool UIs. The "Vertical video (9:16)" checkbox in the Versions tab sets this flag at version creation. Frame.io, Shade, and Vimeo all support it.
+
+**View tracking:**
+
+- Each public asset page view writes a `DeliverableView` row (IP hash, user agent, timestamp)
+- `firstClientViewAt` on `DeliverableVersion` is set on the first real client view (clears the "Unseen" badge)
+- Admin/workspace member views are skipped — `auth()` is called and a DB lookup checks workspace membership before recording
+
+**Auto-thumbnails:**
+
+- **Vimeo** — `tryFetchThumbnail()` in `delivery.ts` calls Vimeo's oEmbed API (`vimeo.com/api/oembed.json`) after version creation, stores the `thumbnail_url` before `revalidateDelivery` fires
+- **YouTube** — constructs `img.youtube.com/vi/{id}/hqdefault.jpg` (no API call, always available for public videos)
+- **Frame.io / Shade** — no public API; thumbnail stays null until manually uploaded via the Thumbnail tab
+
+**`DeliveryVersion.isVertical`** — `Boolean @default(false)`. Added in migration `20260628000002_version_is_vertical`.
+
+### 7. Projects dashboard metrics (`/projects`)  
 
 The four KPI cards are computed server-side from the primary budget phase of each non-archived project using `calcBudgetTotals` (net subtotal + markup + tax = gross). All figures are **gross totals** — the same number a client sees on a proposal.
 
@@ -387,6 +475,9 @@ All image uploads bypass the Next.js server entirely. The browser never holds ra
 |--------|----------|-----------|
 | `avatars/` | Rolodex contact photos, user profile avatar | `Contact.avatarUrl`, `User.avatarUrl` |
 | `logos/` | Workspace branding | `Workspace.logoUrl`, `Workspace.logoDarkUrl` |
+| `client-logos/` | Per-client logo | `Client.logoUrl` |
+| `delivery-thumbnails/` | Deliverable version thumbnails (manual upload or replace) | `DeliverableVersion.thumbnailUrl` |
+| `delivery-covers/` | Delivery page cover images | reserved |
 
 **User avatar note:** `getCurrentUser()` in `src/lib/auth.ts` no longer overwrites `User.avatarUrl` with Clerk's `imageUrl` on every request — it only sets it during initial account creation. Once a custom R2 avatar is uploaded, it persists. Users can update their avatar in **Settings → My profile**.
 
@@ -486,11 +577,18 @@ ttp-budget/
 │       ├── 20260615000001_crew_workflow/migration.sql
 │       │                                    #   Contact: hasKit, kitRateCents, kitName
 │       │                                    #   LineItem: contactId → Contact (ON DELETE SET NULL)
-│       └── 20260627000001_budget_sections/migration.sql
-│                                            #   BudgetSection table (workspaceId, phaseId, title, orderIndex)
-│                                            #   Account.sectionId FK (NOT NULL after backfill)
-│                                            #   Phase.pageBreakBetweenAccounts, Phase.sectionsNudgeDismissedAt
-│                                            #   Backfills one "Main" section per existing phase
+│       ├── 20260627000001_budget_sections/migration.sql
+│       │                                    #   BudgetSection table (workspaceId, phaseId, title, orderIndex)
+│       │                                    #   Account.sectionId FK (NOT NULL after backfill)
+│       │                                    #   Phase.pageBreakBetweenAccounts, Phase.sectionsNudgeDismissedAt
+│       │                                    #   Backfills one "Main" section per existing phase
+│       ├── 20260627000002_workspace_expiry_days/migration.sql
+│       ├── 20260628000001_delivery_feature/migration.sql
+│       │                                    #   DeliveryPage, DeliverableSection, DeliverableAsset,
+│       │                                    #   DeliverableVersion (url, provider, renderMode, embedHtml,
+│       │                                    #   thumbnailUrl, note, firstClientViewAt), DeliverableView
+│       └── 20260628000002_version_is_vertical/migration.sql
+│                                            #   DeliverableVersion.isVertical Boolean @default(false)
 ├── scripts/
 │   ├── backfill-callsheet-contacts.ts      # F6: link existing crew/talent rows to Rolodex contacts by name+email (--apply to write)
 │   ├── backfill-workspace-ids.ts           # A1: fill workspaceId on Phase/Account/LineItem/ProjectMember rows
@@ -513,7 +611,10 @@ ttp-budget/
 │   │   │   │       ├── team/                # Per-project crew list
 │   │   │   │       ├── actuals/             # Actuals tracker (per-line spend, ad-hoc entries, status)
 │   │   │   │       │   └── wrap/            # Wrap report — budgeted vs. actual, PDF download
-│   │   │   │       └── call-sheets/[csId]/  # Call sheet editor page
+│   │   │   │       ├── call-sheets/[csId]/  # Call sheet editor page
+│   │   │   │       └── delivery/
+│   │   │   │           ├── deliverables/    # Admin deliverables manager (sections, assets, drag-and-drop)
+│   │   │   │           └── page/            # Client page preview + publish/unpublish
 │   │   │   ├── proposals/
 │   │   │   ├── invoices/
 │   │   │   ├── rates/
@@ -530,7 +631,11 @@ ttp-budget/
 │   │   │   ├── p/[token]/page.tsx           # Proposal public view (draft-aware; per-workspace branded)
 │   │   │   ├── i/[token]/page.tsx           # Invoice public view (per-workspace branded)
 │   │   │   ├── cs/[token]/page.tsx          # Call sheet public view (draft-aware)
-│   │   │   └── invite/[token]/page.tsx      # Team invitation acceptance
+│   │   │   ├── invite/[token]/page.tsx      # Team invitation acceptance
+│   │   │   ├── d/[token]/page.tsx           # Public delivery listing — sections + asset cards + unseen badges
+│   │   │   └── d/[token]/[assetToken]/page.tsx  # Public asset view — IframeViewer (16:9 or 85vh), NativeMediaViewer, ExternalLinkView
+│   │   │                                    #   View tracking: records DeliverableView, sets firstClientViewAt
+│   │   │                                    #   Skips tracking for workspace members (auth() check + DB lookup)
 │   │   └── api/
 │   │       ├── address-autocomplete/        # Nominatim-backed address search; venue names; server-side to avoid CORS
 │   │       ├── pdf/proposal/[id]/
@@ -581,6 +686,10 @@ ttp-budget/
 │   │   │   ├── CommentInput.tsx             # Auto-grow composer; useActionState; Enter to send
 │   │   │   ├── AssignCollaborators.tsx      # OWNER/PRODUCER dialog — assign Collaborators to a project
 │   │   │   └── ProposalOverview.tsx
+│   │   ├── delivery/
+│   │   │   ├── DeliverablesManager.tsx      # Admin manager: sections, asset cards, DnD, optimistic add/move
+│   │   │   ├── AssetEditorModal.tsx         # 3-tab modal: Details, Versions (history + add + vertical toggle), Thumbnail (drag/drop/paste)
+│   │   │   └── ClientPagePreview.tsx        # Read-only preview of the published client portal
 │   │   ├── actuals/
 │   │   │   └── WrapReportPDF.tsx            # @react-pdf/renderer Document for the wrap report PDF
 │   │   ├── rolodex/
@@ -622,6 +731,10 @@ ttp-budget/
 │   │   ├── json-safe.ts                     # toJsonSafe() — replaces JSON.parse(JSON.stringify()); handles Decimal
 │   │   ├── secure-token.ts                  # generatePublicToken() — crypto.randomUUID() UUID v4
 │   │   ├── time-format.ts                   # formatTime(hhmm, format) — "07:00" → "7:00 AM" or "07:00"; TimeFormat type
+│   │   ├── embed-detection.ts               # detectEmbed(urlOrHtml) — classifies provider + renderMode + canonicalUrl
+│   │   │                                    #   sanitizeIframe: strips scripts, validates src against provider allow-list,
+│   │   │                                    #   rebuilds <iframe> with safe attrs only. Never stores VIMEO embedHtml —
+│   │   │                                    #   canonicalUrl carries all query params and fills the container correctly.
 │   │   └── email.ts
 │   └── server/
 │       └── actions/
@@ -655,6 +768,11 @@ ttp-budget/
 │           ├── comments.ts                  # getProjectActivity (legacy notes → pinned comment) + addProjectComment
 │           ├── assignments.ts               # getProjectAssignees + setProjectAssignment (Collaborator visibility; OWNER/PRODUCER-gated)
 │           ├── upload.ts                    # getPresignedUploadUrl() — issues 60 s PutObjectCommand ticket to R2; never touches file bytes
+│           │                                #   Folders: avatars, logos, client-logos, delivery-covers, delivery-thumbnails
+│           ├── delivery.ts                  # Full delivery CRUD: createDeliveryPage, createSection, createAsset, addVersion,
+│           │                                #   updateVersion (thumbnailUrl, isVertical, note), deleteVersion, setCurrentVersion,
+│           │                                #   getAssetVersions, recordDeliverableView, generateFromProposal
+│           │                                #   tryFetchThumbnail: Vimeo oEmbed + YouTube hqdefault — runs before revalidateDelivery
 │           └── workspace.ts                 # updateBrandingSettings (primaryColor/accentColor), getLogoUploadUrl/saveWorkspaceLogo
 │                                            #   updateProductionSettings — saves callTimeFormat; updateUserAvatar(url)
 ├── .env.example
@@ -780,6 +898,21 @@ If the browser confirm never fires (closed tab, lost signal, or async ACH/EFT th
 | `/cs/` (call sheets) | 60 s | 60 per IP |
 
 Returns `429 Too Many Requests` with `Retry-After` and `X-RateLimit-*` headers. State is in-process (`Map`) — correct for single-instance Railway. Upgrade path: swap the `Map` for Upstash Redis + `@upstash/ratelimit` when scaling to multiple replicas.
+
+**Public route exemptions** (`src/middleware.ts` → `isPublicRoute`):
+
+Routes that are public (Clerk auth skipped) — all are token-authenticated at the route level:
+
+| Pattern | Purpose |
+|---|---|
+| `/p/(.*)` | Proposals |
+| `/i/(.*)` | Invoices |
+| `/cs/(.*)` | Call sheets |
+| `/d/(.*)` | Delivery portals — clients have no Clerk account |
+| `/invite/(.*)` | Workspace invitations |
+| `/api/webhooks/(.*)` | Clerk + Helcim webhooks |
+| `/api/pdf/(.*)` | PDF stream endpoints |
+| `/api/payments/(.*)` | Helcim payment initiation + confirmation |
 
 ## Engineering Conventions
 
