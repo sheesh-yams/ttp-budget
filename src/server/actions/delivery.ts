@@ -525,6 +525,42 @@ export async function deleteVersion(
   }
 }
 
+// ─── Get all versions for an asset ───────────────────────────────────────────
+
+export async function getAssetVersions(assetId: string): Promise<ActionResult<{
+  id:                string
+  versionNumber:     number
+  provider:          string
+  renderMode:        string
+  thumbnailUrl:      string | null
+  firstClientViewAt: Date | null
+  note:              string | null
+}[]>> {
+  try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error!
+    const sdb = await getScopedDb()
+
+    const versions = await sdb.deliverableVersion.findMany({
+      where:   { deliverableId: assetId },
+      orderBy: { versionNumber: 'asc' },
+      select: {
+        id:                true,
+        versionNumber:     true,
+        provider:          true,
+        renderMode:        true,
+        thumbnailUrl:      true,
+        firstClientViewAt: true,
+        note:              true,
+      },
+    })
+    return { success: true, data: versions }
+  } catch (err) {
+    console.error('[delivery] getAssetVersions', err)
+    return { success: false, error: 'Failed to load versions.' }
+  }
+}
+
 // ─── Generate from proposal ───────────────────────────────────────────────────
 
 type GenerateChoice = {

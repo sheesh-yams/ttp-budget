@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect } from 'react'
 import { X, Loader2, Plus, Check } from 'lucide-react'
 import { detectEmbed } from '@/lib/embed-detection'
 import {
   updateAsset, addVersion,
-  setCurrentVersion, deleteVersion,
+  setCurrentVersion, deleteVersion, getAssetVersions,
 } from '@/server/actions/delivery'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import type { DeliverableItemType } from '@/types'
@@ -252,11 +252,19 @@ function VersionsTab({ asset, pendingDetails }: {
   const [, startTransition] = useTransition()
   const { confirm, ConfirmDialog } = useConfirm()
 
-  // Local version list so UI updates immediately without a page refresh
+  // Local version list — seeded from currentVersion, then replaced by full fetch on mount
   const [localVersions,   setLocalVersions]   = useState<Version[]>(
-    asset.versions ?? (asset.currentVersion ? [asset.currentVersion] : [])
+    asset.currentVersion ? [asset.currentVersion] : []
   )
   const [curVersionId,    setCurVersionId]    = useState<string | null>(asset.currentVersion?.id ?? null)
+  const [versionsLoading, setVersionsLoading] = useState(true)
+
+  useEffect(() => {
+    getAssetVersions(asset.id).then(result => {
+      if (result.success) setLocalVersions(result.data)
+      setVersionsLoading(false)
+    })
+  }, [asset.id])
 
   // Add-version form state
   const [urlOrEmbed,      setUrlOrEmbed]      = useState('')
@@ -363,7 +371,12 @@ function VersionsTab({ asset, pendingDetails }: {
       {ConfirmDialog}
 
       {/* Existing versions */}
-      {localVersions.length === 0 ? (
+      {versionsLoading ? (
+        <div className="flex items-center justify-center py-6 gap-2 text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span className="text-sm">Loading versions…</span>
+        </div>
+      ) : localVersions.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-4">No versions yet — add one below.</p>
       ) : (
         <div className="space-y-2">
