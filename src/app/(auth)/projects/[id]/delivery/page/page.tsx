@@ -1,6 +1,7 @@
 import { notFound }                    from 'next/navigation'
 import { db }                          from '@/lib/db'
 import { getWorkspaceId, requireRole } from '@/lib/auth'
+import { ClientPagePreview }           from '@/components/delivery/ClientPagePreview'
 
 interface Props {
   params: Promise<{ id: string }>
@@ -21,17 +22,30 @@ export default async function DeliveryClientPage({ params }: Props) {
   if (!gate.ok) return <p className="text-sm text-muted-foreground">Access denied.</p>
 
   const project = await db.project.findFirst({
-    where: { id, workspaceId },
+    where:  { id, workspaceId },
     select: { id: true, name: true },
   })
   if (!project) notFound()
 
+  const deliveryPage = await db.deliveryPage.findUnique({
+    where:  { projectId: id },
+    select: {
+      id:              true,
+      publicToken:     true,
+      status:          true,
+      title:           true,
+      subtitle:        true,
+      customMessage:   true,
+      coverImageUrl:   true,
+      lastPublishedAt: true,
+      _count: { select: { sections: true } },
+    },
+  })
+
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <p className="text-sm font-medium text-foreground">Client delivery page</p>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Coming soon — configure and publish your client-facing delivery page here.
-      </p>
-    </div>
+    <ClientPagePreview
+      project={project}
+      deliveryPage={deliveryPage}
+    />
   )
 }

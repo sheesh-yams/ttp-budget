@@ -6,12 +6,15 @@ import { Plus, Globe, Copy, Check, Settings, Loader2, MoreHorizontal, GripVertic
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { AssetEditorModal } from './AssetEditorModal'
 import { GenerateFromProposalModal } from './GenerateFromProposalModal'
+import { AnalyticsPanel } from './AnalyticsPanel'
+import { CoverImageUploader } from './CoverImageUploader'
 import {
   ensureDeliveryPage, updateDeliveryPageMeta,
   publishDeliveryPage, unpublishDeliveryPage,
   createSection, renameSection, reorderSections, deleteSection,
   createAsset, deleteAsset, moveAssetToSection, reorderAssets,
 } from '@/server/actions/delivery'
+import type { AssetStat } from '@/server/actions/delivery'
 import type { DeliverableItemType } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -60,6 +63,7 @@ interface Props {
   project:             { id: string; name: string }
   deliveryPage:        DeliveryPage | null
   hasApprovedProposal: boolean
+  analytics:           AssetStat[]
 }
 
 const TYPE_LABELS: Record<DeliverableItemType, string> = {
@@ -85,7 +89,7 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function DeliverablesManager({ project, deliveryPage: initialPage, hasApprovedProposal }: Props) {
+export function DeliverablesManager({ project, deliveryPage: initialPage, hasApprovedProposal, analytics }: Props) {
   const router = useRouter()
   const [, startTransition] = useTransition()
   const { confirm, ConfirmDialog } = useConfirm()
@@ -393,6 +397,14 @@ export function DeliverablesManager({ project, deliveryPage: initialPage, hasApp
         />
       )}
 
+      {/* ── Analytics ─────────────────────────────────────────────────────── */}
+      {page.sections.length > 0 && (
+        <AnalyticsPanel
+          assets={page.sections.flatMap(s => s.deliverables)}
+          analytics={analytics}
+        />
+      )}
+
       {/* ── Generate from proposal ────────────────────────────────────────── */}
       {generating && (
         <GenerateFromProposalModal
@@ -458,6 +470,7 @@ function PageMetaForm({ page, onSaved }: { page: DeliveryPage; onSaved: () => vo
   const [title,        setTitle]        = useState(page.title ?? '')
   const [subtitle,     setSubtitle]     = useState(page.subtitle ?? '')
   const [customMsg,    setCustomMsg]    = useState(page.customMessage ?? '')
+  const [coverUrl,     setCoverUrl]     = useState(page.coverImageUrl ?? '')
   const [saving,       setSaving]       = useState(false)
 
   async function handleSave() {
@@ -466,6 +479,7 @@ function PageMetaForm({ page, onSaved }: { page: DeliveryPage; onSaved: () => vo
       title:         title.trim() || null,
       subtitle:      subtitle.trim() || null,
       customMessage: customMsg.trim() || null,
+      coverImageUrl: coverUrl.trim() || null,
     })
     setSaving(false)
     setOpen(false)
@@ -515,6 +529,13 @@ function PageMetaForm({ page, onSaved }: { page: DeliveryPage; onSaved: () => vo
           onChange={e => setCustomMsg(e.target.value)}
           placeholder="A note shown at the top of the client page…"
           className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
+        />
+      </div>
+      <div className="space-y-1">
+        <label className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground">Cover image</label>
+        <CoverImageUploader
+          currentUrl={coverUrl || null}
+          onUploadComplete={url => setCoverUrl(url)}
         />
       </div>
       <div className="flex items-center gap-2 justify-end">

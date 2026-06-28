@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { requireRole }    from '@/lib/auth'
 import { getScopedDb }    from '@/lib/db-scoped'
+import { db }             from '@/lib/db'
 import { detectEmbed }    from '@/lib/embed-detection'
 import type { ActionResult } from '@/types'
 import type { DeliverableItemType } from '@/types'
@@ -761,5 +762,111 @@ export async function getProposalDeliverables(
   } catch (err) {
     console.error('[delivery] getProposalDeliverables', err)
     return { success: false, error: 'Failed to load deliverables.' }
+  }
+}
+
+/**
+ * Record that a client viewed a deliverable version.
+ * Called server-side from the public asset page on load.
+ * Uses db directly (no workspace scoping — called from a public route).
+ * Hashes the IP with a salt so no raw IPs are stored.
+ */
+export async function recordDeliverableView(
+  deliverableId: string,
+  versionId:     string,
+  workspaceId:   string,
+  ip:            string,
+  userAgent:     string | null,
+): Promise<void> {
+  try {
+    const salt    = process.env.DELIVERY_VIEW_SALT ?? 'delivery-view-salt'
+    const encoder = new TextEncoder()
+    const data    = encoder.encode(ip + salt)
+    const hashBuf = await crypto.subtle.digest('SHA-256', data)
+    const ipHash  = Array.from(new Uint8Array(hashBuf))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('')
+
+    await db.$transaction(async tx => {
+      await tx.deliverableView.create({
+        data: { deliverableId, versionId, workspaceId, ipHash, userAgent },
+      })
+      // Set firstClientViewAt on the version if this is the first real view
+      await tx.deliverableVersion.updateMany({
+        where: { id: versionId, firstClientViewAt: null },
+        data:  { firstClientViewAt: new Date() },
+      })
+    })
+  } catch (err) {
+    // Non-critical — don't crash the page if view recording fails
+    console.error('[delivery] recordDeliverableView', err)
+  }
+}
+
+export type AssetStat = {
+  assetId:       string
+  viewCount:     number
+  uniqueViewers: number
+  firstViewAt:   Date | null
+  lastViewAt:    Date | null
+}
+
+/**
+ * Aggregate view stats for every asset on a delivery page.
+ * Returns one row per asset regardless of whether it has views yet.
+ */
+export async function getDeliveryAnalytics(
+  deliveryPageId: string,
+): Promise<ActionResult<AssetStat[]>> {
+  try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error!
+    const sdb = await getScopedDb()
+
+    // Fetch all asset IDs on the page
+    const assets = await sdb.deliverableAsset.findMany({
+      where:  { deliveryPageId },
+      select: { id: true },
+    })
+    const assetIds = assets.map(a => a.id)
+
+    if (assetIds.length === 0) return { success: true, data: [] }
+
+    // Fetch all view rows for those assets (view counts are modest per-asset)
+    const views = await db.deliverableView.findMany({
+      where:  { deliverableId: { in: assetIds } },
+      select: { deliverableId: true, ipHash: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    })
+
+    // Aggregate in JS: total loads + distinct IPs + date range
+    const byAsset = new Map<string, { total: number; ipHashes: Set<string>; first: Date; last: Date }>()
+    for (const v of views) {
+      const existing = byAsset.get(v.deliverableId)
+      if (existing) {
+        existing.total++
+        existing.ipHashes.add(v.ipHash)
+        if (v.createdAt < existing.first) existing.first = v.createdAt
+        if (v.createdAt > existing.last)  existing.last  = v.createdAt
+      } else {
+        byAsset.set(v.deliverableId, { total: 1, ipHashes: new Set([v.ipHash]), first: v.createdAt, last: v.createdAt })
+      }
+    }
+
+    const data: AssetStat[] = assetIds.map(id => {
+      const agg = byAsset.get(id)
+      return {
+        assetId:       id,
+        viewCount:     agg?.total         ?? 0,
+        uniqueViewers: agg?.ipHashes.size ?? 0,
+        firstViewAt:   agg?.first ?? null,
+        lastViewAt:    agg?.last  ?? null,
+      }
+    })
+
+    return { success: true, data }
+  } catch (err) {
+    console.error('[delivery] getDeliveryAnalytics', err)
+    return { success: false, error: 'Failed to load analytics.' }
   }
 }

@@ -2,6 +2,7 @@ import { notFound }                    from 'next/navigation'
 import { db }                          from '@/lib/db'
 import { getWorkspaceId, requireRole } from '@/lib/auth'
 import { DeliverablesManager }         from '@/components/delivery/DeliverablesManager'
+import { getDeliveryAnalytics }        from '@/server/actions/delivery'
 
 interface Props {
   params: Promise<{ id: string }>
@@ -27,17 +28,16 @@ export default async function DeliveryDeliverablesPage({ params }: Props) {
   })
   if (!project) notFound()
 
-  // Load delivery page if it exists (null = not yet created)
   const deliveryPage = await db.deliveryPage.findUnique({
     where:  { projectId: id },
     select: {
-      id:             true,
-      publicToken:    true,
-      title:          true,
-      subtitle:       true,
-      customMessage:  true,
-      coverImageUrl:  true,
-      status:         true,
+      id:              true,
+      publicToken:     true,
+      title:           true,
+      subtitle:        true,
+      customMessage:   true,
+      coverImageUrl:   true,
+      status:          true,
       lastPublishedAt: true,
       sections: {
         orderBy: { orderIndex: 'asc' },
@@ -49,20 +49,20 @@ export default async function DeliveryDeliverablesPage({ params }: Props) {
           deliverables: {
             orderBy: { orderIndex: 'asc' },
             select: {
-              id:            true,
-              title:         true,
-              description:   true,
-              type:          true,
-              status:        true,
-              publicToken:   true,
-              orderIndex:    true,
+              id:          true,
+              title:       true,
+              description: true,
+              type:        true,
+              status:      true,
+              publicToken: true,
+              orderIndex:  true,
               currentVersion: {
                 select: {
-                  id:               true,
-                  versionNumber:    true,
-                  provider:         true,
-                  renderMode:       true,
-                  thumbnailUrl:     true,
+                  id:                true,
+                  versionNumber:     true,
+                  provider:          true,
+                  renderMode:        true,
+                  thumbnailUrl:      true,
                   firstClientViewAt: true,
                 },
               },
@@ -73,18 +73,25 @@ export default async function DeliveryDeliverablesPage({ params }: Props) {
     },
   })
 
-  // Check if project has an approved proposal (for Generate CTA)
-  const approvedProposal = await db.proposal.findFirst({
-    where:   { projectId: id, workspaceId, status: 'APPROVED' },
-    orderBy: { createdAt: 'desc' },
-    select:  { id: true },
-  })
+  const [approvedProposal, analyticsResult] = await Promise.all([
+    db.proposal.findFirst({
+      where:   { projectId: id, workspaceId, status: 'APPROVED' },
+      orderBy: { createdAt: 'desc' },
+      select:  { id: true },
+    }),
+    deliveryPage
+      ? getDeliveryAnalytics(deliveryPage.id)
+      : Promise.resolve({ success: true as const, data: [] }),
+  ])
+
+  const analytics = analyticsResult.success ? analyticsResult.data : []
 
   return (
     <DeliverablesManager
       project={project}
       deliveryPage={deliveryPage}
       hasApprovedProposal={!!approvedProposal}
+      analytics={analytics}
     />
   )
 }
