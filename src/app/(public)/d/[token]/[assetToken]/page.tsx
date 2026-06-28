@@ -2,6 +2,7 @@ import { notFound }                from 'next/navigation'
 import { headers }                from 'next/headers'
 import Link                       from 'next/link'
 import { ExternalLink, ChevronLeft } from 'lucide-react'
+import { auth }                   from '@clerk/nextjs/server'
 import { db }                     from '@/lib/db'
 import { checkRateLimit }         from '@/lib/rate-limit'
 import { safeHex, lighten, darken } from '@/lib/color'
@@ -92,15 +93,25 @@ export default async function PublicAssetPage({ params }: Props) {
     notFound()
   }
 
-  // ── Record the view (non-blocking — errors are caught inside the action) ──
+  // ── Record the view — skip if the viewer is a workspace member (admin preview) ──
   if (asset.currentVersion) {
-    await recordDeliverableView(
-      asset.id,
-      asset.currentVersion.id,
-      asset.deliveryPage.workspaceId,
-      ip,
-      userAgent,
-    )
+    const { userId: clerkId } = await auth()
+    const isWorkspaceMember = clerkId
+      ? !!(await db.user.findFirst({
+          where:  { clerkId, workspaceId: asset.deliveryPage.workspaceId },
+          select: { id: true },
+        }))
+      : false
+
+    if (!isWorkspaceMember) {
+      await recordDeliverableView(
+        asset.id,
+        asset.currentVersion.id,
+        asset.deliveryPage.workspaceId,
+        ip,
+        userAgent,
+      )
+    }
   }
 
   const ws           = asset.deliveryPage.project.workspace

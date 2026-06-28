@@ -10,6 +10,8 @@ const isPublicRoute = createRouteMatcher([
   '/p/(.*)',             // public proposal pages
   '/i/(.*)',             // public invoice pages
   '/cs/(.*)',            // public call sheet pages
+  '/d/(.*)',             // public delivery pages — token-authenticated at the route level
+  '/shade-test',         // temporary Shade embed test page
   '/invite/(.*)',        // workspace invitation acceptance
   '/api/webhooks/(.*)',
   '/api/pdf/(.*)',       // PDF streams are token-authenticated at the route level
