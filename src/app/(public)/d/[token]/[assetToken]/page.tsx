@@ -170,7 +170,7 @@ export default async function PublicAssetPage({ params }: Props) {
               <p style={{ color: '#555', fontSize: 14 }}>No version available yet.</p>
             </div>
           ) : v.renderMode === 'IFRAME' ? (
-            <IframeViewer embedHtml={v.embedHtml} url={v.url} />
+            <IframeViewer embedHtml={v.embedHtml} url={v.url} provider={v.provider} />
           ) : v.renderMode === 'NATIVE_MEDIA' ? (
             <NativeMediaViewer url={v.url} provider={v.provider} thumbnailUrl={v.thumbnailUrl} />
           ) : (
@@ -185,19 +185,18 @@ export default async function PublicAssetPage({ params }: Props) {
 
 // ─── Iframe viewer ────────────────────────────────────────────────────────────
 
-function IframeViewer({ embedHtml, url }: { embedHtml: string | null; url: string }) {
-  if (embedHtml) {
-    // User pasted a sanitized embed code — use it directly
-    return (
-      <div
-        style={{ width: '100%', borderRadius: 12, overflow: 'hidden', aspectRatio: '16/9', background: '#111' }}
-        dangerouslySetInnerHTML={{ __html: embedHtml }}
-      />
-    )
-  }
-  // Fallback: render the URL directly in an iframe
-  return (
-    <div style={{ width: '100%', borderRadius: 12, overflow: 'hidden', aspectRatio: '16/9', background: '#111' }}>
+function IframeViewer({ embedHtml, url, provider }: { embedHtml: string | null; url: string; provider: string }) {
+  // Shade review pages are full interactive UIs — don't force 16:9; let them breathe
+  const isShade = provider === 'SHADE'
+
+  const wrapStyle: React.CSSProperties = isShade
+    ? { width: '100%', borderRadius: 12, overflow: 'hidden', height: '85vh', minHeight: 560, background: '#111', position: 'relative' }
+    : { width: '100%', borderRadius: 12, overflow: 'hidden', aspectRatio: '16/9', background: '#111' }
+
+  const content = embedHtml ? (
+    <div style={wrapStyle} dangerouslySetInnerHTML={{ __html: embedHtml }} />
+  ) : (
+    <div style={wrapStyle}>
       <iframe
         src={url}
         style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
@@ -206,6 +205,26 @@ function IframeViewer({ embedHtml, url }: { embedHtml: string | null; url: strin
         title="Deliverable"
       />
     </div>
+  )
+
+  if (!isShade) return content
+
+  // For Shade: show the iframe + an "Open in Shade" escape hatch below it
+  return (
+    <>
+      {content}
+      <div style={{ marginTop: 12, textAlign: 'right' }}>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'rgba(255,255,255,0.4)', textDecoration: 'none', fontSize: 12, fontWeight: 500 }}
+        >
+          <ExternalLink size={13} />
+          Open full review in Shade
+        </a>
+      </div>
+    </>
   )
 }
 
