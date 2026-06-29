@@ -952,8 +952,8 @@ function SectionRows({
       {/* Section divider row */}
       <tr
         className={[
-          'border-b-2 border-t transition-colors',
-          isDragOver ? 'bg-primary/5 border-primary/30' : 'border-border/60 bg-muted/20',
+          'border-b border-t-0 transition-colors',
+          isDragOver ? 'bg-primary/70' : 'bg-primary',
         ].join(' ')}
         onDragOver={e => { e.preventDefault(); setIsDragOver(true) }}
         onDragLeave={() => setIsDragOver(false)}
@@ -965,12 +965,12 @@ function SectionRows({
         }}
       >
         <td colSpan={2} />
-        <td className="px-4 py-2">
+        <td className="px-4 py-2.5">
           <div className="flex items-center gap-2">
             {isRenaming ? (
               <input
                 autoFocus
-                className="rounded border border-primary/50 bg-background px-2 py-0.5 text-sm font-semibold outline-none ring-1 ring-primary/30 w-48"
+                className="rounded border border-white/30 bg-white/15 px-2 py-0.5 text-sm font-semibold text-white outline-none ring-1 ring-white/20 w-48 placeholder:text-white/50"
                 value={renameVal}
                 onChange={e => onRenameValChange(e.target.value)}
                 onKeyDown={e => {
@@ -981,17 +981,17 @@ function SectionRows({
                 onClick={e => e.stopPropagation()}
               />
             ) : (
-              <span className="text-sm font-semibold text-foreground">{section.title}</span>
+              <span className="text-sm font-semibold tracking-wide text-white/90">{section.title}</span>
             )}
           </div>
         </td>
         <td colSpan={4} />
-        <td className="px-2 py-2">
+        <td className="px-2 py-2.5">
           {!readOnly && !isRenaming && (
             <div className="relative flex items-center justify-end gap-0.5" ref={menuRef}>
               <button
                 type="button"
-                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                className="rounded p-1 text-white/50 hover:bg-white/15 hover:text-white transition-colors"
                 onClick={() => setMenuOpen(v => !v)}
                 title="Section options"
               >
