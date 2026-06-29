@@ -261,17 +261,18 @@ export async function createSentProposal(input: {
     // sdb.phase.findFirst auto-scopes — blocks foreign budgetId cross-workspace reads.
     const primaryPhase = await sdb.phase.findFirst({
       where: { budgetId: input.budgetId, isPrimary: true },
-      select: { description: true, deliverables: true },
+      select: { overview: true, description: true, deliverables: true },
     }) ?? await sdb.phase.findFirst({
       where: { budgetId: input.budgetId },
       orderBy: { order: 'asc' },
-      select: { description: true, deliverables: true },
+      select: { overview: true, description: true, deliverables: true },
     })
 
+    const phaseOverview = (primaryPhase as unknown as { overview?: string | null })?.overview ?? ''
     const phaseAbout = primaryPhase?.description ?? ''
     const phaseDeliverables = (primaryPhase?.deliverables as { title: string; description: string; sectionIds?: string[] }[] | null) ?? []
 
-    const content = buildContent({ ...input, about: phaseAbout, deliverables: phaseDeliverables })
+    const content = buildContent({ ...input, overview: phaseOverview, about: phaseAbout, deliverables: phaseDeliverables })
     const snapshot = await captureBudgetSnapshot(sdb, input.budgetId, input.discount)
 
     const maxVersion = await sdb.proposal.aggregate({
@@ -322,17 +323,18 @@ export async function createDraftProposal(input: {
     // sdb.phase.findFirst auto-scopes — blocks foreign budgetId cross-workspace reads.
     const primaryPhase = await sdb.phase.findFirst({
       where: { budgetId: input.budgetId, isPrimary: true },
-      select: { description: true, deliverables: true },
+      select: { overview: true, description: true, deliverables: true },
     }) ?? await sdb.phase.findFirst({
       where: { budgetId: input.budgetId },
       orderBy: { order: 'asc' },
-      select: { description: true, deliverables: true },
+      select: { overview: true, description: true, deliverables: true },
     })
 
+    const phaseOverview = (primaryPhase as unknown as { overview?: string | null })?.overview ?? ''
     const phaseAbout = primaryPhase?.description ?? ''
     const phaseDeliverables = (primaryPhase?.deliverables as { title: string; description: string; sectionIds?: string[] }[] | null) ?? []
 
-    const content = buildContent({ ...input, about: phaseAbout, deliverables: phaseDeliverables })
+    const content = buildContent({ ...input, overview: phaseOverview, about: phaseAbout, deliverables: phaseDeliverables })
 
     const maxVersion = await sdb.proposal.aggregate({
       where: { projectId: input.projectId },
@@ -383,15 +385,16 @@ export async function updateDraftProposal(
     // budgetId comes from sdb-verified proposal; sdb.phase.findFirst also auto-scopes.
     const primaryPhase = await sdb.phase.findFirst({
       where: { budgetId: existing.budgetId as string, isPrimary: true },
-      select: { description: true, deliverables: true },
+      select: { overview: true, description: true, deliverables: true },
     }) ?? await sdb.phase.findFirst({
       where: { budgetId: existing.budgetId as string },
       orderBy: { order: 'asc' },
-      select: { description: true, deliverables: true },
+      select: { overview: true, description: true, deliverables: true },
     })
+    const phaseOverview = (primaryPhase as unknown as { overview?: string | null })?.overview ?? ''
     const phaseAbout = primaryPhase?.description ?? ''
     const phaseDeliverables = (primaryPhase?.deliverables as { title: string; description: string; sectionIds?: string[] }[] | null) ?? []
-    const content = buildContent({ ...input, about: phaseAbout, deliverables: phaseDeliverables })
+    const content = buildContent({ ...input, overview: phaseOverview, about: phaseAbout, deliverables: phaseDeliverables })
     const proposal = await sdb.proposal.update({
       where: { id: proposalId },
       data: {
@@ -480,6 +483,7 @@ export async function createProposalRevision(
 // ─── Shared content builder ───────────────────────────────────────────────────
 
 function buildContent(input: {
+  overview: string
   about: string
   deliverables: { title: string; description: string; sectionIds?: string[] }[]
   milestones: { id: string; name: string; percentPct: number; trigger: string; customDate?: string }[]
@@ -490,7 +494,7 @@ function buildContent(input: {
     totalCents: input.totalCents,
     ...(input.discount ? { discount: input.discount } : {}),
     sections: [
-      { type: 'about', title: 'The project', body: input.about },
+      { type: 'about', title: 'The project', overview: input.overview, body: input.about },
       {
         type: 'scope',
         title: 'Deliverables',

@@ -159,7 +159,7 @@ export interface ScopeItem {
 }
 
 export type ProposalSection =
-  | { type: 'about'; title: string; body: string }
+  | { type: 'about'; title: string; overview?: string; body: string }
   | { type: 'scope'; title: string; items: ScopeItem[] }
   | { type: 'budget'; detailLevel: ProposalDetailLevel }
   | { type: 'terms'; title: string; body: string; milestones: PaymentMilestone[] }

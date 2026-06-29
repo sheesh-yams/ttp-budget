@@ -158,7 +158,8 @@ export function ProposalPublicView({
   const scopeSection = sections.find(s => s.type === 'scope')
   const termsSection = sections.find(s => s.type === 'terms')
 
-  const aboutBody    = aboutSection?.type === 'about' ? aboutSection.body : ''
+  const coverOverview = aboutSection?.type === 'about' ? (aboutSection.overview ?? '') : ''
+  const aboutBody     = aboutSection?.type === 'about' ? aboutSection.body : ''
   const deliverables = scopeSection?.type === 'scope'  ? scopeSection.items : []
   const milestones: PaymentMilestone[] =
     termsSection?.type === 'terms' ? termsSection.milestones : []
@@ -313,9 +314,9 @@ export function ProposalPublicView({
           <h1 style={{ color: '#fff', fontSize: 'clamp(24px, 3.5vw, 46px)', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.02em', margin: '0 0 14px', maxWidth: '75%' }}>
             {proposal.title}
           </h1>
-          {aboutBody && (
+          {coverOverview && (
             <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 14, lineHeight: 1.6, maxWidth: 560, margin: '0 0 28px' }}>
-              {aboutBody}
+              {coverOverview}
             </p>
           )}
 
@@ -324,7 +325,7 @@ export function ProposalPublicView({
             <div style={{ display: 'flex', gap: 'clamp(20px,4vw,48px)', flexWrap: 'wrap' }}>
               {shootDates && (
                 <div>
-                  <p style={{ color: 'rgba(255,255,255,0.42)', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Shoot Dates</p>
+                  <p style={{ color: 'rgba(255,255,255,0.42)', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Shoot Date(s)</p>
                   <p style={{ color: 'rgba(255,255,255,0.92)', fontSize: 13, fontWeight: 700, margin: 0 }}>{shootDates}</p>
                 </div>
               )}
@@ -362,7 +363,7 @@ export function ProposalPublicView({
         <section style={{ padding: 'clamp(48px,7vw,96px) clamp(24px,6vw,80px)' }}>
           <div style={{ maxWidth: 760, margin: '0 auto' }}>
             <SectionHeader label="The Project" />
-            <p style={{ fontSize: 17, lineHeight: 1.8, color: BODY, margin: 0 }}>
+            <p style={{ fontSize: 17, lineHeight: 1.8, color: BODY, margin: 0, whiteSpace: 'pre-line' }}>
               {aboutBody}
             </p>
           </div>

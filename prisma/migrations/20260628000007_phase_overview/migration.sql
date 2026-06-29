@@ -1,0 +1,1 @@
+ALTER TABLE "Phase" ADD COLUMN IF NOT EXISTS "overview" TEXT;

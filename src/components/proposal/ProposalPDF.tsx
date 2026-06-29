@@ -186,7 +186,8 @@ export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0,
   const scopeSection = sections.find(s => s.type === 'scope')
   const termsSection = sections.find(s => s.type === 'terms')
 
-  const aboutBody    = aboutSection?.type === 'about' ? (aboutSection.body ?? '') : ''
+  const coverOverview = aboutSection?.type === 'about' ? (aboutSection.overview ?? '') : ''
+  const aboutBody     = aboutSection?.type === 'about' ? (aboutSection.body ?? '') : ''
   const deliverables = scopeSection?.type === 'scope'  ? scopeSection.items : []
   const milestones: PaymentMilestone[] = termsSection?.type === 'terms' ? termsSection.milestones : []
 
@@ -246,9 +247,9 @@ export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0,
 
           <Text style={s.coverLabel}>Prepared for {clientName}</Text>
           <Text style={s.coverTitle}>{proposal.title}</Text>
-          {aboutBody ? (
+          {coverOverview ? (
             <Text style={s.coverDesc}>
-              {aboutBody.length > 180 ? aboutBody.slice(0, 180) + '…' : aboutBody}
+              {coverOverview.length > 180 ? coverOverview.slice(0, 180) + '…' : coverOverview}
             </Text>
           ) : null}
 
@@ -256,7 +257,7 @@ export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0,
             <View style={s.metaGroup}>
               {shootDates && (
                 <View style={s.metaItem}>
-                  <Text style={s.metaLabel}>Shoot Dates</Text>
+                  <Text style={s.metaLabel}>Shoot Date(s)</Text>
                   <Text style={s.metaValue}>{shootDates}</Text>
                 </View>
               )}

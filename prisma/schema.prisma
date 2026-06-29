@@ -405,7 +405,8 @@ model Phase {
   isPrimary     Boolean  @default(false) // the one used by default for proposals/invoices
 
   // Proposal overview — editable per budget version
-  description   String?  @db.Text
+  overview      String?  @db.Text  // short tagline shown on cover
+  description   String?  @db.Text  // full description shown in "The Project" body
   deliverables  Json?    // [{title: string, description: string, number?: string}]
 
   createdAt     DateTime @default(now())

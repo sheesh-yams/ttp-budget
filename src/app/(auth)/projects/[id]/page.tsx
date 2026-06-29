@@ -389,6 +389,7 @@ export default async function ProjectDetailPage({
             phase={{
               id:           primaryPhase.id,
               name:         primaryPhase.name,
+              overview:     (primaryPhase as { overview?: string | null }).overview ?? null,
               description:  (primaryPhase as { description?: string | null }).description ?? null,
               deliverables: (primaryPhase as { deliverables?: unknown }).deliverables as ({ id?: string; title: string; description: string; sectionIds?: string[] }[]) | null,
               sections:     (primaryPhase.sections ?? []) as { id: string; title: string }[],

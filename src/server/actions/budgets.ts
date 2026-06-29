@@ -535,15 +535,17 @@ interface DeliverableInput { id?: string; title: string; description: string; nu
 
 export async function updatePhaseOverview(
   phaseId: string,
-  data: { description: string | null; deliverables: DeliverableInput[] }
+  data: { overview: string | null; description: string | null; deliverables: DeliverableInput[] }
 ): Promise<ActionResult> {
   try {
     const roleGate = await requireRole(['OWNER', 'PRODUCER'])
     if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
-    await sdb.phase.update({
+    const updateFn = sdb.phase.update as unknown as (args: { where: { id: string }; data: Record<string, unknown> }) => Promise<unknown>
+    await updateFn({
       where: { id: phaseId },
       data: {
+        overview:     data.overview || null,
         description:  data.description || null,
         deliverables: data.deliverables.length > 0 ? (data.deliverables as unknown as Prisma.InputJsonValue) : undefined,
       },

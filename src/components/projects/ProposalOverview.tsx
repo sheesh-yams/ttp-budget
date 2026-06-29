@@ -23,6 +23,7 @@ interface SectionOption {
 interface Phase {
   id:           string
   name:         string
+  overview:     string | null
   description:  string | null
   deliverables: Deliverable[] | null
   sections?:    SectionOption[]
@@ -56,6 +57,7 @@ export function ProposalOverview({ phase }: Props) {
   const multiSection = (phase.sections?.length ?? 0) > 1
 
   const [editing,      setEditing]      = useState(false)
+  const [overview,     setOverview]     = useState(phase.overview ?? '')
   const [description,  setDescription]  = useState(phase.description ?? '')
   const [deliverables, setDeliverables] = useState<Deliverable[]>(
     phase.deliverables && phase.deliverables.length > 0
@@ -80,6 +82,7 @@ export function ProposalOverview({ phase }: Props) {
     const filled = deliverables.filter(d => d.title.trim())
     startTransition(async () => {
       await updatePhaseOverview(phase.id, {
+        overview:     overview.trim() || null,
         description:  description.trim() || null,
         deliverables: filled,
       })
@@ -90,6 +93,7 @@ export function ProposalOverview({ phase }: Props) {
   }
 
   function handleCancel() {
+    setOverview(phase.overview ?? '')
     setDescription(phase.description ?? '')
     setDeliverables(
       phase.deliverables && phase.deliverables.length > 0
@@ -134,21 +138,41 @@ export function ProposalOverview({ phase }: Props) {
       </div>
 
       <div className="rounded-xl border bg-card p-5 space-y-5">
-        {/* Description */}
+        {/* Overview — short tagline for proposal cover */}
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-            Project Description
+            Overview
           </p>
           {editing ? (
             <textarea
-              rows={4}
-              placeholder="A brief description shown on the proposal cover and 'The Project' section…"
+              rows={2}
+              placeholder="One or two sentences shown on the proposal cover…"
+              value={overview}
+              onChange={e => setOverview(e.target.value)}
+              className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
+            />
+          ) : (
+            <p className={`text-sm leading-relaxed ${overview ? 'text-foreground' : 'text-muted-foreground italic'}`}>
+              {overview || 'No overview yet — click Edit to add one.'}
+            </p>
+          )}
+        </div>
+
+        {/* Description — full copy for "The Project" section */}
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+            Description
+          </p>
+          {editing ? (
+            <textarea
+              rows={5}
+              placeholder="Full project description shown in 'The Project' section of the proposal…"
               value={description}
               onChange={e => setDescription(e.target.value)}
               className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
             />
           ) : (
-            <p className={`text-sm leading-relaxed ${description ? 'text-foreground' : 'text-muted-foreground italic'}`}>
+            <p className={`text-sm leading-relaxed whitespace-pre-line ${description ? 'text-foreground' : 'text-muted-foreground italic'}`}>
               {description || 'No description yet — click Edit to add one.'}
             </p>
           )}
