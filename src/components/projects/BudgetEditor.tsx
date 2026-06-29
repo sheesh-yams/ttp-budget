@@ -816,6 +816,7 @@ function PhaseView({
           phaseId={phase.id}
           onClear={() => setSelectedIds(new Set())}
           onMutated={onMutated}
+          onSwapSelection={ids => setSelectedIds(new Set(ids))}
         />
       )}
     </div>
@@ -1443,11 +1444,11 @@ function AccountRows({
         return (
           <tr
             key={item.id}
+            style={flashItemId === item.id ? { animation: 'mint-flash 1.5s ease-out forwards' } : undefined}
             className={[
               'group/item border-b transition-colors hover:bg-muted/40',
-              isBeingDragged        ? 'opacity-40'       : '',
-              isDropBefore          ? 'border-t-2 border-t-violet-400' : '',
-              flashItemId === item.id ? 'bg-[#04FFCC]/20' : '',
+              isBeingDragged ? 'opacity-40'       : '',
+              isDropBefore   ? 'border-t-2 border-t-violet-400' : '',
             ].join(' ')}
             onDragOver={e => { e.preventDefault(); onItemDragOverItem(item.id) }}
             onDrop={e => { e.preventDefault(); onItemDrop() }}

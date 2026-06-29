@@ -997,3 +997,77 @@ export async function bulkUpdateLineItems(
     return { success: false, error: 'Failed to update line items' }
   }
 }
+
+// ─── Bulk duplicate line items ────────────────────────────────────────────────
+
+export async function bulkDuplicateLineItems(ids: string[]): Promise<ActionResult<{ newLineItemIds: string[] }>> {
+  if (!ids.length) return { success: true, data: { newLineItemIds: [] } }
+  try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
+    const sdb = await getScopedDb()
+
+    // Scoped read — cross-workspace IDs return nothing (silently skipped)
+    const sources = await sdb.lineItem.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true, accountId: true, workspaceId: true, description: true,
+        quantity: true, unit: true, rateCents: true, hasMarkup: true,
+        markupPct: true, taxRate: true, notes: true, rateCardId: true,
+        lineItemCategory: true, contactId: true, quantityFormula: true,
+        order: true,
+      },
+    })
+    if (!sources.length) return { success: true, data: { newLineItemIds: [] } }
+
+    // Group by account, sort each group descending by order (process bottom-to-top
+    // so earlier shifts don't invalidate the order values of later items in the same account)
+    const byAccount: Record<string, typeof sources> = {}
+    for (const s of sources) {
+      if (!byAccount[s.accountId]) byAccount[s.accountId] = []
+      byAccount[s.accountId].push(s)
+    }
+    for (const arr of Object.values(byAccount)) {
+      arr.sort((a, b) => b.order - a.order)
+    }
+
+    const newIds: string[] = []
+
+    await db.$transaction(async tx => {
+      for (const items of Object.values(byAccount)) {
+        for (const item of items) {
+          // Shift everything below this item (including any duplicates already inserted)
+          await tx.lineItem.updateMany({
+            where: { accountId: item.accountId, order: { gt: item.order } },
+            data: { order: { increment: 1 } },
+          })
+          const newItem = await tx.lineItem.create({
+            data: {
+              accountId:        item.accountId,
+              workspaceId:      item.workspaceId,
+              description:      item.description,
+              quantity:         item.quantity,
+              unit:             item.unit,
+              rateCents:        item.rateCents,
+              hasMarkup:        item.hasMarkup,
+              markupPct:        item.markupPct ?? undefined,
+              taxRate:          item.taxRate ?? undefined,
+              notes:            item.notes ?? undefined,
+              rateCardId:       item.rateCardId ?? undefined,
+              lineItemCategory: item.lineItemCategory ?? undefined,
+              contactId:        item.contactId ?? undefined,
+              quantityFormula:  item.quantityFormula ?? undefined,
+              order:            item.order + 1,
+            } as Parameters<typeof tx.lineItem.create>[0]['data'],
+            select: { id: true },
+          })
+          newIds.push(newItem.id)
+        }
+      }
+    })
+
+    return { success: true, data: { newLineItemIds: newIds } }
+  } catch {
+    return { success: false, error: 'Failed to duplicate line items' }
+  }
+}

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { X, Trash2, FolderPlus, Check } from 'lucide-react'
+import { X, Trash2, FolderPlus, Check, Copy } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,6 +14,7 @@ import {
   bulkDeleteLineItems,
   bulkMoveToNewAccount,
   bulkUpdateLineItems,
+  bulkDuplicateLineItems,
 } from '@/server/actions/budgets'
 import { rateToCents } from '@/lib/money'
 import type { RateUnit } from '@prisma/client'
@@ -21,10 +22,11 @@ import type { RateUnit } from '@prisma/client'
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Props {
-  selectedIds: string[]
-  phaseId:     string
-  onClear:     () => void
-  onMutated:   () => void
+  selectedIds:     string[]
+  phaseId:         string
+  onClear:         () => void
+  onMutated:       () => void
+  onSwapSelection: (ids: string[]) => void
 }
 
 const UNITS: { value: RateUnit; label: string }[] = [
@@ -39,7 +41,7 @@ const UNITS: { value: RateUnit; label: string }[] = [
 
 // ─── Floating bar ─────────────────────────────────────────────────────────────
 
-export function FloatingBulkActionBar({ selectedIds, phaseId, onClear, onMutated }: Props) {
+export function FloatingBulkActionBar({ selectedIds, phaseId, onClear, onMutated, onSwapSelection }: Props) {
   const count = selectedIds.length
   const [, startTransition] = useTransition()
   const { confirm, ConfirmDialog } = useConfirm()
@@ -56,6 +58,15 @@ export function FloatingBulkActionBar({ selectedIds, phaseId, onClear, onMutated
   const [editRate, setEditRate] = useState('')
 
   // ── Handlers ────────────────────────────────────────────────────────────────
+
+  function handleDuplicate() {
+    startTransition(async () => {
+      const result = await bulkDuplicateLineItems(selectedIds)
+      if ('error' in result) return
+      onSwapSelection(result.data.newLineItemIds)
+      onMutated()
+    })
+  }
 
   async function handleDelete() {
     const ok = await confirm(
@@ -189,6 +200,11 @@ export function FloatingBulkActionBar({ selectedIds, phaseId, onClear, onMutated
 
           {/* Action buttons */}
           <div className="flex items-center pl-1">
+            <PillButton
+              icon={<Copy className="h-3.5 w-3.5" />}
+              label="Duplicate"
+              onClick={handleDuplicate}
+            />
             <PillButton
               icon={<FolderPlus className="h-3.5 w-3.5" />}
               label="Group"

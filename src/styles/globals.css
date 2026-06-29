@@ -95,6 +95,11 @@
   .budget-scroll::-webkit-scrollbar-thumb:hover { background: #C99AEC; }
 }
 
+@keyframes mint-flash {
+  0%   { background-color: rgba(4, 255, 204, 0.22); }
+  100% { background-color: transparent; }
+}
+
 @layer utilities {
   /* Money — always tabular-nums */
   .tabular {
