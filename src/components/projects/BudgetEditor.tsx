@@ -342,14 +342,18 @@ function PhaseView({
   const [showPackages, setShowPackages]         = useState(false)
   const [showImport, setShowImport]             = useState(false)
   const [, startTransition] = useTransition()
-  const [flashItemId, setFlashItemId]           = useState<string | null>(null)
+  const [flashItemIds, setFlashItemIds] = useState<Set<string>>(new Set())
+
+  function flashItems(ids: string[]) {
+    setFlashItemIds(new Set(ids))
+    setTimeout(() => setFlashItemIds(new Set()), 1500)
+  }
 
   async function handleDuplicate(itemId: string) {
     const result = await duplicateLineItem(itemId)
     if ('error' in result) return
-    setFlashItemId(result.data.newLineItemId)
+    flashItems([result.data.newLineItemId])
     onMutated()
-    setTimeout(() => setFlashItemId(null), 1500)
   }
 
   // ── Sections local state ──────────────────────────────────────────────────
@@ -620,7 +624,7 @@ function PhaseView({
         onToggleItem={toggleItem}
         onToggleAccount={toggleAccount}
         onDuplicate={handleDuplicate}
-        flashItemId={flashItemId}
+        flashItemIds={flashItemIds}
         readOnly={readOnly}
       />
     ))
@@ -817,6 +821,7 @@ function PhaseView({
           onClear={() => setSelectedIds(new Set())}
           onMutated={onMutated}
           onSwapSelection={ids => setSelectedIds(new Set(ids))}
+          onFlash={flashItems}
         />
       )}
     </div>
@@ -1177,7 +1182,7 @@ function AccountRows({
   // Bulk selection
   selectedIds, onToggleItem, onToggleAccount,
   // Duplicate
-  onDuplicate, flashItemId,
+  onDuplicate, flashItemIds,
   readOnly = false,
 }: {
   account: AccountWithItems
@@ -1206,7 +1211,7 @@ function AccountRows({
   onToggleAccount: (ids: string[]) => void
   // Duplicate
   onDuplicate: (id: string) => Promise<void>
-  flashItemId: string | null
+  flashItemIds: Set<string>
   readOnly?: boolean
 }) {
   const [collapsed, setCollapsed]           = useState(false)
@@ -1444,7 +1449,7 @@ function AccountRows({
         return (
           <tr
             key={item.id}
-            style={flashItemId === item.id ? { animation: 'mint-flash 1.5s ease-out forwards' } : undefined}
+            style={flashItemIds.has(item.id) ? { animation: 'mint-flash 1.5s ease-out forwards' } : undefined}
             className={[
               'group/item border-b transition-colors hover:bg-muted/40',
               isBeingDragged ? 'opacity-40'       : '',
@@ -1614,7 +1619,7 @@ function AccountRows({
           onToggleItem={onToggleItem}
           onToggleAccount={onToggleAccount}
           onDuplicate={onDuplicate}
-          flashItemId={flashItemId}
+          flashItemIds={flashItemIds}
           readOnly={readOnly}
         />
       ))}

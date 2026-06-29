@@ -27,6 +27,7 @@ interface Props {
   onClear:         () => void
   onMutated:       () => void
   onSwapSelection: (ids: string[]) => void
+  onFlash:         (ids: string[]) => void
 }
 
 const UNITS: { value: RateUnit; label: string }[] = [
@@ -41,7 +42,7 @@ const UNITS: { value: RateUnit; label: string }[] = [
 
 // ─── Floating bar ─────────────────────────────────────────────────────────────
 
-export function FloatingBulkActionBar({ selectedIds, phaseId, onClear, onMutated, onSwapSelection }: Props) {
+export function FloatingBulkActionBar({ selectedIds, phaseId, onClear, onMutated, onSwapSelection, onFlash }: Props) {
   const count = selectedIds.length
   const [, startTransition] = useTransition()
   const { confirm, ConfirmDialog } = useConfirm()
@@ -64,6 +65,7 @@ export function FloatingBulkActionBar({ selectedIds, phaseId, onClear, onMutated
       const result = await bulkDuplicateLineItems(selectedIds)
       if ('error' in result) return
       onSwapSelection(result.data.newLineItemIds)
+      onFlash(result.data.newLineItemIds)
       onMutated()
     })
   }
