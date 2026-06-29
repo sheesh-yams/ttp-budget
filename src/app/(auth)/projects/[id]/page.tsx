@@ -4,14 +4,13 @@ import { Calendar, User, TrendingUp, AlertCircle, CheckCircle2 } from 'lucide-re
 import { db } from '@/lib/db'
 import { getWorkspaceId, getCurrentUser } from '@/lib/auth'
 import { canSeeFinancials, stripBudgetForRole } from '@/lib/budget-visibility'
-import { BudgetEditor } from '@/components/projects/BudgetEditor'
+import { BudgetBreakdown } from '@/components/projects/BudgetBreakdown'
 import { ProjectProposals } from '@/components/projects/ProjectProposals'
 import { ProjectInvoices } from '@/components/projects/ProjectInvoices'
 import { ProjectHeaderActions } from '@/components/projects/ProjectHeaderActions'
 import { ClientInfoPanel } from '@/components/projects/ClientInfoPanel'
 import { AssignCollaborators } from '@/components/projects/AssignCollaborators'
 import { ProposalOverview } from '@/components/projects/ProposalOverview'
-import { createBudget } from '@/server/actions/budgets'
 import { Button } from '@/components/ui/button'
 import { formatMoney } from '@/lib/money'
 import { sumAccount, calcBudgetTotals, type AccountInput } from '@/lib/totals'
@@ -100,6 +99,7 @@ export default async function ProjectDetailPage({
           signatureName: true,
           approvedAt:    true,
           content:       true,
+          budgetId:      true,
         },
       },
       invoices: {
@@ -141,9 +141,25 @@ export default async function ProjectDetailPage({
 
   // ── "Blind" budget: strip margin/markup/agency-fee data for Collaborators
   // BEFORE any total is computed or serialised, so it never reaches the client.
-  const budget = project.budgets[0]
-    ? stripBudgetForRole(project.budgets[0], currentUser.role)
-    : null
+  const allBudgets = project.budgets.map(b => stripBudgetForRole(b, currentUser.role))
+  const budget     = allBudgets[0] ?? null
+
+  // Primary budget for KPI strip + breakdown default:
+  // latest APPROVED proposal's budget → latest proposal's budget → latest created budget
+  const approvedBudgetId = project.proposals.find(p => p.status === 'APPROVED')?.budgetId ?? null
+  const latestBudgetId   = (project.proposals[0] as { budgetId?: string } | undefined)?.budgetId ?? null
+  const primaryBudgetId  = approvedBudgetId ?? latestBudgetId ?? allBudgets[allBudgets.length - 1]?.id ?? null
+
+  // Build per-budget metadata for the BudgetBreakdown dropdown
+  const budgetMeta = allBudgets.map(b => {
+    const prop = project.proposals.find(p => (p as { budgetId?: string }).budgetId === b.id)
+    return {
+      id:             b.id,
+      name:           b.phases.find((p: { isPrimary: boolean }) => p.isPrimary)?.name ?? b.phases[0]?.name ?? 'Budget',
+      proposalStatus: prop?.status ?? null,
+      proposalTitle:  prop?.title ?? null,
+    }
+  })
 
   // Gross total from primary phase (includes budget-level markup + agency fee)
   let grandTotalCents = 0   // kept for back-compat with proposal components
@@ -398,33 +414,28 @@ export default async function ProjectDetailPage({
         )
       })()}
 
-      {/* ── Budget ───────────────────────────────────────────────────────────── */}
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-foreground">Budget</h2>
-          {budget && !actualsSummary && (
+      {/* ── Budget Breakdown ─────────────────────────────────────────────────── */}
+      {allBudgets.length === 0 ? (
+        <section className="mb-8">
+          <h2 className="text-base font-semibold text-foreground mb-3">Budget Breakdown</h2>
+          <div className="rounded-xl border border-dashed py-10 text-center">
+            <p className="text-sm text-muted-foreground">No budget yet for this project.</p>
             <Link
-              href={`/projects/${project.id}/actuals`}
-              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+              href={`/projects/${project.id}/budget`}
+              className="mt-2 inline-block text-sm text-primary hover:underline underline-offset-2"
             >
-              Track actuals →
+              Create a budget →
             </Link>
-          )}
-          {budget && actualsSummary && (
-            <Link
-              href={`/projects/${project.id}/actuals`}
-              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
-            >
-              Edit actuals →
-            </Link>
-          )}
-        </div>
-        {!budget ? (
-          <NoBudget projectId={project.id} />
-        ) : (
-          <BudgetEditor budget={budget} projectId={project.id} canSeeFinancials={canSeeFin} readOnly={!canSeeFin} />
-        )}
-      </section>
+          </div>
+        </section>
+      ) : (
+        <BudgetBreakdown
+          projectId={project.id}
+          budgets={allBudgets as never}
+          primaryBudgetId={primaryBudgetId!}
+          budgetMeta={budgetMeta}
+        />
+      )}
     </div>
   )
 }
@@ -490,21 +501,3 @@ function ActiveFinancialStat({
   )
 }
 
-// ─── Empty state when no budget yet ──────────────────────────────────────────
-
-function NoBudget({ projectId }: { projectId: string }) {
-  async function handleCreate() {
-    'use server'
-    await createBudget(projectId)
-  }
-
-  return (
-    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-16 text-center">
-      <p className="font-medium text-foreground">No budget yet</p>
-      <p className="mt-1 text-sm text-muted-foreground">Create a blank budget to start adding line items.</p>
-      <form action={handleCreate}>
-        <Button className="mt-4" type="submit">Create budget</Button>
-      </form>
-    </div>
-  )
-}
