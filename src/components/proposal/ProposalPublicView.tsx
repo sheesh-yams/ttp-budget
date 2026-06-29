@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight, Check } from 'lucide-react'
 import { formatMoney, lineTotal, parseQtyFormula, fmtUnit } from '@/lib/money'
 import { sumAccount } from '@/lib/totals'
 import { lighten, darken, safeHex } from '@/lib/color'
+import { parseLocalDate } from '@/lib/time-format'
 import type { ProposalContent, PaymentMilestone } from '@/types'
 
 // ─── Brand tokens ─────────────────────────────────────────────────────────────
@@ -32,7 +33,8 @@ const SHOOT_LABELS: Record<string, string> = {
 }
 
 function fmt(d: Date | string) {
-  return new Date(d).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+  const date = parseLocalDate(d) ?? new Date(d)
+  return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
 }
 
 function milestoneLabel(m: PaymentMilestone, shootStartDate: string | null): string {
@@ -189,8 +191,8 @@ export function ProposalPublicView({
 
   const shootDates = project.shootStartDate
     ? (() => {
-        const start = new Date(project.shootStartDate)
-        const end   = project.shootEndDate ? new Date(project.shootEndDate) : null
+        const start = parseLocalDate(project.shootStartDate)!
+        const end   = parseLocalDate(project.shootEndDate)
         const sLabel = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
         const eLabel = end && end.getTime() !== start.getTime()
           ? ` – ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`

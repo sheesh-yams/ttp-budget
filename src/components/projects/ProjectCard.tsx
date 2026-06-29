@@ -10,6 +10,7 @@ import {
   ClipboardList,
 } from 'lucide-react'
 import { formatMoney } from '@/lib/money'
+import { parseLocalDate } from '@/lib/time-format'
 import { archiveProject, unarchiveProject } from '@/server/actions/projects'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import {
@@ -136,7 +137,7 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
     .reduce((s, i) => s + i.totalCents, 0)
   const callSheetCount     = project.callSheets.length
   const hasSentCallSheet   = project.callSheets.some(cs => cs.status === 'SENT' || cs.status === 'FINAL')
-  const shootDate          = project.shootStartDate ? new Date(project.shootStartDate) : null
+  const shootDate          = parseLocalDate(project.shootStartDate)
 
   // Days until / since shoot
   let shootLabel: string | null = null

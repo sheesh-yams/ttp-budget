@@ -2,6 +2,7 @@ import Link from 'next/link'
 import type { ProjectWithClient } from '@/types'
 import { Badge } from '@/components/ui/badge'
 import { formatMoney } from '@/lib/money'
+import { parseLocalDate } from '@/lib/time-format'
 
 const shootTypeLabels: Record<string, string> = {
   MUSIC_VIDEO:    'Music video',
@@ -46,7 +47,7 @@ export function RecentProjects({ projects }: Props) {
               <p className="font-medium text-foreground">{project.name}</p>
               {project.shootStartDate && (
                 <p className="mt-0.5 text-[11px] text-muted-foreground">
-                  Shoot: {new Date(project.shootStartDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  Shoot: {parseLocalDate(project.shootStartDate)!.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                 </p>
               )}
             </div>

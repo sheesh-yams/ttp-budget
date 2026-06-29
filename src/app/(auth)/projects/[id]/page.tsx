@@ -15,6 +15,7 @@ import { createBudget } from '@/server/actions/budgets'
 import { Button } from '@/components/ui/button'
 import { formatMoney } from '@/lib/money'
 import { sumAccount, calcBudgetTotals, type AccountInput } from '@/lib/totals'
+import { parseLocalDate } from '@/lib/time-format'
 
 const SHOOT_LABELS: Record<string, string> = {
   MUSIC_VIDEO:    'Music Video',
@@ -246,11 +247,11 @@ export default async function ProjectDetailPage({
             {project.shootStartDate && (
               <span className="flex items-center gap-1">
                 <Calendar className="h-3.5 w-3.5" />
-                {new Date(project.shootStartDate).toLocaleDateString('en-US', {
+                {parseLocalDate(project.shootStartDate)!.toLocaleDateString('en-US', {
                   month: 'short', day: 'numeric', year: 'numeric',
                 })}
                 {project.shootEndDate && project.shootEndDate.getTime() !== project.shootStartDate.getTime() && (
-                  <> &ndash; {new Date(project.shootEndDate).toLocaleDateString('en-US', {
+                  <> &ndash; {parseLocalDate(project.shootEndDate)!.toLocaleDateString('en-US', {
                     month: 'short', day: 'numeric',
                   })}</>
                 )}

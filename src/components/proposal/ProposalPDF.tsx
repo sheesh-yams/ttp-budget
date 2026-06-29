@@ -3,6 +3,7 @@ import {
 } from '@react-pdf/renderer'
 import { lineTotal, formatMoney, parseQtyFormula, fmtUnit } from '@/lib/money'
 import { sumAccount, type AccountInput } from '@/lib/totals'
+import { parseLocalDate } from '@/lib/time-format'
 import type { ProposalContent, PaymentMilestone } from '@/types'
 
 // ─── Brand colours ────────────────────────────────────────────────────────────
@@ -84,7 +85,7 @@ function milestoneLabelPdf(m: PaymentMilestone, shootStartDate: string | null): 
 
 function fmtDate(d: string | null) {
   if (!d) return ''
-  return new Date(d).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+  return (parseLocalDate(d) ?? new Date(d)).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -197,8 +198,8 @@ export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0,
 
   const shootDates = proposal.project.shootStartDate
     ? (() => {
-        const start = new Date(proposal.project.shootStartDate!)
-        const end   = proposal.project.shootEndDate ? new Date(proposal.project.shootEndDate) : null
+        const start = parseLocalDate(proposal.project.shootStartDate)!
+        const end   = parseLocalDate(proposal.project.shootEndDate)
         const sLbl  = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
         const eLbl  = end && end.getTime() !== start.getTime()
           ? ` – ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
