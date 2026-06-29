@@ -18,7 +18,7 @@ import { BudgetSummaryBar } from './BudgetSummaryBar'
 import { BulkImportModal } from '@/components/budget/BulkImportModal'
 import {
   deleteLineItem, addAccount, upsertLineItem, deleteAccount,
-  updateAccount, reorderAccounts, reorderLineItems, moveLineItem,
+  updateAccount, reorderAccounts, reorderLineItems, moveLineItem, moveLineItems,
   updateBudgetRates, duplicatePhase, renamePhase, makePhasePrimary, deletePhase,
   duplicateLineItem,
 } from '@/server/actions/budgets'
@@ -50,8 +50,9 @@ const UNITS: { value: RateUnit; label: string }[] = [
 
 type LineItemRow = AccountWithItems['lineItems'][number]
 
-// Drag item carries its source account so we can detect cross-account drops
-type DragItem = { id: string; accountId: string }
+// Drag item carries its source account so we can detect cross-account drops.
+// multiIds is set when dragging a row that belongs to the active selection.
+type DragItem = { id: string; accountId: string; multiIds?: string[] }
 
 // ─── Root component ───────────────────────────────────────────────────────────
 
@@ -448,11 +449,68 @@ function PhaseView({
   // dropZone: where the item will land
   const [dropZone, setDropZone] = useState<{ accountId: string; beforeItemId?: string } | null>(null)
 
+  // Returns selected item IDs in top-to-bottom visual order (traverses localAccounts).
+  function getSortedSelectedIds(): string[] {
+    const result: string[] = []
+    function collect(accounts: AccountWithItems[]) {
+      for (const acc of accounts) {
+        for (const item of acc.lineItems) {
+          if (selectedIds.has(item.id)) result.push(item.id)
+        }
+        if (acc.children) collect(acc.children as AccountWithItems[])
+      }
+    }
+    collect(localAccounts)
+    return result
+  }
+
   function handleItemDrop() {
     if (!dragItem || !dropZone) { setDragItem(null); setDropZone(null); return }
-    const { id: itemId, accountId: srcAccId } = dragItem
+    const { id: itemId, accountId: srcAccId, multiIds } = dragItem
     const { accountId: tgtAccId, beforeItemId } = dropZone
     setDragItem(null); setDropZone(null)
+
+    if (multiIds && multiIds.length > 1) {
+      // ── Multi-item move ─────────────────────────────────────────────────
+      const movingSet = new Set(multiIds)
+
+      // Collect moved items in visual order from localAccounts.
+      const movedItems: LineItemRow[] = []
+      for (const id of multiIds) {
+        for (const acc of localAccounts) {
+          const found = acc.lineItems.find(i => i.id === id)
+          if (found) { movedItems.push(found); break }
+        }
+      }
+
+      // Optimistic update: remove from all current accounts, insert at drop position.
+      setLocalAccounts(prev => {
+        const updated = prev.map(a => ({
+          ...a,
+          lineItems: a.lineItems.filter(i => !movingSet.has(i.id)),
+        }))
+        const tgtIdx = updated.findIndex(a => a.id === tgtAccId)
+        if (tgtIdx === -1) return prev
+        const tgtItems = [...updated[tgtIdx].lineItems]
+        const rawIdx   = beforeItemId ? tgtItems.findIndex(i => i.id === beforeItemId) : tgtItems.length
+        const insertAt = rawIdx === -1 ? tgtItems.length : rawIdx
+        tgtItems.splice(insertAt, 0, ...movedItems)
+        updated[tgtIdx] = { ...updated[tgtIdx], lineItems: tgtItems }
+        return updated
+      })
+
+      // Scroll first moved item into view once the optimistic DOM updates.
+      const firstId = multiIds[0]
+      requestAnimationFrame(() => {
+        document.getElementById(`li-${firstId}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      })
+
+      startTransition(async () => {
+        await moveLineItems(multiIds, tgtAccId, beforeItemId ?? null)
+        onMutated()
+      })
+      return
+    }
 
     if (srcAccId === tgtAccId) {
       // ── Same-account reorder ────────────────────────────────────────────
@@ -612,7 +670,29 @@ function PhaseView({
         onHeaderDrop={() => handleAccountDrop(account.id)}
         dragItem={dragItem}
         dropZone={dropZone}
-        onItemDragStart={setDragItem}
+        onItemDragStart={(item, event, rowEl) => {
+          if (selectedIds.has(item.id) && selectedIds.size > 1) {
+            const sortedIds = getSortedSelectedIds()
+            setDragItem({ ...item, multiIds: sortedIds })
+            // Build a stacked-card ghost that shows how many items are moving.
+            const ghost = document.createElement('div')
+            ghost.setAttribute('style', [
+              'position:fixed', 'top:-200px', 'left:0', 'pointer-events:none',
+              'background:#5D00A4', 'color:white', 'border-radius:8px',
+              'padding:6px 14px', 'font-size:13px', 'font-weight:600',
+              'font-family:system-ui,sans-serif',
+              'box-shadow:2px 2px 0 #4A007E,4px 4px 0 #380060',
+              'white-space:nowrap',
+            ].join(';'))
+            ghost.textContent = `${sortedIds.length} items`
+            document.body.appendChild(ghost)
+            event.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, 20)
+            requestAnimationFrame(() => document.body.removeChild(ghost))
+          } else {
+            if (rowEl) event.dataTransfer.setDragImage(rowEl, 0, 0)
+            setDragItem(item)
+          }
+        }}
         onItemDragEnd={() => { setDragItem(null); setDropZone(null) }}
         onItemDragOverItem={(beforeItemId) =>
           setDropZone({ accountId: account.id, beforeItemId })
@@ -1200,7 +1280,7 @@ function AccountRows({
   onHeaderDrop: () => void
   dragItem: DragItem | null
   dropZone: { accountId: string; beforeItemId?: string } | null
-  onItemDragStart: (item: DragItem) => void
+  onItemDragStart: (item: DragItem, event: React.DragEvent<HTMLElement>, row: HTMLElement | null) => void
   onItemDragEnd: () => void
   onItemDragOverItem: (beforeItemId: string) => void
   onItemDragOverHeader: () => void
@@ -1449,6 +1529,7 @@ function AccountRows({
         return (
           <tr
             key={item.id}
+            id={`li-${item.id}`}
             style={flashItemIds.has(item.id) ? { animation: 'mint-flash 1.5s ease-out forwards' } : undefined}
             className={[
               'group/item border-b transition-colors hover:bg-muted/40',
@@ -1478,9 +1559,8 @@ function AccountRows({
                 draggable
                 onDragStart={e => {
                   e.dataTransfer.setData('text/plain', item.id)
-                  const row = e.currentTarget.closest('tr')
-                  if (row) e.dataTransfer.setDragImage(row, 0, 0)
-                  onItemDragStart({ id: item.id, accountId: account.id })
+                  const row = e.currentTarget.closest('tr') as HTMLElement | null
+                  onItemDragStart({ id: item.id, accountId: account.id }, e, row)
                 }}
                 onDragEnd={onItemDragEnd}
               >

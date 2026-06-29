@@ -516,6 +516,87 @@ export async function moveLineItem(itemId: string, targetAccountId: string): Pro
   }
 }
 
+// ─── Move multiple line items to a target account at a given position ─────────
+
+export async function moveLineItems(
+  lineItemIds: string[],
+  toAccountId: string,
+  beforeItemId: string | null
+): Promise<ActionResult> {
+  if (!lineItemIds.length) return { success: true, data: undefined }
+  try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
+    const sdb = await getScopedDb()
+
+    // Verify all items and the target account belong to this workspace.
+    const [itemCount, account] = await Promise.all([
+      sdb.lineItem.count({ where: { id: { in: lineItemIds } } }),
+      sdb.account.findFirst({ where: { id: toAccountId }, select: { id: true } }),
+    ])
+    if (itemCount !== lineItemIds.length) return { success: false, error: 'One or more items not found' }
+    if (!account) return { success: false, error: 'Target account not found' }
+
+    await db.$transaction(async tx => {
+      // Capture source account IDs before moving anything.
+      const sourceItems = await tx.lineItem.findMany({
+        where: { id: { in: lineItemIds } },
+        select: { id: true, accountId: true },
+      })
+      const sourceAccountIds = [...new Set(
+        sourceItems.filter(i => i.accountId !== toAccountId).map(i => i.accountId)
+      )]
+
+      // Current items in the target account (ordered).
+      const targetItems = await tx.lineItem.findMany({
+        where: { accountId: toAccountId },
+        orderBy: { order: 'asc' },
+        select: { id: true },
+      })
+
+      const movingSet = new Set(lineItemIds)
+
+      // Remove moved items from the target list (they'll be reinserted at the drop position).
+      const staying = targetItems.filter(i => !movingSet.has(i.id))
+      const insertIdx = beforeItemId
+        ? staying.findIndex(i => i.id === beforeItemId)
+        : staying.length
+      const safeIdx = insertIdx === -1 ? staying.length : insertIdx
+
+      // New order: items before insertion, moved items (in caller-supplied order), items after.
+      const newOrder = [
+        ...staying.slice(0, safeIdx).map(i => i.id),
+        ...lineItemIds,
+        ...staying.slice(safeIdx).map(i => i.id),
+      ]
+
+      await Promise.all(
+        newOrder.map((id, idx) =>
+          tx.lineItem.update({ where: { id }, data: { accountId: toAccountId, order: idx } })
+        )
+      )
+
+      // Re-index source accounts that lost items (fills order gaps left by removed items).
+      for (const accId of sourceAccountIds) {
+        const remaining = await tx.lineItem.findMany({
+          where: { accountId: accId },
+          orderBy: { order: 'asc' },
+          select: { id: true },
+        })
+        await Promise.all(
+          remaining.map(({ id }, idx) =>
+            tx.lineItem.update({ where: { id }, data: { order: idx } })
+          )
+        )
+      }
+    })
+
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to move line items' }
+  }
+}
+
 // ─── Reorder line items ───────────────────────────────────────────────────────
 
 export async function reorderLineItems(items: { id: string; order: number }[]): Promise<ActionResult> {
