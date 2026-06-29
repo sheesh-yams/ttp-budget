@@ -200,26 +200,27 @@ Rate cards are the **source of defaults** but never retroactively change histori
 
 ## Core Features
 
-### 1. Budget editor (`/projects/[id]/budgets/[budgetId]`)
+### 1. Budget editor (`/projects/[id]/budget`)
 
-A table-based editor with account groups (collapsible) and line items. Supports multiple phases (tabs) within a single budget.
+A table-based editor with account groups (collapsible) and line items. Supports multiple phases (tabs) within a single budget. The budget lives at its own `/projects/[id]/budget` route (sidebar nav → **Budget**); the project Overview shows a read-only **Budget Breakdown** summary with an "Edit in Budget →" link.
 
 Key behaviours:
 - **Add line item** via modal — rate card search, description, qty, days, unit, rate, category, markup %, notes
 - **Edit line item** — click any description text (dotted underline on hover) to open the full edit modal pre-filled. Pencil icon also opens it.
+- **Duplicate line item** — Copy icon (hover-reveal) on each row duplicates it immediately below with a 1.5 s mint flash on the new row. Single `$transaction` shifts items below by one and inserts the copy.
 - **Line item categories** — each item carries a `lineItemCategory` (CREW, EQUIPMENT, LOCATION, SERVICE, DELIVERABLE). Set automatically from the linked rate card category, or override manually in the modal. Items tagged CREW feed directly into call sheet import. Category badge shown inline on the description.
 - **QTY × Unit display** — headcount (QTY, dimmed if 1) and unit period ("2 Days", "Week", "Flat") as separate columns. Stored as `quantityFormula = "3x2"`. Consistent across editor, web proposal, and PDF.
 - **Insert package** — pulls in a saved template package into any phase
 - **Bulk import** — drag-and-drop `.csv` or `.json`; preview grouped line items before committing
-- **Cross-account drag** — drag handles for reordering accounts and line items, including across account sections
+- **Drag to reorder** — grip handles on every row. Single-item drag uses the row itself as the ghost. **Multi-select drag**: when the dragged row is in the active selection, all selected items move together — a stacked purple card ghost shows the item count; items land at the drop position preserving their original top-to-bottom order; selection stays on the moved rows post-drop.
 - **Delete account** — removes account and all children; auto-renumbers codes
 - **Per-item markup & tax** — each line item can override budget-level markup/tax, or opt out of the agency fee entirely
-- **Bulk actions** — hover-reveal checkboxes on every line item + per-section and whole-budget "select all" (indeterminate states). A floating action bar (slides up, brand-purple pill) offers **Mass edit** (inline Qty / Unit / Rate fields — blank leaves a field unchanged), **Group into account** (moves the selection into a new account), and **Delete**. Custom transparent checkboxes (`BulkCheckbox`) inherit the row background.
+- **Bulk actions** — hover-reveal checkboxes on every line item + per-section and whole-budget "select all" (indeterminate states). A floating action bar (slides up, brand-purple pill) offers **Mass edit** (inline Qty / Unit / Rate fields — blank leaves a field unchanged), **Duplicate** (copies all selected items each below their source; selection swaps to the new rows with a mint flash), **Group into account** (moves the selection into a new account), and **Delete**. Custom transparent checkboxes (`BulkCheckbox`) inherit the row background.
 - **Sticky summary bar** — fixed at bottom: Net Subtotal, Markups & Taxes, Agency Fee & Tax, Grand Total. Collapses to a single Net Subtotal for margin-blind (Collaborator) views.
 
 **Budget Sections** — an optional grouping layer between a Phase and its Accounts. Every phase starts with a single "Main" section (transparent — no section UI is shown when there is only one). When two or more sections exist the editor switches to multi-section mode:
 
-- **Section dividers** — each section renders as a labelled block with a drag target. Accounts can be dragged across sections.
+- **Section dividers** — each section renders as a dark purple (`--primary`) header row with white text, clearly separating it from account rows. Accounts can be dragged across sections.
 - **Inline rename** — click the section title to edit it in-place; confirm with Enter or by clicking outside.
 - **Kebab menu** (`MoreHorizontal` icon) per section — Rename, Move Up, Move Down, Delete.
 - **Add Section** (`+ Add Section`) — first time: prompts to rename the current "Main" section and name the new one. Subsequent additions: names the new section only. Both flows use `AddSectionModal`.
@@ -245,7 +246,10 @@ All crew side effects use `sdb` (scoped Prisma client) so no explicit `workspace
 
 ### 2. Proposal builder + dual render (web + PDF)
 
-**Proposal Overview** (on the project page) — fill in the project description and deliverables. These live on the `Phase` record, so they travel with the budget version you choose to send. When the phase has more than one budget section, each deliverable row shows a **section link multi-select** — a checkbox dropdown that lets you tie a deliverable to one or more budget sections. Linked section names appear on the read-only view and are stored as `sectionIds` on the deliverable JSON.
+**Proposal Overview** (on the project page) — fill in the project overview, description, and deliverables. These live on the `Phase` record, so they travel with the budget version you choose to send.
+- **Overview** — a short tagline shown on the proposal's cover hero (`Phase.overview`).
+- **Description** — the full copy shown in the "The Project" section; preserves line breaks (`whitespace-pre-line` / `pre-line`) on both the web view and PDF.
+- When the phase has more than one budget section, each deliverable row shows a **section link multi-select** — a checkbox dropdown that lets you tie a deliverable to one or more budget sections. Linked section names appear on the read-only view and are stored as `sectionIds` on the deliverable JSON.
 
 **Payment schedule** — flexible multi-payment terms set in the proposal modal:
 - Default: 2 payments (50% on signing, 50% on delivery)
