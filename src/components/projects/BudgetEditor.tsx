@@ -20,6 +20,7 @@ import {
   deleteLineItem, addAccount, upsertLineItem, deleteAccount,
   updateAccount, reorderAccounts, reorderLineItems, moveLineItem,
   updateBudgetRates, duplicatePhase, renamePhase, makePhasePrimary, deletePhase,
+  duplicateLineItem,
 } from '@/server/actions/budgets'
 import {
   createBudgetSection, renameBudgetSection, deleteBudgetSection,
@@ -341,6 +342,15 @@ function PhaseView({
   const [showPackages, setShowPackages]         = useState(false)
   const [showImport, setShowImport]             = useState(false)
   const [, startTransition] = useTransition()
+  const [flashItemId, setFlashItemId]           = useState<string | null>(null)
+
+  async function handleDuplicate(itemId: string) {
+    const result = await duplicateLineItem(itemId)
+    if ('error' in result) return
+    setFlashItemId(result.data.newLineItemId)
+    onMutated()
+    setTimeout(() => setFlashItemId(null), 1500)
+  }
 
   // ── Sections local state ──────────────────────────────────────────────────
   const [localSections, setLocalSections] = useState<SectionSummary[]>(
@@ -609,6 +619,8 @@ function PhaseView({
         selectedIds={selectedIds}
         onToggleItem={toggleItem}
         onToggleAccount={toggleAccount}
+        onDuplicate={handleDuplicate}
+        flashItemId={flashItemId}
         readOnly={readOnly}
       />
     ))
@@ -1163,6 +1175,8 @@ function AccountRows({
   onItemDragOverItem, onItemDragOverHeader, onItemDrop,
   // Bulk selection
   selectedIds, onToggleItem, onToggleAccount,
+  // Duplicate
+  onDuplicate, flashItemId,
   readOnly = false,
 }: {
   account: AccountWithItems
@@ -1189,6 +1203,9 @@ function AccountRows({
   selectedIds: Set<string>
   onToggleItem: (id: string) => void
   onToggleAccount: (ids: string[]) => void
+  // Duplicate
+  onDuplicate: (id: string) => Promise<void>
+  flashItemId: string | null
   readOnly?: boolean
 }) {
   const [collapsed, setCollapsed]           = useState(false)
@@ -1428,8 +1445,9 @@ function AccountRows({
             key={item.id}
             className={[
               'group/item border-b transition-colors hover:bg-muted/40',
-              isBeingDragged   ? 'opacity-40'       : '',
-              isDropBefore     ? 'border-t-2 border-t-violet-400' : '',
+              isBeingDragged        ? 'opacity-40'       : '',
+              isDropBefore          ? 'border-t-2 border-t-violet-400' : '',
+              flashItemId === item.id ? 'bg-[#04FFCC]/20' : '',
             ].join(' ')}
             onDragOver={e => { e.preventDefault(); onItemDragOverItem(item.id) }}
             onDrop={e => { e.preventDefault(); onItemDrop() }}
@@ -1546,6 +1564,13 @@ function AccountRows({
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
                     <button
+                      type="button" title="Duplicate"
+                      className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/item:opacity-100"
+                      onClick={() => { void onDuplicate(item.id) }}
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </button>
+                    <button
                       type="button" title="Delete"
                       className="rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                       onClick={() => handleDeleteItem(item.id)}
@@ -1587,6 +1612,8 @@ function AccountRows({
           selectedIds={selectedIds}
           onToggleItem={onToggleItem}
           onToggleAccount={onToggleAccount}
+          onDuplicate={onDuplicate}
+          flashItemId={flashItemId}
           readOnly={readOnly}
         />
       ))}

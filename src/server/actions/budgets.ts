@@ -379,6 +379,64 @@ export async function deleteLineItem(id: string): Promise<ActionResult> {
   }
 }
 
+// ─── Duplicate line item ──────────────────────────────────────────────────────
+
+export async function duplicateLineItem(lineItemId: string): Promise<ActionResult<{ newLineItemId: string }>> {
+  try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
+    const sdb = await getScopedDb()
+
+    // Scoped read — null if lineItemId belongs to another workspace
+    const source = await sdb.lineItem.findFirst({
+      where: { id: lineItemId },
+      select: {
+        accountId: true, workspaceId: true, description: true,
+        quantity: true, unit: true, rateCents: true, hasMarkup: true,
+        markupPct: true, taxRate: true, notes: true, rateCardId: true,
+        lineItemCategory: true, contactId: true, quantityFormula: true,
+        order: true,
+      },
+    })
+    if (!source) return { success: false, error: 'Line item not found' }
+
+    const { order: sourceOrder } = source
+
+    const newItem = await db.$transaction(async tx => {
+      // Shift all items below the source down by 1
+      await tx.lineItem.updateMany({
+        where: { accountId: source.accountId, order: { gt: sourceOrder } },
+        data: { order: { increment: 1 } },
+      })
+      // Insert duplicate immediately below the source
+      return tx.lineItem.create({
+        data: {
+          accountId:        source.accountId,
+          workspaceId:      source.workspaceId,
+          description:      source.description,
+          quantity:         source.quantity,
+          unit:             source.unit,
+          rateCents:        source.rateCents,
+          hasMarkup:        source.hasMarkup,
+          markupPct:        source.markupPct ?? undefined,
+          taxRate:          source.taxRate ?? undefined,
+          notes:            source.notes ?? undefined,
+          rateCardId:       source.rateCardId ?? undefined,
+          lineItemCategory: source.lineItemCategory ?? undefined,
+          contactId:        source.contactId ?? undefined,
+          quantityFormula:  source.quantityFormula ?? undefined,
+          order:            sourceOrder + 1,
+        } as Parameters<typeof tx.lineItem.create>[0]['data'],
+        select: { id: true },
+      })
+    })
+
+    return { success: true, data: { newLineItemId: newItem.id } }
+  } catch {
+    return { success: false, error: 'Failed to duplicate line item' }
+  }
+}
+
 // ─── Update account ───────────────────────────────────────────────────────────
 
 export async function updateAccount(id: string, input: { name: string; code?: string | null }): Promise<ActionResult> {
