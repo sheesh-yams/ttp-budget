@@ -31,6 +31,7 @@ import {
   type PointOfContact,
   type OtherContact,
 } from '@/server/actions/call-sheets'
+import { syncCallSheetSchedule } from '@/server/actions/schedule'
 import type { CallSheetStatus } from '@/types'
 import type { RolodexContact } from './RolodexNameInput'
 
@@ -52,6 +53,9 @@ export interface CallSheetData {
   locationAddress: string | null
   parkingAddress: string | null
   locationNotes: string | null
+  shootDayId: string | null
+  scheduleSyncedAt: string | null
+  scheduleDiverged: boolean
   pointOfContact: PointOfContact | null
   talent: TalentMember[]
   crew: CrewDept[]
@@ -126,6 +130,9 @@ export function CallSheetEditor({
   const [copied,        setCopied]        = useState(false)
   const [importing,     setImporting]     = useState(false)
   const [importMsg,     setImportMsg]     = useState('')
+  const [syncing,       setSyncing]       = useState(false)
+  const [syncMsg,       setSyncMsg]       = useState('')
+  const [scheduleDiverged, setScheduleDiverged] = useState(initial.scheduleDiverged)
 
   const isLocked = status === 'FINAL'
   const publicUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/cs/${initial.publicToken}`
@@ -279,6 +286,24 @@ export function CallSheetEditor({
       setImportMsg((result as { success: false; error: string }).error)
     }
     setTimeout(() => setImportMsg(''), 5000)
+  }
+
+  async function handleSyncSchedule() {
+    if (!initial.shootDayId) return
+    setSyncing(true)
+    setSyncMsg('')
+    const result = await syncCallSheetSchedule(initial.id)
+    setSyncing(false)
+    if (result.success) {
+      // Update local state immediately — no page reload needed
+      setSchedule(result.data.schedule as ScheduleBlock[])
+      setScheduleDiverged(false)
+      setDirty(false)
+      setSyncMsg('Schedule synced from stripboard')
+    } else {
+      setSyncMsg((result as { success: false; error: string }).error)
+    }
+    setTimeout(() => setSyncMsg(''), 5000)
   }
 
   // =============================================================================
@@ -660,7 +685,31 @@ export function CallSheetEditor({
         </Section>
 
         {/* ── Schedule ── */}
-        <Section title="Schedule">
+        <Section
+          title="Schedule"
+          action={!isLocked && initial.shootDayId && (
+            <div className="flex items-center gap-3">
+              {syncMsg && (
+                <span className="text-xs text-muted-foreground">{syncMsg}</span>
+              )}
+              <button
+                type="button"
+                onClick={handleSyncSchedule}
+                disabled={syncing}
+                className="flex items-center gap-1.5 text-xs font-medium text-violet-600 hover:text-violet-800 disabled:opacity-40 transition-colors"
+              >
+                <RefreshCw className={`h-3 w-3 ${syncing ? 'animate-spin' : ''}`} />
+                {syncing ? 'Syncing…' : 'Sync from stripboard'}
+              </button>
+            </div>
+          )}
+        >
+          {scheduleDiverged && !isLocked && (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+              The stripboard schedule has changed since this was last synced — click &quot;Sync from stripboard&quot; to pull in the latest scenes and times.
+            </div>
+          )}
           <ScheduleEditor
             schedule={schedule}
             readonly={isLocked}

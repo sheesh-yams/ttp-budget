@@ -33,6 +33,7 @@ import {
   deleteScene,
 } from '@/server/actions/schedule'
 import type { SceneEntryPayload } from '@/server/actions/schedule'
+import { createCallSheet } from '@/server/actions/call-sheets'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import type { IntExt, TimeOfDay, BannerType, UserRole } from '@prisma/client'
 
@@ -413,6 +414,26 @@ export function ScheduleEditorClient({
     })
   }
 
+  // ── Call sheet creation ──────────────────────────────────────────────────────
+
+  function handleCreateCallSheet(dayId: string) {
+    const dayIndex = shootDays.findIndex(d => d.id === dayId)
+    const day = shootDays[dayIndex]
+    if (!day) return
+    startTransition(async () => {
+      const result = await createCallSheet(projectId, {
+        title: `${projectName} — Day ${dayIndex + 1}`,
+        shootDate: day.date.slice(0, 10),
+        shootDayId: dayId,
+      })
+      if ('data' in result && result.data) {
+        router.push(`/projects/${projectId}/call-sheets/${result.data.id}`)
+      } else if ('error' in result) {
+        window.alert(result.error)
+      }
+    })
+  }
+
   // ── Tab hover for cross-day drop ─────────────────────────────────────────────
 
   function handleTabDragEnter(dayId: string) {
@@ -788,6 +809,7 @@ export function ScheduleEditorClient({
             }}
             onAddScene={() => openNewScene(activeTab)}
             onAddBanner={handleAddBanner}
+            onCreateCallSheet={() => handleCreateCallSheet(activeTab)}
             bannerEdit={bannerEdit}
             onStartBannerEdit={entry => setBannerEdit({ entry, label: entry.bannerLabel ?? '', dur: String(entry.bannerDurationMin ?? 0) })}
             onCommitBannerEdit={commitBannerEdit}
@@ -1056,6 +1078,7 @@ interface ShootDayViewProps {
   onMoveToDay: (entryId: string, dayId: string) => void
   onAddScene: () => void
   onAddBanner: (preset: BannerPreset, label: string, duration: number) => void
+  onCreateCallSheet: () => void
   bannerEdit: { entry: EntryRow; label: string; dur: string } | null
   onStartBannerEdit: (entry: EntryRow) => void
   onCommitBannerEdit: () => void
@@ -1068,7 +1091,7 @@ function ShootDayView({
   selectedIds, dragOverId, dropAbove,
   onDragStart, onDragEnd, onDragOverRow, onDropRow, onDropOnDay,
   onToggleSelect, onEditEntry, onDeleteEntry, onMoveToBoneyard, onMoveToDay,
-  onAddScene, onAddBanner,
+  onAddScene, onAddBanner, onCreateCallSheet,
   bannerEdit, onStartBannerEdit, onCommitBannerEdit, onCancelBannerEdit, onBannerEditChange,
 }: ShootDayViewProps) {
   // Compute totals
@@ -1195,9 +1218,7 @@ function ShootDayView({
           </div>
           <button
             className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors"
-            onClick={() => {
-              window.location.href = `/projects/${allDays[0]?.id ?? ''}/call-sheets/new?shootDayId=${dayId}`
-            }}
+            onClick={onCreateCallSheet}
           >
             <FilePlus className="h-3.5 w-3.5" /> Create Call Sheet
           </button>

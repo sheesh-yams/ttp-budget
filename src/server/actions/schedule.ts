@@ -5,7 +5,7 @@ import { db } from '@/lib/db'
 import { getScopedDb } from '@/lib/db-scoped'
 import { requireRole } from '@/lib/auth'
 import type { ActionResult } from '@/types'
-import { computeEntryTimes } from '@/lib/schedule-compute'
+import { computeEntryTimes, buildScheduleSnapshot, snapshotToScheduleBlocks } from '@/lib/schedule-compute'
 import type { IntExt, TimeOfDay, BannerType } from '@prisma/client'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -604,14 +604,13 @@ export async function recomputeShootDay(shootDayId: string): Promise<ActionResul
 
 // ── Call sheet schedule sync ───────────────────────────────────────────────────
 
-export async function syncCallSheetSchedule(callSheetId: string): Promise<ActionResult> {
+export async function syncCallSheetSchedule(
+  callSheetId: string,
+): Promise<ActionResult<{ schedule: ReturnType<typeof snapshotToScheduleBlocks> }>> {
   const gate = await requireRole(['OWNER', 'PRODUCER'])
   if (!gate.ok) return gate.error!
   const sdb = await getScopedDb()
-  const cs = await sdb.callSheet.findFirst({
-    where: { id: callSheetId },
-    include: { shootDay: { include: { scheduleEntries: { include: { scene: { include: { location: true } } } } } } },
-  })
+  const cs = await sdb.callSheet.findFirst({ where: { id: callSheetId } })
   if (!cs) return { success: false, error: 'Call sheet not found' }
   if (!cs.shootDayId) return { success: false, error: 'Call sheet is not linked to a shoot day' }
 
@@ -627,24 +626,18 @@ export async function syncCallSheetSchedule(callSheetId: string): Promise<Action
     include: { scene: { include: { location: true } } },
   })
 
-  const snapshot = entries.map(e => ({
-    kind: e.kind,
-    sceneNumber: e.scene?.sceneNumber ?? null,
-    setting: e.scene?.setting ?? null,
-    bannerLabel: e.bannerLabel ?? null,
-    bannerType: e.bannerType ?? null,
-    computedStartTime: e.computedStartTime ?? null,
-    computedEndTime: e.computedEndTime ?? null,
-    duration: e.kind === 'SCENE' ? (e.scene?.estimatedDuration ?? 0) : (e.bannerDurationMin ?? 0),
-    locationName: e.scene?.location?.name ?? null,
-    castContactIds: e.scene?.castContactIds ?? [],
-    notes: e.scene?.notes ?? e.bannerNote ?? null,
-  }))
+  const snapshot = buildScheduleSnapshot(entries)
+  const blocks = snapshotToScheduleBlocks(snapshot)
 
   await sdb.callSheet.update({
     where: { id: callSheetId },
-    data: { scheduleSnapshot: snapshot, scheduleSyncedAt: new Date() },
+    data: {
+      scheduleSnapshot: snapshot,
+      scheduleSyncedAt: new Date(),
+      schedule: blocks,
+    } as unknown as Parameters<typeof sdb.callSheet.update>[0]['data'],
   })
   revalidatePath(`/projects/${cs.projectId}/call-sheets`)
-  return { success: true, data: null }
+  revalidatePath(`/projects/${cs.projectId}/call-sheets/${callSheetId}`)
+  return { success: true, data: { schedule: blocks } }
 }

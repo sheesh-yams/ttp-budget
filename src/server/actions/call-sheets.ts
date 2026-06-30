@@ -7,6 +7,7 @@ import { Prisma } from '@prisma/client'
 import type { ActionResult } from '@/types'
 import { toJsonSafe } from '@/lib/json-safe'
 import { generatePublicToken } from '@/lib/secure-token'
+import { buildScheduleSnapshot, snapshotToScheduleBlocks } from '@/lib/schedule-compute'
 
 // =============================================================================
 // Crew import from budget
@@ -279,7 +280,7 @@ async function getOwnedSheet(id: string, sdb: ScopedDb) {
 
 export async function createCallSheet(
   projectId: string,
-  input: { title: string; shootDate: string; generalCall?: string }
+  input: { title: string; shootDate: string; generalCall?: string; shootDayId?: string }
 ): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
     const sdb = await getScopedDb()
@@ -288,6 +289,46 @@ export async function createCallSheet(
       select: { id: true },
     })
     if (!project) return { success: false, error: 'Project not found' }
+
+    // If linked to a shoot day, pull in that day's stripboard schedule + location
+    // immediately so the call sheet starts populated instead of blank.
+    let shootDayFields: {
+      shootDayId?: string
+      schedule?: ReturnType<typeof snapshotToScheduleBlocks>
+      scheduleSnapshot?: ReturnType<typeof buildScheduleSnapshot>
+      scheduleSyncedAt?: Date
+      locationName?: string
+      locationAddress?: string
+      generalCall?: string
+    } = {}
+
+    if (input.shootDayId) {
+      const shootDay = await sdb.shootDay.findFirst({
+        where: { id: input.shootDayId, projectId },
+        include: { primaryLocation: { select: { name: true, address: true } } },
+      })
+      if (shootDay) {
+        shootDayFields.shootDayId = shootDay.id
+        if (shootDay.startTime) shootDayFields.generalCall = shootDay.startTime
+        if (shootDay.primaryLocation) {
+          shootDayFields.locationName = shootDay.primaryLocation.name
+          shootDayFields.locationAddress = shootDay.primaryLocation.address ?? undefined
+        }
+
+        const primarySchedule = await sdb.schedule.findFirst({ where: { projectId, isPrimary: true } })
+        if (primarySchedule) {
+          const entries = await sdb.scheduleEntry.findMany({
+            where: { scheduleId: primarySchedule.id, shootDayId: shootDay.id },
+            orderBy: { orderIndex: 'asc' },
+            include: { scene: { include: { location: true } } },
+          })
+          const snapshot = buildScheduleSnapshot(entries)
+          shootDayFields.schedule = snapshotToScheduleBlocks(snapshot)
+          shootDayFields.scheduleSnapshot = snapshot
+          shootDayFields.scheduleSyncedAt = new Date()
+        }
+      }
+    }
 
     // Pre-populate crew from the project's Teams-page members — this is the source of truth
     // for who's on the project. Each assigned member carries their name/contact info;
@@ -320,14 +361,20 @@ export async function createCallSheet(
         projectId,
         title:       input.title,
         shootDate:   new Date(input.shootDate),
-        generalCall: input.generalCall ?? '07:00',
+        generalCall: input.generalCall ?? shootDayFields.generalCall ?? '07:00',
         publicToken: generatePublicToken(),
         crew:        initialCrew as unknown as Prisma.InputJsonValue,
+        ...(shootDayFields.shootDayId        ? { shootDayId: shootDayFields.shootDayId } : {}),
+        ...(shootDayFields.schedule          ? { schedule: shootDayFields.schedule } : {}),
+        ...(shootDayFields.scheduleSnapshot  ? { scheduleSnapshot: shootDayFields.scheduleSnapshot, scheduleSyncedAt: shootDayFields.scheduleSyncedAt } : {}),
+        ...(shootDayFields.locationName      ? { locationName: shootDayFields.locationName } : {}),
+        ...(shootDayFields.locationAddress   ? { locationAddress: shootDayFields.locationAddress } : {}),
       } as unknown as Parameters<typeof sdb.callSheet.create>[0]['data'],
       select: { id: true, publicToken: true },
     })
 
     revalidatePath(`/projects/${projectId}`)
+    if (shootDayFields.shootDayId) revalidatePath(`/projects/${projectId}/schedule`)
     return { success: true, data: cs }
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : 'Failed to create call sheet' }

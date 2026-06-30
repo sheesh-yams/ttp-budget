@@ -4,6 +4,7 @@ import { getWorkspaceId } from '@/lib/auth'
 import { CallSheetEditor } from '@/components/call-sheets/CallSheetEditor'
 import type { CrewDept, ScheduleBlock, WeatherInfo, HospitalInfo, TalentMember, PointOfContact } from '@/server/actions/call-sheets'
 import type { TimeFormat } from '@/lib/time-format'
+import { buildScheduleSnapshot } from '@/lib/schedule-compute'
 
 // Geocoding + Overpass + weather in sequence can take ~20s; extend the limit.
 export const maxDuration = 30
@@ -63,6 +64,24 @@ export default async function CallSheetPage({
 
   if (!cs || !project) notFound()
 
+  // Detect drift between the call sheet's last-synced schedule snapshot and the
+  // stripboard's current state, so the editor can prompt for a re-sync.
+  let scheduleDiverged = false
+  if (cs.shootDayId) {
+    const primarySchedule = await db.schedule.findFirst({
+      where: { projectId, workspaceId, isPrimary: true },
+    })
+    if (primarySchedule) {
+      const liveEntries = await db.scheduleEntry.findMany({
+        where: { scheduleId: primarySchedule.id, shootDayId: cs.shootDayId },
+        orderBy: { orderIndex: 'asc' },
+        include: { scene: { include: { location: true } } },
+      })
+      const liveSnapshot = buildScheduleSnapshot(liveEntries)
+      scheduleDiverged = JSON.stringify(liveSnapshot) !== JSON.stringify(cs.scheduleSnapshot ?? [])
+    }
+  }
+
   const initial = {
     id:              cs.id,
     projectId:       project.id,
@@ -77,6 +96,9 @@ export default async function CallSheetPage({
     locationAddress: cs.locationAddress,
     parkingAddress:  cs.parkingAddress,
     locationNotes:   cs.locationNotes,
+    shootDayId:      cs.shootDayId,
+    scheduleSyncedAt: cs.scheduleSyncedAt ? cs.scheduleSyncedAt.toISOString() : null,
+    scheduleDiverged,
     pointOfContact:  (cs as any).pointOfContact as unknown as PointOfContact | null,
     talent:          ((cs as any).talent as unknown as TalentMember[]) ?? [],
     crew:            (cs.crew as unknown as CrewDept[])       ?? [],
