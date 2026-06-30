@@ -127,6 +127,10 @@ export default async function PublicAssetPage({ params }: Props) {
 
   const v    = asset.currentVersion
   const back = `/d/${token}`
+  // Horizontal IFRAME embeds (Frame.io, Shade, etc.) were sized too small —
+  // widen their content column ~40%. Vertical/native/external views are unaffected.
+  const isHorizontalIframe = v?.renderMode === 'IFRAME' && !v.isVertical
+  const contentMaxWidth = isHorizontalIframe ? 1260 : 900
 
   return (
     <div style={{ ...brandVars, fontFamily: 'var(--font-sans, system-ui, sans-serif)', background: '#0a0a0a', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -158,7 +162,7 @@ export default async function PublicAssetPage({ params }: Props) {
 
       {/* ── Main content ────────────────────────────────────────────────────── */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 20px 60px' }}>
-        <div style={{ width: '100%', maxWidth: 900 }}>
+        <div style={{ width: '100%', maxWidth: contentMaxWidth }}>
           {/* Asset info */}
           <div style={{ marginBottom: 20 }}>
             <h1 style={{ color: '#fff', fontSize: 22, fontWeight: 700, margin: '0 0 6px', letterSpacing: '-0.02em' }}>

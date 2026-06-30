@@ -203,7 +203,7 @@ export default async function PublicDeliveryPage({ params }: Props) {
                 )}
                 {!section.description && <div style={{ marginBottom: 16 }} />}
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14 }}>
                   {section.deliverables.map(asset => (
                     <Link
                       key={asset.id}
