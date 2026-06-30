@@ -308,12 +308,15 @@ export function SceneModal({ open, onClose, onSaved, projectId, scene, locations
               </div>
             ) : (
               <div className="flex gap-2">
-                <Select value={locationId} onValueChange={setLocationId}>
+                <Select
+                  value={locationId || '__none__'}
+                  onValueChange={v => setLocationId(v === '__none__' ? '' : v)}
+                >
                   <SelectTrigger className="h-8 text-sm flex-1">
                     <SelectValue placeholder="Select location..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="__none__">None</SelectItem>
                     {locations.map(l => (
                       <SelectItem key={l.id} value={l.id}>{l.name}{l.address ? ` — ${l.address}` : ''}</SelectItem>
                     ))}

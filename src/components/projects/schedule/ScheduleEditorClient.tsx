@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition, useRef, useCallback } from 'react'
+import { useState, useEffect, useTransition, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Clapperboard, Plus, GripVertical, MoreHorizontal, Pencil, Trash2,
@@ -121,6 +121,7 @@ export function ScheduleEditorClient({
   const canEdit = userRole === 'OWNER' || userRole === 'PRODUCER'
 
   const [entries, setEntries]           = useState<EntryRow[]>(initialEntries)
+  useEffect(() => { setEntries(initialEntries) }, [initialEntries])
   const [activeTab, setActiveTab]       = useState<string | 'boneyard'>(
     shootDays[0]?.id ?? 'boneyard'
   )
