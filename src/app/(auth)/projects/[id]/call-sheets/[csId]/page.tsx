@@ -4,7 +4,7 @@ import { getWorkspaceId } from '@/lib/auth'
 import { CallSheetEditor } from '@/components/call-sheets/CallSheetEditor'
 import type { CrewDept, ScheduleBlock, WeatherInfo, HospitalInfo, TalentMember, PointOfContact } from '@/server/actions/call-sheets'
 import type { TimeFormat } from '@/lib/time-format'
-import { buildScheduleSnapshot } from '@/lib/schedule-compute'
+import { buildScheduleSnapshot, stableStringify } from '@/lib/schedule-compute'
 
 // Geocoding + Overpass + weather in sequence can take ~20s; extend the limit.
 export const maxDuration = 30
@@ -78,7 +78,7 @@ export default async function CallSheetPage({
         include: { scene: { include: { location: true } } },
       })
       const liveSnapshot = buildScheduleSnapshot(liveEntries)
-      scheduleDiverged = JSON.stringify(liveSnapshot) !== JSON.stringify(cs.scheduleSnapshot ?? [])
+      scheduleDiverged = stableStringify(liveSnapshot) !== stableStringify(cs.scheduleSnapshot ?? [])
     }
   }
 

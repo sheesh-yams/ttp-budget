@@ -100,6 +100,24 @@ export function snapshotToScheduleBlocks(snapshot: ScheduleSnapshotEntry[]): Sch
     }))
 }
 
+/**
+ * JSON.stringify with object keys sorted recursively. Postgres jsonb does not
+ * preserve key insertion order, so comparing a freshly-built snapshot against
+ * one round-tripped through the DB with plain JSON.stringify gives false
+ * positives — use this for any snapshot equality/divergence check instead.
+ */
+export function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(',')}]`
+  }
+  if (value !== null && typeof value === 'object') {
+    const obj = value as Record<string, unknown>
+    const keys = Object.keys(obj).sort()
+    return `{${keys.map(k => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
 // ── Recompute ─────────────────────────────────────────────────────────────────
 
 interface EntryLike {

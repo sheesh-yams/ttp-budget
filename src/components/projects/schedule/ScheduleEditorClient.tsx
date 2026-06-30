@@ -35,6 +35,7 @@ import {
 import type { SceneEntryPayload } from '@/server/actions/schedule'
 import { createCallSheet } from '@/server/actions/call-sheets'
 import { useConfirm } from '@/components/ui/confirm-dialog'
+import { parseLocalDate } from '@/lib/time-format'
 import type { IntExt, TimeOfDay, BannerType, UserRole } from '@prisma/client'
 
 // ── Column definitions ───────────────────────────────────────────────────────
@@ -110,8 +111,8 @@ interface Props {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function formatDate(iso: string) {
-  const d = new Date(iso)
-  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+  const d = parseLocalDate(iso)
+  return d ? d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : ''
 }
 
 function formatHHmm(hhmm: string) {
@@ -1115,7 +1116,7 @@ function ShootDayView({
             {day.label ? ` — ${day.label}` : ''}
           </p>
           <p className="text-xs text-muted-foreground">
-            {new Date(day.date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            {parseLocalDate(day.date)?.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
             {day.primaryLocation && ` · ${day.primaryLocation.name}`}
             {day.startTime && ` · Call ${day.startTime}`}
           </p>
@@ -1523,7 +1524,7 @@ const EntryKebabMenu = forwardRef<HTMLDivElement, {
                   className="flex w-full items-center px-3 py-2 text-sm hover:bg-muted transition-colors text-left"
                   onClick={() => { onMoveToDay(entry.id, d.id); onClose() }}
                 >
-                  Day {i + 1} — {new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  Day {i + 1} — {parseLocalDate(d.date)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                 </button>
               ))}
             </div>
