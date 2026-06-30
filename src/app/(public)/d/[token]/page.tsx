@@ -46,7 +46,7 @@ export default async function PublicDeliveryPage({ params }: Props) {
       project: {
         select: {
           name:   true,
-          client: { select: { name: true } },
+          client: { select: { name: true, logoUrl: true } },
           workspace: {
             select: {
               name:         true,
@@ -93,6 +93,7 @@ export default async function PublicDeliveryPage({ params }: Props) {
   if (!page || page.status !== 'PUBLISHED') notFound()
 
   const ws           = page.project.workspace
+  const client       = page.project.client
   const brandPrimary = safeHex(ws.primaryColor)
   const brandAccent  = safeHex(ws.accentColor)
   const heroBg       =
@@ -126,19 +127,35 @@ export default async function PublicDeliveryPage({ params }: Props) {
         )}
         {/* Workspace logo */}
         <div style={{ maxWidth: 760, margin: '0 auto', position: 'relative' }}>
-          {ws.logoUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={ws.logoDarkUrl ?? ws.logoUrl}
-              alt={ws.name}
-              style={{ height: 32, width: 'auto', marginBottom: 32, objectFit: 'contain' }}
-            />
-          )}
-          {!ws.logoUrl && (
-            <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 32 }}>
-              {ws.name}
-            </p>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 32 }}>
+            {ws.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={ws.logoDarkUrl ?? ws.logoUrl}
+                alt={ws.name}
+                style={{ height: 32, width: 'auto', objectFit: 'contain' }}
+              />
+            ) : (
+              <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', margin: 0 }}>
+                {ws.name}
+              </p>
+            )}
+
+            <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 18, fontWeight: 300 }}>×</span>
+
+            {client.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={client.logoUrl}
+                alt={client.name}
+                style={{ height: 28, width: 'auto', maxWidth: 160, objectFit: 'contain' }}
+              />
+            ) : (
+              <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', margin: 0 }}>
+                {client.name}
+              </p>
+            )}
+          </div>
 
           {/* Eyebrow */}
           <p style={{ color: brandAccent, fontSize: 11, fontWeight: 700, letterSpacing: '0.22em', textTransform: 'uppercase', margin: '0 0 10px' }}>
@@ -186,7 +203,7 @@ export default async function PublicDeliveryPage({ params }: Props) {
                 )}
                 {!section.description && <div style={{ marginBottom: 16 }} />}
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
                   {section.deliverables.map(asset => (
                     <Link
                       key={asset.id}
