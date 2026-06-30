@@ -4,14 +4,39 @@ import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
 import { getScopedDb } from '@/lib/db-scoped'
 import type { ScopedDb } from '@/lib/db-scoped'
-import { getCurrentUser } from '@/lib/auth'
+import { getCurrentUser, requireRole } from '@/lib/auth'
 import { sumAccount, type AccountInput } from '@/lib/totals'
 import type { ActionResult, ProposalDiscount } from '@/types'
 import { logAuditEvent } from '@/lib/audit'
 import { generatePublicToken } from '@/lib/secure-token'
 import { syncDeliverablesFromProposal } from './delivery'
+import { sendProposalEmail } from '@/lib/email'
 
 function uid() { return crypto.randomUUID().slice(0, 8) }
+
+// ─── Resolve who/where a proposal email goes ──────────────────────────────────
+// Shared by every "send proposal" entry point. Looks up the client's contact
+// email + workspace branding up front so we can fail fast with a clear error
+// before ever touching the proposal record, instead of creating/updating it
+// and only then discovering there's nowhere to send it.
+
+async function resolveProposalEmailContext(sdb: ScopedDb, projectId: string) {
+  const project = await sdb.project.findFirst({
+    where: { id: projectId },
+    select: {
+      name: true,
+      client: { select: { contactEmail: true } },
+      workspace: { select: { name: true, primaryColor: true, accentColor: true } },
+    },
+  })
+  return {
+    projectName:   project?.name ?? 'Project',
+    clientEmail:   project?.client?.contactEmail ?? null,
+    workspaceName: project?.workspace?.name ?? null,
+    brandPrimary:  project?.workspace?.primaryColor ?? null,
+    brandAccent:   project?.workspace?.accentColor ?? null,
+  }
+}
 
 // ─── Capture a frozen snapshot of budget line items ───────────────────────────
 // Internal helper — always called from exported functions that have already
@@ -183,20 +208,61 @@ export async function updateProposalContent(
 
 // ─── Send proposal (status: DRAFT → SENT) ─────────────────────────────────────
 
+/** Re-send an already-SENT proposal's email (e.g. a "Resend" action). Always emails. */
 export async function sendProposal(proposalId: string): Promise<ActionResult<{ publicUrl: string }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const existing = await sdb.proposal.findFirst({
       where: { id: proposalId },
-      select: { budgetId: true, content: true, workspaceId: true, projectId: true },
+      select: { budgetId: true, content: true, workspaceId: true, projectId: true, title: true, publicToken: true, expiresAt: true },
     })
     if (!existing) return { success: false, error: 'Proposal not found' }
+
+    const emailCtx = await resolveProposalEmailContext(sdb, existing.projectId)
+    if (!emailCtx.clientEmail) {
+      return { success: false, error: 'This client has no contact email on file. Add one in the client profile before sending.' }
+    }
+
     const discount = (existing.content as { discount?: ProposalDiscount }).discount
     const snapshot = await captureBudgetSnapshot(sdb, existing.budgetId as string, discount)
     const mergedContent = { ...(existing.content as object), budgetSnapshot: snapshot }
 
+    const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL}/p/${(existing as unknown as { publicToken: string }).publicToken}`
+
+    let messageId: string
+    try {
+      const sent = await sendProposalEmail({
+        to:            emailCtx.clientEmail,
+        proposalTitle: existing.title,
+        projectName:   emailCtx.projectName,
+        proposalUrl:   publicUrl,
+        expiresAt:     existing.expiresAt ? new Date(existing.expiresAt) : null,
+        actorName:     user.name ?? user.email,
+        actorEmail:    user.email,
+        workspaceName: emailCtx.workspaceName,
+        brandPrimary:  emailCtx.brandPrimary,
+        brandAccent:   emailCtx.brandAccent,
+      })
+      messageId = sent.id
+    } catch (emailErr) {
+      const message = emailErr instanceof Error ? emailErr.message : 'Unknown error'
+      console.error('[sendProposal] email send failed', emailErr)
+      await logAuditEvent({
+        workspaceId: (existing as unknown as { workspaceId: string }).workspaceId,
+        actorId:     user.id,
+        action:      'proposal.email_failed',
+        entityType:  'Proposal',
+        entityId:    proposalId,
+        metadata:    { to: emailCtx.clientEmail, error: message },
+      })
+      return { success: false, error: `Email failed to send: ${message}` }
+    }
+
     const now = new Date()
-    const proposal = await sdb.proposal.update({
+    await sdb.proposal.update({
       where: { id: proposalId },
       data: {
         status:  'SENT',
@@ -205,20 +271,21 @@ export async function sendProposal(proposalId: string): Promise<ActionResult<{ p
         publicTokenExpiresAt: new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000),
       } as unknown as Parameters<typeof sdb.proposal.update>[0]['data'],
     })
-    const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL}/p/${(proposal as unknown as { publicToken: string }).publicToken}`
     revalidatePath(`/proposals/${proposalId}/edit`)
     await syncDeliverablesFromProposal((existing as unknown as { projectId: string }).projectId)
 
     await logAuditEvent({
       workspaceId: (existing as unknown as { workspaceId: string }).workspaceId,
       actorId:     user.id,
-      action:      'proposal.sent',
+      action:      'proposal.email_sent',
       entityType:  'Proposal',
       entityId:    proposalId,
+      metadata:    { to: emailCtx.clientEmail, messageId },
     })
 
     return { success: true, data: { publicUrl } }
-  } catch {
+  } catch (err) {
+    console.error('[sendProposal]', err)
     return { success: false, error: 'Failed to send proposal' }
   }
 }
@@ -256,9 +323,25 @@ export async function createSentProposal(input: {
   expiresAt: string
   totalCents: number
   discount?: ProposalDiscount
+  /** true = actually email the client (status only flips to SENT on success).
+   *  false = "Mark as Sent" bypass — flips to SENT immediately, no email attempted. */
+  sendEmail: boolean
 }): Promise<ActionResult<{ id: string; publicToken: string; publicUrl: string }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+
+    // Resolve the recipient up front — fail fast before creating anything if
+    // we're about to email and there's nowhere to send it.
+    let emailCtx: Awaited<ReturnType<typeof resolveProposalEmailContext>> | null = null
+    if (input.sendEmail) {
+      emailCtx = await resolveProposalEmailContext(sdb, input.projectId)
+      if (!emailCtx.clientEmail) {
+        return { success: false, error: 'This client has no contact email on file. Add one in the client profile, or use "Mark as Sent" instead.' }
+      }
+    }
 
     // sdb.phase.findFirst auto-scopes — blocks foreign budgetId cross-workspace reads.
     const primaryPhase = await sdb.phase.findFirst({
@@ -283,6 +366,9 @@ export async function createSentProposal(input: {
     })
     const nextVersion = ((maxVersion._max as unknown as { version: number | null }).version ?? 0) + 1
 
+    // Created as DRAFT when we still need to email — only flips to SENT after
+    // the email actually goes out, so a Resend failure never leaves a proposal
+    // showing "sent" when the client got nothing.
     const proposal = await sdb.proposal.create({
       data: {
         projectId: input.projectId,
@@ -290,8 +376,8 @@ export async function createSentProposal(input: {
         title: input.title,
         publicToken: generatePublicToken(),
         content: { ...content, budgetSnapshot: snapshot } as object,
-        status: 'SENT',
-        sentAt: new Date(),
+        status: input.sendEmail ? 'DRAFT' : 'SENT',
+        sentAt: input.sendEmail ? null : new Date(),
         expiresAt: new Date(input.expiresAt),
         publicTokenExpiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) as unknown as undefined,
         version: nextVersion,
@@ -299,9 +385,57 @@ export async function createSentProposal(input: {
       } as unknown as Parameters<typeof sdb.proposal.create>[0]['data'],
     })
 
+    const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/p/${(proposal as unknown as { publicToken: string }).publicToken}`
+
+    if (input.sendEmail && emailCtx) {
+      try {
+        const sent = await sendProposalEmail({
+          to:            emailCtx.clientEmail!,
+          proposalTitle: input.title,
+          projectName:   emailCtx.projectName,
+          proposalUrl:   publicUrl,
+          expiresAt:     new Date(input.expiresAt),
+          actorName:     user.name ?? user.email,
+          actorEmail:    user.email,
+          workspaceName: emailCtx.workspaceName,
+          brandPrimary:  emailCtx.brandPrimary,
+          brandAccent:   emailCtx.brandAccent,
+        })
+        await sdb.proposal.update({ where: { id: proposal.id }, data: { status: 'SENT', sentAt: new Date() } })
+        await logAuditEvent({
+          workspaceId: gate.workspaceId,
+          actorId:     user.id,
+          action:      'proposal.email_sent',
+          entityType:  'Proposal',
+          entityId:    proposal.id,
+          metadata:    { to: emailCtx.clientEmail, messageId: sent.id },
+        })
+      } catch (emailErr) {
+        const message = emailErr instanceof Error ? emailErr.message : 'Unknown error'
+        console.error('[createSentProposal] email send failed', emailErr)
+        await logAuditEvent({
+          workspaceId: gate.workspaceId,
+          actorId:     user.id,
+          action:      'proposal.email_failed',
+          entityType:  'Proposal',
+          entityId:    proposal.id,
+          metadata:    { to: emailCtx.clientEmail, error: message },
+        })
+        // Proposal stays as a DRAFT — not lost, just not sent. Surface the real reason.
+        return { success: false, error: `Proposal saved as a draft, but the email failed to send: ${message}` }
+      }
+    } else {
+      await logAuditEvent({
+        workspaceId: gate.workspaceId,
+        actorId:     user.id,
+        action:      'proposal.sent',
+        entityType:  'Proposal',
+        entityId:    proposal.id,
+      })
+    }
+
     revalidatePath(`/projects/${input.projectId}`)
     await syncDeliverablesFromProposal(input.projectId)
-    const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/p/${(proposal as unknown as { publicToken: string }).publicToken}`
     return { success: true, data: { id: proposal.id, publicToken: (proposal as unknown as { publicToken: string }).publicToken, publicUrl } }
   } catch (err) {
     console.error(err)
@@ -418,18 +552,80 @@ export async function updateDraftProposal(
 // ─── Send an existing DRAFT proposal ─────────────────────────────────────────
 
 export async function sendDraftProposal(
-  proposalId: string
+  proposalId: string,
+  /** true = actually email the client. false = "Mark as Sent" bypass — no email. */
+  sendEmail: boolean,
 ): Promise<ActionResult<{ publicToken: string }>> {
   try {
-    const sdb = await getScopedDb()
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
+    const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const existing = await sdb.proposal.findFirst({
       where: { id: proposalId },
-      select: { budgetId: true, projectId: true, content: true },
+      select: { budgetId: true, projectId: true, content: true, title: true, publicToken: true, expiresAt: true },
     })
     if (!existing) return { success: false, error: 'Proposal not found' }
+
+    let emailCtx: Awaited<ReturnType<typeof resolveProposalEmailContext>> | null = null
+    if (sendEmail) {
+      emailCtx = await resolveProposalEmailContext(sdb, existing.projectId)
+      if (!emailCtx.clientEmail) {
+        return { success: false, error: 'This client has no contact email on file. Add one in the client profile, or use "Mark as Sent" instead.' }
+      }
+    }
+
     const discount2 = (existing.content as { discount?: ProposalDiscount }).discount
     const snapshot = await captureBudgetSnapshot(sdb, existing.budgetId as string, discount2)
     const mergedContent = { ...(existing.content as object), budgetSnapshot: snapshot }
+
+    const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/p/${(existing as unknown as { publicToken: string }).publicToken}`
+
+    if (sendEmail && emailCtx) {
+      try {
+        const sent = await sendProposalEmail({
+          to:            emailCtx.clientEmail!,
+          proposalTitle: existing.title,
+          projectName:   emailCtx.projectName,
+          proposalUrl:   publicUrl,
+          expiresAt:     existing.expiresAt ? new Date(existing.expiresAt) : null,
+          actorName:     user.name ?? user.email,
+          actorEmail:    user.email,
+          workspaceName: emailCtx.workspaceName,
+          brandPrimary:  emailCtx.brandPrimary,
+          brandAccent:   emailCtx.brandAccent,
+        })
+        await logAuditEvent({
+          workspaceId: gate.workspaceId,
+          actorId:     user.id,
+          action:      'proposal.email_sent',
+          entityType:  'Proposal',
+          entityId:    proposalId,
+          metadata:    { to: emailCtx.clientEmail, messageId: sent.id },
+        })
+      } catch (emailErr) {
+        const message = emailErr instanceof Error ? emailErr.message : 'Unknown error'
+        console.error('[sendDraftProposal] email send failed', emailErr)
+        await logAuditEvent({
+          workspaceId: gate.workspaceId,
+          actorId:     user.id,
+          action:      'proposal.email_failed',
+          entityType:  'Proposal',
+          entityId:    proposalId,
+          metadata:    { to: emailCtx.clientEmail, error: message },
+        })
+        // Stays DRAFT — content snapshot below is skipped too, nothing changes until retried.
+        return { success: false, error: `Email failed to send: ${message}` }
+      }
+    } else {
+      await logAuditEvent({
+        workspaceId: gate.workspaceId,
+        actorId:     user.id,
+        action:      'proposal.sent',
+        entityType:  'Proposal',
+        entityId:    proposalId,
+      })
+    }
 
     const proposal = await sdb.proposal.update({
       where: { id: proposalId },
@@ -443,7 +639,8 @@ export async function sendDraftProposal(
     revalidatePath(`/projects/${existing.projectId}`)
     await syncDeliverablesFromProposal(existing.projectId)
     return { success: true, data: { publicToken: (proposal as unknown as { publicToken: string }).publicToken } }
-  } catch {
+  } catch (err) {
+    console.error('[sendDraftProposal]', err)
     return { success: false, error: 'Failed to send proposal' }
   }
 }

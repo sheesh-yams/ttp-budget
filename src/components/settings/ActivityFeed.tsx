@@ -3,15 +3,19 @@ import type { AuditEventRow } from '@/lib/audit'
 // ── Human-readable labels for each action ────────────────────────────────────
 
 const ACTION_LABEL: Record<string, string> = {
-  'proposal.sent':             'Proposal sent',
-  'proposal.approved':         'Proposal approved by client',
-  'proposal.lost':             'Proposal marked as lost',
-  'invoice.sent':              'Invoice sent',
-  'invoice.paid':              'Invoice marked as paid',
-  'member.invited':            'Team member invited',
-  'member.joined':             'Team member joined',
+  'proposal.sent':              'Proposal marked as sent (no email)',
+  'proposal.email_sent':        'Proposal emailed to client',
+  'proposal.email_failed':      'Proposal email failed to send',
+  'proposal.approved':          'Proposal approved by client',
+  'proposal.lost':              'Proposal marked as lost',
+  'invoice.email_sent':         'Invoice emailed to client',
+  'invoice.email_failed':       'Invoice email failed to send',
+  'invoice.paid':               'Invoice marked as paid',
+  'member.invited':             'Team member invited',
+  'member.invite_email_failed': 'Invitation email failed to send',
+  'member.joined':              'Team member joined',
   'workspace.delete_requested': 'Workspace deletion requested',
-  'token.regenerated':         'Public link regenerated',
+  'token.regenerated':          'Public link regenerated',
 }
 
 function actionLabel(action: string): string {
@@ -37,6 +41,14 @@ function entitySuffix(event: AuditEventRow): string {
   }
   if (event.action === 'token.regenerated' && event.entityType) {
     return ` · ${event.entityType}`
+  }
+  if (
+    event.action === 'proposal.email_sent' || event.action === 'proposal.email_failed' ||
+    event.action === 'invoice.email_sent'  || event.action === 'invoice.email_failed'
+  ) {
+    const to = meta.to as string | undefined
+    const error = meta.error as string | undefined
+    return [to ? ` · to ${to}` : '', error ? ` · ${error}` : ''].join('')
   }
   return ''
 }

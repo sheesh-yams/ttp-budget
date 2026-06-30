@@ -269,31 +269,31 @@ export function ProposalModal({
       if (mode === 'edit-draft' && existing) {
         const updateResult = await updateDraftProposal(existing.id, baseInput())
         if (!updateResult.success) { setError((updateResult as { success: false; error: string }).error); return }
-        const sendResult = await sendDraftProposal(existing.id)
+        const sendResult = await sendDraftProposal(existing.id, true)
         if (sendResult.success) { setSuccessToken(existing.publicToken); setIsDraft(false) }
         else { setError((sendResult as { success: false; error: string }).error) }
         return
       }
-      const r = await createSentProposal(baseInput())
+      const r = await createSentProposal({ ...baseInput(), sendEmail: true })
       if (r.success) { setSuccessToken(r.data.publicToken); setIsDraft(false) }
       else { setError((r as { success: false; error: string }).error) }
     })
   }
 
-  // Same flow as handleSend but marks isSentManually — when email sending is
-  // added to handleSend, this path will remain the bypass (no email sent).
+  // Bypass — flips status to SENT without ever attempting an email. Use when
+  // you've already shared the link manually.
   function handleMarkSent() {
     if (!validate()) return
     startTransition(async () => {
       if (mode === 'edit-draft' && existing) {
         const updateResult = await updateDraftProposal(existing.id, baseInput())
         if (!updateResult.success) { setError((updateResult as { success: false; error: string }).error); return }
-        const sendResult = await sendDraftProposal(existing.id)
+        const sendResult = await sendDraftProposal(existing.id, false)
         if (sendResult.success) { setSuccessToken(existing.publicToken); setIsDraft(false); setIsSentManually(true) }
         else { setError((sendResult as { success: false; error: string }).error) }
         return
       }
-      const r = await createSentProposal(baseInput())
+      const r = await createSentProposal({ ...baseInput(), sendEmail: false })
       if (r.success) { setSuccessToken(r.data.publicToken); setIsDraft(false); setIsSentManually(true) }
       else { setError((r as { success: false; error: string }).error) }
     })
@@ -372,7 +372,7 @@ export function ProposalModal({
                 <p className="text-sm text-muted-foreground">
                   {isSentManually
                     ? 'Marked as sent — no email was sent. Share this link with your client manually.'
-                    : 'Your proposal is live. Share this link with your client.'}
+                    : 'Your proposal has been emailed to the client.'}
                 </p>
                 <div className="flex items-center gap-2 rounded-lg border bg-secondary/30 p-3">
                   <code className="flex-1 text-xs text-foreground break-all">{publicUrl}</code>

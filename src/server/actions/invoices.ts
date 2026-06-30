@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { getScopedDb } from '@/lib/db-scoped'
 import { db } from '@/lib/db'
-import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
+import { getCurrentUser, getWorkspaceId, requireRole } from '@/lib/auth'
 import { generateInvoiceNumber } from '@/lib/invoice-numbering'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
@@ -169,12 +169,16 @@ export async function sendInvoice(
   emailOpts: { to: string; subject: string; message: string },
 ): Promise<ActionResult<{ publicUrl: string }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const [scopedDb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
 
     const existing = await scopedDb.invoice.findFirst({
       where: { id: invoiceId },
       select: {
         workspaceId: true,
+        publicToken: true,
         number: true,
         totalCents: true,
         dueDate: true,
@@ -185,16 +189,6 @@ export async function sendInvoice(
 
     if (!existing) return { success: false, error: 'Invoice not found' }
 
-    const invoice = await scopedDb.invoice.update({
-      where: { id: invoiceId },
-      data: {
-        status: 'SENT',
-        sentAt: new Date(),
-        publicTokenExpiresAt: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
-      } as unknown as Parameters<typeof scopedDb.invoice.update>[0]['data'],
-    })
-
-    const publicToken = (invoice as unknown as { publicToken: string }).publicToken
     // Build the canonical URL for client-facing invoice links.
     // Priority: APP_URL (server-only, always production) → NEXT_PUBLIC_APP_URL → empty fallback.
     // Always use the canonical production domain — never a deployment-specific URL.
@@ -206,31 +200,60 @@ export async function sendInvoice(
       process.env.NEXT_PUBLIC_APP_URL ??
       ''
     ).replace(/\/$/, '')
-    const publicUrl = `${baseUrl}/i/${publicToken}`
+    const publicUrl = `${baseUrl}/i/${(existing as unknown as { publicToken: string }).publicToken}`
 
-    // Send the email via Resend
+    // Send the email via Resend FIRST — the invoice only flips to SENT once the
+    // email actually goes out, so a Resend failure never leaves it stuck showing
+    // "sent" when the client never received anything.
     const { sendInvoiceEmail } = await import('@/lib/email')
-    await sendInvoiceEmail({
-      to:             emailOpts.to,
-      subject:        emailOpts.subject,
-      customMessage:  emailOpts.message,
-      invoiceNumber:  existing.number,
-      projectName:    (existing.project as { name: string }).name,
-      amountCents:    existing.totalCents,
-      dueDate:        new Date(existing.dueDate),
-      invoiceUrl:     publicUrl,
-      workspaceName:  existing.workspace?.name ?? null,
-      brandPrimary:   existing.workspace?.primaryColor ?? null,
-      brandAccent:    existing.workspace?.accentColor ?? null,
+    let messageId: string
+    try {
+      const sent = await sendInvoiceEmail({
+        to:             emailOpts.to,
+        subject:        emailOpts.subject,
+        customMessage:  emailOpts.message,
+        invoiceNumber:  existing.number,
+        projectName:    (existing.project as { name: string }).name,
+        amountCents:    existing.totalCents,
+        dueDate:        new Date(existing.dueDate),
+        invoiceUrl:     publicUrl,
+        workspaceName:  existing.workspace?.name ?? null,
+        brandPrimary:   existing.workspace?.primaryColor ?? null,
+        brandAccent:    existing.workspace?.accentColor ?? null,
+        actorName:      user.name ?? user.email,
+        actorEmail:     user.email,
+      })
+      messageId = sent.id
+    } catch (emailErr) {
+      const message = emailErr instanceof Error ? emailErr.message : 'Unknown error'
+      console.error('[sendInvoice] email send failed', emailErr)
+      await logAuditEvent({
+        workspaceId: existing.workspaceId,
+        actorId:     user.id,
+        action:      'invoice.email_failed',
+        entityType:  'Invoice',
+        entityId:    invoiceId,
+        metadata:    { to: emailOpts.to, error: message },
+      })
+      return { success: false, error: `Email failed to send: ${message}` }
+    }
+
+    await scopedDb.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        status: 'SENT',
+        sentAt: new Date(),
+        publicTokenExpiresAt: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
+      } as unknown as Parameters<typeof scopedDb.invoice.update>[0]['data'],
     })
 
     await logAuditEvent({
       workspaceId: existing.workspaceId,
       actorId:     user.id,
-      action:      'invoice.sent',
+      action:      'invoice.email_sent',
       entityType:  'Invoice',
       entityId:    invoiceId,
-      metadata:    { to: emailOpts.to },
+      metadata:    { to: emailOpts.to, messageId },
     })
 
     return { success: true, data: { publicUrl } }

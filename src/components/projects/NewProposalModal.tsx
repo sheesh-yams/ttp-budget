@@ -75,6 +75,7 @@ export function NewProposalModal({
         ],
         expiresAt,
         totalCents,
+        sendEmail: true,
       })
       if (result.success) {
         const url = `${window.location.origin}/p/${result.data.publicToken}`

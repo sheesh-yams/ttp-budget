@@ -5,6 +5,39 @@ import { db } from '@/lib/db'
 const resend = new Resend(process.env.RESEND_API_KEY)
 const FROM = process.env.RESEND_FROM_EMAIL ?? 'proposals@thethirdplace.co'
 
+// ── Send result handling ────────────────────────────────────────────────────
+// The Resend SDK does NOT throw on most API-level failures (invalid from
+// domain, rejected recipient, rate limit, etc.) — it resolves with
+// { data: null, error: {...} }. Every call site in this file used to ignore
+// that `error` field entirely, so a failed send looked identical to a
+// successful one all the way up the call stack. checkSend() makes failures
+// loud: it throws with the real Resend error message so the caller's
+// try/catch (or .catch()) actually fires.
+function checkSend(result: { data: { id: string } | null; error: { message: string } | null }): { id: string } {
+  if (result.error) throw new Error(result.error.message)
+  if (!result.data) throw new Error('Resend returned no data and no error — unexpected response shape')
+  return result.data
+}
+
+// ── From / Reply-To ──────────────────────────────────────────────────────────
+// Resend only accepts a `from` address on a domain verified in that Resend
+// account — you cannot send "from" an arbitrary teammate's personal email
+// address (gmail.com, a client's own domain, etc.); Resend will reject it.
+// So the envelope/header From stays on RESEND_FROM_EMAIL's verified address,
+// but the display NAME shows who actually sent it, and replyTo is set to the
+// sender's real email so client replies land in their inbox, not a shared one.
+function fromAddressOnly(): string {
+  const match = FROM.match(/<(.+)>/)
+  return match ? match[1] : FROM
+}
+
+function buildFrom(actorName: string | null | undefined, workspaceName?: string | null): string {
+  const addr  = fromAddressOnly()
+  const brand = workspaceName || 'SlateSuite'
+  const label = actorName ? `${actorName} via ${brand}` : brand
+  return `${label} <${addr}>`
+}
+
 // Resolve the public app URL without ever using a localhost value.
 // NEXT_PUBLIC_APP_URL is the canonical source. Fall through to Railway's
 // auto-populated RAILWAY_PUBLIC_DOMAIN before using the hardcoded fallback.
@@ -31,10 +64,10 @@ interface ProposalApprovedPayload {
   proposalUrl: string
 }
 
-export async function sendProposalApprovedEmail(payload: ProposalApprovedPayload) {
+export async function sendProposalApprovedEmail(payload: ProposalApprovedPayload): Promise<{ id: string }> {
   const { to, proposalTitle, clientName, signatureName, approvedAt, proposalUrl } = payload
 
-  await resend.emails.send({
+  const result = await resend.emails.send({
     from: FROM,
     to,
     subject: `✓ Approved: ${proposalTitle}`,
@@ -50,6 +83,92 @@ export async function sendProposalApprovedEmail(payload: ProposalApprovedPayload
       <p style="color:#888">Time to send the deposit invoice.</p>
     `,
   })
+  return checkSend(result)
+}
+
+// ─── Proposal sent to client ────────────────────────────────────────────────
+
+interface ProposalSentPayload {
+  to:            string
+  proposalTitle: string
+  projectName:   string
+  proposalUrl:   string
+  expiresAt?:    Date | null
+  /** The teammate who clicked "Send" — shown in the From display name, used as Reply-To. */
+  actorName?:    string | null
+  actorEmail?:   string | null
+  workspaceName?: string | null
+  brandPrimary?:  string | null
+  brandAccent?:   string | null
+}
+
+export async function sendProposalEmail(payload: ProposalSentPayload): Promise<{ id: string }> {
+  const {
+    to, proposalTitle, projectName, proposalUrl, expiresAt,
+    actorName, actorEmail, workspaceName, brandPrimary, brandAccent,
+  } = payload
+  const primary   = brandPrimary || '#5D00A4'
+  const accent    = brandAccent  || '#04FFCC'
+  const brandName = workspaceName || 'The Third Place Creative'
+
+  const result = await resend.emails.send({
+    from:    buildFrom(actorName, workspaceName),
+    to,
+    ...(actorEmail ? { replyTo: actorEmail } : {}),
+    subject: `Proposal for ${projectName}: ${proposalTitle}`,
+    html: `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#F7F4FA;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F7F4FA;padding:40px 0">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #E8E3EF">
+        <tr>
+          <td style="background:#0A0612;padding:28px 36px">
+            <p style="margin:0;font-size:13px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:${accent}">${brandName}</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="background:${primary};padding:12px 36px">
+            <p style="margin:0;font-size:11px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:rgba(255,255,255,0.7)">Proposal</p>
+            <p style="margin:4px 0 0;font-size:20px;font-weight:700;color:#fff;letter-spacing:-0.02em">${proposalTitle}</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:32px 36px">
+            <p style="margin:0 0 8px;font-size:22px;font-weight:700;color:#0A0612">${actorName ? `${actorName} sent you a proposal` : 'You have a new proposal'}</p>
+            <p style="margin:0 0 24px;font-size:15px;color:#555;line-height:1.6">
+              Please review the proposal for <strong>${projectName}</strong> below.
+            </p>
+            <table cellpadding="0" cellspacing="0" style="margin-top:8px">
+              <tr>
+                <td>
+                  <a href="${proposalUrl}" style="display:inline-block;background:${primary};color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;padding:13px 28px;border-radius:8px">
+                    View proposal →
+                  </a>
+                </td>
+              </tr>
+            </table>
+            ${expiresAt ? `<p style="margin:20px 0 0;font-size:12px;color:#aaa">This proposal is valid through ${format(expiresAt, 'MMMM d, yyyy')}.</p>` : ''}
+            <p style="margin:8px 0 0;font-size:12px;color:#aaa">
+              Or copy this link: <a href="${proposalUrl}" style="color:${primary};word-break:break-all">${proposalUrl}</a>
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td style="border-top:1px solid #F0EBF7;padding:16px 36px">
+            <p style="margin:0;font-size:11px;color:#ccc">${brandName} · ${actorEmail ? `Reply to this email to reach ${actorName ?? 'the sender'} directly` : 'Sent via SlateSuite'}</p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
+    `,
+  })
+  return checkSend(result)
 }
 
 interface InvoiceSentPayload {
@@ -66,11 +185,15 @@ interface InvoiceSentPayload {
   workspaceName?: string | null
   brandPrimary?: string | null
   brandAccent?: string | null
+  /** The teammate who clicked "Send" — shown in the From display name, used as Reply-To. */
+  actorName?: string | null
+  actorEmail?: string | null
 }
 
 interface InvitationPayload {
   to: string
   invitedByName: string
+  invitedByEmail?: string | null
   workspaceName: string
   role: 'OWNER' | 'PRODUCER' | 'COLLABORATOR'
   token: string
@@ -83,14 +206,15 @@ const ROLE_LABELS: Record<InvitationPayload['role'], string> = {
   COLLABORATOR: 'Collaborator',
 }
 
-export async function sendInvitationEmail(payload: InvitationPayload) {
-  const { to, invitedByName, workspaceName, role, token, expiresAt } = payload
+export async function sendInvitationEmail(payload: InvitationPayload): Promise<{ id: string }> {
+  const { to, invitedByName, invitedByEmail, workspaceName, role, token, expiresAt } = payload
   const acceptUrl = `${APP_URL}/invite/${token}`
   const roleLabel = ROLE_LABELS[role] ?? 'Member'
 
-  await resend.emails.send({
-    from: FROM,
+  const result = await resend.emails.send({
+    from: buildFrom(invitedByName, workspaceName),
     to,
+    ...(invitedByEmail ? { replyTo: invitedByEmail } : {}),
     subject: `${invitedByName} invited you to join ${workspaceName}`,
     html: `
 <!DOCTYPE html>
@@ -144,6 +268,7 @@ export async function sendInvitationEmail(payload: InvitationPayload) {
 </html>
     `,
   })
+  return checkSend(result)
 }
 
 /**
@@ -319,7 +444,7 @@ export async function sendPaymentReceiptEmails(invoiceId: string): Promise<void>
 </body>
 </html>`
 
-  const sends: Promise<unknown>[] = []
+  const sends: Promise<{ id: string }>[] = []
 
   if (inv.client?.contactEmail) {
     sends.push(
@@ -328,7 +453,7 @@ export async function sendPaymentReceiptEmails(invoiceId: string): Promise<void>
         to:      inv.client.contactEmail,
         subject: `Payment received — ${inv.number} (${amount})`,
         html:    clientReceipt,
-      }),
+      }).then(checkSend),
     )
   }
 
@@ -342,15 +467,15 @@ export async function sendPaymentReceiptEmails(invoiceId: string): Promise<void>
         to:      teamEmail,
         subject: `Payment received: ${inv.number} — ${clientName} paid ${amount}`,
         html:    teamNotice,
-      }),
+      }).then(checkSend),
     )
   }
 
   await Promise.all(sends)
 }
 
-export async function sendInvoiceEmail(payload: InvoiceSentPayload) {
-  const { to, subject, customMessage, invoiceNumber, projectName, amountCents, dueDate, invoiceUrl } = payload
+export async function sendInvoiceEmail(payload: InvoiceSentPayload): Promise<{ id: string }> {
+  const { to, subject, customMessage, invoiceNumber, projectName, amountCents, dueDate, invoiceUrl, actorName, actorEmail } = payload
   const primary   = payload.brandPrimary || '#5D00A4'
   const accent    = payload.brandAccent  || '#04FFCC'
   const brandName = payload.workspaceName || 'The Third Place Creative'
@@ -369,9 +494,10 @@ export async function sendInvoiceEmail(payload: InvoiceSentPayload) {
         .join('')
     : `<p style="margin:0 0 12px;font-size:15px;color:#333">Please find your invoice details below.</p>`
 
-  await resend.emails.send({
-    from: FROM,
+  const result = await resend.emails.send({
+    from: buildFrom(actorName, payload.workspaceName),
     to,
+    ...(actorEmail ? { replyTo: actorEmail } : {}),
     subject: subject ?? defaultSubject,
     html: `
 <!DOCTYPE html>
@@ -450,4 +576,5 @@ export async function sendInvoiceEmail(payload: InvoiceSentPayload) {
 </html>
     `,
   })
+  return checkSend(result)
 }

@@ -150,15 +150,29 @@ export async function inviteTeamMember(
       },
     })
 
-    // Send branded Resend email
-    await sendInvitationEmail({
-      to:            normalizedEmail,
-      invitedByName: currentUser.name ?? currentUser.email,
-      workspaceName: workspace.name,
-      role,
-      token:         invitation.token,
-      expiresAt,
-    })
+    // Send branded Resend email — kept separate from the outer try/catch so a
+    // Resend failure surfaces its real message instead of a generic one.
+    try {
+      await sendInvitationEmail({
+        to:             normalizedEmail,
+        invitedByName:  currentUser.name ?? currentUser.email,
+        invitedByEmail: currentUser.email,
+        workspaceName:  workspace.name,
+        role,
+        token:          invitation.token,
+        expiresAt,
+      })
+    } catch (emailErr) {
+      console.error('[inviteTeamMember] email send failed', emailErr)
+      await logAuditEvent({
+        workspaceId,
+        actorId:    currentUser.id,
+        action:     'member.invite_email_failed',
+        entityType: 'Member',
+        metadata:   { email: normalizedEmail, role, error: emailErr instanceof Error ? emailErr.message : String(emailErr) },
+      })
+      return { success: false, error: `Invitation email failed to send: ${emailErr instanceof Error ? emailErr.message : 'Unknown error'}` }
+    }
 
     revalidatePath('/team')
 
