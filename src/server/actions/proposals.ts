@@ -9,6 +9,7 @@ import { sumAccount, type AccountInput } from '@/lib/totals'
 import type { ActionResult, ProposalDiscount } from '@/types'
 import { logAuditEvent } from '@/lib/audit'
 import { generatePublicToken } from '@/lib/secure-token'
+import { syncDeliverablesFromProposal } from './delivery'
 
 function uid() { return crypto.randomUUID().slice(0, 8) }
 
@@ -187,7 +188,7 @@ export async function sendProposal(proposalId: string): Promise<ActionResult<{ p
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const existing = await sdb.proposal.findFirst({
       where: { id: proposalId },
-      select: { budgetId: true, content: true, workspaceId: true },
+      select: { budgetId: true, content: true, workspaceId: true, projectId: true },
     })
     if (!existing) return { success: false, error: 'Proposal not found' }
     const discount = (existing.content as { discount?: ProposalDiscount }).discount
@@ -206,6 +207,7 @@ export async function sendProposal(proposalId: string): Promise<ActionResult<{ p
     })
     const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL}/p/${(proposal as unknown as { publicToken: string }).publicToken}`
     revalidatePath(`/proposals/${proposalId}/edit`)
+    await syncDeliverablesFromProposal((existing as unknown as { projectId: string }).projectId)
 
     await logAuditEvent({
       workspaceId: (existing as unknown as { workspaceId: string }).workspaceId,
@@ -298,6 +300,7 @@ export async function createSentProposal(input: {
     })
 
     revalidatePath(`/projects/${input.projectId}`)
+    await syncDeliverablesFromProposal(input.projectId)
     const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/p/${(proposal as unknown as { publicToken: string }).publicToken}`
     return { success: true, data: { id: proposal.id, publicToken: (proposal as unknown as { publicToken: string }).publicToken, publicUrl } }
   } catch (err) {
@@ -438,6 +441,7 @@ export async function sendDraftProposal(
       } as unknown as Parameters<typeof sdb.proposal.update>[0]['data'],
     })
     revalidatePath(`/projects/${existing.projectId}`)
+    await syncDeliverablesFromProposal(existing.projectId)
     return { success: true, data: { publicToken: (proposal as unknown as { publicToken: string }).publicToken } }
   } catch {
     return { success: false, error: 'Failed to send proposal' }

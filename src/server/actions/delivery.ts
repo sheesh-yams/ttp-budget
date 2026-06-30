@@ -308,7 +308,12 @@ export async function createAsset(
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
-    const orderIndex = fields.orderIndex ?? (await sdb.deliverableAsset.count({ where: { deliveryPageId } }))
+    // Scoped to this section (or the page-level bucket when sectionId is null) —
+    // matches the optimistic UI's `s.deliverables.length`, so the real orderIndex
+    // doesn't relocate the card once the page refreshes and re-sorts.
+    const orderIndex = fields.orderIndex ?? (await sdb.deliverableAsset.count({
+      where: { deliveryPageId, sectionId: sectionId ?? null },
+    }))
     const asset = await sdb.deliverableAsset.create({
       data: {
         deliveryPageId,
@@ -860,6 +865,112 @@ export async function generateFromProposal(
   } catch (err) {
     console.error('[delivery] generateFromProposal', err)
     return { success: false, error: 'Failed to generate from proposal.' }
+  }
+}
+
+/**
+ * Additively sync DeliverableSections from the project's current primary-phase
+ * deliverables, matched by title (case-insensitive, trimmed) against existing
+ * section titles. Never overwrites or removes anything — a deliverable whose
+ * title already has a matching section is skipped; only net-new titles get a
+ * section (+ N cards for quantity > 1). Auto-creates the DeliveryPage if the
+ * project doesn't have one yet.
+ *
+ * Called whenever a proposal is sent, so a revised proposal's new deliverable
+ * lines show up on the delivery page without clobbering work already done
+ * there (renamed sections, uploaded assets, etc.).
+ */
+export async function syncDeliverablesFromProposal(
+  projectId: string,
+): Promise<ActionResult<{ sectionsCreated: number; assetsCreated: number }>> {
+  try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error!
+    const sdb = await getScopedDb()
+
+    const budget = await sdb.budget.findFirst({
+      where:  { projectId },
+      select: {
+        phases: {
+          where:   { isPrimary: true },
+          take:    1,
+          select:  { id: true, deliverables: true },
+        },
+      },
+    })
+    const primaryPhase = budget?.phases[0] ?? await sdb.phase.findFirst({
+      where:  { budget: { projectId } },
+      select: { id: true, deliverables: true },
+    })
+    const phaseDeliverables = (primaryPhase?.deliverables as PhaseDeliverable[] | null) ?? []
+    if (phaseDeliverables.length === 0) return { success: true, data: { sectionsCreated: 0, assetsCreated: 0 } }
+
+    let deliveryPage = await sdb.deliveryPage.findFirst({ where: { projectId } })
+    if (!deliveryPage) {
+      deliveryPage = await sdb.deliveryPage.create({
+        data: { projectId, workspaceId: gate.workspaceId },
+      })
+    }
+    const deliveryPageId = deliveryPage.id
+
+    const existingSections = await sdb.deliverableSection.findMany({
+      where:  { deliveryPageId },
+      select: { title: true },
+    })
+    const existingTitles = new Set(existingSections.map(s => s.title.trim().toLowerCase()))
+
+    let nextSectionOrder = existingSections.length
+    let sectionsCreated  = 0
+    let assetsCreated    = 0
+
+    for (const deliverable of phaseDeliverables) {
+      const title = deliverable.title?.trim()
+      if (!title) continue
+      const key = title.toLowerCase()
+      if (existingTitles.has(key)) continue // additive only — matching section already exists
+      existingTitles.add(key)
+
+      const type     = (deliverable.type ?? 'DELIVERABLE') as DeliverableItemType
+      const quantity = Math.max(1, deliverable.quantity ?? 1)
+
+      const section = await sdb.deliverableSection.create({
+        data: {
+          deliveryPageId,
+          title,
+          sourceDeliverableId: deliverable.id,
+          orderIndex:          nextSectionOrder++,
+          workspaceId:         gate.workspaceId,
+        },
+      })
+      sectionsCreated++
+
+      const digits = String(quantity).length
+      for (let i = 0; i < quantity; i++) {
+        const cardTitle = quantity > 1
+          ? `${title} ${String(i + 1).padStart(digits, '0')}`
+          : title
+        await sdb.deliverableAsset.create({
+          data: {
+            deliveryPageId,
+            sectionId:           section.id,
+            title:               cardTitle,
+            description:         deliverable.description ?? null,
+            type,
+            orderIndex:          i,
+            sourceDeliverableId: deliverable.id,
+            sourceCardIndex:     i,
+            workspaceId:         gate.workspaceId,
+          },
+        })
+        assetsCreated++
+      }
+    }
+
+    if (sectionsCreated > 0) revalidateDelivery(projectId)
+    return { success: true, data: { sectionsCreated, assetsCreated } }
+  } catch (err) {
+    console.error('[delivery] syncDeliverablesFromProposal', err)
+    return { success: false, error: 'Failed to sync deliverables.' }
   }
 }
 
