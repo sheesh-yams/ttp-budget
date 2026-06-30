@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useTransition, useRef } from 'react'
+import { useState, useEffect, useTransition, useRef, forwardRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import {
   Clapperboard, Plus, GripVertical, MoreHorizontal, Pencil, Trash2,
@@ -136,6 +137,7 @@ export function ScheduleEditorClient({
   // Drag state
   const dragItem = useRef<{ id: string; multiIds?: string[] } | null>(null)
   const tabHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastDragKey = useRef<string | null>(null)
   const [dragOverId, setDragOverId] = useState<string | null>(null)
   const [dropAbove, setDropAbove] = useState(true)
 
@@ -188,6 +190,7 @@ export function ScheduleEditorClient({
 
   function handleDragEnd() {
     dragItem.current = null
+    lastDragKey.current = null
     setDragOverId(null)
     setPreviewEntries(null)
     if (tabHoverTimer.current) clearTimeout(tabHoverTimer.current)
@@ -196,7 +199,18 @@ export function ScheduleEditorClient({
   function handleDragOverRow(targetEntry: EntryRow, event: React.DragEvent<HTMLTableRowElement>) {
     event.preventDefault()
     const rect = event.currentTarget.getBoundingClientRect()
-    const above = event.clientY < rect.top + rect.height / 2
+    const relY = event.clientY - rect.top
+    // Hysteresis band when already hovering this row: avoid flip-flopping right at the
+    // midpoint, which otherwise reorders rows under the cursor and re-triggers itself.
+    const isSameRow = dragOverId === targetEntry.id
+    const above = isSameRow
+      ? (dropAbove ? relY < rect.height * 0.6 : relY < rect.height * 0.4)
+      : relY < rect.height / 2
+
+    const key = `${targetEntry.id}:${above}`
+    if (key === lastDragKey.current) return
+    lastDragKey.current = key
+
     setDragOverId(targetEntry.id)
     setDropAbove(above)
     buildPreview(targetEntry.id, above, targetEntry.shootDayId)
@@ -265,6 +279,7 @@ export function ScheduleEditorClient({
   }
 
   function applyDrop(ids: string[], toShootDayId: string | null, beforeEntryId: string | null) {
+    lastDragKey.current = null
     setDragOverId(null)
     setPreviewEntries(null)
 
@@ -803,12 +818,20 @@ function ScheduleEntryRow({
   onStartBannerEdit, onCommitBannerEdit, onCancelBannerEdit, onBannerEditChange,
 }: RowProps) {
   const [menuOpen, setMenuOpen] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
+  const [menuPos, setMenuPos]   = useState<{ top: number; left: number } | null>(null)
+  const [mounted, setMounted]   = useState(false)
+  const menuRef    = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => { setMounted(true) }, [])
 
   useEffect(() => {
     if (!menuOpen) return
     function handler(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+      const t = e.target as Node
+      if (triggerRef.current?.contains(t)) return
+      if (menuRef.current?.contains(t)) return
+      setMenuOpen(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -935,29 +958,38 @@ function ScheduleEntryRow({
       {/* Kebab */}
       <td className="px-1 py-2 w-8">
         {canEdit && (
-          <div className="relative" ref={menuRef}>
-            <button
-              type="button"
-              className="rounded p-1 opacity-0 group-hover/row:opacity-60 hover:!opacity-100 transition-opacity"
-              onClick={e => { e.stopPropagation(); setMenuOpen(v => !v) }}
-            >
-              <MoreHorizontal className="h-3.5 w-3.5" />
-            </button>
-            {menuOpen && (
-              <EntryKebabMenu
-                entry={entry}
-                otherDays={otherDays}
-                onClose={() => setMenuOpen(false)}
-                onEdit={onEdit}
-                onDelete={onDelete}
-                onMoveToBoneyard={onMoveToBoneyard}
-                onMoveToDay={onMoveToDay}
-                onEditBanner={onStartBannerEdit}
-              />
-            )}
-          </div>
+          <button
+            ref={triggerRef}
+            type="button"
+            className="rounded p-1 opacity-0 group-hover/row:opacity-60 hover:!opacity-100 transition-opacity"
+            onClick={e => {
+              e.stopPropagation()
+              if (!menuOpen && triggerRef.current) {
+                const rect = triggerRef.current.getBoundingClientRect()
+                setMenuPos({ top: rect.bottom + 4 + window.scrollY, left: rect.right - 176 + window.scrollX })
+              }
+              setMenuOpen(v => !v)
+            }}
+          >
+            <MoreHorizontal className="h-3.5 w-3.5" />
+          </button>
         )}
       </td>
+      {mounted && menuOpen && menuPos && createPortal(
+        <EntryKebabMenu
+          ref={menuRef}
+          pos={menuPos}
+          entry={entry}
+          otherDays={otherDays}
+          onClose={() => setMenuOpen(false)}
+          onEdit={onEdit}
+          onDelete={onDelete}
+          onMoveToBoneyard={onMoveToBoneyard}
+          onMoveToDay={onMoveToDay}
+          onEditBanner={onStartBannerEdit}
+        />,
+        document.body,
+      )}
     </tr>
   )
 }
@@ -966,9 +998,8 @@ function ScheduleEntryRow({
 // EntryKebabMenu
 // ─────────────────────────────────────────────────────────────────────────────
 
-function EntryKebabMenu({
-  entry, otherDays, onClose, onEdit, onDelete, onMoveToBoneyard, onMoveToDay, onEditBanner,
-}: {
+const EntryKebabMenu = forwardRef<HTMLDivElement, {
+  pos: { top: number; left: number }
   entry: EntryRow
   otherDays: ShootDayRow[]
   onClose: () => void
@@ -977,7 +1008,9 @@ function EntryKebabMenu({
   onMoveToBoneyard: (e: EntryRow) => void
   onMoveToDay: (id: string, dayId: string) => void
   onEditBanner: (e: EntryRow) => void
-}) {
+}>(function EntryKebabMenu({
+  pos, entry, otherDays, onClose, onEdit, onDelete, onMoveToBoneyard, onMoveToDay, onEditBanner,
+}, ref) {
   const [moveDayOpen, setMoveDayOpen] = useState(false)
 
   function item(onClick: () => void, children: React.ReactNode, danger = false) {
@@ -993,7 +1026,11 @@ function EntryKebabMenu({
   }
 
   return (
-    <div className="absolute right-0 top-6 z-30 w-44 rounded-xl border border-border bg-popover shadow-xl py-1 text-foreground">
+    <div
+      ref={ref}
+      style={{ position: 'absolute', top: pos.top, left: pos.left, zIndex: 9999, width: 176 }}
+      className="rounded-xl border border-border bg-popover shadow-xl py-1 text-foreground"
+    >
       {entry.kind === 'SCENE'
         ? item(() => onEdit(entry), <><Pencil className="h-3.5 w-3.5 text-muted-foreground" /> Edit scene</>)
         : item(() => onEditBanner(entry), <><Pencil className="h-3.5 w-3.5 text-muted-foreground" /> Edit banner</>)
@@ -1029,7 +1066,7 @@ function EntryKebabMenu({
       {item(() => onDelete(entry), <><Trash2 className="h-3.5 w-3.5" /> Remove from schedule</>, true)}
     </div>
   )
-}
+})
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BoneyardView
