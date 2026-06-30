@@ -60,6 +60,12 @@ const SCOPED_MODELS = new Set([
   'DeliverableAsset',
   'DeliverableVersion',
   'DeliverableView',
+  // Schedule feature
+  'Location',
+  'ShootDay',
+  'Scene',
+  'Schedule',
+  'ScheduleEntry',
   // NOTE: WebhookEvent is NOT workspace-scoped (keyed by provider+eventId only)
 ])
 

@@ -207,6 +207,9 @@ model Project {
   comments       ProjectComment[]
   assignments    ProjectAssignment[]
   deliveryPage   DeliveryPage?
+  shootDays      ShootDay[]
+  scenes         Scene[]
+  schedules      Schedule[]
 
   @@index([workspaceId])
   @@index([clientId])
@@ -790,6 +793,14 @@ model CallSheet {
   cateringInfo    String?  @db.Text
   notes           String?  @db.Text
 
+  // Schedule integration
+  locationId        String?
+  location          Location?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  shootDayId        String?
+  shootDay          ShootDay?  @relation(fields: [shootDayId], references: [id], onDelete: SetNull)
+  scheduleSnapshot  Json?      // frozen copy of schedule entries at last sync
+  scheduleSyncedAt  DateTime?  // timestamp of last sync; divergence computed at read time
+
   sentAt          DateTime?
   publicTokenExpiresAt DateTime? // when the public /cs/[token] URL stops working (null = never)
   createdAt       DateTime @default(now())
@@ -798,6 +809,7 @@ model CallSheet {
   @@index([projectId])
   @@index([workspaceId])
   @@index([shootDate])
+  @@index([shootDayId])
 }
 
 // =============================================================
@@ -1252,5 +1264,160 @@ model DeliverableView {
   createdAt     DateTime @default(now())
 
   @@index([deliverableId, versionId])
+  @@index([workspaceId])
+}
+
+// =============================================================
+// SCHEDULE FEATURE — Location, ShootDay, Scene, Schedule, ScheduleEntry
+// =============================================================
+
+model Location {
+  id               String   @id @default(cuid())
+  workspaceId      String
+  name             String
+  address          String?
+  city             String?
+  region           String?
+  postalCode       String?
+  country          String?
+  latitude         Float?
+  longitude        Float?
+  parkingNotes     String?  @db.Text
+  accessNotes      String?  @db.Text
+  nearestHospital  String?
+  hospitalAddress  String?
+  hospitalPhone    String?
+  hospitalDistance String?
+  contactName      String?
+  contactPhone     String?
+  contactEmail     String?
+  scenes           Scene[]
+  shootDays        ShootDay[]
+  callSheets       CallSheet[]
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([workspaceId, name])
+}
+
+model ShootDay {
+  id                String    @id @default(cuid())
+  workspaceId       String
+  projectId         String
+  project           Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  date              DateTime  @db.Date
+  orderIndex        Int       @default(0)
+  label             String?
+  startTime         String?   // "HH:mm"; default 08:00 if null
+  primaryLocationId String?
+  primaryLocation   Location? @relation(fields: [primaryLocationId], references: [id], onDelete: SetNull)
+  scheduleEntries   ScheduleEntry[]
+  callSheets        CallSheet[]
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([projectId, date])
+  @@index([projectId, orderIndex])
+  @@index([workspaceId])
+}
+
+enum IntExt {
+  INT
+  EXT
+  INT_EXT
+  CONTINUOUS
+}
+
+enum TimeOfDay {
+  DAY
+  NIGHT
+  DUSK
+  DAWN
+  MORNING
+  EVENING
+}
+
+model Scene {
+  id                String    @id @default(cuid())
+  workspaceId       String
+  projectId         String
+  project           Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sceneNumber       String?
+  setting           String
+  description       String?   @db.Text
+  synopsis          String?   @db.Text
+  intExt            IntExt    @default(INT)
+  timeOfDay         TimeOfDay @default(DAY)
+  pageCount         String?   // display string e.g. "2 5/8"
+  pageEighths       Int?      // numeric (1 page = 8 eighths)
+  estimatedDuration Int?      // minutes
+  locationId        String?
+  location          Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  notes             String?   @db.Text
+  castContactIds    String[]  @default([])
+  colorOverride     String?   // hex; null = auto-derived from intExt + timeOfDay
+  archived          Boolean   @default(false)
+  entries           ScheduleEntry[]
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([projectId])
+  @@index([workspaceId])
+}
+
+model Schedule {
+  id          String   @id @default(cuid())
+  workspaceId String
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  isPrimary   Boolean  @default(false)
+  columnPrefs Json     @default("{}")
+  entries     ScheduleEntry[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([workspaceId])
+}
+
+enum EntryKind {
+  SCENE
+  BANNER
+}
+
+enum BannerType {
+  MEAL_BREAK
+  COMPANY_MOVE
+  COFFEE_BREAK
+  NOTE
+  CUSTOM
+}
+
+model ScheduleEntry {
+  id                String     @id @default(cuid())
+  workspaceId       String
+  scheduleId        String
+  schedule          Schedule   @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  shootDayId        String?
+  shootDay          ShootDay?  @relation(fields: [shootDayId], references: [id], onDelete: SetNull)
+  orderIndex        Int        @default(0)
+  kind              EntryKind
+  // SCENE branch
+  sceneId           String?
+  scene             Scene?     @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  // BANNER branch
+  bannerType        BannerType?
+  bannerLabel       String?
+  bannerDurationMin Int?
+  bannerNote        String?    @db.Text
+  // Computed time snapshot (server-maintained)
+  computedStartTime String?
+  computedEndTime   String?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  @@index([scheduleId, shootDayId, orderIndex])
   @@index([workspaceId])
 }
