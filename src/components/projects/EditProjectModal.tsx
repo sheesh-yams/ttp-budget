@@ -1,12 +1,14 @@
 'use client'
 
 import { useState, useTransition, useEffect } from 'react'
+import { X, Plus } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { updateProject } from '@/server/actions/projects'
+import { updateProject, listShootDays } from '@/server/actions/projects'
+import { parseLocalDate } from '@/lib/time-format'
 
 const SHOOT_TYPES = [
   { value: 'MUSIC_VIDEO',    label: 'Music Video' },
@@ -26,11 +28,6 @@ const STATUSES = [
   { value: 'ARCHIVED', label: 'Archived' },
 ]
 
-function toDateInput(d: string | Date | null | undefined): string {
-  if (!d) return ''
-  return new Date(d).toISOString().split('T')[0]
-}
-
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -39,8 +36,6 @@ interface Props {
     name: string
     status: string
     shootType: string
-    shootStartDate: string | Date | null
-    shootEndDate: string | Date | null
   }
   onSaved: () => void
 }
@@ -48,22 +43,38 @@ interface Props {
 export function EditProjectModal({ open, onOpenChange, project, onSaved }: Props) {
   const [pending, startTransition] = useTransition()
 
-  const [name,           setName]           = useState('')
-  const [status,         setStatus]         = useState('')
-  const [shootType,      setShootType]      = useState('')
-  const [shootStartDate, setShootStartDate] = useState('')
-  const [shootEndDate,   setShootEndDate]   = useState('')
-  const [error,          setError]          = useState('')
+  const [name,         setName]         = useState('')
+  const [status,       setStatus]       = useState('')
+  const [shootType,    setShootType]    = useState('')
+  const [shootDates,   setShootDates]   = useState<string[]>([])
+  const [newDate,      setNewDate]      = useState('')
+  const [loadingDates, setLoadingDates] = useState(false)
+  const [error,        setError]        = useState('')
 
   useEffect(() => {
     if (!open) return
     setName(project.name)
     setStatus(project.status)
     setShootType(project.shootType)
-    setShootStartDate(toDateInput(project.shootStartDate))
-    setShootEndDate(toDateInput(project.shootEndDate))
+    setNewDate('')
     setError('')
+    setShootDates([])
+    setLoadingDates(true)
+    listShootDays(project.id).then(result => {
+      if (result.success) setShootDates(result.data.map(d => d.date))
+      setLoadingDates(false)
+    })
   }, [open, project])
+
+  function addDate() {
+    if (!newDate) return
+    setShootDates(prev => prev.includes(newDate) ? prev : [...prev, newDate].sort())
+    setNewDate('')
+  }
+
+  function removeDate(date: string) {
+    setShootDates(prev => prev.filter(d => d !== date))
+  }
 
   function handleSave() {
     if (!name.trim()) { setError('Project name is required'); return }
@@ -72,10 +83,9 @@ export function EditProjectModal({ open, onOpenChange, project, onSaved }: Props
     startTransition(async () => {
       const result = await updateProject(project.id, {
         name,
-        status:         status as never,
-        shootType:      shootType as never,
-        shootStartDate: shootStartDate || null,
-        shootEndDate:   shootEndDate   || null,
+        status:     status as never,
+        shootType:  shootType as never,
+        shootDates,
       })
       if (result.success) {
         onSaved()
@@ -135,27 +145,47 @@ export function EditProjectModal({ open, onOpenChange, project, onSaved }: Props
             </div>
           </div>
 
-          {/* Shoot dates */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-1.5">
-              <Label htmlFor="ep-start">Shoot start</Label>
+          {/* Shoot days */}
+          <div className="grid gap-1.5">
+            <Label>Shoot days</Label>
+            {shootDates.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {shootDates.map(date => (
+                  <span
+                    key={date}
+                    className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs font-medium"
+                  >
+                    {parseLocalDate(date)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    <button
+                      type="button"
+                      onClick={() => removeDate(date)}
+                      className="rounded-full p-0.5 hover:bg-background/60 transition-colors"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            {shootDates.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                {loadingDates ? 'Loading…' : 'No shoot days yet.'}
+              </p>
+            )}
+            <div className="flex items-center gap-2">
               <Input
-                id="ep-start"
                 type="date"
-                value={shootStartDate}
-                onChange={e => setShootStartDate(e.target.value)}
+                value={newDate}
+                onChange={e => setNewDate(e.target.value)}
+                className="flex-1"
               />
+              <Button type="button" variant="outline" size="sm" onClick={addDate} disabled={!newDate}>
+                <Plus className="h-3.5 w-3.5 mr-1" /> Add
+              </Button>
             </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="ep-end">Shoot end</Label>
-              <Input
-                id="ep-end"
-                type="date"
-                value={shootEndDate}
-                min={shootStartDate}
-                onChange={e => setShootEndDate(e.target.value)}
-              />
-            </div>
+            <p className="text-xs text-muted-foreground">
+              Removing a day moves its scheduled scenes to the Boneyard — it doesn&apos;t delete them.
+            </p>
           </div>
 
           {error && <p className="text-sm text-destructive">{error}</p>}

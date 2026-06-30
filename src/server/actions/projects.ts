@@ -78,52 +78,53 @@ export async function updateProject(
     name: string
     status: typeof PROJECT_STATUSES[number]
     shootType: typeof SHOOT_TYPES[number]
-    shootStartDate: string | null
-    shootEndDate: string | null
+    /** Individual shoot dates, "YYYY-MM-DD". Need not be contiguous. */
+    shootDates: string[]
   }
 ): Promise<ActionResult> {
   try {
     const db = await getScopedDb()
+    const wantedKeys = [...new Set(input.shootDates)].sort()
+
     await db.project.update({
       where: { id: projectId },
       data: {
         name:           input.name.trim(),
         status:         input.status,
         shootType:      input.shootType,
-        shootStartDate: input.shootStartDate ? new Date(input.shootStartDate) : null,
-        shootEndDate:   input.shootEndDate   ? new Date(input.shootEndDate)   : null,
+        shootStartDate: wantedKeys[0] ? new Date(wantedKeys[0]) : null,
+        shootEndDate:   wantedKeys.length ? new Date(wantedKeys[wantedKeys.length - 1]) : null,
       },
     })
 
-    if (input.shootStartDate) {
-      const start = new Date(input.shootStartDate)
-      const end = input.shootEndDate ? new Date(input.shootEndDate) : start
+    const existing = await db.shootDay.findMany({
+      where: { projectId },
+      select: { id: true, date: true, orderIndex: true },
+    })
+    const existingByKey = new Map(existing.map(d => [d.date.toISOString().slice(0, 10), d]))
+    const wantedSet = new Set(wantedKeys)
 
-      const existing = await db.shootDay.findMany({
-        where: { projectId },
-        select: { date: true, orderIndex: true },
+    // Create days that were added
+    let nextOrder = existing.reduce((max, d) => Math.max(max, d.orderIndex), -1) + 1
+    const toCreate = wantedKeys
+      .filter(key => !existingByKey.has(key))
+      .map(key => ({ projectId, date: new Date(key), orderIndex: nextOrder++ }))
+    if (toCreate.length > 0) {
+      await db.shootDay.createMany({
+        data: toCreate as unknown as Parameters<typeof db.shootDay.createMany>[0]['data'],
       })
-      const existingDates = new Set(existing.map(d => d.date.toISOString().slice(0, 10)))
-      let nextOrder = existing.reduce((max, d) => Math.max(max, d.orderIndex), -1) + 1
+    }
 
-      const toCreate: { projectId: string; date: Date; orderIndex: number }[] = []
-      for (
-        const cursor = new Date(start);
-        cursor <= end;
-        cursor.setUTCDate(cursor.getUTCDate() + 1)
-      ) {
-        const key = cursor.toISOString().slice(0, 10)
-        if (!existingDates.has(key)) {
-          toCreate.push({ projectId, date: new Date(cursor), orderIndex: nextOrder })
-          nextOrder += 1
-        }
-      }
-
-      if (toCreate.length > 0) {
-        await db.shootDay.createMany({
-          data: toCreate as unknown as Parameters<typeof db.shootDay.createMany>[0]['data'],
-        })
-      }
+    // Remove days that were deselected — move their entries to the boneyard first
+    // rather than deleting scheduled scenes outright.
+    const toRemove = existing.filter(d => !wantedSet.has(d.date.toISOString().slice(0, 10)))
+    if (toRemove.length > 0) {
+      const removeIds = toRemove.map(d => d.id)
+      await db.scheduleEntry.updateMany({
+        where: { shootDayId: { in: removeIds } },
+        data: { shootDayId: null, computedStartTime: null, computedEndTime: null },
+      })
+      await db.shootDay.deleteMany({ where: { id: { in: removeIds } } })
     }
 
     revalidatePath(`/projects/${projectId}`)
@@ -134,6 +135,16 @@ export async function updateProject(
     console.error(err)
     return { success: false, error: 'Failed to update project' }
   }
+}
+
+export async function listShootDays(projectId: string): Promise<ActionResult<{ id: string; date: string }[]>> {
+  const db = await getScopedDb()
+  const days = await db.shootDay.findMany({
+    where: { projectId },
+    orderBy: { date: 'asc' },
+    select: { id: true, date: true },
+  })
+  return { success: true, data: days.map(d => ({ id: d.id, date: d.date.toISOString().slice(0, 10) })) }
 }
 
 // ─── Archive project ──────────────────────────────────────────────────────────
