@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import {
   Clapperboard, Plus, GripVertical, MoreHorizontal, Pencil, Trash2,
   ArrowRight, Archive, ArchiveRestore, ChevronDown, FilePlus, Clock,
+  Check, Star, Columns3, ArrowUpDown, MapPin,
 } from 'lucide-react'
 import { getSceneColor, BANNER_COLORS } from '@/lib/schedule-colors'
 import { computeEntryTimes } from '@/lib/schedule-compute'
@@ -13,8 +14,15 @@ import { SceneModal } from './SceneModal'
 import type { SceneRow } from './SceneModal'
 import { BannerMenu } from './BannerMenu'
 import type { BannerPreset } from './BannerMenu'
+import { LocationsModal } from './LocationsModal'
+import { SortDialog } from './SortDialog'
+import type { SortField, SortDir } from './SortDialog'
 import {
   createSchedule,
+  renameSchedule,
+  setPrimarySchedule,
+  deleteSchedule,
+  updateColumnPrefs,
   createScheduleEntry,
   updateScheduleEntry,
   moveScheduleEntry,
@@ -26,6 +34,24 @@ import {
 } from '@/server/actions/schedule'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import type { IntExt, TimeOfDay, BannerType, UserRole } from '@prisma/client'
+
+// ── Column definitions ───────────────────────────────────────────────────────
+
+export const COLUMN_DEFS: { key: string; label: string }[] = [
+  { key: 'ie',        label: 'I/E' },
+  { key: 'location',  label: 'Location' },
+  { key: 'pages',     label: 'Pages' },
+  { key: 'timeOfDay',  label: 'Time of Day' },
+  { key: 'duration',  label: 'Duration' },
+]
+
+export const DEFAULT_COLUMN_PREFS: Record<string, boolean> = {
+  ie: true,
+  location: true,
+  pages: true,
+  timeOfDay: false,
+  duration: false,
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -72,7 +98,7 @@ interface Props {
   projectName: string
   userRole: UserRole
   shootDays: ShootDayRow[]
-  schedules: { id: string; name: string; isPrimary: boolean }[]
+  schedules: { id: string; name: string; isPrimary: boolean; columnPrefs: Record<string, boolean> }[]
   activeScheduleId: string | null
   initialEntries: EntryRow[]
   allScenes: SceneRow[]
@@ -133,6 +159,53 @@ export function ScheduleEditorClient({
   const [bannerEdit, setBannerEdit]     = useState<{ entry: EntryRow; label: string; dur: string } | null>(null)
   const [creatingSchedule, setCreatingSchedule] = useState(false)
   const [newScheduleName, setNewScheduleName]   = useState('')
+  const [locationsModalOpen, setLocationsModalOpen] = useState(false)
+  const [sortDialogOpen, setSortDialogOpen]         = useState(false)
+
+  const activeSchedule = schedules.find(s => s.id === activeScheduleId) ?? null
+  const [columnPrefs, setColumnPrefs] = useState<Record<string, boolean>>(
+    () => ({ ...DEFAULT_COLUMN_PREFS, ...(activeSchedule?.columnPrefs ?? {}) })
+  )
+  useEffect(() => {
+    setColumnPrefs({ ...DEFAULT_COLUMN_PREFS, ...(activeSchedule?.columnPrefs ?? {}) })
+  }, [activeScheduleId, activeSchedule?.columnPrefs])
+
+  function toggleColumn(key: string) {
+    if (!canEdit || !activeScheduleId) return
+    const next = { ...columnPrefs, [key]: !columnPrefs[key] }
+    setColumnPrefs(next)
+    startTransition(async () => { await updateColumnPrefs(activeScheduleId, next) })
+  }
+
+  function switchSchedule(id: string) {
+    router.push(`/projects/${projectId}/schedule?scheduleId=${id}`)
+  }
+
+  async function handleRenameSchedule(id: string, name: string) {
+    if (!name.trim()) return
+    await renameSchedule(id, name.trim())
+    onMutated()
+  }
+
+  async function handleSetPrimarySchedule(id: string) {
+    await setPrimarySchedule(projectId, id)
+    onMutated()
+  }
+
+  async function handleDeleteSchedule(id: string, name: string) {
+    const ok = await confirm(
+      `"${name}" and all its scheduled entries will be removed. This can't be undone.`,
+      { title: 'Delete schedule?', key: 'delete-schedule', confirmLabel: 'Delete' },
+    )
+    if (!ok) return
+    const result = await deleteSchedule(id)
+    if ('error' in result && result.error) {
+      window.alert(result.error)
+      return
+    }
+    if (id === activeScheduleId) router.push(`/projects/${projectId}/schedule`)
+    else onMutated()
+  }
 
   // Drag state
   const dragItem = useRef<{ id: string; multiIds?: string[] } | null>(null)
@@ -148,8 +221,6 @@ export function ScheduleEditorClient({
   function entriesForDay(dayId: string | null) {
     return displayEntries.filter(e => e.shootDayId === dayId).sort((a, b) => a.orderIndex - b.orderIndex)
   }
-
-  const schedule = schedules.find(s => s.id === activeScheduleId) ?? null
 
   function onMutated() { router.refresh() }
 
@@ -303,6 +374,40 @@ export function ScheduleEditorClient({
       } else {
         await moveScheduleEntry({ entryId: ids[0]!, toShootDayId, beforeEntryId })
       }
+      onMutated()
+    })
+  }
+
+  // ── Sort dialog ───────────────────────────────────────────────────────────────
+
+  function handleSortEntries(field: SortField, dir: SortDir) {
+    if (!canEdit || activeTab === 'boneyard') return
+    const dayId = activeTab
+    const dayEntries = entries.filter(e => e.shootDayId === dayId).sort((a, b) => a.orderIndex - b.orderIndex)
+    if (dayEntries.length < 2) return
+
+    function key(e: EntryRow): string | number {
+      switch (field) {
+        case 'sceneNumber': return e.scene?.sceneNumber ?? '￿'
+        case 'pages':        return e.scene?.pageEighths ?? 0
+        case 'intExt':       return e.scene?.intExt ?? '￿'
+        case 'timeOfDay':    return e.scene?.timeOfDay ?? '￿'
+        case 'location':     return e.scene?.location?.name ?? '￿'
+      }
+    }
+    const sorted = [...dayEntries].sort((a, b) => {
+      const ka = key(a), kb = key(b)
+      const cmp = ka < kb ? -1 : ka > kb ? 1 : 0
+      return dir === 'asc' ? cmp : -cmp
+    })
+
+    setEntries(prev => {
+      const others = prev.filter(e => e.shootDayId !== dayId)
+      return [...others, ...sorted.map((e, i) => ({ ...e, orderIndex: i }))]
+    })
+
+    startTransition(async () => {
+      await moveScheduleEntries({ entryIds: sorted.map(e => e.id), toShootDayId: dayId, beforeEntryId: null })
       onMutated()
     })
   }
@@ -516,23 +621,62 @@ export function ScheduleEditorClient({
         locations={locations}
       />
 
+      {/* Locations modal */}
+      <LocationsModal
+        open={locationsModalOpen}
+        onClose={() => setLocationsModalOpen(false)}
+        locations={locations}
+        canEdit={canEdit}
+        onMutated={onMutated}
+      />
+
+      {/* Sort dialog */}
+      <SortDialog
+        open={sortDialogOpen}
+        onClose={() => setSortDialogOpen(false)}
+        onApply={(field, dir) => { handleSortEntries(field, dir); setSortDialogOpen(false) }}
+      />
+
       {/* ── Top bar ──────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-6 py-3 border-b border-border bg-background/80 backdrop-blur-sm sticky top-0 z-20">
         <div className="flex items-center gap-3">
           <Clapperboard className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-semibold text-foreground">{schedule?.name ?? 'Schedule'}</span>
-          {schedule?.isPrimary && (
-            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary uppercase tracking-wide">Primary</span>
+          <ScheduleSwitcher
+            schedules={schedules}
+            activeScheduleId={activeScheduleId}
+            canEdit={canEdit}
+            onSwitch={switchSchedule}
+            onRename={handleRenameSchedule}
+            onSetPrimary={handleSetPrimarySchedule}
+            onDelete={handleDeleteSchedule}
+            onCreateNew={() => { setNewScheduleName(`Schedule ${schedules.length + 1}`); setCreatingSchedule(true) }}
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            onClick={() => setLocationsModalOpen(true)}
+          >
+            <MapPin className="h-3.5 w-3.5" /> Locations
+          </button>
+          {activeTab !== 'boneyard' && (
+            <button
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              onClick={() => setSortDialogOpen(true)}
+            >
+              <ArrowUpDown className="h-3.5 w-3.5" /> Sort
+            </button>
+          )}
+          <ColumnsMenu columnPrefs={columnPrefs} onToggle={toggleColumn} canEdit={canEdit} />
+          {canEdit && (
+            <button
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-primary/90 transition-colors"
+              onClick={() => openNewScene()}
+            >
+              <Plus className="h-3.5 w-3.5" /> Add Scene
+            </button>
           )}
         </div>
-        {canEdit && (
-          <button
-            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-primary/90 transition-colors"
-            onClick={() => openNewScene()}
-          >
-            <Plus className="h-3.5 w-3.5" /> Add Scene
-          </button>
-        )}
       </div>
 
       {/* ── Shoot day tabs ────────────────────────────────────────────────────── */}
@@ -582,6 +726,7 @@ export function ScheduleEditorClient({
             allDays={shootDays}
             scheduleId={activeScheduleId}
             canEdit={canEdit}
+            columnPrefs={columnPrefs}
             selectedIds={selectedIds}
             dragOverId={dragOverId}
             dropAbove={dropAbove}
@@ -617,6 +762,233 @@ export function ScheduleEditorClient({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ScheduleSwitcher
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ScheduleSwitcher({
+  schedules, activeScheduleId, canEdit, onSwitch, onRename, onSetPrimary, onDelete, onCreateNew,
+}: {
+  schedules: { id: string; name: string; isPrimary: boolean; columnPrefs: Record<string, boolean> }[]
+  activeScheduleId: string | null
+  canEdit: boolean
+  onSwitch: (id: string) => void
+  onRename: (id: string, name: string) => void
+  onSetPrimary: (id: string) => void
+  onDelete: (id: string, name: string) => void
+  onCreateNew: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const [mounted, setMounted] = useState(false)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const active = schedules.find(s => s.id === activeScheduleId) ?? null
+
+  useEffect(() => { setMounted(true) }, [])
+
+  useEffect(() => {
+    if (!open) return
+    function handler(e: MouseEvent) {
+      const t = e.target as Node
+      if (triggerRef.current?.contains(t)) return
+      if (menuRef.current?.contains(t)) return
+      setOpen(false)
+      setRenamingId(null)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  function openMenu() {
+    if (!triggerRef.current) return
+    const rect = triggerRef.current.getBoundingClientRect()
+    setPos({ top: rect.bottom + 4 + window.scrollY, left: rect.left + window.scrollX })
+    setOpen(v => !v)
+  }
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 hover:bg-muted transition-colors"
+        onClick={openMenu}
+      >
+        <span className="text-sm font-semibold text-foreground">{active?.name ?? 'Schedule'}</span>
+        {active?.isPrimary && (
+          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary uppercase tracking-wide">Primary</span>
+        )}
+        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+      </button>
+
+      {mounted && open && pos && createPortal(
+        <div
+          ref={menuRef}
+          style={{ position: 'absolute', top: pos.top, left: pos.left, zIndex: 9999, width: 240 }}
+          className="rounded-xl border border-border bg-popover shadow-xl py-1 text-foreground"
+        >
+          {schedules.map(s => (
+            <div key={s.id} className="group/sched flex items-center px-1">
+              {renamingId === s.id ? (
+                <input
+                  autoFocus
+                  className="flex-1 m-1 rounded border border-border bg-background px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-primary/30"
+                  value={renameValue}
+                  onChange={e => setRenameValue(e.target.value)}
+                  onClick={e => e.stopPropagation()}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { onRename(s.id, renameValue); setRenamingId(null) }
+                    if (e.key === 'Escape') setRenamingId(null)
+                  }}
+                  onBlur={() => { onRename(s.id, renameValue); setRenamingId(null) }}
+                />
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="flex flex-1 items-center gap-2 px-2 py-2 text-sm hover:bg-muted rounded-lg transition-colors text-left min-w-0"
+                    onClick={() => { onSwitch(s.id); setOpen(false) }}
+                  >
+                    {s.id === activeScheduleId
+                      ? <Check className="h-3.5 w-3.5 text-primary flex-shrink-0" />
+                      : <span className="w-3.5 flex-shrink-0" />}
+                    <span className="truncate">{s.name}</span>
+                    {s.isPrimary && <Star className="h-3 w-3 text-primary flex-shrink-0" />}
+                  </button>
+                  {canEdit && (
+                    <div className="flex items-center opacity-0 group-hover/sched:opacity-100 transition-opacity flex-shrink-0">
+                      <button
+                        type="button"
+                        title="Rename"
+                        className="rounded p-1 hover:bg-muted text-muted-foreground hover:text-foreground"
+                        onClick={() => { setRenamingId(s.id); setRenameValue(s.name) }}
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                      {!s.isPrimary && (
+                        <button
+                          type="button"
+                          title="Set as primary"
+                          className="rounded p-1 hover:bg-muted text-muted-foreground hover:text-foreground"
+                          onClick={() => onSetPrimary(s.id)}
+                        >
+                          <Star className="h-3 w-3" />
+                        </button>
+                      )}
+                      {!s.isPrimary && (
+                        <button
+                          type="button"
+                          title="Delete"
+                          className="rounded p-1 hover:bg-muted text-destructive"
+                          onClick={() => { setOpen(false); onDelete(s.id, s.name) }}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          ))}
+          {canEdit && (
+            <>
+              <div className="my-1 border-t border-border" />
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors text-left text-foreground"
+                onClick={() => { setOpen(false); onCreateNew() }}
+              >
+                <Plus className="h-3.5 w-3.5 text-muted-foreground" /> New schedule
+              </button>
+            </>
+          )}
+        </div>,
+        document.body,
+      )}
+    </>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ColumnsMenu
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ColumnsMenu({
+  columnPrefs, onToggle, canEdit,
+}: {
+  columnPrefs: Record<string, boolean>
+  onToggle: (key: string) => void
+  canEdit: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const [mounted, setMounted] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => { setMounted(true) }, [])
+
+  useEffect(() => {
+    if (!open) return
+    function handler(e: MouseEvent) {
+      const t = e.target as Node
+      if (triggerRef.current?.contains(t)) return
+      if (menuRef.current?.contains(t)) return
+      setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  function openMenu() {
+    if (!triggerRef.current) return
+    const rect = triggerRef.current.getBoundingClientRect()
+    setPos({ top: rect.bottom + 4 + window.scrollY, left: rect.right - 192 + window.scrollX })
+    setOpen(v => !v)
+  }
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+        onClick={openMenu}
+      >
+        <Columns3 className="h-3.5 w-3.5" /> Columns
+      </button>
+
+      {mounted && open && pos && createPortal(
+        <div
+          ref={menuRef}
+          style={{ position: 'absolute', top: pos.top, left: pos.left, zIndex: 9999, width: 192 }}
+          className="rounded-xl border border-border bg-popover shadow-xl py-1 text-foreground"
+        >
+          {COLUMN_DEFS.map(col => (
+            <button
+              key={col.key}
+              type="button"
+              disabled={!canEdit}
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors text-left disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => onToggle(col.key)}
+            >
+              <span className="flex h-3.5 w-3.5 items-center justify-center rounded border border-border">
+                {columnPrefs[col.key] && <Check className="h-3 w-3 text-primary" />}
+              </span>
+              {col.label}
+            </button>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ShootDayView
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -627,6 +999,7 @@ interface ShootDayViewProps {
   allDays: ShootDayRow[]
   scheduleId: string
   canEdit: boolean
+  columnPrefs: Record<string, boolean>
   selectedIds: Set<string>
   dragOverId: string | null
   dropAbove: boolean
@@ -650,7 +1023,7 @@ interface ShootDayViewProps {
 }
 
 function ShootDayView({
-  dayId, day, entries, allDays, scheduleId, canEdit,
+  dayId, day, entries, allDays, scheduleId, canEdit, columnPrefs,
   selectedIds, dragOverId, dropAbove,
   onDragStart, onDragEnd, onDragOverRow, onDropRow, onDropOnDay,
   onToggleSelect, onEditEntry, onDeleteEntry, onMoveToBoneyard, onMoveToDay,
@@ -698,9 +1071,11 @@ function ShootDayView({
               <th className="w-8 py-2" />
               <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-12">#</th>
               <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Setting / Label</th>
-              <th className="text-center px-2 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-20">I/E</th>
-              <th className="text-left px-2 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-24">Location</th>
-              <th className="text-center px-2 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-16">Pages</th>
+              {columnPrefs.ie && <th className="text-center px-2 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-20">I/E</th>}
+              {columnPrefs.timeOfDay && <th className="text-left px-2 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-20">Time</th>}
+              {columnPrefs.location && <th className="text-left px-2 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-24">Location</th>}
+              {columnPrefs.pages && <th className="text-center px-2 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-16">Pages</th>}
+              {columnPrefs.duration && <th className="text-center px-2 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-16">Dur</th>}
               <th className="text-right px-2 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-20">Start</th>
               <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-20">End</th>
               <th className="w-8 py-2" />
@@ -709,7 +1084,13 @@ function ShootDayView({
           <tbody>
             {entries.length === 0 && (
               <tr>
-                <td colSpan={canEdit ? 10 : 9} className="py-10 text-center text-sm text-muted-foreground">
+                <td
+                  colSpan={
+                    (canEdit ? 1 : 0) + 6 +
+                    Object.values(columnPrefs).filter(Boolean).length
+                  }
+                  className="py-10 text-center text-sm text-muted-foreground"
+                >
                   No scenes scheduled for this day.
                   {canEdit && <> <button className="text-primary hover:underline ml-1" onClick={onAddScene}>Add one</button>.</>}
                 </td>
@@ -720,6 +1101,7 @@ function ShootDayView({
                 key={entry.id}
                 entry={entry}
                 canEdit={canEdit}
+                columnPrefs={columnPrefs}
                 isSelected={selectedIds.has(entry.id)}
                 isDragOver={dragOverId === entry.id}
                 dropAbove={dropAbove}
@@ -791,6 +1173,7 @@ function ShootDayView({
 interface RowProps {
   entry: EntryRow
   canEdit: boolean
+  columnPrefs: Record<string, boolean>
   isSelected: boolean
   isDragOver: boolean
   dropAbove: boolean
@@ -812,7 +1195,7 @@ interface RowProps {
 }
 
 function ScheduleEntryRow({
-  entry, canEdit, isSelected, isDragOver, dropAbove, otherDays, bannerEdit,
+  entry, canEdit, columnPrefs, isSelected, isDragOver, dropAbove, otherDays, bannerEdit,
   onDragStart, onDragEnd, onDragOver, onDrop,
   onToggleSelect, onEdit, onDelete, onMoveToBoneyard, onMoveToDay,
   onStartBannerEdit, onCommitBannerEdit, onCancelBannerEdit, onBannerEditChange,
@@ -918,28 +1301,52 @@ function ScheduleEntryRow({
       </td>
 
       {/* I/E badge */}
-      <td className="px-2 py-2 text-center w-20">
-        {isScene && entry.scene && (
-          <span className="text-[10px] font-bold rounded px-1.5 py-0.5 bg-black/10">
-            {entry.scene.intExt.replace('_', '/')}
+      {columnPrefs.ie && (
+        <td className="px-2 py-2 text-center w-20">
+          {isScene && entry.scene && (
+            <span className="text-[10px] font-bold rounded px-1.5 py-0.5 bg-black/10">
+              {entry.scene.intExt.replace('_', '/')}
+            </span>
+          )}
+        </td>
+      )}
+
+      {/* Time of day */}
+      {columnPrefs.timeOfDay && (
+        <td className="px-2 py-2 w-20">
+          <span className="text-xs opacity-70 truncate block">
+            {isScene ? entry.scene?.timeOfDay ?? '' : ''}
           </span>
-        )}
-      </td>
+        </td>
+      )}
 
       {/* Location */}
-      <td className="px-2 py-2 w-24">
-        <span className="text-xs opacity-70 truncate block max-w-[80px]">
-          {isScene ? (entry.scene?.location?.name ?? '') : ''}
-        </span>
-      </td>
+      {columnPrefs.location && (
+        <td className="px-2 py-2 w-24">
+          <span className="text-xs opacity-70 truncate block max-w-[80px]">
+            {isScene ? (entry.scene?.location?.name ?? '') : ''}
+          </span>
+        </td>
+      )}
 
       {/* Pages */}
-      <td className="px-2 py-2 text-center w-16">
-        <span className="text-xs tabular-nums opacity-70">
-          {isScene && entry.scene?.pageEighths ? pageEighthsToDisplay(entry.scene.pageEighths) : ''}
-          {!isScene && entry.bannerDurationMin ? `${entry.bannerDurationMin}m` : ''}
-        </span>
-      </td>
+      {columnPrefs.pages && (
+        <td className="px-2 py-2 text-center w-16">
+          <span className="text-xs tabular-nums opacity-70">
+            {isScene && entry.scene?.pageEighths ? pageEighthsToDisplay(entry.scene.pageEighths) : ''}
+            {!isScene && entry.bannerDurationMin ? `${entry.bannerDurationMin}m` : ''}
+          </span>
+        </td>
+      )}
+
+      {/* Duration */}
+      {columnPrefs.duration && (
+        <td className="px-2 py-2 text-center w-16">
+          <span className="text-xs tabular-nums opacity-70">
+            {isScene ? (entry.scene?.estimatedDuration ? `${entry.scene.estimatedDuration}m` : '') : (entry.bannerDurationMin ? `${entry.bannerDurationMin}m` : '')}
+          </span>
+        </td>
+      )}
 
       {/* Start time */}
       <td className="px-2 py-2 text-right w-20">

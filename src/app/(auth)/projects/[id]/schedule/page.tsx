@@ -3,8 +3,15 @@ import { db } from '@/lib/db'
 import { getWorkspaceId, requireRole } from '@/lib/auth'
 import { ScheduleEditorClient } from '@/components/projects/schedule/ScheduleEditorClient'
 
-export default async function SchedulePage({ params }: { params: Promise<{ id: string }> }) {
+export default async function SchedulePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ scheduleId?: string }>
+}) {
   const { id: projectId } = await params
+  const { scheduleId: requestedScheduleId } = await searchParams
   const workspaceId = await getWorkspaceId()
   const gate = await requireRole(['OWNER', 'PRODUCER', 'COLLABORATOR'])
 
@@ -31,8 +38,11 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
     }),
   ])
 
-  // Entries for primary (or first) schedule
-  const activeSchedule = schedules.find(s => s.isPrimary) ?? schedules[0] ?? null
+  // Entries for the requested schedule, falling back to primary (or first)
+  const activeSchedule = (requestedScheduleId ? schedules.find(s => s.id === requestedScheduleId) : undefined)
+    ?? schedules.find(s => s.isPrimary)
+    ?? schedules[0]
+    ?? null
   const entries = activeSchedule
     ? await db.scheduleEntry.findMany({
         where: { scheduleId: activeSchedule.id, workspaceId },
@@ -68,6 +78,7 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
         id: s.id,
         name: s.name,
         isPrimary: s.isPrimary,
+        columnPrefs: (s.columnPrefs ?? {}) as Record<string, boolean>,
       }))}
       activeScheduleId={activeSchedule?.id ?? null}
       initialEntries={entries.map(e => ({
