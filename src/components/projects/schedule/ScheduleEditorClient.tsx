@@ -641,6 +641,44 @@ export function ScheduleEditorClient({
       <div className="flex items-center justify-between px-6 py-3 border-b border-border bg-background/80 backdrop-blur-sm sticky top-0 z-20">
         <div className="flex items-center gap-3">
           <Clapperboard className="h-4 w-4 text-muted-foreground" />
+          {creatingSchedule ? (
+            <div className="flex items-center gap-2">
+              <input
+                autoFocus
+                className="rounded-lg border border-border px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+                placeholder="Schedule name"
+                value={newScheduleName}
+                onChange={e => setNewScheduleName(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && newScheduleName.trim()) {
+                    startTransition(async () => {
+                      const result = await createSchedule(projectId, newScheduleName.trim())
+                      setCreatingSchedule(false)
+                      if ('data' in result && result.data) switchSchedule(result.data.id)
+                      else onMutated()
+                    })
+                  }
+                  if (e.key === 'Escape') setCreatingSchedule(false)
+                }}
+              />
+              <button
+                className="rounded-lg bg-primary px-3 py-1.5 text-sm text-white font-medium"
+                onClick={() => {
+                  if (!newScheduleName.trim()) return
+                  startTransition(async () => {
+                    const result = await createSchedule(projectId, newScheduleName.trim())
+                    setCreatingSchedule(false)
+                    if ('data' in result && result.data) switchSchedule(result.data.id)
+                    else onMutated()
+                  })
+                }}
+              >Create</button>
+              <button
+                className="text-sm text-muted-foreground hover:text-foreground"
+                onClick={() => setCreatingSchedule(false)}
+              >Cancel</button>
+            </div>
+          ) : (
           <ScheduleSwitcher
             schedules={schedules}
             activeScheduleId={activeScheduleId}
@@ -651,6 +689,7 @@ export function ScheduleEditorClient({
             onDelete={handleDeleteSchedule}
             onCreateNew={() => { setNewScheduleName(`Schedule ${schedules.length + 1}`); setCreatingSchedule(true) }}
           />
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -1076,8 +1115,8 @@ function ShootDayView({
               {columnPrefs.location && <th className="text-left px-2 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-24">Location</th>}
               {columnPrefs.pages && <th className="text-center px-2 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-16">Pages</th>}
               {columnPrefs.duration && <th className="text-center px-2 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-16">Dur</th>}
-              <th className="text-right px-2 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-20">Start</th>
-              <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-20">End</th>
+              <th className="text-right px-2 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-24">Start</th>
+              <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-24">End</th>
               <th className="w-8 py-2" />
             </tr>
           </thead>
@@ -1349,15 +1388,15 @@ function ScheduleEntryRow({
       )}
 
       {/* Start time */}
-      <td className="px-2 py-2 text-right w-20">
-        <span className="text-xs font-mono tabular-nums opacity-80">
+      <td className="px-2 py-2 text-right w-24">
+        <span className="text-xs font-mono tabular-nums opacity-80 whitespace-nowrap">
           {entry.computedStartTime ? formatHHmm(entry.computedStartTime) : '—'}
         </span>
       </td>
 
       {/* End time */}
-      <td className="px-3 py-2 text-right w-20">
-        <span className="text-xs font-mono tabular-nums opacity-80">
+      <td className="px-3 py-2 text-right w-24">
+        <span className="text-xs font-mono tabular-nums opacity-80 whitespace-nowrap">
           {entry.computedEndTime ? formatHHmm(entry.computedEndTime) : '—'}
         </span>
       </td>
