@@ -165,7 +165,7 @@ export function ScheduleEditorClient({
 
   // ── Drag handlers ────────────────────────────────────────────────────────────
 
-  function handleDragStart(entry: EntryRow, event: React.DragEvent<HTMLTableRowElement>) {
+  function handleDragStart(entry: EntryRow, event: React.DragEvent<HTMLElement>) {
     if (!canEdit) return
     const ids = selectedIds.has(entry.id) && selectedIds.size > 1
       ? [...selectedIds]
@@ -180,6 +180,9 @@ export function ScheduleEditorClient({
       document.body.appendChild(ghost)
       event.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, 18)
       requestAnimationFrame(() => document.body.removeChild(ghost))
+    } else {
+      const row = event.currentTarget.closest('tr')
+      if (row) event.dataTransfer.setDragImage(row, 0, 0)
     }
   }
 
@@ -612,7 +615,7 @@ interface ShootDayViewProps {
   selectedIds: Set<string>
   dragOverId: string | null
   dropAbove: boolean
-  onDragStart: (entry: EntryRow, e: React.DragEvent<HTMLTableRowElement>) => void
+  onDragStart: (entry: EntryRow, e: React.DragEvent<HTMLElement>) => void
   onDragEnd: () => void
   onDragOverRow: (entry: EntryRow, e: React.DragEvent<HTMLTableRowElement>) => void
   onDropRow: (entry: EntryRow, e: React.DragEvent<HTMLTableRowElement>) => void
@@ -778,7 +781,7 @@ interface RowProps {
   dropAbove: boolean
   otherDays: ShootDayRow[]
   bannerEdit: { entry: EntryRow; label: string; dur: string } | null
-  onDragStart: (entry: EntryRow, e: React.DragEvent<HTMLTableRowElement>) => void
+  onDragStart: (entry: EntryRow, e: React.DragEvent<HTMLElement>) => void
   onDragEnd: () => void
   onDragOver: (entry: EntryRow, e: React.DragEvent<HTMLTableRowElement>) => void
   onDrop: (entry: EntryRow, e: React.DragEvent<HTMLTableRowElement>) => void
@@ -802,6 +805,15 @@ function ScheduleEntryRow({
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
+  useEffect(() => {
+    if (!menuOpen) return
+    function handler(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [menuOpen])
+
   const isScene = entry.kind === 'SCENE'
   const color = isScene && entry.scene
     ? getSceneColor(entry.scene.intExt, entry.scene.timeOfDay, entry.scene.colorOverride)
@@ -810,9 +822,6 @@ function ScheduleEntryRow({
   return (
     <tr
       id={`entry-${entry.id}`}
-      draggable={canEdit}
-      onDragStart={e => onDragStart(entry, e)}
-      onDragEnd={onDragEnd}
       onDragOver={e => onDragOver(entry, e)}
       onDrop={e => onDrop(entry, e)}
       className={[
@@ -837,10 +846,15 @@ function ScheduleEntryRow({
         </td>
       )}
 
-      {/* Drag handle */}
-      <td className="w-8 pl-1">
+      {/* Drag handle — only this cell is draggable, matching BudgetEditor's account-row pattern */}
+      <td
+        className="w-8 pl-1 cursor-grab active:cursor-grabbing"
+        draggable={canEdit}
+        onDragStart={e => onDragStart(entry, e)}
+        onDragEnd={onDragEnd}
+      >
         {canEdit && (
-          <GripVertical className="h-3.5 w-3.5 opacity-0 group-hover/row:opacity-40 cursor-grab active:cursor-grabbing" />
+          <GripVertical className="h-3.5 w-3.5 opacity-0 group-hover/row:opacity-40" />
         )}
       </td>
 

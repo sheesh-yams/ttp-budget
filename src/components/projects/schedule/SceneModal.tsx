@@ -312,7 +312,7 @@ export function SceneModal({ open, onClose, onSaved, projectId, scene, locations
                   value={locationId || '__none__'}
                   onValueChange={v => setLocationId(v === '__none__' ? '' : v)}
                 >
-                  <SelectTrigger className="h-8 text-sm flex-1">
+                  <SelectTrigger className="h-8 text-sm flex-1 min-w-0">
                     <SelectValue placeholder="Select location..." />
                   </SelectTrigger>
                   <SelectContent>
