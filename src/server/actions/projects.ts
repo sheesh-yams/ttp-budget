@@ -94,7 +94,40 @@ export async function updateProject(
         shootEndDate:   input.shootEndDate   ? new Date(input.shootEndDate)   : null,
       },
     })
+
+    if (input.shootStartDate) {
+      const start = new Date(input.shootStartDate)
+      const end = input.shootEndDate ? new Date(input.shootEndDate) : start
+
+      const existing = await db.shootDay.findMany({
+        where: { projectId },
+        select: { date: true, orderIndex: true },
+      })
+      const existingDates = new Set(existing.map(d => d.date.toISOString().slice(0, 10)))
+      let nextOrder = existing.reduce((max, d) => Math.max(max, d.orderIndex), -1) + 1
+
+      const toCreate: { projectId: string; date: Date; orderIndex: number }[] = []
+      for (
+        const cursor = new Date(start);
+        cursor <= end;
+        cursor.setUTCDate(cursor.getUTCDate() + 1)
+      ) {
+        const key = cursor.toISOString().slice(0, 10)
+        if (!existingDates.has(key)) {
+          toCreate.push({ projectId, date: new Date(cursor), orderIndex: nextOrder })
+          nextOrder += 1
+        }
+      }
+
+      if (toCreate.length > 0) {
+        await db.shootDay.createMany({
+          data: toCreate as unknown as Parameters<typeof db.shootDay.createMany>[0]['data'],
+        })
+      }
+    }
+
     revalidatePath(`/projects/${projectId}`)
+    revalidatePath(`/projects/${projectId}/schedule`)
     revalidatePath('/projects')
     return { success: true, data: undefined }
   } catch (err) {
