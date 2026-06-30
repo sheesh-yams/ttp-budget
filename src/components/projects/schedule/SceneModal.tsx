@@ -11,7 +11,8 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { getSceneColor } from '@/lib/schedule-colors'
-import { createScene, updateScene, createLocation } from '@/server/actions/schedule'
+import { createScene, createSceneWithEntry, updateScene, createLocation } from '@/server/actions/schedule'
+import type { SceneEntryPayload } from '@/server/actions/schedule'
 import type { IntExt, TimeOfDay } from '@prisma/client'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -38,11 +39,13 @@ export interface SceneRow {
 interface Props {
   open: boolean
   onClose: () => void
-  onSaved: (sceneId: string) => void
+  onSaved: (sceneId: string, entry?: SceneEntryPayload) => void
   projectId: string
   scene?: SceneRow | null
   locations: { id: string; name: string; address: string | null }[]
-  defaultShootDayId?: string | null
+  /** When creating (not editing) and a schedule is active, attach the new scene
+   *  to this day in one round trip instead of two sequential server actions. */
+  scheduleContext?: { scheduleId: string; shootDayId: string | null } | null
 }
 
 const INTEXT_OPTIONS: { value: IntExt; label: string }[] = [
@@ -90,7 +93,7 @@ function parseFraction(input: string): number | null {
   return null
 }
 
-export function SceneModal({ open, onClose, onSaved, projectId, scene, locations, defaultShootDayId }: Props) {
+export function SceneModal({ open, onClose, onSaved, projectId, scene, locations, scheduleContext }: Props) {
   const [isPending, startTransition] = useTransition()
   const [mounted, setMounted] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -187,6 +190,10 @@ export function SceneModal({ open, onClose, onSaved, projectId, scene, locations
         const result = await updateScene(scene.id, input)
         if ('error' in result) { setError(result.error); return }
         onSaved(scene.id)
+      } else if (scheduleContext) {
+        const result = await createSceneWithEntry(projectId, scheduleContext.scheduleId, scheduleContext.shootDayId, input)
+        if ('error' in result) { setError(result.error); return }
+        onSaved(result.data.sceneId, result.data)
       } else {
         const result = await createScene(projectId, input)
         if ('error' in result) { setError(result.error); return }

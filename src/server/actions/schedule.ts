@@ -200,6 +200,118 @@ export async function createScene(projectId: string, input: SceneInput): Promise
   return { success: true, data: { id: scene.id } }
 }
 
+export interface SceneEntryPayload {
+  id: string
+  scheduleId: string
+  shootDayId: string | null
+  orderIndex: number
+  kind: 'SCENE'
+  computedStartTime: string | null
+  computedEndTime: string | null
+  sceneId: string
+  scene: {
+    id: string
+    sceneNumber: string | null
+    setting: string
+    description: string | null
+    intExt: IntExt
+    timeOfDay: TimeOfDay
+    pageEighths: number | null
+    estimatedDuration: number | null
+    colorOverride: string | null
+    castContactIds: string[]
+    archived: boolean
+    location: { id: string; name: string } | null
+  }
+  bannerType: null
+  bannerLabel: null
+  bannerDurationMin: null
+  bannerNote: null
+}
+
+// Combines scene creation + schedule-entry creation into a single round trip
+// (instead of two sequential server actions followed by a full page refresh),
+// returning the fully-formed entry so the client can render it immediately.
+export async function createSceneWithEntry(
+  projectId: string,
+  scheduleId: string,
+  shootDayId: string | null,
+  input: SceneInput,
+): Promise<ActionResult<SceneEntryPayload>> {
+  const gate = await requireRole(['OWNER', 'PRODUCER'])
+  if (!gate.ok) return gate.error!
+  const sdb = await getScopedDb()
+  const [project, schedule] = await Promise.all([
+    sdb.project.findFirst({ where: { id: projectId } }),
+    sdb.schedule.findFirst({ where: { id: scheduleId } }),
+  ])
+  if (!project) return { success: false, error: 'Project not found' }
+  if (!schedule) return { success: false, error: 'Schedule not found' }
+
+  const [scene, maxEntry, location] = await Promise.all([
+    sdb.scene.create({ data: { projectId, ...input } as unknown as Parameters<typeof sdb.scene.create>[0]['data'] }),
+    db.scheduleEntry.findFirst({
+      where: { scheduleId, shootDayId },
+      orderBy: { orderIndex: 'desc' },
+      select: { orderIndex: true },
+    }),
+    input.locationId ? sdb.location.findFirst({ where: { id: input.locationId }, select: { id: true, name: true } }) : null,
+  ])
+  const orderIndex = (maxEntry?.orderIndex ?? -1) + 1
+
+  const entry = await sdb.scheduleEntry.create({
+    data: {
+      scheduleId, shootDayId, kind: 'SCENE', sceneId: scene.id, orderIndex,
+    } as unknown as Parameters<typeof sdb.scheduleEntry.create>[0]['data'],
+  })
+
+  let computedStartTime: string | null = null
+  let computedEndTime: string | null = null
+  if (shootDayId) {
+    await recomputeShootDayEntries(shootDayId, schedule.workspaceId)
+    const recomputed = await db.scheduleEntry.findFirst({
+      where: { id: entry.id },
+      select: { computedStartTime: true, computedEndTime: true },
+    })
+    computedStartTime = recomputed?.computedStartTime ?? null
+    computedEndTime = recomputed?.computedEndTime ?? null
+  }
+
+  revalidatePath(`/projects/${projectId}/schedule`)
+
+  return {
+    success: true,
+    data: {
+      id: entry.id,
+      scheduleId,
+      shootDayId,
+      orderIndex,
+      kind: 'SCENE',
+      computedStartTime,
+      computedEndTime,
+      sceneId: scene.id,
+      scene: {
+        id: scene.id,
+        sceneNumber: scene.sceneNumber,
+        setting: scene.setting,
+        description: scene.description,
+        intExt: scene.intExt,
+        timeOfDay: scene.timeOfDay,
+        pageEighths: scene.pageEighths,
+        estimatedDuration: scene.estimatedDuration,
+        colorOverride: scene.colorOverride,
+        castContactIds: scene.castContactIds,
+        archived: scene.archived,
+        location: location ?? null,
+      },
+      bannerType: null,
+      bannerLabel: null,
+      bannerDurationMin: null,
+      bannerNote: null,
+    },
+  }
+}
+
 export async function updateScene(id: string, patch: Partial<SceneInput>): Promise<ActionResult> {
   const gate = await requireRole(['OWNER', 'PRODUCER'])
   if (!gate.ok) return gate.error!

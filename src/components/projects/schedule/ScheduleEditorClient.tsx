@@ -32,6 +32,7 @@ import {
   unarchiveScene,
   deleteScene,
 } from '@/server/actions/schedule'
+import type { SceneEntryPayload } from '@/server/actions/schedule'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import type { IntExt, TimeOfDay, BannerType, UserRole } from '@prisma/client'
 
@@ -456,17 +457,13 @@ export function ScheduleEditorClient({
     setSceneModalOpen(true)
   }
 
-  function handleSceneSaved(sceneId: string) {
+  function handleSceneSaved(sceneId: string, entry?: SceneEntryPayload) {
     setSceneModalOpen(false)
-    if (!editingScene && activeScheduleId && activeTab !== 'boneyard') {
-      startTransition(async () => {
-        await createScheduleEntry(activeScheduleId, {
-          kind: 'SCENE',
-          sceneId,
-          shootDayId: activeTab,
-        })
-        onMutated()
-      })
+    if (entry) {
+      // Fast path: createSceneWithEntry already returned the fully-formed entry,
+      // so render it immediately instead of waiting on a full page refresh.
+      setEntries(prev => [...prev, entry])
+      router.refresh()
     } else {
       onMutated()
     }
@@ -619,6 +616,11 @@ export function ScheduleEditorClient({
         projectId={projectId}
         scene={editingScene}
         locations={locations}
+        scheduleContext={
+          !editingScene && activeScheduleId && activeTab !== 'boneyard'
+            ? { scheduleId: activeScheduleId, shootDayId: activeTab }
+            : null
+        }
       />
 
       {/* Locations modal */}
