@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation'
 import { db } from '@/lib/db'
 import { ProposalPublicView } from '@/components/proposal/ProposalPublicView'
 import { recordProposalView } from '@/server/actions/proposals'
-import { sumAccount, type AccountInput } from '@/lib/totals'
+import { sumAccount, calcBudgetTotals, type AccountInput } from '@/lib/totals'
 import { headers } from 'next/headers'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { ExpiredLinkPage } from '@/components/public/ExpiredLinkPage'
@@ -35,7 +35,7 @@ export default async function PublicProposalPage({ params }: Props) {
   if (!allowed) return <RateLimitedPage />
 
   // ── Fetch proposal (no budget nesting — we fetch accounts separately) ──────
-  const proposal = await db.proposal.findUnique({
+  let proposal = await db.proposal.findUnique({
     where: { publicToken: token },
     include: {
       project: { include: { client: true } },
@@ -137,10 +137,24 @@ export default async function PublicProposalPage({ params }: Props) {
       })),
     }))
 
-    const rawTotal = (serialisedAccounts as unknown[]).reduce<number>(
-      (sum, acc) => sum + sumAccount(acc as unknown as AccountInput),
-      0
+    // Fetch budget-level markup/tax so the draft preview total matches what the
+    // sent proposal will show (the snapshot captures these; the draft path must
+    // apply them manually or the hero total is missing the agency fee).
+    const budgetForMarkup = proposal.budgetId
+      ? await db.budget.findUnique({
+          where: { id: proposal.budgetId },
+          select: { markupPct: true, taxPct: true },
+        })
+      : null
+    const draftMarkupPct = budgetForMarkup?.markupPct != null ? Number(budgetForMarkup.markupPct) : 0
+    const draftTaxPct    = budgetForMarkup?.taxPct    != null ? Number(budgetForMarkup.taxPct)    : 0
+
+    const draftTotals = calcBudgetTotals(
+      serialisedAccounts as unknown as AccountInput[],
+      draftMarkupPct,
+      draftTaxPct,
     )
+    const rawTotal = draftTotals.grandTotalCents
 
     // Apply discount from content (draft preview — no snapshot yet)
     const contentDiscount = content?.discount as { type: string; label?: string; valueCents?: number; valuePct?: number } | undefined
@@ -154,6 +168,24 @@ export default async function PublicProposalPage({ params }: Props) {
       discountCents = Math.max(0, Math.min(discountCents, rawTotal))
     }
     totalCents = Math.max(0, rawTotal - discountCents)
+
+    // Inject a synthetic budgetSnapshot so ProposalPublicView's breakdown
+    // section shows the agency fee row correctly for draft previews.
+    if (draftMarkupPct > 0 || draftTaxPct > 0) {
+      proposal = {
+        ...proposal,
+        content: {
+          ...content,
+          budgetSnapshot: {
+            ...(content.budgetSnapshot as object | undefined ?? {}),
+            productionCents: draftTotals.subtotalCents,
+            budgetMarkupPct: draftMarkupPct,
+            budgetTaxPct:    draftTaxPct,
+            totalCents:      totalCents,
+          },
+        },
+      } as typeof proposal
+    }
   }
 
   // Serialise the proposal too (strip Decimal / Date edge cases)
