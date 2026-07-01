@@ -122,6 +122,7 @@ model User {
   createdInvoices  Invoice[]   @relation("InvoiceCreatedBy")
   projectComments  ProjectComment[] @relation("ProjectCommentAuthor")
   projectAssignments ProjectAssignment[]
+  projectTeamMembers ProjectTeamMember[]
 
   @@index([workspaceId])
 }
@@ -206,6 +207,7 @@ model Project {
   receipts       Receipt[]
   comments       ProjectComment[]
   assignments    ProjectAssignment[]
+  teamMembers    ProjectTeamMember[]
   deliveryPage   DeliveryPage?
   shootDays      ShootDay[]
   scenes         Scene[]
@@ -235,6 +237,33 @@ model ProjectAssignment {
   @@unique([projectId, userId])
   @@index([userId])
   @@index([workspaceId])
+}
+
+// ─── Internal project team (workspace users in named roles) ──────────────────
+enum ProjectTeamRole {
+  PROJECT_LEAD
+  ACCOUNT_MANAGER
+  PROJECT_MANAGER
+}
+
+model ProjectTeamMember {
+  id                 String          @id @default(cuid())
+  workspaceId        String
+  projectId          String
+  project            Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId             String
+  user               User            @relation(fields: [userId], references: [id])
+  role               ProjectTeamRole
+  assignedAt         DateTime        @default(now())
+  assignedByUserId   String?
+  unassignedAt       DateTime?
+  unassignedByUserId String?
+  unassignReason     String?         // 'REPLACED' | 'REMOVED' | 'USER_LEFT_WORKSPACE'
+
+  @@index([projectId, role])
+  @@index([userId])
+  @@index([workspaceId])
+  @@index([projectId, unassignedAt])
 }
 
 // ─── Project activity / comment thread ────────────────────────────────────────
