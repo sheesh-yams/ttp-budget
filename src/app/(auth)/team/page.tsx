@@ -31,6 +31,7 @@ export default async function TeamPage() {
           expiresAt: p.expiresAt.toISOString(),
           createdAt: p.createdAt.toISOString(),
         }))}
+        isOwner={true}
       />
     </div>
   )

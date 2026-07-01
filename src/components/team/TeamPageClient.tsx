@@ -2,13 +2,14 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Mail, Clock, X, UserPlus, Shield, User, Eye } from 'lucide-react'
+import { Mail, Clock, X, UserPlus, Shield, User, Eye, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { inviteTeamMember, revokeInvitation, changeMemberRole } from '@/server/actions/team'
+import { inviteTeamMember, revokeInvitation, changeMemberRole, removeWorkspaceMember } from '@/server/actions/team'
+import { getActiveProjectRolesForUser } from '@/server/actions/project-team'
 import type { UserRole } from '@prisma/client'
 
 // ─── Role metadata ────────────────────────────────────────────────────────────
@@ -42,9 +43,17 @@ interface PendingInvite {
   createdAt:     string
 }
 
+interface RemoveCandidate {
+  id:          string
+  name:        string | null
+  email:       string
+  activeRoles: { projectName: string; role: string }[]
+}
+
 interface Props {
   members:            Member[]
   pendingInvitations: PendingInvite[]
+  isOwner:            boolean
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -121,7 +130,13 @@ function MemberRoleSelect({ userId, role }: { userId: string; role: UserRole }) 
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function TeamPageClient({ members, pendingInvitations }: Props) {
+const ROLE_LABEL: Record<string, string> = {
+  PROJECT_LEAD:    'Project Lead',
+  ACCOUNT_MANAGER: 'Account Manager',
+  PROJECT_MANAGER: 'Project Manager',
+}
+
+export function TeamPageClient({ members, pendingInvitations, isOwner }: Props) {
   const router = useRouter()
   const [inviteEmail, setInviteEmail]   = useState('')
   const [inviteRole, setInviteRole]     = useState<UserRole>('PRODUCER')
@@ -129,6 +144,11 @@ export function TeamPageClient({ members, pendingInvitations }: Props) {
   const [inviteSuccess, setInviteSuccess] = useState(false)
   const [isPending, startTransition]    = useTransition()
   const [revoking, setRevoking]         = useState<string | null>(null)
+
+  // Removal confirmation state
+  const [removeCandidate, setRemoveCandidate] = useState<RemoveCandidate | null>(null)
+  const [removing, setRemoving]               = useState(false)
+  const [removeError, setRemoveError]         = useState<string | null>(null)
 
   function handleInvite(e: React.FormEvent) {
     e.preventDefault()
@@ -154,6 +174,32 @@ export function TeamPageClient({ members, pendingInvitations }: Props) {
     const result = await revokeInvitation(invitationId)
     setRevoking(null)
     if (result.success) router.refresh()
+  }
+
+  async function handleRemoveClick(member: Member) {
+    setRemoveError(null)
+    const rolesResult = await getActiveProjectRolesForUser(member.id)
+    const activeRoles = rolesResult.success ? rolesResult.data : []
+    setRemoveCandidate({
+      id:          member.id,
+      name:        member.name,
+      email:       member.email,
+      activeRoles: activeRoles.map(r => ({ projectName: r.projectName, role: r.role })),
+    })
+  }
+
+  async function handleConfirmRemove() {
+    if (!removeCandidate) return
+    setRemoving(true)
+    setRemoveError(null)
+    const result = await removeWorkspaceMember(removeCandidate.id)
+    setRemoving(false)
+    if (result.success) {
+      setRemoveCandidate(null)
+      router.refresh()
+    } else {
+      setRemoveError((result as { success: false; error: string }).error)
+    }
   }
 
   return (
@@ -186,7 +232,20 @@ export function TeamPageClient({ members, pendingInvitations }: Props) {
               </div>
               {member.isCurrentUser
                 ? <RoleBadge role={member.role} />
-                : <MemberRoleSelect userId={member.id} role={member.role} />}
+                : (
+                  <div className="flex items-center gap-2">
+                    <MemberRoleSelect userId={member.id} role={member.role} />
+                    {isOwner && (
+                      <button
+                        onClick={() => handleRemoveClick(member)}
+                        className="flex-shrink-0 rounded p-1 text-muted-foreground hover:text-red-600 transition-colors"
+                        title="Remove from workspace"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                )}
             </div>
           ))}
         </div>
@@ -297,6 +356,58 @@ export function TeamPageClient({ members, pendingInvitations }: Props) {
           </form>
         </div>
       </section>
+
+      {/* ── Remove member confirmation ─────────────────────────────────────── */}
+      {removeCandidate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-xl bg-card border shadow-xl p-6 space-y-4">
+            <h3 className="text-base font-semibold text-foreground">
+              Remove {removeCandidate.name ?? removeCandidate.email} from workspace?
+            </h3>
+
+            {removeCandidate.activeRoles.length > 0 && (
+              <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 space-y-1">
+                <p className="text-xs font-medium text-amber-800 mb-2">
+                  They currently hold these project roles:
+                </p>
+                {removeCandidate.activeRoles.map((r, i) => (
+                  <p key={i} className="text-xs text-amber-700">
+                    · {ROLE_LABEL[r.role] ?? r.role} on <span className="font-medium">{r.projectName}</span>
+                  </p>
+                ))}
+                <p className="text-xs text-amber-700 mt-2">
+                  These will be marked as vacated. History will be preserved.
+                </p>
+              </div>
+            )}
+
+            <p className="text-sm text-muted-foreground">
+              This will revoke their access to the workspace immediately.
+            </p>
+
+            {removeError && (
+              <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{removeError}</p>
+            )}
+
+            <div className="flex gap-3 justify-end pt-1">
+              <Button
+                variant="outline"
+                onClick={() => { setRemoveCandidate(null); setRemoveError(null) }}
+                disabled={removing}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleConfirmRemove}
+                disabled={removing}
+              >
+                {removing ? 'Removing…' : 'Remove member'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

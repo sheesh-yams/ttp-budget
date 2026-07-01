@@ -332,6 +332,78 @@ export async function acceptInvitation(token: string): Promise<ActionResult<{ wo
   }
 }
 
+// ─── removeWorkspaceMember ────────────────────────────────────────────────────
+// OWNER only. Removes a member from the Clerk org (triggers DB cleanup via
+// future webhook) and atomically vacates all their active project team roles.
+
+export async function removeWorkspaceMember(
+  userId: string,
+): Promise<ActionResult> {
+  try {
+    const gate = await requireRole(['OWNER'])
+    if (!gate.ok) return gate.error
+
+    if (userId === gate.userId) {
+      return { success: false, error: "You can't remove yourself. Use 'Leave workspace' instead." }
+    }
+
+    const workspace = await getActiveWorkspace()
+
+    // Verify target belongs to this workspace.
+    const target = await db.user.findFirst({
+      where:  { id: userId, workspaceId: gate.workspaceId },
+      select: { id: true, clerkId: true, name: true, email: true },
+    })
+    if (!target) return { success: false, error: 'Member not found.' }
+
+    // Atomically vacate all active project team roles.
+    await db.$transaction(async (tx) => {
+      await tx.projectTeamMember.updateMany({
+        where: {
+          userId,
+          workspaceId:  gate.workspaceId,
+          unassignedAt: null,
+        },
+        data: {
+          unassignedAt:       new Date(),
+          unassignedByUserId: gate.userId,
+          unassignReason:     'USER_LEFT_WORKSPACE',
+        },
+      })
+    })
+
+    // Remove from Clerk org — this will fire organizationMembership.deleted
+    // which can be used for any additional cleanup in the future.
+    if (workspace.clerkOrgId) {
+      try {
+        const clerk = await clerkClient()
+        await clerk.organizations.deleteOrganizationMembership({
+          organizationId: workspace.clerkOrgId,
+          userId:         target.clerkId,
+        })
+      } catch (e) {
+        console.error('[removeWorkspaceMember] Clerk removal failed:', e)
+        return { success: false, error: 'Failed to remove member from workspace.' }
+      }
+    }
+
+    void logAuditEvent({
+      workspaceId: gate.workspaceId,
+      actorId:     gate.userId,
+      action:      'member.removed',
+      entityType:  'Member',
+      entityId:    userId,
+      metadata:    { name: target.name, email: target.email },
+    })
+
+    revalidatePath('/team')
+    return { success: true, data: undefined }
+  } catch (err) {
+    console.error('[removeWorkspaceMember]', err)
+    return { success: false, error: 'Failed to remove member.' }
+  }
+}
+
 // ─── getInvitationByToken ─────────────────────────────────────────────────────
 // Public — does NOT require auth. Used by the /invite/[token] page server component.
 
