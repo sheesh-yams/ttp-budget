@@ -309,6 +309,11 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
         {isActive && project.actualSpentCents > 0 && project.budgetTotalCents > 0 && (
           <BurnBar spentCents={project.actualSpentCents} budgetCents={project.budgetTotalCents} />
         )}
+
+        {/* Team avatar row */}
+        {project.teamMembers && project.teamMembers.length > 0 && (
+          <TeamAvatarRow members={project.teamMembers} />
+        )}
       </div>
 
       {/* Bottom stats bar */}
@@ -397,6 +402,47 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
+
+const ROLE_ABBR: Record<string, string> = {
+  PROJECT_LEAD:    'PL',
+  ACCOUNT_MANAGER: 'AM',
+  PROJECT_MANAGER: 'PM',
+}
+const ROLE_ORDER = ['PROJECT_LEAD', 'ACCOUNT_MANAGER', 'PROJECT_MANAGER']
+
+function TeamAvatarRow({ members }: { members: { role: string; user: { name: string | null; email: string; avatarUrl: string | null } }[] }) {
+  const byRole = Object.fromEntries(members.map(m => [m.role, m.user]))
+
+  return (
+    <div className="flex items-end gap-2.5 mt-2">
+      {ROLE_ORDER.map(role => {
+        const user  = byRole[role]
+        const label = ROLE_ABBR[role]
+        const title = user
+          ? `${label} · ${user.name ?? user.email}`
+          : `${label} — unassigned`
+
+        return (
+          <div key={role} className="flex flex-col items-center gap-0.5" title={title}>
+            {user ? (
+              user.avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={user.avatarUrl} alt={user.name ?? user.email} className="w-[22px] h-[22px] rounded-full object-cover" />
+              ) : (
+                <div className="w-[22px] h-[22px] rounded-full flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0" style={{ background: 'var(--brand-primary, #5D00A4)' }}>
+                  {(user.name ?? user.email).slice(0, 2).toUpperCase()}
+                </div>
+              )
+            ) : (
+              <div className="w-[22px] h-[22px] rounded-full border border-dashed border-gray-200" />
+            )}
+            <span className="text-[9px] font-semibold text-gray-400">{label}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 function BurnBar({ spentCents, budgetCents }: { spentCents: number; budgetCents: number }) {
   const pct      = Math.min((spentCents / budgetCents) * 100, 100)

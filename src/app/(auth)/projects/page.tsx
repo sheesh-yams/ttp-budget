@@ -44,6 +44,10 @@ const PROJECT_INCLUDES = {
       shootDate: true,
     },
   },
+  teamMembers: {
+    where:  { unassignedAt: null },
+    select: { role: true, user: { select: { name: true, email: true, avatarUrl: true } } },
+  },
 } as const
 
 export default async function ProjectsPage({
@@ -253,12 +257,14 @@ export default async function ProjectsPage({
     ...p,
     actualSpentCents: actualSpentByProject.get(p.id) ?? 0,
     budgetTotalCents: budgetTotalByProject.get(p.id) ?? 0,
+    teamMembers: p.teamMembers ?? [],
   }))
 
   const archivedWithBurn = archivedProjects.map(p => ({
     ...p,
     actualSpentCents: actualSpentByProject.get(p.id) ?? 0,
     budgetTotalCents: budgetTotalByProject.get(p.id) ?? 0,
+    teamMembers: p.teamMembers ?? [],
   }))
 
   // All projects for the client (non-archived first, then archived at the end)

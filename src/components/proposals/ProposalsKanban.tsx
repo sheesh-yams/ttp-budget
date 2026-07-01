@@ -27,7 +27,8 @@ export type ProposalCardData = {
     publicToken:   string
     signatureName: string | null
   }
-  totalCount: number
+  totalCount:     number
+  accountManager: { name: string | null; email: string; avatarUrl: string | null } | null
 }
 
 // ─── Column config ────────────────────────────────────────────────────────────
@@ -211,7 +212,21 @@ function ProposalCard({
         <p className="mt-2 font-semibold text-[13.5px] text-foreground leading-snug group-hover:text-violet-700 transition-colors">
           {card.projectName}
         </p>
-        <p className="text-[11.5px] text-muted-foreground mt-0.5">{card.clientName}</p>
+        <div className="flex items-center justify-between mt-0.5">
+          <p className="text-[11.5px] text-muted-foreground">{card.clientName}</p>
+          {card.accountManager && (
+            <div title={`Account Manager · ${card.accountManager.name ?? card.accountManager.email}`}>
+              {card.accountManager.avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={card.accountManager.avatarUrl} alt={card.accountManager.name ?? card.accountManager.email} className="w-6 h-6 rounded-full object-cover flex-shrink-0" />
+              ) : (
+                <div className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0" style={{ background: 'var(--brand-primary, #5D00A4)' }}>
+                  {(card.accountManager.name ?? card.accountManager.email).slice(0, 2).toUpperCase()}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Proposal info */}
         <div className="mt-3 border-t border-border/60 pt-2.5">

@@ -24,7 +24,12 @@ export interface ClientRow {
   ltvCents:         number
   outstandingCents: number
   lastEngagementAt: string | null
-  projects: { id: string; name: string; status: string }[]
+  projects: {
+    id:             string
+    name:           string
+    status:         string
+    accountManager: { name: string | null; email: string; avatarUrl: string | null } | null
+  }[]
 }
 
 interface Props {
@@ -182,6 +187,18 @@ export function ClientCard({ client: c, onEdit, onArchive }: Props) {
               >
                 <FolderOpen className="h-3 w-3 shrink-0 text-muted-foreground group-hover/proj:text-foreground" />
                 <span className="flex-1 truncate text-[12px] font-medium text-foreground">{p.name}</span>
+                {p.accountManager && (
+                  <span title={`Account Manager · ${p.accountManager.name ?? p.accountManager.email}`} className="shrink-0">
+                    {p.accountManager.avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={p.accountManager.avatarUrl} alt={p.accountManager.name ?? p.accountManager.email} className="w-5 h-5 rounded-full object-cover" />
+                    ) : (
+                      <div className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold text-white" style={{ background: 'var(--brand-primary, #5D00A4)' }}>
+                        {(p.accountManager.name ?? p.accountManager.email).slice(0, 2).toUpperCase()}
+                      </div>
+                    )}
+                  </span>
+                )}
                 <span className={`shrink-0 rounded-full px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide ${PROJECT_STATUS_COLORS[p.status] ?? 'bg-gray-100 text-gray-500'}`}>
                   {p.status.charAt(0) + p.status.slice(1).toLowerCase()}
                 </span>

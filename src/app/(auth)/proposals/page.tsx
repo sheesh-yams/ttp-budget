@@ -20,6 +20,11 @@ export default async function ProposalsPage() {
       },
       include: {
         client: { select: { name: true } },
+        teamMembers: {
+          where:  { unassignedAt: null, role: 'ACCOUNT_MANAGER' },
+          select: { user: { select: { name: true, email: true, avatarUrl: true } } },
+          take: 1,
+        },
         proposals: {
           orderBy: { version: 'desc' },
           select: {
@@ -92,7 +97,8 @@ export default async function ProposalsPage() {
           publicToken:   latest.publicToken,
           signatureName: latest.signatureName,
         },
-        totalCount: p.proposals.length,
+        totalCount:      p.proposals.length,
+        accountManager:  p.teamMembers[0]?.user ?? null,
       }
     })
 

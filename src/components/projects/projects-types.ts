@@ -49,6 +49,10 @@ export interface ProjectForCard {
   // F1: actuals burn bar (0 if no actuals sheet)
   actualSpentCents: number
   budgetTotalCents: number
+  teamMembers: {
+    role: string
+    user: { name: string | null; email: string; avatarUrl: string | null }
+  }[]
 }
 
 export interface ProjectMetrics {

@@ -26,6 +26,11 @@ export default async function ClientsPage() {
               updatedAt: true,
             },
           },
+          teamMembers: {
+            where:  { unassignedAt: null, role: 'ACCOUNT_MANAGER' },
+            select: { user: { select: { name: true, email: true, avatarUrl: true } } },
+            take: 1,
+          },
         },
       },
     },
@@ -75,7 +80,12 @@ export default async function ClientsPage() {
       ltvCents,
       outstandingCents,
       lastEngagementAt: lastEngagementAt?.toISOString() ?? null,
-      projects: client.projects.map(p => ({ id: p.id, name: p.name, status: p.status })),
+      projects: client.projects.map(p => ({
+        id:             p.id,
+        name:           p.name,
+        status:         p.status,
+        accountManager: p.teamMembers[0]?.user ?? null,
+      })),
     }
   })
 
