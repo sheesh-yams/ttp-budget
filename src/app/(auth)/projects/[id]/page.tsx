@@ -8,7 +8,7 @@ import { BudgetBreakdown } from '@/components/projects/BudgetBreakdown'
 import { ProjectProposals } from '@/components/projects/ProjectProposals'
 import { ProjectInvoices } from '@/components/projects/ProjectInvoices'
 import { ProjectHeaderActions } from '@/components/projects/ProjectHeaderActions'
-import { ClientInfoPanel } from '@/components/projects/ClientInfoPanel'
+import { ProjectNotesPanel } from '@/components/projects/ProjectNotesPanel'
 import { AssignCollaborators } from '@/components/projects/AssignCollaborators'
 import { ProposalOverview } from '@/components/projects/ProposalOverview'
 import { Button } from '@/components/ui/button'
@@ -300,8 +300,9 @@ export default async function ProjectDetailPage({
               <p className="text-2xl font-semibold tabular text-foreground">{formatMoney(grandTotalCents)}</p>
             </div>
           )}
-          <ClientInfoPanel
+          <ProjectNotesPanel
             projectId={project.id}
+            isEditor={currentUser.role === 'OWNER' || currentUser.role === 'PRODUCER'}
             client={{
               name:           project.client.name,
               contactName:    project.client.contactName ?? null,
@@ -313,7 +314,7 @@ export default async function ProjectDetailPage({
             trigger={
               <Button size="sm" variant="outline" className="flex-shrink-0">
                 <User className="mr-1.5 h-3.5 w-3.5" />
-                Client Info
+                Project Notes
               </Button>
             }
           />
