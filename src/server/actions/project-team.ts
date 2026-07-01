@@ -209,6 +209,9 @@ export async function assignProjectTeamRole(input: {
     })
 
     revalidatePath(`/projects/${projectId}`)
+    revalidatePath('/projects')
+    revalidatePath('/proposals')
+    revalidatePath('/clients')
 
     return {
       success: true,
@@ -282,6 +285,9 @@ export async function unassignProjectTeamRole(input: {
     })
 
     revalidatePath(`/projects/${projectId}`)
+    revalidatePath('/projects')
+    revalidatePath('/proposals')
+    revalidatePath('/clients')
     return { success: true, data: undefined }
   } catch (err) {
     console.error('[unassignProjectTeamRole]', err)
