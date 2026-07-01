@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition, useEffect, useMemo } from 'react'
+import { useState, useTransition, useEffect, useMemo, useRef } from 'react'
 import { Copy, Check, ExternalLink, Plus, X, Tag } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -162,8 +162,16 @@ export function ProposalModal({
   const [discountFlat,  setDiscountFlat]  = useState('')   // dollar string, e.g. "500"
   const [discountPct,   setDiscountPct]   = useState('')   // percent string, e.g. "10"
 
+  // Keep a ref so the reset effect can read the current successToken without
+  // adding it to the dependency array (which would cause spurious re-runs).
+  const successTokenRef = useRef(successToken)
+  successTokenRef.current = successToken
+
   useEffect(() => {
     if (!open) return
+    // If the success screen is already showing, don't reset it. This prevents
+    // revalidatePath re-renders (which change `prefill`) from wiping the screen.
+    if (successTokenRef.current) return
     if (existing) {
       setTitle(existing.title)
       setExpiresAt(existing.expiresAt ? existing.expiresAt.split('T')[0] : defaultExpiry(proposalExpiryDays))
