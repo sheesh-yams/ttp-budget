@@ -15,12 +15,22 @@ import { generatePublicToken } from '@/lib/secure-token'
 // Validation schemas
 // =============================================================================
 
+// Normalize a website input: trim whitespace, prepend https:// if no protocol
+function normalizeWebsite(v: string): string {
+  const trimmed = v.trim()
+  if (!trimmed) return ''
+  if (/^https?:\/\//i.test(trimmed)) return trimmed
+  return `https://${trimmed}`
+}
+
 const clientSchema = z.object({
   name:          z.string().min(1).max(200),
   contactName:   z.string().optional(),
   contactEmail:  z.string().email().optional().or(z.literal('')),
   contactPhone:  z.string().optional(),
-  website:       z.string().url().optional().or(z.literal('')),
+  website:       z.string().optional().transform(v => (v ? normalizeWebsite(v) : v)).pipe(
+    z.string().url().optional().or(z.literal(''))
+  ),
   billingAddress: z.string().optional(),
   notes:         z.string().optional(),
   specialNotes:  z.string().optional(),
