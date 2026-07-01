@@ -30,7 +30,7 @@ The app is fully multi-tenant. Every user signs up into their own **workspace**,
 
 ### Row-level security scoped models
 Auto-scoped through `getScopedDb()` (see `SCOPED_MODELS` in `src/lib/db-scoped.ts`):
-`Client`, `Project`, `RateCard`, `BudgetTemplate`, `Budget`, `Proposal`, `Invoice`, `CallSheet`, `Contact`, `Phase`, `BudgetSection`, `Account`, `LineItem`, `ProjectMember`, `ProjectComment`, `ProjectAssignment`, `AuditEvent`, `WorkspacePaymentConfig`, `PaymentAttempt`
+`Client`, `Project`, `RateCard`, `BudgetTemplate`, `Budget`, `Proposal`, `Invoice`, `CallSheet`, `Contact`, `Phase`, `BudgetSection`, `Account`, `LineItem`, `ProjectMember`, `ProjectComment`, `ProjectAssignment`, `ProjectTeamMember`, `AuditEvent`, `WorkspacePaymentConfig`, `PaymentAttempt`
 
 Non-scoped (shared or workspace-metadata): `Workspace`, `User`, `ProposalView`, `InvoiceView`, `WebhookEvent`
 
@@ -53,6 +53,8 @@ Enforced at three layers:
 - **UI** — `BudgetEditor` renders read-only and hides the rates row, agency fee, and grand-total blocks for Collaborators. `settings/layout.tsx` and the `/team` page redirect non-Owners server-side.
 
 **Project assignment** — Collaborators only see projects linked to them via the `ProjectAssignment` join table (`projectId` + `userId`). Owners/Producers assign them via the **Assign** dialog (`AssignCollaborators`) on the project header. Projects list and detail page both filter/guard on this.
+
+**Project Team roles (PL / AM / PM)** — assigning a workspace user as Project Lead, Account Manager, or Project Manager via the Project Notes panel (or the "Edit Team" card kebab menu) **auto-creates a `ProjectAssignment` row** in the same transaction, so the assigned user immediately gains project visibility. The project-team role governs *presence* only — the user's workspace role (OWNER/PRODUCER/COLLABORATOR) still governs what they can *do*. A Collaborator assigned as Project Lead sees the project but remains margin-blind.
 
 **Role persistence** — invites carry the chosen role; the `organizationMembership.created` webhook reads the invitation's role so `COLLABORATOR` / `PRODUCER` persist correctly (Clerk membership is `org:member` for both). `getCurrentRole()` resolves the active role; the `/team` page lets Owners reassign roles via `changeMemberRole`.
 
@@ -88,6 +90,13 @@ Workspace (1)
   ├── Clients
   │     └── Projects
   │           ├── status   LEAD | ACTIVE | WRAPPED | ARCHIVED
+  │           ├── ProjectTeamMembers  (internal workspace team — PL / AM / PM)
+  │           │     ├── role              PROJECT_LEAD | ACCOUNT_MANAGER | PROJECT_MANAGER
+  │           │     ├── userId            → workspace User
+  │           │     ├── assignedAt        DateTime
+  │           │     ├── unassignedAt      DateTime? — null = active; set on replace/remove/workspace-exit
+  │           │     └── unassignReason    String? — 'REPLACED' | 'REMOVED' | 'USER_LEFT_WORKSPACE'
+  │           │     (partial unique index enforces one active holder per role per project)
   │           ├── Budgets
   │           │     ├── markupPct  (agency fee %)
   │           │     ├── taxPct     (global tax %)
@@ -169,7 +178,8 @@ Rate cards are the **source of defaults** but never retroactively change histori
 | `/projects` | Operational dashboard — 4-card KPI strip (Pipeline, Open Projects, Outstanding, Won This Quarter), status filter pills, rich project cards with client avatar, attention sidebar |
 | `/projects?archived=1` | Archived project grid with one-click restore |
 | `/projects/[id]` | Project hub — budgets, proposals, invoices, call sheets, proposal overview |
-| `/projects/[id]/team` | Per-project crew list. Seed from proposal/budget with one click. |
+| `/projects/[id]/crew` | External crew list (Rolodex contacts assigned with role/rate). Seed from proposal/budget with one click. |
+| `/projects/[id]/team` | Internal workspace team — three role slots (Project Lead, Account Manager, Project Manager) with assign/replace/remove history |
 | `/projects/[id]/actuals` | Actuals tracker — per-line-item spend, ad-hoc entries, status (Pending/Approved), date, vendor |
 | `/projects/[id]/actuals/wrap` | Wrap report — budgeted vs. actual by account, margin, top overages, PDF download |
 | `/projects/[id]/call-sheets/[csId]` | Call sheet editor |
@@ -374,7 +384,7 @@ Crew members can be marked as bringing their own equipment package:
 - **ContactCard badge** — contacts with `hasKit = true` show an amber briefcase badge displaying the kit name and rate beneath their social links on the Rolodex grid
 - **Auto-insert on budget** — when a contact with `hasKit = true` is assigned as a CREW line item, an EQUIPMENT line item for their kit is automatically inserted below (see Magical Crew Workflow above)
 
-#### Per-project team (`/projects/[id]/team`)
+#### Per-project crew (`/projects/[id]/crew`)
 
 Assign Rolodex contacts to individual projects with optional role/rate overrides. Displayed as a responsive card grid grouped by department.
 
@@ -382,9 +392,39 @@ Assign Rolodex contacts to individual projects with optional role/rate overrides
 - **Card states** — PlaceholderCard (Unassigned position, dashed border), MemberCard (filled, shows avatar initials, role, rate, call time, email, phone), EditCard (inline full-width form with Rolodex name search).
 - **Mismatch flag** (`mismatchFlag`) — when a new proposal is marked Won, any assigned member whose role is no longer in the proposal gets a red outline card with a "Not in latest won proposal" warning. Click **Confirm position** to dismiss (`dismissMismatch` action). Unassigned placeholders with orphaned roles are deleted automatically.
 - **Call time sync** — call times on member cards sync bi-directionally with call sheet crew/talent rows via `contactId`. Latest edit wins; sync is fire-and-forget so neither side can fail the other's save.
-- **Edit Rolodex contact from Team page** — on any `MemberCard` that is linked to a Rolodex contact (`contactId` set), clicking the **BookUser icon** fetches the contact's full record (`getContactForModal`) and opens `ContactModal` pre-populated — including kit settings — without leaving the project workspace. On save, `revalidatePath` is called on both `/projects/[id]/team` and `/rolodex` so both views update immediately.
+- **Edit Rolodex contact from Crew page** — on any `MemberCard` that is linked to a Rolodex contact (`contactId` set), clicking the **BookUser icon** fetches the contact's full record (`getContactForModal`) and opens `ContactModal` pre-populated — including kit settings — without leaving the project workspace. On save, `revalidatePath` is called on both `/projects/[id]/crew` and `/rolodex` so both views update immediately.
 
-### 6. Delivery (`/projects/[id]/delivery`)
+### 6. Project Team (internal workspace members)
+
+Two distinct team concepts live on every project:
+
+- **Crew** (`/projects/[id]/crew`) — external Rolodex contacts (existing feature, renamed from `/team`)
+- **Project Team** — internal workspace users assigned to one of three roles: **Project Lead (PL)**, **Account Manager (AM)**, **Project Manager (PM)**
+
+**Assignment** is managed from two places:
+- The **Project Notes** sidebar drawer (≥ PRODUCER role) — three role slots with assign/replace/remove
+- The **"Edit Team"** item in the project card kebab menu on `/projects` — opens `EditTeamModal`
+- Clicking a dashed `+` placeholder in the card's avatar row also opens the same modal
+
+**Visibility grant** — assigning a user as PL/AM/PM automatically creates a `ProjectAssignment` row (same mechanism Collaborators use) in the same DB transaction. A user can never be "assigned as Project Lead but unable to see the project."
+
+**Active-role uniqueness** — enforced by a Postgres partial unique index (`WHERE "unassignedAt" IS NULL`), not just app logic. Attempting to double-assign a role fails at the DB level.
+
+**History** — `ProjectTeamMember` rows are soft-removed, never deleted. `unassignedAt` + `unassignReason` ('REPLACED' / 'REMOVED' / 'USER_LEFT_WORKSPACE') form an audit trail. A "View history" collapsible in the panel shows all past holders per role.
+
+**Workspace member removal cascade** — when an OWNER removes a workspace member, all their active `ProjectTeamMember` rows are marked `USER_LEFT_WORKSPACE` atomically. A pre-confirmation dialog lists every project role the user currently holds before removal proceeds.
+
+**Surface areas:**
+- `/projects` card: shows a PL / AM / PM avatar row (22px each) with dashed placeholder circles for unassigned slots. Empty slots are clickable for editors.
+- `/proposals` Kanban: shows the AM avatar next to the client name on each card.
+- `/clients` detail: shows the AM avatar on each project row within a client card.
+- All surfaces revalidate on assign/unassign so avatars update everywhere without a full reload.
+
+**RBAC:**
+- OWNER / PRODUCER: full assign / replace / remove
+- COLLABORATOR: read-only view of who is assigned (no assign/replace buttons)
+
+### 7. Delivery (`/projects/[id]/delivery`)
 
 A client-facing deliverable portal for sharing video and creative assets from a project. Replaces the need to share raw Frame.io or Shade links directly — clients get a branded URL (`/d/[token]`) listing all deliverables organized into sections.
 
@@ -450,7 +490,7 @@ The `IframeViewer` on the public asset page uses `aspectRatio: 16/9` by default.
 
 **`DeliveryVersion.isVertical`** — `Boolean @default(false)`. Added in migration `20260628000002_version_is_vertical`.
 
-### 7. Projects dashboard metrics (`/projects`)  
+### 8. Projects dashboard metrics (`/projects`)  
 
 The four KPI cards are computed server-side from the primary budget phase of each non-archived project using `calcBudgetTotals` (net subtotal + markup + tax = gross). All figures are **gross totals** — the same number a client sees on a proposal.
 
@@ -463,7 +503,7 @@ The four KPI cards are computed server-side from the primary budget phase of eac
 
 **Project card amounts** — the card footer shows financial info in priority order: Paid → Approved → Invoiced → Proposed. For WON projects, "Approved $X" uses `budgetTotalCents` (live gross from `calcBudgetTotals`) rather than the `approvedTotalCents` snapshot, which may have been stored as a net value at approval time.
 
-### 7. File uploads — Cloudflare R2 presigned URL pipeline
+### 9. File uploads — Cloudflare R2 presigned URL pipeline
 
 All image uploads bypass the Next.js server entirely. The browser never holds raw credentials.
 
@@ -487,7 +527,7 @@ All image uploads bypass the Next.js server entirely. The browser never holds ra
 
 **User avatar note:** `getCurrentUser()` in `src/lib/auth.ts` no longer overwrites `User.avatarUrl` with Clerk's `imageUrl` on every request — it only sets it during initial account creation. Once a custom R2 avatar is uploaded, it persists. Users can update their avatar in **Settings → My profile**.
 
-### 8. Actuals tracker (`/projects/[id]/actuals`)
+### 10. Actuals tracker (`/projects/[id]/actuals`)
 
 Post-production spend tracking per project.
 
@@ -532,7 +572,7 @@ A tabbed hub (`TemplatesPageClient`) with four tabs:
 
 ## Project Activity Feed
 
-The project's `ClientInfoPanel` drawer hosts a ClickUp-style activity thread (`ActivitySidebar` + `CommentInput`) backed by the `ProjectComment` model, replacing the old static project-notes textarea:
+The project's **Project Notes** drawer (`ProjectNotesPanel`) hosts a ClickUp-style activity thread (`ActivitySidebar` + `CommentInput`) backed by the `ProjectComment` model, replacing the old static project-notes textarea:
 
 - **Client Notes callout** pinned at the top (read-only `Client.specialNotes`).
 - **Scrollable comment thread** — bordered cards with author avatar, name, and `date-fns` timestamps ("Today at 2:15 PM", "Nov 17 at 3:01 PM"); only the thread scrolls.
@@ -593,8 +633,12 @@ ttp-budget/
 │       │                                    #   DeliveryPage, DeliverableSection, DeliverableAsset,
 │       │                                    #   DeliverableVersion (url, provider, renderMode, embedHtml,
 │       │                                    #   thumbnailUrl, note, firstClientViewAt), DeliverableView
-│       └── 20260628000002_version_is_vertical/migration.sql
-│                                            #   DeliverableVersion.isVertical Boolean @default(false)
+│       ├── 20260628000002_version_is_vertical/migration.sql
+│       │                                    #   DeliverableVersion.isVertical Boolean @default(false)
+│       └── 20260701000001_project_team/migration.sql
+│                                            #   ProjectTeamRole enum (PROJECT_LEAD, ACCOUNT_MANAGER, PROJECT_MANAGER)
+│                                            #   ProjectTeamMember table + 4 indexes
+│                                            #   Partial unique index: one active holder per role per project
 ├── scripts/
 │   ├── backfill-callsheet-contacts.ts      # F6: link existing crew/talent rows to Rolodex contacts by name+email (--apply to write)
 │   ├── backfill-workspace-ids.ts           # A1: fill workspaceId on Phase/Account/LineItem/ProjectMember rows
@@ -614,7 +658,8 @@ ttp-budget/
 │   │   │   │   └── [id]/
 │   │   │   │       ├── page.tsx             # Project hub
 │   │   │   │       ├── layout.tsx           # Project sub-layout + secondary sidebar
-│   │   │   │       ├── team/                # Per-project crew list
+│   │   │   │       ├── crew/                # External crew list (Rolodex contacts with role/rate)
+│   │   │   │       ├── team/                # Internal workspace team (PL / AM / PM role slots)
 │   │   │   │       ├── actuals/             # Actuals tracker (per-line spend, ad-hoc entries, status)
 │   │   │   │       │   └── wrap/            # Wrap report — budgeted vs. actual, PDF download
 │   │   │   │       ├── call-sheets/[csId]/  # Call sheet editor page
@@ -687,7 +732,11 @@ ttp-budget/
 │   │   │   ├── ProposalModal.tsx            # Create/edit/send proposals + payment schedule + discounts
 │   │   │   ├── ProjectInvoices.tsx
 │   │   │   ├── FloatingBulkActionBar.tsx    # Budget bulk actions — mass edit / group / delete
-│   │   │   ├── ClientInfoPanel.tsx          # Drawer hosting the activity feed (ActivitySidebar)
+│   │   │   ├── ProjectNotesPanel.tsx        # Slide-out drawer: Team section → activity feed → client contact info
+│   │   │   ├── ProjectTeamSection.tsx       # 3 role slots (PL/AM/PM) with assign/replace/remove + history
+│   │   │   ├── AssignTeamMemberModal.tsx    # Searchable workspace-user picker; "Already: [Role]" chips
+│   │   │   ├── TeamHistoryList.tsx          # Collapsible; lazy-loads past role holders via getProjectTeamHistory
+│   │   │   ├── EditTeamModal.tsx            # Fixed overlay wrapping ProjectTeamSection; opened from card kebab
 │   │   │   ├── ActivitySidebar.tsx          # Project comment thread + client-notes callout + sticky composer
 │   │   │   ├── CommentInput.tsx             # Auto-grow composer; useActionState; Enter to send
 │   │   │   ├── AssignCollaborators.tsx      # OWNER/PRODUCER dialog — assign Collaborators to a project
@@ -771,7 +820,15 @@ ttp-budget/
 │           │                                #   getContactForModal: lightweight fetch for team-page modal pre-fill
 │           │                                #   searchContacts: returns kit fields for LineItemModal typeahead
 │           ├── team.ts                      # invite/revoke/accept + changeMemberRole (OWNER-gated); webhook honours invited role
+│           │                                #   removeWorkspaceMember: atomically marks all active ProjectTeamMember rows
+│           │                                #     USER_LEFT_WORKSPACE before revoking Clerk membership
 │           ├── comments.ts                  # getProjectActivity (legacy notes → pinned comment) + addProjectComment
+│           ├── project-team.ts              # getProjectTeam, getProjectTeamHistory, listEligibleUsersForProjectTeam
+│           │                                #   assignProjectTeamRole: atomic tx — marks old holder REPLACED, creates new row,
+│           │                                #     auto-creates ProjectAssignment for visibility in same transaction
+│           │                                #   unassignProjectTeamRole: marks REMOVED; optionally deletes ProjectAssignment
+│           │                                #   getActiveProjectRolesForUser: OWNER-only; powers workspace-member-removal confirm
+│           │                                #   All mutating actions revalidate /projects, /proposals, /clients
 │           ├── assignments.ts               # getProjectAssignees + setProjectAssignment (Collaborator visibility; OWNER/PRODUCER-gated)
 │           ├── upload.ts                    # getPresignedUploadUrl() — issues 60 s PutObjectCommand ticket to R2; never touches file bytes
 │           │                                #   Folders: avatars, logos, client-logos, delivery-covers, delivery-thumbnails
