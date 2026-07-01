@@ -49,7 +49,7 @@ function revalidate(projectId: string) {
 }
 
 // Recursive helper: walk account tree and collect all line items with their accountId
-type AccountNode = {
+export type AccountNode = {
   id: string
   lineItems: { id: string; description: string; order: number }[]
   children: AccountNode[]
@@ -305,6 +305,73 @@ export async function getActualSheet(budgetId: string): Promise<ActualSheetFull 
     return sheet as unknown as ActualSheetFull | null
   } catch (err) {
     console.error('[getActualSheet]', err)
+    return null
+  }
+}
+
+// ─── syncActualSheetEntries ────────────────────────────────────────────────────
+
+/**
+ * Idempotent backfill: after a budget changes (new line items added, items in
+ * new sections, etc.) the existing ActualSheet won't have entries for those
+ * items — they appear as un-editable "—" on the actuals page. This runs on
+ * every page load when a sheet already exists and adds missing entries
+ * (actualCents = 0) for any line items not yet covered.
+ *
+ * Returns the refreshed sheet so the page doesn't need a separate fetch.
+ */
+export async function syncActualSheetEntries(
+  sheetId: string,
+  phaseAccounts: AccountNode[],
+): Promise<ActualSheetFull | null> {
+  try {
+    const sheet = await db.actualSheet.findFirst({
+      where:   { id: sheetId },
+      include: { entries: { orderBy: { order: 'asc' } } },
+    })
+    if (!sheet) return null
+
+    // Build the full flat set of line-item ids + their account info from the
+    // current phase (using the same collector that createActualSheet uses, but
+    // with the parentId:null-filtered list from the page so no double-counting).
+    const allLineItems = collectLineItems(phaseAccounts)
+
+    const existingLineItemIds = new Set(
+      sheet.entries
+        .filter(e => !e.isAdHoc && e.lineItemId)
+        .map(e => e.lineItemId as string),
+    )
+
+    // Deduplicate by lineItemId (collectLineItems can double-count child accounts
+    // when the full flat account list is also walked via .children).
+    const seen = new Set<string>()
+    const missing = allLineItems.filter(li => {
+      if (existingLineItemIds.has(li.lineItemId) || seen.has(li.lineItemId)) return false
+      seen.add(li.lineItemId)
+      return true
+    })
+    if (missing.length === 0) return sheet as unknown as ActualSheetFull
+
+    const maxOrder = sheet.entries.reduce((m, e) => Math.max(m, e.order), -1)
+    await db.actualEntry.createMany({
+      data: missing.map((li, i) => ({
+        actualSheetId: sheetId,
+        lineItemId:    li.lineItemId,
+        accountId:     li.accountId,
+        description:   li.description,
+        actualCents:   0,
+        isAdHoc:       false,
+        order:         maxOrder + 1 + i,
+      })),
+    })
+
+    const refreshed = await db.actualSheet.findFirst({
+      where:   { id: sheetId },
+      include: { entries: { orderBy: { order: 'asc' } } },
+    })
+    return refreshed as unknown as ActualSheetFull | null
+  } catch (err) {
+    console.error('[syncActualSheetEntries]', err)
     return null
   }
 }

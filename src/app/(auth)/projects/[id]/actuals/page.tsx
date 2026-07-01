@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { ChevronLeft } from 'lucide-react'
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
-import { getActualSheet } from '@/server/actions/actuals'
+import { getActualSheet, syncActualSheetEntries } from '@/server/actions/actuals'
 import { ActualsEditor } from '@/components/projects/ActualsEditor'
 import { sumAccount, calcBudgetTotals, type AccountInput } from '@/lib/totals'
 
@@ -83,8 +83,17 @@ export default async function ActualsPage({
     budgetTotalCents = totals.grandTotalCents
   }
 
-  // Fetch existing actuals sheet (if any)
-  const sheet = budget ? await getActualSheet(budget.id) : null
+  // Fetch existing actuals sheet, then sync any line items added to the budget
+  // after the sheet was created (they wouldn't have ActualEntry rows yet and
+  // would show as un-editable "—" without this step).
+  let sheet = budget ? await getActualSheet(budget.id) : null
+  if (sheet && phase) {
+    const synced = await syncActualSheetEntries(
+      sheet.id,
+      phase.accounts as unknown as import('@/server/actions/actuals').AccountNode[],
+    )
+    if (synced) sheet = synced
+  }
 
   return (
     <div>
