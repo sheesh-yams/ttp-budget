@@ -342,6 +342,9 @@ function PhaseView({
   const [addingToAccount, setAddingToAccount] = useState<string | null>(null)
   const [showPackages, setShowPackages]         = useState(false)
   const [showImport, setShowImport]             = useState(false)
+  const [addingAccount, setAddingAccount]       = useState(false)
+  const [newAccountName, setNewAccountName]     = useState('')
+  const addAccountInputRef = useRef<HTMLInputElement>(null)
   const [, startTransition] = useTransition()
   const [flashItemIds, setFlashItemIds] = useState<Set<string>>(new Set())
 
@@ -608,13 +611,20 @@ function PhaseView({
   }
 
   function handleAddAccount() {
-    const name = prompt('Account name (e.g. Camera, Post Production)')
-    if (!name?.trim()) return
-    // Auto-assign the next sequential code (100, 200, 300…)
+    setAddingAccount(true)
+    setNewAccountName('')
+    setTimeout(() => addAccountInputRef.current?.focus(), 0)
+  }
+
+  function commitAddAccount() {
+    const name = newAccountName.trim()
+    if (!name) { setAddingAccount(false); return }
+    setAddingAccount(false)
+    setNewAccountName('')
     const topLevel = localAccounts.filter(a => !('parentId' in a && a.parentId))
     const code = String((topLevel.length + 1) * 100)
     startTransition(async () => {
-      await addAccount({ phaseId: phase.id, name: name.trim(), code, order: localAccounts.length })
+      await addAccount({ phaseId: phase.id, name, code, order: localAccounts.length })
       onMutated()
     })
   }
@@ -712,22 +722,56 @@ function PhaseView({
 
   if (localAccounts.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-16 text-center">
-        <p className="text-sm font-medium text-foreground">No budget accounts yet</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Add an account manually, insert a package, or bulk import from a file.
-        </p>
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-          <Button size="sm" onClick={handleAddAccount}>
-            <Plus className="mr-1.5 h-3.5 w-3.5" />Add account
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setShowPackages(true)}>
-            <Package className="mr-1.5 h-3.5 w-3.5" />Insert package
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setShowImport(true)}>
-            <Upload className="mr-1.5 h-3.5 w-3.5" />Import file
-          </Button>
+      <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-10 text-center gap-4">
+        <div>
+          <p className="text-sm font-medium text-foreground">No budget accounts yet</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Add an account manually, insert a package, or bulk import from a file.
+          </p>
         </div>
+        {addingAccount ? (
+          <div className="flex items-center gap-2 w-full max-w-sm rounded-lg border border-primary/40 bg-primary/5 px-3 py-2">
+            <input
+              ref={addAccountInputRef}
+              type="text"
+              placeholder="Account name (e.g. Camera, Post Production)"
+              value={newAccountName}
+              onChange={e => setNewAccountName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') commitAddAccount()
+                if (e.key === 'Escape') { setAddingAccount(false); setNewAccountName('') }
+              }}
+              className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              autoFocus
+            />
+            <button
+              type="button"
+              className="rounded-md bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+              onClick={commitAddAccount}
+            >
+              Add
+            </button>
+            <button
+              type="button"
+              className="text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => { setAddingAccount(false); setNewAccountName('') }}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <Button size="sm" onClick={handleAddAccount}>
+              <Plus className="mr-1.5 h-3.5 w-3.5" />Add account
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowPackages(true)}>
+              <Package className="mr-1.5 h-3.5 w-3.5" />Insert package
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowImport(true)}>
+              <Upload className="mr-1.5 h-3.5 w-3.5" />Import file
+            </Button>
+          </div>
+        )}
         {showPackages && (
           <InsertPackageModal open onOpenChange={setShowPackages} phaseId={phase.id} onInserted={onMutated} />
         )}
@@ -833,6 +877,39 @@ function PhaseView({
           </tbody>
         </table>
       </div>
+
+      {/* ── Inline add-account form ──────────────────────────────────────────── */}
+      {addingAccount && (
+        <div className="mt-2 flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/5 px-3 py-2">
+          <input
+            ref={addAccountInputRef}
+            type="text"
+            placeholder="Account name (e.g. Camera, Post Production)"
+            value={newAccountName}
+            onChange={e => setNewAccountName(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') commitAddAccount()
+              if (e.key === 'Escape') { setAddingAccount(false); setNewAccountName('') }
+            }}
+            className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            autoFocus
+          />
+          <button
+            type="button"
+            className="rounded-md bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+            onClick={commitAddAccount}
+          >
+            Add
+          </button>
+          <button
+            type="button"
+            className="text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => { setAddingAccount(false); setNewAccountName('') }}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
 
       {!readOnly && (
         <div className="mt-3 flex items-center gap-2">
