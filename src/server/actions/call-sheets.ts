@@ -582,7 +582,7 @@ async function syncSheetMembersToTeam(
     }
   }
 
-  revalidatePath(`/projects/${projectId}/team`)
+  revalidatePath(`/projects/${projectId}/crew`)
 }
 
 export async function deleteCallSheet(id: string): Promise<ActionResult<void>> {

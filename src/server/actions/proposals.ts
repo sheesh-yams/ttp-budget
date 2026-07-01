@@ -986,7 +986,7 @@ async function reconcileTeamFromWonProposal(
 
   if (toCreate.length > 0) await sdb.projectMember.createMany({ data: toCreate })
 
-  revalidatePath(`/projects/${projectId}/team`)
+  revalidatePath(`/projects/${projectId}/crew`)
 }
 
 // ─── Update brand overrides ───────────────────────────────────────────────────

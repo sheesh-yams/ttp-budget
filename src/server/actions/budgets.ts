@@ -283,7 +283,7 @@ async function maybeUpsertCrewMember(
     } as Parameters<typeof sdb.projectMember.create>[0]['data'],
   })
 
-  revalidatePath(`/projects/${projectId}/team`)
+  revalidatePath(`/projects/${projectId}/crew`)
 }
 
 /**
@@ -341,7 +341,7 @@ async function runCrewWorkflow(
         order:       memberCount,
       } as Parameters<typeof sdb.projectMember.create>[0]['data'],
     })
-    revalidatePath(`/projects/${projectId}/team`)
+    revalidatePath(`/projects/${projectId}/crew`)
   }
 
   // Step 2: Auto-insert kit line item if contact has kit and kitRateCents is set

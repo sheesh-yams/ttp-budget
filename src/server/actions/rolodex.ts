@@ -142,7 +142,7 @@ export async function updateContact(
   id: string,
   input: ContactFormData,
   // When called from the Team page, pass the projectId so we revalidate
-  // /projects/[id]/team immediately after kit changes are saved.
+  // /projects/[id]/crew immediately after kit changes are saved.
   projectId?: string,
 ): Promise<ActionResult<{ id: string }>> {
   try {
@@ -158,7 +158,7 @@ export async function updateContact(
     revalidatePath('/rolodex')
     revalidatePath(`/rolodex/${id}`)
     if (projectId) {
-      revalidatePath(`/projects/${projectId}/team`)
+      revalidatePath(`/projects/${projectId}/crew`)
       revalidatePath(`/projects/${projectId}`)
     }
     return { success: true, data: { id } }

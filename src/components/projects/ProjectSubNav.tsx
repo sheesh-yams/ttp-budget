@@ -64,8 +64,8 @@ export function ProjectSubNav({ projectId, projectName, clientName }: Props) {
       title: 'PRE-PROD',
       items: [
         {
-          label: 'Team',
-          href: `/projects/${projectId}/team`,
+          label: 'Crew',
+          href: `/projects/${projectId}/crew`,
           icon: Users,
         },
         {

@@ -85,7 +85,7 @@ export async function addProjectMember(
       },
     })
 
-    revalidatePath(`/projects/${projectId}/team`)
+    revalidatePath(`/projects/${projectId}/crew`)
     return { success: true, data: { id: member.id } }
   } catch {
     return { success: false, error: 'Failed to add team member' }
@@ -123,7 +123,7 @@ export async function updateProjectMember(
       syncMemberCallTimeToCallSheets(projectId, data.contactId, data.callTime, sdb).catch(() => {})
     }
 
-    revalidatePath(`/projects/${projectId}/team`)
+    revalidatePath(`/projects/${projectId}/crew`)
     revalidatePath(`/projects/${projectId}/call-sheets`)
     return { success: true, data: undefined }
   } catch {
@@ -273,7 +273,7 @@ export async function seedTeamFromBudget(
         if (members.length > 0) {
           // sdb.createMany auto-injects workspaceId into each item.
           await sdb.projectMember.createMany({ data: members })
-          revalidatePath(`/projects/${projectId}/team`)
+          revalidatePath(`/projects/${projectId}/crew`)
           return { success: true, data: { count: members.length, proposalTitle: proposal.title } }
         }
       }
@@ -305,7 +305,7 @@ export async function seedTeamFromBudget(
       })),
     })
 
-    revalidatePath(`/projects/${projectId}/team`)
+    revalidatePath(`/projects/${projectId}/crew`)
     return { success: true, data: { count: rateCards.length, proposalTitle: null } }
   } catch {
     return { success: false, error: 'Failed to seed team' }
@@ -320,7 +320,7 @@ export async function removeProjectMember(
     const sdb = await getScopedDb()
     // Scoped delete — WHERE id = ? AND workspaceId = ? blocks foreign member ids.
     await sdb.projectMember.delete({ where: { id } })
-    revalidatePath(`/projects/${projectId}/team`)
+    revalidatePath(`/projects/${projectId}/crew`)
     return { success: true, data: undefined }
   } catch {
     return { success: false, error: 'Failed to remove team member' }
@@ -337,7 +337,7 @@ export async function dismissMismatch(
   try {
     const sdb = await getScopedDb()
     await sdb.projectMember.update({ where: { id }, data: { mismatchFlag: false } })
-    revalidatePath(`/projects/${projectId}/team`)
+    revalidatePath(`/projects/${projectId}/crew`)
     return { success: true, data: undefined }
   } catch {
     return { success: false, error: 'Failed to dismiss mismatch' }
