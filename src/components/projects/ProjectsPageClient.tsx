@@ -26,6 +26,7 @@ interface Props {
   metrics:       ProjectMetrics
   /** Collaborators are margin-blind — the financial KPI strip is hidden for them. */
   canSeeFinancials?: boolean
+  canEditTeam?: boolean
   attentionItems: AttentionItem[]
   upcomingShoots: UpcomingShoot[]
   statusCounts:  StatusCounts
@@ -46,6 +47,7 @@ export function ProjectsPageClient({
   projects,
   metrics,
   canSeeFinancials = true,
+  canEditTeam = false,
   attentionItems,
   upcomingShoots,
   statusCounts,
@@ -194,13 +196,13 @@ export function ProjectsPageClient({
             ) : view === 'list' ? (
               <div className="flex flex-col gap-2">
                 {sorted.map(p => (
-                  <ProjectCard key={p.id} project={p} view="list" />
+                  <ProjectCard key={p.id} project={p} view="list" canEditTeam={canEditTeam} />
                 ))}
               </div>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {sorted.map(p => (
-                  <ProjectCard key={p.id} project={p} view="grid" />
+                  <ProjectCard key={p.id} project={p} view="grid" canEditTeam={canEditTeam} />
                 ))}
               </div>
             )}

@@ -1,15 +1,21 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { X, User, Mail, Phone, MapPin } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { X, User, Mail, Phone, MapPin, Pencil } from 'lucide-react'
 import { ActivitySidebar } from './ActivitySidebar'
 import { ProjectTeamSection } from './ProjectTeamSection'
+import { ClientModal } from '@/components/clients/ClientModal'
 
 interface Client {
+  id:             string
   name:           string
+  logoUrl:        string | null
   contactName:    string | null
   contactEmail:   string | null
   contactPhone:   string | null
+  website:        string | null
+  notes:          string | null
   billingAddress: string | null
   specialNotes:   string | null
 }
@@ -58,7 +64,9 @@ function InfoRow({
 }
 
 export function ProjectNotesPanel({ projectId, client, isEditor, trigger }: ProjectNotesPanelProps) {
-  const [open, setOpen] = useState(false)
+  const router = useRouter()
+  const [open,           setOpen]           = useState(false)
+  const [editClientOpen, setEditClientOpen] = useState(false)
 
   useEffect(() => {
     document.body.style.overflow = open ? 'hidden' : ''
@@ -157,13 +165,30 @@ export function ProjectNotesPanel({ projectId, client, isEditor, trigger }: Proj
 
             {/* ── Client info section ───────────────────────────────────────── */}
             <section style={{ padding: '16px 20px', borderBottom: '1px solid hsl(var(--border))' }}>
-              <p style={{
-                fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
-                letterSpacing: '0.1em', color: 'hsl(var(--muted-foreground))',
-                marginBottom: 8,
-              }}>
-                Contact Info
-              </p>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <p style={{
+                  fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
+                  letterSpacing: '0.1em', color: 'hsl(var(--muted-foreground))',
+                }}>
+                  Contact Info
+                </p>
+                {isEditor && (
+                  <button
+                    onClick={() => setEditClientOpen(true)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 4,
+                      fontSize: 11, fontWeight: 600, color: 'hsl(var(--muted-foreground))',
+                      background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px',
+                      borderRadius: 4,
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'hsl(var(--muted))')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                  >
+                    <Pencil style={{ width: 11, height: 11 }} />
+                    Edit Client
+                  </button>
+                )}
+              </div>
 
               {hasClientInfo ? (
                 <div style={{ borderRadius: 10, border: '1px solid hsl(var(--border))', padding: '0 16px', background: 'hsl(var(--card))' }}>
@@ -185,6 +210,30 @@ export function ProjectNotesPanel({ projectId, client, isEditor, trigger }: Proj
           </ActivitySidebar>
         </div>
       </div>
+
+      <ClientModal
+        open={editClientOpen}
+        onOpenChange={setEditClientOpen}
+        existing={{
+          id:               client.id,
+          name:             client.name,
+          logoUrl:          client.logoUrl,
+          contactName:      client.contactName,
+          contactEmail:     client.contactEmail,
+          contactPhone:     client.contactPhone,
+          website:          client.website,
+          notes:            client.notes,
+          specialNotes:     client.specialNotes,
+          createdAt:        '',
+          projectCount:     0,
+          activeProjects:   0,
+          ltvCents:         0,
+          outstandingCents: 0,
+          lastEngagementAt: null,
+          projects:         [],
+        }}
+        onSaved={() => { setEditClientOpen(false); router.refresh() }}
+      />
     </>
   )
 }

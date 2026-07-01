@@ -13,6 +13,7 @@ import { formatMoney } from '@/lib/money'
 import { parseLocalDate } from '@/lib/time-format'
 import { archiveProject, unarchiveProject } from '@/server/actions/projects'
 import { useConfirm } from '@/components/ui/confirm-dialog'
+import { EditTeamModal } from './EditTeamModal'
 import {
   type ProjectForCard,
   statusLabel,
@@ -20,8 +21,9 @@ import {
 } from './projects-types'
 
 interface Props {
-  project: ProjectForCard
-  view?: 'grid' | 'list'
+  project:      ProjectForCard
+  view?:        'grid' | 'list'
+  canEditTeam?: boolean
 }
 
 // ── Client avatar (initials in a deterministic colored circle) ─────────────────
@@ -61,12 +63,13 @@ function ClientAvatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md' 
   )
 }
 
-export function ProjectCard({ project, view = 'grid' }: Props) {
+export function ProjectCard({ project, view = 'grid', canEditTeam = false }: Props) {
   const router    = useRouter()
   const { confirm, ConfirmDialog } = useConfirm()
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [menuPos,  setMenuPos ] = useState<{ top: number; left: number } | null>(null)
-  const [mounted,  setMounted ] = useState(false)
+  const [menuOpen,    setMenuOpen]    = useState(false)
+  const [menuPos,     setMenuPos]     = useState<{ top: number; left: number } | null>(null)
+  const [mounted,     setMounted]     = useState(false)
+  const [teamModal,   setTeamModal]   = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef    = useRef<HTMLDivElement>(null)
 
@@ -310,10 +313,12 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
           <BurnBar spentCents={project.actualSpentCents} budgetCents={project.budgetTotalCents} />
         )}
 
-        {/* Team avatar row */}
-        {project.teamMembers && project.teamMembers.length > 0 && (
-          <TeamAvatarRow members={project.teamMembers} />
-        )}
+        {/* Team avatar row — always visible; empty slots are clickable when editor */}
+        <TeamAvatarRow
+          members={project.teamMembers ?? []}
+          canEdit={canEditTeam}
+          onEditTeam={() => setTeamModal(true)}
+        />
       </div>
 
       {/* Bottom stats bar */}
@@ -390,13 +395,23 @@ export function ProjectCard({ project, view = 'grid' }: Props) {
           pos={menuPos}
           projectId={project.id}
           isArchived={isArchived}
+          canEditTeam={canEditTeam}
           onArchive={handleArchive}
           onUnarchive={handleUnarchive}
+          onEditTeam={() => { setMenuOpen(false); setTeamModal(true) }}
           onClose={() => setMenuOpen(false)}
         />,
         document.body,
       )}
       {ConfirmDialog}
+      {teamModal && mounted && createPortal(
+        <EditTeamModal
+          projectId={project.id}
+          projectName={project.name}
+          onClose={() => setTeamModal(false)}
+        />,
+        document.body,
+      )}
     </div>
   )
 }
@@ -410,7 +425,15 @@ const ROLE_ABBR: Record<string, string> = {
 }
 const ROLE_ORDER = ['PROJECT_LEAD', 'ACCOUNT_MANAGER', 'PROJECT_MANAGER']
 
-function TeamAvatarRow({ members }: { members: { role: string; user: { name: string | null; email: string; avatarUrl: string | null } }[] }) {
+function TeamAvatarRow({
+  members,
+  canEdit = false,
+  onEditTeam,
+}: {
+  members: { role: string; user: { name: string | null; email: string; avatarUrl: string | null } }[]
+  canEdit?: boolean
+  onEditTeam?: () => void
+}) {
   const byRole = Object.fromEntries(members.map(m => [m.role, m.user]))
 
   return (
@@ -420,10 +443,15 @@ function TeamAvatarRow({ members }: { members: { role: string; user: { name: str
         const label = ROLE_ABBR[role]
         const title = user
           ? `${label} · ${user.name ?? user.email}`
-          : `${label} — unassigned`
+          : canEdit ? `${label} — click to assign` : `${label} — unassigned`
 
         return (
-          <div key={role} className="flex flex-col items-center gap-0.5" title={title}>
+          <div
+            key={role}
+            className={`flex flex-col items-center gap-0.5 ${!user && canEdit ? 'cursor-pointer' : ''}`}
+            title={title}
+            onClick={!user && canEdit ? onEditTeam : undefined}
+          >
             {user ? (
               user.avatarUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -434,7 +462,9 @@ function TeamAvatarRow({ members }: { members: { role: string; user: { name: str
                 </div>
               )
             ) : (
-              <div className="w-[22px] h-[22px] rounded-full border border-dashed border-gray-200" />
+              <div className={`w-[22px] h-[22px] rounded-full border border-dashed flex items-center justify-center text-[10px] ${canEdit ? 'border-gray-300 text-gray-400 hover:border-gray-400 hover:text-gray-600 transition-colors' : 'border-gray-200 text-transparent'}`}>
+                {canEdit ? '+' : ''}
+              </div>
             )}
             <span className="text-[9px] font-semibold text-gray-400">{label}</span>
           </div>
@@ -491,17 +521,21 @@ function DocIcon({
 
 import { forwardRef } from 'react'
 
+import { Users } from 'lucide-react'
+
 const CardMenu = forwardRef<
   HTMLDivElement,
   {
     pos: { top: number; left: number }
     projectId: string
     isArchived: boolean
+    canEditTeam?: boolean
     onArchive: () => void
     onUnarchive: () => void
+    onEditTeam?: () => void
     onClose: () => void
   }
->(({ pos, projectId, isArchived, onArchive, onUnarchive, onClose }, ref) => {
+>(({ pos, projectId, isArchived, canEditTeam, onArchive, onUnarchive, onEditTeam, onClose }, ref) => {
   const router = useRouter()
 
   function item(label: string, icon: React.ReactNode, action: () => void, danger = false) {
@@ -528,6 +562,7 @@ const CardMenu = forwardRef<
       className="bg-white border border-gray-100 rounded-xl shadow-xl py-1 px-1"
     >
       {item('Open project', <ExternalLink className="w-4 h-4" />, () => router.push(`/projects/${projectId}`))}
+      {canEditTeam && onEditTeam && item('Edit team', <Users className="w-4 h-4" />, onEditTeam)}
       <div className="h-px bg-gray-100 my-1" />
       {isArchived
         ? item('Unarchive', <ArchiveRestore className="w-4 h-4" />, onUnarchive)

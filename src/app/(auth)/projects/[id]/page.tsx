@@ -304,10 +304,14 @@ export default async function ProjectDetailPage({
             projectId={project.id}
             isEditor={currentUser.role === 'OWNER' || currentUser.role === 'PRODUCER'}
             client={{
+              id:             project.client.id,
               name:           project.client.name,
+              logoUrl:        project.client.logoUrl ?? null,
               contactName:    project.client.contactName ?? null,
               contactEmail:   project.client.contactEmail ?? null,
               contactPhone:   project.client.contactPhone ?? null,
+              website:        (project.client as { website?: string | null }).website ?? null,
+              notes:          project.client.notes ?? null,
               billingAddress: project.client.billingAddress ?? null,
               specialNotes:   (project.client as { specialNotes?: string | null }).specialNotes ?? null,
             }}

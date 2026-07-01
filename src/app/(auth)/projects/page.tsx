@@ -451,6 +451,7 @@ export default async function ProjectsPage({
       projects={allProjectsForClient as unknown as ProjectForCard[]}
       metrics={metrics}
       canSeeFinancials={canSeeFin}
+      canEditTeam={canSeeFin}
       attentionItems={attentionItems}
       upcomingShoots={upcomingShoots}
       statusCounts={statusCounts}
