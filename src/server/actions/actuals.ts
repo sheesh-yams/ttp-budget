@@ -2,8 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
-import { getScopedDb } from '@/lib/db-scoped'
 import { getWorkspaceId } from '@/lib/auth'
+import { getScopedDb } from '@/lib/db-scoped'
 import { sumAccount, calcBudgetTotals, type AccountInput } from '@/lib/totals'
 import { lineTotal } from '@/lib/money'
 import type { ActionResult } from '@/types'
@@ -120,6 +120,8 @@ export async function createActualSheet(
     const workspaceId = await getWorkspaceId()
     const lineItems = collectLineItems(phase.accounts as unknown as AccountNode[])
 
+    // raw db: create with explicit workspaceId (sdb.create has Prisma type-inference issues
+    // with nested relation inputs; the IDOR risk on creates is controlled workspaceId, not reads)
     const sheet = await db.actualSheet.create({
       data: {
         workspaceId,
@@ -325,7 +327,8 @@ export async function syncActualSheetEntries(
   phaseAccounts: AccountNode[],
 ): Promise<ActualSheetFull | null> {
   try {
-    const sheet = await db.actualSheet.findFirst({
+    const sdb = await getScopedDb()
+    const sheet = await sdb.actualSheet.findFirst({
       where:   { id: sheetId },
       include: { entries: { orderBy: { order: 'asc' } } },
     })
@@ -365,7 +368,7 @@ export async function syncActualSheetEntries(
       })),
     })
 
-    const refreshed = await db.actualSheet.findFirst({
+    const refreshed = await sdb.actualSheet.findFirst({
       where:   { id: sheetId },
       include: { entries: { orderBy: { order: 'asc' } } },
     })

@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { Calendar, User, TrendingUp, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { db } from '@/lib/db'
 import { getWorkspaceId, getCurrentUser } from '@/lib/auth'
+import { getScopedDb } from '@/lib/db-scoped'
 import { canSeeFinancials, stripBudgetForRole } from '@/lib/budget-visibility'
 import { BudgetBreakdown } from '@/components/projects/BudgetBreakdown'
 import { ProjectProposals } from '@/components/projects/ProjectProposals'
@@ -205,8 +206,9 @@ export default async function ProjectDetailPage({
 
   // Actuals expose profit + margin — financial data hidden from Collaborators.
   if (budget && canSeeFin) {
-    const sheet = await db.actualSheet.findFirst({
-      where: { budgetId: budget.id, workspaceId },
+    const sdb = await getScopedDb()
+    const sheet = await sdb.actualSheet.findFirst({
+      where: { budgetId: budget.id },
       select: {
         id:                   true,
         revenueOverrideCents: true,

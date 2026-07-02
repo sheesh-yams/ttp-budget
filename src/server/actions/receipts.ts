@@ -46,13 +46,14 @@ export type ActualEntryForMatching = {
  * Recompute an entry's actualCents from its attached receipts that have amounts.
  * If no linked receipts carry amounts, the entry's manual value is left untouched.
  */
-async function syncEntryActualCents(entryId: string): Promise<void> {
-  const linked = await db.receipt.findMany({
+async function syncEntryActualCents(entryId: string, sdb: Awaited<ReturnType<typeof getScopedDb>>): Promise<void> {
+  const linked = await sdb.receipt.findMany({
     where:  { actualEntryId: entryId, amountCents: { not: null } },
     select: { amountCents: true },
   })
   if (linked.length === 0) return
   const total = linked.reduce((sum, r) => sum + (r.amountCents ?? 0), 0)
+  // ActualEntry has no workspaceId column — raw db is correct here
   await db.actualEntry.update({ where: { id: entryId }, data: { actualCents: total } })
 }
 
@@ -196,7 +197,7 @@ export async function linkReceiptToEntry(
     })
 
     // If this receipt carries an amount, recompute the entry's actualCents
-    if (receipt.amountCents != null) await syncEntryActualCents(actualEntryId)
+    if (receipt.amountCents != null) await syncEntryActualCents(actualEntryId, sdb)
 
     revalidatePath(`/projects/${projectId}/receipts`)
     revalidatePath(`/projects/${projectId}/actuals`)
@@ -233,7 +234,7 @@ export async function unlinkReceipt(
     })
 
     // Recompute the previously-linked entry after removal
-    if (prevEntryId && receipt.amountCents != null) await syncEntryActualCents(prevEntryId)
+    if (prevEntryId && receipt.amountCents != null) await syncEntryActualCents(prevEntryId, sdb)
 
     revalidatePath(`/projects/${projectId}/receipts`)
     revalidatePath(`/projects/${projectId}/actuals`)
@@ -351,7 +352,7 @@ export async function updateReceiptDetails(
 
     // Resync the entry's actualCents if the amount changed and receipt is attached
     if (existing.actualEntryId && 'amountCents' in patch) {
-      await syncEntryActualCents(existing.actualEntryId)
+      await syncEntryActualCents(existing.actualEntryId, sdb)
     }
 
     revalidatePath(`/projects/${projectId}/receipts`)

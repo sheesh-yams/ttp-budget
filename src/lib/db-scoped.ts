@@ -29,7 +29,7 @@ import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 
 // Models that have a direct `workspaceId` column and should be automatically scoped.
-const SCOPED_MODELS = new Set([
+export const SCOPED_MODELS = new Set([
   // Top-level workspace-owned models
   'Client',
   'Project',
@@ -55,6 +55,8 @@ const SCOPED_MODELS = new Set([
   // Payments — workspace-owned config and attempt records
   'WorkspacePaymentConfig',
   'PaymentAttempt',
+  // Receipts — financial documents attached to actuals; must be scoped to prevent IDOR
+  'Receipt',
   // Delivery — client-facing deliverable pages and assets
   'DeliveryPage',
   'DeliverableSection',
