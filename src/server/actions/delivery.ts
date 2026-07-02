@@ -82,23 +82,34 @@ export async function getShadeThumbnailUrl(
 ): Promise<ActionResult<string>> {
   try {
     const apiKey = process.env.SHADE_API_KEY
-    if (!apiKey) return { success: false, error: 'SHADE_API_KEY not configured' }
+    if (!apiKey) {
+      console.error('[Shade] SHADE_API_KEY not configured')
+      return { success: false, error: 'SHADE_API_KEY not configured' }
+    }
 
     const qs       = driveId ? `?drive_id=${encodeURIComponent(driveId)}` : ''
     const endpoint = `https://api.shade.inc/assets/${encodeURIComponent(assetId)}/previews${qs}`
+    console.log('[Shade] fetching:', endpoint)
 
     const res = await fetch(endpoint, {
       headers: { Authorization: apiKey },
       signal:  AbortSignal.timeout(5000),
     })
-    if (!res.ok) return { success: false, error: `Shade API ${res.status}` }
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      console.error(`[Shade] API ${res.status}:`, body)
+      return { success: false, error: `Shade API ${res.status}` }
+    }
 
     const data      = await res.json() as { signed_url: string | null }[]
+    console.log('[Shade] preview count:', data.length, '| first signed_url present:', !!data[0]?.signed_url)
     const signedUrl = data[0]?.signed_url
     if (!signedUrl) return { success: false, error: 'No preview image available' }
 
     return { success: true, data: signedUrl }
-  } catch {
+  } catch (err) {
+    console.error('[Shade] fetch threw:', err)
     return { success: false, error: 'Failed to fetch Shade thumbnail' }
   }
 }

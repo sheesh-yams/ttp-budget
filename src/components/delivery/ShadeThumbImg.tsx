@@ -42,10 +42,12 @@ export function ShadeThumbImg({ canonicalUrl, fallback, imgClassName }: Props) {
 
   useEffect(() => {
     const parsed = parseShadeUrl(canonicalUrl)
+    console.log('[ShadeThumbImg] canonicalUrl:', canonicalUrl, '| parsed:', parsed)
     if (!parsed) return
 
     let cancelled = false
     getShadeThumbnailUrl(parsed.assetId, parsed.driveId).then(result => {
+      console.log('[ShadeThumbImg] server action result:', result)
       if (!cancelled && result.success) setSrc(result.data)
     })
     return () => { cancelled = true }
