@@ -31,8 +31,8 @@ export default async function PublicInvoicePage({ params }: Props) {
   // ── Rate limiting ─────────────────────────────────────────────────────────
   const headersList = await headers()
   const ip = headersList.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
-  const { allowed } = await checkRateLimit(`invoice:${ip}`)
-  if (!allowed) return <RateLimitedPage />
+  const { success } = await checkRateLimit('publicDoc', ip)
+  if (!success) return <RateLimitedPage />
 
   const invoice = await db.invoice.findUnique({
     where: { publicToken: token },

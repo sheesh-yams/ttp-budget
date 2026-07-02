@@ -31,8 +31,8 @@ export default async function PublicProposalPage({ params }: Props) {
   // ── Rate limiting ─────────────────────────────────────────────────────────
   const reqHeaders = await headers()
   const ip = reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
-  const { allowed } = await checkRateLimit(`proposal:${ip}`)
-  if (!allowed) return <RateLimitedPage />
+  const { success } = await checkRateLimit('publicDoc', ip)
+  if (!success) return <RateLimitedPage />
 
   // ── Fetch proposal (no budget nesting — we fetch accounts separately) ──────
   let proposal = await db.proposal.findUnique({

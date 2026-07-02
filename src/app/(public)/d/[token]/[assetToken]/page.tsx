@@ -33,8 +33,8 @@ export default async function PublicAssetPage({ params }: Props) {
   const reqHeaders = await headers()
   const ip        = reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
   const userAgent = reqHeaders.get('user-agent') ?? null
-  const { allowed } = await checkRateLimit(`delivery-asset:${ip}`)
-  if (!allowed) return <RateLimitedPage />
+  const { success } = await checkRateLimit('publicDoc', ip)
+  if (!success) return <RateLimitedPage />
 
   // Load the asset — verify it belongs to this delivery page token
   const asset = await db.deliverableAsset.findUnique({

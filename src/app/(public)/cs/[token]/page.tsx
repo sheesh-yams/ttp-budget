@@ -41,8 +41,8 @@ export default async function PublicCallSheetPage({
   // ── Rate limiting ─────────────────────────────────────────────────────────
   const reqHeaders = await headers()
   const ip = reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
-  const { allowed } = await checkRateLimit(`callsheet:${ip}`)
-  if (!allowed) return <RateLimitedPage />
+  const { success } = await checkRateLimit('publicDoc', ip)
+  if (!success) return <RateLimitedPage />
 
   const cs = await db.callSheet.findUnique({
     where: { publicToken: token },

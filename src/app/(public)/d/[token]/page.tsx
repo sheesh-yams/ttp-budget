@@ -31,8 +31,8 @@ export default async function PublicDeliveryPage({ params }: Props) {
 
   const reqHeaders = await headers()
   const ip = reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
-  const { allowed } = await checkRateLimit(`delivery:${ip}`)
-  if (!allowed) return <RateLimitedPage />
+  const { success } = await checkRateLimit('publicDoc', ip)
+  if (!success) return <RateLimitedPage />
 
   const page = await db.deliveryPage.findUnique({
     where:  { publicToken: token },
