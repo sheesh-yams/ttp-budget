@@ -14,7 +14,10 @@ const isPublicRoute = createRouteMatcher([
   '/shade-test',         // temporary Shade embed test page
   '/invite/(.*)',        // workspace invitation acceptance
   '/api/webhooks/(.*)',
-  '/api/pdf/(.*)',       // PDF streams are token-authenticated at the route level
+  // Only token-keyed client-facing PDF routes are public.
+  // wrap-report and any future internal PDF routes intentionally omitted — they require Clerk auth.
+  '/api/pdf/proposal/(.*)',
+  '/api/pdf/invoice/(.*)',
   '/api/payments/(.*)', // payment routes self-authenticate via publicToken / attemptId
 ])
 
@@ -28,8 +31,15 @@ const isPublicRoute = createRouteMatcher([
 //    Redis-backed store: @upstash/ratelimit + Upstash Redis (free tier, 5 min
 //    setup) is the cleanest upgrade path.
 
-const WINDOW_MS    = 60_000  // 1-minute fixed window
-const MAX_REQUESTS = 60      // requests per IP per window per route type
+const WINDOW_MS = 60_000 // 1-minute fixed window
+
+// Per-route-type request limits
+const ROUTE_LIMITS: Record<string, number> = {
+  proposal:  60,
+  invoice:   60,
+  callsheet: 60,
+  'pdf':     10, // PDF rendering is CPU-heavy — tighter limit
+}
 
 type WindowRecord = { count: number; windowStart: number }
 const windows = new Map<string, WindowRecord>()
@@ -37,24 +47,26 @@ const windows = new Map<string, WindowRecord>()
 function checkRateLimit(ip: string, routeType: string): {
   limited: boolean
   retryAfterSec: number
+  maxRequests: number
 } {
+  const maxRequests = ROUTE_LIMITS[routeType] ?? 60
   const key = `${routeType}:${ip}`
   const now = Date.now()
   const rec = windows.get(key)
 
   if (!rec || now - rec.windowStart >= WINDOW_MS) {
     windows.set(key, { count: 1, windowStart: now })
-    return { limited: false, retryAfterSec: 0 }
+    return { limited: false, retryAfterSec: 0, maxRequests }
   }
 
   rec.count++
 
-  if (rec.count > MAX_REQUESTS) {
+  if (rec.count > maxRequests) {
     const retryAfterSec = Math.ceil((rec.windowStart + WINDOW_MS - now) / 1000)
-    return { limited: true, retryAfterSec }
+    return { limited: true, retryAfterSec, maxRequests }
   }
 
-  return { limited: false, retryAfterSec: 0 }
+  return { limited: false, retryAfterSec: 0, maxRequests }
 }
 
 /** Extract real client IP — Railway sets x-forwarded-for. */
@@ -68,6 +80,8 @@ function publicDocRouteType(pathname: string): string | null {
   if (pathname.startsWith('/p/'))  return 'proposal'
   if (pathname.startsWith('/i/'))  return 'invoice'
   if (pathname.startsWith('/cs/')) return 'callsheet'
+  // Public PDF routes only (proposal + invoice) — wrap-report is auth-gated
+  if (pathname.startsWith('/api/pdf/proposal/') || pathname.startsWith('/api/pdf/invoice/')) return 'pdf'
   return null
 }
 
@@ -80,7 +94,7 @@ export default clerkMiddleware(async (auth, request) => {
   const routeType = publicDocRouteType(pathname)
   if (routeType) {
     const ip = clientIp(request)
-    const { limited, retryAfterSec } = checkRateLimit(ip, routeType)
+    const { limited, retryAfterSec, maxRequests } = checkRateLimit(ip, routeType)
     if (limited) {
       return new NextResponse(
         JSON.stringify({ error: 'Too many requests. Please try again shortly.' }),
@@ -89,7 +103,7 @@ export default clerkMiddleware(async (auth, request) => {
           headers: {
             'Content-Type':          'application/json',
             'Retry-After':           String(retryAfterSec),
-            'X-RateLimit-Limit':     String(MAX_REQUESTS),
+            'X-RateLimit-Limit':     String(maxRequests),
             'X-RateLimit-Remaining': '0',
           },
         },

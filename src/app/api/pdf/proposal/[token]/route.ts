@@ -9,12 +9,13 @@ import path from 'path'
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ token: string }> }
 ) {
-  const { id } = await params
+  const { token } = await params
 
+  // Token IS the credential — never accept a raw database ID here.
   const proposal = await db.proposal.findUnique({
-    where: { publicToken: id },
+    where: { publicToken: token },
     include: {
       project: { include: { client: true } },
       workspace: {
@@ -104,7 +105,6 @@ export async function GET(
       (sum, acc) => sum + sumAccount(acc as unknown as AccountInput),
       0
     )
-    // Apply discount from content for legacy proposals
     const contentDiscount = proposalContent?.discount as { type: string; label?: string; valueCents?: number; valuePct?: number } | undefined
     if (contentDiscount) {
       discountLabel = contentDiscount.label || 'Discount'
@@ -118,7 +118,6 @@ export async function GET(
     totalCents = Math.max(0, rawTotal - discountCents)
   }
 
-  // Read logo file once and encode as base64 data URI
   let logoSrc: string | undefined
   try {
     const logoBuffer = fs.readFileSync(path.join(process.cwd(), 'public', 'logo.png'))

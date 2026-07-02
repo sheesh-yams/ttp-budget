@@ -9,12 +9,13 @@ import path from 'path'
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ token: string }> }
 ) {
-  const { id } = await params
+  const { token } = await params
 
+  // Token IS the credential — never accept a raw database ID here.
   const invoice = await db.invoice.findUnique({
-    where: { publicToken: id },
+    where: { publicToken: token },
     include: {
       client: true,
       project: true,
@@ -41,9 +42,6 @@ export async function GET(
     return new NextResponse('Not found', { status: 404 })
   }
 
-  // Logo: prefer the workspace's own R2 logo (dark-bg variant for the dark
-  // header). Only fall back to the bundled SlateSuite logo for the workspace
-  // that actually owns it — other workspaces with no logo render their name.
   let logoSrc: string | undefined =
     invoice.workspace.logoDarkUrl ?? invoice.workspace.logoUrl ?? undefined
   if (!logoSrc) {

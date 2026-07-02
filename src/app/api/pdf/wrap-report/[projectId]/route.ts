@@ -44,7 +44,7 @@ export async function GET(
   // renderToBuffer expects ReactElement<DocumentProps>; WrapReportPDF wraps
   // a <Document> so this is correct at runtime. The cast bypasses a strict-mode
   // TypeScript incompatibility between FunctionComponentElement and DocumentProps.
-  const buffer = await renderToBuffer(React.createElement(WrapReportPDF, { data, workspaceName: workspace.name }) as any) // eslint-disable-line
+  const buffer = await renderToBuffer(React.createElement(WrapReportPDF, { data, workspaceName: workspace.name }) as unknown as Parameters<typeof renderToBuffer>[0])
   const filename = `${data.projectName.replace(/[^a-z0-9]/gi, '-').toLowerCase()}-wrap-report.pdf`
 
   return new NextResponse(new Uint8Array(buffer), {
