@@ -68,6 +68,7 @@ export default async function DeliveryDeliverablesPage({ params }: Props) {
                 select: {
                   id:                true,
                   versionNumber:     true,
+                  url:               true,
                   provider:          true,
                   renderMode:        true,
                   thumbnailUrl:      true,

@@ -4,7 +4,8 @@ import { useState, useTransition, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, Globe, Copy, Check, Settings, Loader2, MoreHorizontal, GripVertical, Pencil, Trash2, ChevronDown, ArrowRight } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
-import { AssetEditorModal } from './AssetEditorModal'
+import { AssetEditorModal }  from './AssetEditorModal'
+import { ShadeThumbImg }    from './ShadeThumbImg'
 import { GenerateFromProposalModal } from './GenerateFromProposalModal'
 import { AnalyticsPanel } from './AnalyticsPanel'
 import { CoverImageUploader } from './CoverImageUploader'
@@ -22,6 +23,7 @@ import type { DeliverableItemType } from '@/types'
 interface Version {
   id:               string
   versionNumber:    number
+  url:              string
   provider:         string
   renderMode:       string
   thumbnailUrl:     string | null
@@ -803,7 +805,17 @@ function AssetCard({
     >
       {/* Thumbnail or placeholder */}
       <div className="aspect-video bg-secondary/40 flex items-center justify-center relative overflow-hidden">
-        {asset.currentVersion?.thumbnailUrl ? (
+        {asset.currentVersion?.provider === 'SHADE' ? (
+          <ShadeThumbImg
+            canonicalUrl={asset.currentVersion.url}
+            fallback={
+              <span className="text-[10px] font-medium text-muted-foreground/60">
+                {PROVIDER_LABELS['SHADE']}
+              </span>
+            }
+            imgClassName="w-full h-full object-cover"
+          />
+        ) : asset.currentVersion?.thumbnailUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={asset.currentVersion.thumbnailUrl} alt="" className="w-full h-full object-cover" />
         ) : (

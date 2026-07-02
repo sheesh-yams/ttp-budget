@@ -69,6 +69,40 @@ async function tryFetchThumbnail(provider: string, canonicalUrl: string): Promis
   }
 }
 
+// ─── Shade live thumbnail ─────────────────────────────────────────────────────
+
+/**
+ * Fetches a fresh pre-signed thumbnail URL from the Shade API.
+ * Shade thumbnails are AWS S3 signed URLs that expire, so they must be fetched
+ * at render time rather than stored statically.
+ */
+export async function getShadeThumbnailUrl(
+  assetId: string,
+  driveId: string,
+): Promise<ActionResult<string>> {
+  try {
+    const apiKey = process.env.SHADE_API_KEY
+    if (!apiKey) return { success: false, error: 'SHADE_API_KEY not configured' }
+
+    const qs       = driveId ? `?drive_id=${encodeURIComponent(driveId)}` : ''
+    const endpoint = `https://api.shade.inc/assets/${encodeURIComponent(assetId)}${qs}`
+
+    const res = await fetch(endpoint, {
+      headers: { Authorization: apiKey },
+      signal:  AbortSignal.timeout(5000),
+    })
+    if (!res.ok) return { success: false, error: `Shade API ${res.status}` }
+
+    const data       = await res.json() as { preview_images?: { signed_url: string }[] }
+    const signedUrl  = data.preview_images?.[0]?.signed_url
+    if (!signedUrl) return { success: false, error: 'No preview image available' }
+
+    return { success: true, data: signedUrl }
+  } catch {
+    return { success: false, error: 'Failed to fetch Shade thumbnail' }
+  }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async function revalidateDelivery(projectId: string) {

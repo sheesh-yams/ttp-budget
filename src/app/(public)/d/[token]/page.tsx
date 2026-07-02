@@ -5,6 +5,7 @@ import { db }              from '@/lib/db'
 import { checkRateLimit }  from '@/lib/rate-limit'
 import { safeHex, lighten, darken } from '@/lib/color'
 import { RateLimitedPage } from '@/components/public/RateLimitedPage'
+import { ShadeThumbImg }   from '@/components/delivery/ShadeThumbImg'
 
 interface Props {
   params: Promise<{ token: string }>
@@ -75,11 +76,12 @@ export default async function PublicDeliveryPage({ params }: Props) {
               type:        true,
               currentVersion: {
                 select: {
-                  id:           true,
-                  versionNumber: true,
-                  provider:     true,
-                  renderMode:   true,
-                  thumbnailUrl: true,
+                  id:                true,
+                  versionNumber:     true,
+                  url:               true,
+                  provider:          true,
+                  renderMode:        true,
+                  thumbnailUrl:      true,
                   firstClientViewAt: true,
                 },
               },
@@ -238,6 +240,7 @@ type AssetCardProps = {
     description: string | null
     type:        string
     currentVersion: {
+      url:          string
       provider:     string
       renderMode:   string
       thumbnailUrl: string | null
@@ -265,7 +268,16 @@ function AssetCard({ asset }: AssetCardProps) {
     >
       {/* Thumbnail */}
       <div style={{ aspectRatio: '16/9', background: '#f0f0f0', position: 'relative', overflow: 'hidden' }}>
-        {asset.currentVersion?.thumbnailUrl ? (
+        {asset.currentVersion?.provider === 'SHADE' ? (
+          <ShadeThumbImg
+            canonicalUrl={asset.currentVersion.url}
+            fallback={
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
+                <span style={{ fontSize: 11, color: '#aaa', fontWeight: 600 }}>Shade</span>
+              </div>
+            }
+          />
+        ) : asset.currentVersion?.thumbnailUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={asset.currentVersion.thumbnailUrl}
