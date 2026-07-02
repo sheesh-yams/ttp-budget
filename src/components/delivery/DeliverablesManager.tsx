@@ -805,7 +805,10 @@ function AssetCard({
     >
       {/* Thumbnail or placeholder */}
       <div className="aspect-video bg-secondary/40 flex items-center justify-center relative overflow-hidden">
-        {asset.currentVersion?.provider === 'SHADE' ? (
+        {asset.currentVersion?.thumbnailUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={asset.currentVersion.thumbnailUrl} alt="" className="w-full h-full object-cover" />
+        ) : asset.currentVersion?.provider === 'SHADE' ? (
           <ShadeThumbImg
             canonicalUrl={asset.currentVersion.url}
             fallback={
@@ -815,9 +818,6 @@ function AssetCard({
             }
             imgClassName="w-full h-full object-cover"
           />
-        ) : asset.currentVersion?.thumbnailUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={asset.currentVersion.thumbnailUrl} alt="" className="w-full h-full object-cover" />
         ) : (
           <span className="text-[10px] font-medium text-muted-foreground/60">
             {asset.currentVersion ? PROVIDER_LABELS[asset.currentVersion.provider] ?? 'Asset' : 'No version'}

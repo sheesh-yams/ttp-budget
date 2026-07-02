@@ -85,7 +85,7 @@ export async function getShadeThumbnailUrl(
     if (!apiKey) return { success: false, error: 'SHADE_API_KEY not configured' }
 
     const qs       = driveId ? `?drive_id=${encodeURIComponent(driveId)}` : ''
-    const endpoint = `https://api.shade.inc/assets/${encodeURIComponent(assetId)}${qs}`
+    const endpoint = `https://api.shade.inc/assets/${encodeURIComponent(assetId)}/previews${qs}`
 
     const res = await fetch(endpoint, {
       headers: { Authorization: apiKey },
@@ -93,8 +93,8 @@ export async function getShadeThumbnailUrl(
     })
     if (!res.ok) return { success: false, error: `Shade API ${res.status}` }
 
-    const data       = await res.json() as { preview_images?: { signed_url: string }[] }
-    const signedUrl  = data.preview_images?.[0]?.signed_url
+    const data      = await res.json() as { signed_url: string | null }[]
+    const signedUrl = data[0]?.signed_url
     if (!signedUrl) return { success: false, error: 'No preview image available' }
 
     return { success: true, data: signedUrl }

@@ -268,7 +268,14 @@ function AssetCard({ asset }: AssetCardProps) {
     >
       {/* Thumbnail */}
       <div style={{ aspectRatio: '16/9', background: '#f0f0f0', position: 'relative', overflow: 'hidden' }}>
-        {asset.currentVersion?.provider === 'SHADE' ? (
+        {asset.currentVersion?.thumbnailUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={asset.currentVersion.thumbnailUrl}
+            alt=""
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          />
+        ) : asset.currentVersion?.provider === 'SHADE' ? (
           <ShadeThumbImg
             canonicalUrl={asset.currentVersion.url}
             fallback={
@@ -276,13 +283,6 @@ function AssetCard({ asset }: AssetCardProps) {
                 <span style={{ fontSize: 11, color: '#aaa', fontWeight: 600 }}>Shade</span>
               </div>
             }
-          />
-        ) : asset.currentVersion?.thumbnailUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={asset.currentVersion.thumbnailUrl}
-            alt=""
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
           />
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
