@@ -134,6 +134,20 @@ export default async function PublicAssetPage({ params }: Props) {
 
   return (
     <div style={{ ...brandVars, fontFamily: 'var(--font-sans, system-ui, sans-serif)', background: '#0a0a0a', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      {/* Mobile-only iframe height overrides — desktop is untouched */}
+      <style>{`
+        @media (max-width: 768px) {
+          .dl-iframe-h {
+            aspect-ratio: unset !important;
+            height: 56vw !important;
+            min-height: 240px !important;
+          }
+          .dl-iframe-v {
+            height: 80vh !important;
+            min-height: unset !important;
+          }
+        }
+      `}</style>
 
       {/* ── Top bar ─────────────────────────────────────────────────────────── */}
       <div style={{ background: darken(brandPrimary, 0.92), borderBottom: `1px solid rgba(255,255,255,0.08)`, padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
@@ -221,11 +235,12 @@ function IframeViewer({
   const wrapStyle: React.CSSProperties = useTallContainer
     ? { width: '100%', borderRadius: 12, overflow: 'hidden', height: '85vh', minHeight: 560, background: '#111', position: 'relative' }
     : { width: '100%', borderRadius: 12, overflow: 'hidden', aspectRatio: '16/9', background: '#111' }
+  const wrapClass = useTallContainer ? 'dl-iframe-v' : 'dl-iframe-h'
 
   const content = embedHtml ? (
-    <div style={wrapStyle} dangerouslySetInnerHTML={{ __html: embedHtml }} />
+    <div className={wrapClass} style={wrapStyle} dangerouslySetInnerHTML={{ __html: embedHtml }} />
   ) : (
-    <div style={wrapStyle}>
+    <div className={wrapClass} style={wrapStyle}>
       <iframe
         src={url}
         style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
