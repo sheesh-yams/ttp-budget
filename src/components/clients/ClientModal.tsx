@@ -21,32 +21,38 @@ export function ClientModal({ open, onOpenChange, existing, onSaved }: Props) {
   const [logoUploading, setLogoUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const [name,         setName]         = useState('')
-  const [contactName,  setContactName]  = useState('')
-  const [contactEmail, setContactEmail] = useState('')
-  const [contactPhone, setContactPhone] = useState('')
-  const [website,      setWebsite]      = useState('')
-  const [notes,        setNotes]        = useState('')
-  const [specialNotes, setSpecialNotes] = useState('')
-  const [logoUrl,      setLogoUrl]      = useState<string | null>(null)
-  const [error,        setError]        = useState('')
+  const [name,           setName]           = useState('')
+  const [legalName,      setLegalName]      = useState('')
+  const [contactName,    setContactName]    = useState('')
+  const [contactEmail,   setContactEmail]   = useState('')
+  const [contactPhone,   setContactPhone]   = useState('')
+  const [billingAddress, setBillingAddress] = useState('')
+  const [website,        setWebsite]        = useState('')
+  const [notes,          setNotes]          = useState('')
+  const [specialNotes,   setSpecialNotes]   = useState('')
+  const [logoUrl,        setLogoUrl]        = useState<string | null>(null)
+  const [error,          setError]          = useState('')
 
   useEffect(() => {
     if (!open) return
     if (existing) {
       setName(existing.name)
+      setLegalName(existing.legalName      ?? '')
       setContactName(existing.contactName  ?? '')
       setContactEmail(existing.contactEmail ?? '')
       setContactPhone(existing.contactPhone ?? '')
+      setBillingAddress(existing.billingAddress ?? '')
       setWebsite(existing.website          ?? '')
       setNotes(existing.notes              ?? '')
       setSpecialNotes(existing.specialNotes ?? '')
       setLogoUrl(existing.logoUrl)
     } else {
       setName('')
+      setLegalName('')
       setContactName('')
       setContactEmail('')
       setContactPhone('')
+      setBillingAddress('')
       setWebsite('')
       setNotes('')
       setSpecialNotes('')
@@ -84,13 +90,15 @@ export function ClientModal({ open, onOpenChange, existing, onSaved }: Props) {
 
     startTransition(async () => {
       const result = await upsertClient(existing?.id ?? null, {
-        name:          name.trim(),
-        contactName:   contactName.trim()   || undefined,
-        contactEmail:  contactEmail.trim()  || undefined,
-        contactPhone:  contactPhone.trim()  || undefined,
-        website:       website.trim()       || undefined,
-        notes:         notes.trim()         || undefined,
-        specialNotes:  specialNotes.trim()  || undefined,
+        name:           name.trim(),
+        legalName:      legalName.trim()      || undefined,
+        contactName:    contactName.trim()    || undefined,
+        contactEmail:   contactEmail.trim()   || undefined,
+        contactPhone:   contactPhone.trim()   || undefined,
+        billingAddress: billingAddress.trim() || undefined,
+        website:        website.trim()        || undefined,
+        notes:          notes.trim()          || undefined,
+        specialNotes:   specialNotes.trim()   || undefined,
       })
       if (result.success) {
         onSaved()
@@ -167,6 +175,20 @@ export function ClientModal({ open, onOpenChange, existing, onSaved }: Props) {
             />
           </div>
 
+          {/* ── Legal entity name ── */}
+          <div className="grid gap-1.5">
+            <div className="flex items-baseline gap-2">
+              <Label htmlFor="cl-legal">Legal / entity name</Label>
+              <span className="text-[11px] text-muted-foreground">Used on invoices</span>
+            </div>
+            <Input
+              id="cl-legal"
+              value={legalName}
+              onChange={e => setLegalName(e.target.value)}
+              placeholder="e.g. Hulu, LLC"
+            />
+          </div>
+
           {/* ── Contact info ── */}
           <div className="grid gap-1.5">
             <Label htmlFor="cl-contact">Contact name</Label>
@@ -174,7 +196,7 @@ export function ClientModal({ open, onOpenChange, existing, onSaved }: Props) {
               id="cl-contact"
               value={contactName}
               onChange={e => setContactName(e.target.value)}
-              placeholder="Primary contact at the company"
+              placeholder="Primary contact (shown as Attn: on invoices)"
             />
           </div>
 
@@ -199,6 +221,22 @@ export function ClientModal({ open, onOpenChange, existing, onSaved }: Props) {
                 placeholder="+1 (555) 000-0000"
               />
             </div>
+          </div>
+
+          {/* ── Billing address ── */}
+          <div className="grid gap-1.5">
+            <div className="flex items-baseline gap-2">
+              <Label htmlFor="cl-billing">Billing address</Label>
+              <span className="text-[11px] text-muted-foreground">Shown on invoices</span>
+            </div>
+            <textarea
+              id="cl-billing"
+              rows={3}
+              value={billingAddress}
+              onChange={e => setBillingAddress(e.target.value)}
+              placeholder={"123 Main St\nLos Angeles, CA 90001"}
+              className="flex min-h-[72px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
+            />
           </div>
 
           <div className="grid gap-1.5">

@@ -137,6 +137,7 @@ model Client {
   workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   name           String   // "Hulu", "Tiffany & Co."
+  legalName      String?  // legal entity for invoices (e.g. "Hulu, LLC")
   contactName    String?
   contactEmail   String?
   contactPhone   String?
@@ -675,6 +676,7 @@ model Invoice {
   title         String?  // "50% Deposit — Hulu Summer Sizzle"
   issueDate     DateTime @default(now())
   dueDate       DateTime
+  paymentTerms  String?  // human-readable label, e.g. "Net 30", "Due on Receipt"
   poNumber      String?  // client's PO
 
   // Embedded line items — invoices don't share the budget tree

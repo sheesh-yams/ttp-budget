@@ -67,10 +67,12 @@ export default async function ClientsPage() {
     return {
       id:               client.id,
       name:             client.name,
+      legalName:        (client as unknown as { legalName: string | null }).legalName,
       logoUrl:          client.logoUrl,
       contactName:      client.contactName,
       contactEmail:     client.contactEmail,
       contactPhone:     client.contactPhone,
+      billingAddress:   client.billingAddress,
       website:          (client as unknown as { website: string | null }).website,
       notes:            client.notes,
       specialNotes:     (client as unknown as { specialNotes: string | null }).specialNotes,

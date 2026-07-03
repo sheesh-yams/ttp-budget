@@ -31,9 +31,10 @@ const createSchema = z.object({
   taxCents: z.number().int(),
   discountCents: z.number().int().optional(),
   totalCents: z.number().int(),
-  notes: z.string().optional(),
-  terms: z.string().optional(),
-  poNumber: z.string().optional(),
+  notes:         z.string().optional(),
+  terms:         z.string().optional(),
+  paymentTerms:  z.string().optional(),
+  poNumber:      z.string().optional(),
 })
 
 export async function createInvoice(
@@ -49,7 +50,7 @@ export async function createInvoice(
     const number = await generateInvoiceNumber(workspaceId)
     const workspace = await db.workspace.findUnique({
       where: { id: workspaceId },
-      select: { defaultInvoiceTerms: true },
+      select: { defaultInvoiceTerms: true, defaultPaymentTermsDays: true },
     })
 
     const invoice = await scopedDb.invoice.create({
@@ -68,9 +69,10 @@ export async function createInvoice(
         taxCents: data.taxCents,
         discountCents: data.discountCents ?? 0,
         totalCents: data.totalCents,
-        notes: data.notes ?? null,
-        terms: data.terms ?? workspace?.defaultInvoiceTerms ?? null,
-        poNumber: data.poNumber ?? null,
+        notes:         data.notes ?? null,
+        terms:         data.terms ?? workspace?.defaultInvoiceTerms ?? null,
+        paymentTerms:  data.paymentTerms ?? (workspace?.defaultPaymentTermsDays ? `Net ${workspace.defaultPaymentTermsDays}` : null),
+        poNumber:      data.poNumber ?? null,
         createdById: user.id,
       } as unknown as Parameters<typeof scopedDb.invoice.create>[0]['data'],
     })

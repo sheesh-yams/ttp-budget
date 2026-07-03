@@ -112,7 +112,14 @@ export type InvoiceWithRelations = Invoice & {
     | 'checkMailingAddress'
     | 'defaultInvoiceTerms'
     | 'contactEmail'
+    | 'contactPhone'
     | 'website'
+    | 'addressLine1'
+    | 'addressLine2'
+    | 'city'
+    | 'region'
+    | 'postalCode'
+    | 'country'
   >
 }
 

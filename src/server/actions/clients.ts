@@ -24,16 +24,17 @@ function normalizeWebsite(v: string): string {
 }
 
 const clientSchema = z.object({
-  name:          z.string().min(1).max(200),
-  contactName:   z.string().optional(),
-  contactEmail:  z.string().email().optional().or(z.literal('')),
-  contactPhone:  z.string().optional(),
-  website:       z.string().optional().transform(v => (v ? normalizeWebsite(v) : v)).pipe(
+  name:           z.string().min(1).max(200),
+  legalName:      z.string().optional(),
+  contactName:    z.string().optional(),
+  contactEmail:   z.string().email().optional().or(z.literal('')),
+  contactPhone:   z.string().optional(),
+  website:        z.string().optional().transform(v => (v ? normalizeWebsite(v) : v)).pipe(
     z.string().url().optional().or(z.literal(''))
   ),
   billingAddress: z.string().optional(),
-  notes:         z.string().optional(),
-  specialNotes:  z.string().optional(),
+  notes:          z.string().optional(),
+  specialNotes:   z.string().optional(),
 })
 
 // =============================================================================

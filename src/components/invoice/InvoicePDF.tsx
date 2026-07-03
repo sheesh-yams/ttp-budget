@@ -22,20 +22,26 @@ Font.registerHyphenationCallback((w) => [w])
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface InvoiceWorkspace {
-  name: string
-  legalName: string | null
-  contactEmail: string | null
-  website: string | null
-  wireInstructions: string | null
-  achInstructions: string | null
-  checkPayableTo: string | null
+  name:                string
+  legalName:           string | null
+  contactEmail:        string | null
+  website:             string | null
+  addressLine1:        string | null
+  addressLine2:        string | null
+  city:                string | null
+  region:              string | null
+  postalCode:          string | null
+  wireInstructions:    string | null
+  achInstructions:     string | null
+  checkPayableTo:      string | null
   checkMailingAddress: string | null
 }
 
 interface InvoiceClient {
-  name: string
-  contactName: string | null
-  contactEmail: string | null
+  name:           string
+  legalName:      string | null
+  contactName:    string | null
+  contactEmail:   string | null
   billingAddress: string | null
 }
 
@@ -44,14 +50,15 @@ interface InvoiceProject {
 }
 
 export interface InvoicePDFData {
-  number: string
-  title: string | null
-  kind: string
-  status: string
-  issueDate: string
-  dueDate: string
-  poNumber: string | null
-  lineItems: InvoiceLineItem[]
+  number:       string
+  title:        string | null
+  kind:         string
+  status:       string
+  issueDate:    string
+  dueDate:      string
+  paymentTerms: string | null
+  poNumber:     string | null
+  lineItems:    InvoiceLineItem[]
   subtotalCents: number
   taxPct: number
   taxCents: number
@@ -205,17 +212,43 @@ export function InvoicePDF({ invoice }: { invoice: InvoicePDFData }) {
           <Text style={s.invKind}>{kindLabel}</Text>
           {invoice.title && <Text style={s.invTitle}>{invoice.title}</Text>}
 
-          {/* Meta strip — bill-to / dates only, no amount */}
+          {/* FROM / BILL TO — two columns */}
+          {(() => {
+            const wsAddr = [
+              invoice.workspace.addressLine1,
+              invoice.workspace.addressLine2,
+              [invoice.workspace.city, invoice.workspace.region].filter(Boolean).join(', '),
+              invoice.workspace.postalCode,
+            ].filter(Boolean).join('\n')
+            const clLegal = invoice.client.legalName
+            const fromName = invoice.workspace.legalName ?? invoice.workspace.name
+            return (
+              <View style={{ flexDirection: 'row', borderTopWidth: 0.5, borderTopColor: 'rgba(255,255,255,0.15)', paddingTop: 12, marginBottom: 10, gap: 24 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.metaLabel, { marginBottom: 4 }]}>From</Text>
+                  <Text style={[s.metaValue, { marginBottom: 1 }]}>{fromName}</Text>
+                  {invoice.workspace.legalName && invoice.workspace.legalName !== invoice.workspace.name && (
+                    <Text style={{ fontSize: 8, color: 'rgba(255,255,255,0.5)', marginBottom: 1 }}>{invoice.workspace.name}</Text>
+                  )}
+                  {wsAddr ? <Text style={{ fontSize: 8, color: 'rgba(255,255,255,0.45)', lineHeight: 1.5 }}>{wsAddr}</Text> : null}
+                  {invoice.workspace.contactEmail ? <Text style={{ fontSize: 8, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>{invoice.workspace.contactEmail}</Text> : null}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.metaLabel, { marginBottom: 4 }]}>Bill To</Text>
+                  <Text style={[s.metaValue, { marginBottom: 1 }]}>{clLegal ?? invoice.client.name}</Text>
+                  {clLegal && clLegal !== invoice.client.name && (
+                    <Text style={{ fontSize: 8, color: 'rgba(255,255,255,0.5)', marginBottom: 1 }}>{invoice.client.name}</Text>
+                  )}
+                  {invoice.client.contactName ? <Text style={{ fontSize: 8, color: 'rgba(255,255,255,0.5)', marginBottom: 1 }}>Attn: {invoice.client.contactName}</Text> : null}
+                  {invoice.client.billingAddress ? <Text style={{ fontSize: 8, color: 'rgba(255,255,255,0.4)', lineHeight: 1.5 }}>{invoice.client.billingAddress}</Text> : null}
+                </View>
+              </View>
+            )
+          })()}
+
+          {/* Meta strip — dates / terms / project */}
           <View style={s.metaStrip}>
             <View style={s.metaGroup}>
-              <View style={s.metaItem}>
-                <Text style={s.metaLabel}>Bill To</Text>
-                <Text style={s.metaValue}>{invoice.client.name}</Text>
-              </View>
-              <View style={s.metaItem}>
-                <Text style={s.metaLabel}>Project</Text>
-                <Text style={s.metaValue}>{invoice.project.name}</Text>
-              </View>
               <View style={s.metaItem}>
                 <Text style={s.metaLabel}>Issue Date</Text>
                 <Text style={s.metaValue}>{fmtDate(invoice.issueDate)}</Text>
@@ -223,6 +256,16 @@ export function InvoicePDF({ invoice }: { invoice: InvoicePDFData }) {
               <View style={s.metaItem}>
                 <Text style={s.metaLabel}>Due Date</Text>
                 <Text style={s.metaValue}>{fmtDate(invoice.dueDate)}</Text>
+              </View>
+              {invoice.paymentTerms && (
+                <View style={s.metaItem}>
+                  <Text style={s.metaLabel}>Terms</Text>
+                  <Text style={s.metaValue}>{invoice.paymentTerms}</Text>
+                </View>
+              )}
+              <View style={s.metaItem}>
+                <Text style={s.metaLabel}>Project</Text>
+                <Text style={s.metaValue}>{invoice.project.name}</Text>
               </View>
               {invoice.poNumber && (
                 <View style={s.metaItem}>

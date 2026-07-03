@@ -11,10 +11,12 @@ import { formatMoney } from '@/lib/money'
 export interface ClientRow {
   id:               string
   name:             string
+  legalName:        string | null
   logoUrl:          string | null
   contactName:      string | null
   contactEmail:     string | null
   contactPhone:     string | null
+  billingAddress:   string | null
   website:          string | null
   notes:            string | null
   specialNotes:     string | null

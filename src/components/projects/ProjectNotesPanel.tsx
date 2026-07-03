@@ -217,10 +217,12 @@ export function ProjectNotesPanel({ projectId, client, isEditor, trigger }: Proj
         existing={{
           id:               client.id,
           name:             client.name,
+          legalName:        (client as unknown as { legalName: string | null }).legalName,
           logoUrl:          client.logoUrl,
           contactName:      client.contactName,
           contactEmail:     client.contactEmail,
           contactPhone:     client.contactPhone,
+          billingAddress:   client.billingAddress,
           website:          client.website,
           notes:            client.notes,
           specialNotes:     client.specialNotes,

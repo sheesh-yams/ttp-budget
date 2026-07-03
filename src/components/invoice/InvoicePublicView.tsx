@@ -168,70 +168,123 @@ export function InvoicePublicView({
             </h1>
           )}
 
-          {/* Meta strip */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 20, borderTop: '1px solid rgba(0,0,0,0.18)', paddingTop: 20, marginTop: 4 }}>
-            <div style={{ display: 'flex', gap: 'clamp(20px,4vw,48px)', flexWrap: 'wrap' }}>
-              <div>
-                <p style={{ color: 'rgba(0,0,0,0.4)', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Bill to</p>
-                <p style={{ color: '#0A0612', fontSize: 13, fontWeight: 700, margin: 0 }}>{client.name}</p>
-                {client.contactName && (
-                  <p style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12, margin: '2px 0 0' }}>{client.contactName}</p>
-                )}
-              </div>
-              <div>
-                <p style={{ color: 'rgba(0,0,0,0.4)', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Project</p>
-                <p style={{ color: '#0A0612', fontSize: 13, fontWeight: 700, margin: 0 }}>{project.name}</p>
-              </div>
-              <div>
-                <p style={{ color: 'rgba(0,0,0,0.4)', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Issue date</p>
-                <p style={{ color: '#0A0612', fontSize: 13, fontWeight: 700, margin: 0 }}>{fmt(invoice.issueDate)}</p>
-              </div>
-              <div>
-                <p style={{ color: 'rgba(0,0,0,0.4)', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Due date</p>
-                <p style={{ color: isOverdue ? '#B91C1C' : '#0A0612', fontSize: 13, fontWeight: 700, margin: 0 }}>{fmt(invoice.dueDate)}</p>
-              </div>
-              {invoice.poNumber && (
+          {/* FROM / BILL TO — two-column block */}
+          {(() => {
+            const wsAddr = [
+              workspace.addressLine1,
+              workspace.addressLine2,
+              [workspace.city, workspace.region].filter(Boolean).join(', '),
+              workspace.postalCode,
+            ].filter(Boolean).join('\n')
+            const clAddr = (client as unknown as { billingAddress: string | null }).billingAddress
+            const clLegal = (client as unknown as { legalName: string | null }).legalName
+            const clPaymentTerms = (invoice as unknown as { paymentTerms: string | null }).paymentTerms
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'clamp(16px,3vw,40px)', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 18, marginBottom: 18 }}>
+                {/* FROM */}
                 <div>
-                  <p style={{ color: 'rgba(0,0,0,0.4)', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>PO #</p>
-                  <p style={{ color: '#0A0612', fontSize: 13, fontWeight: 700, margin: 0 }}>{invoice.poNumber}</p>
+                  <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 6px' }}>From</p>
+                  <p style={{ color: '#fff', fontSize: 13, fontWeight: 700, margin: '0 0 2px' }}>
+                    {workspace.legalName ?? workspace.name}
+                  </p>
+                  {workspace.legalName && workspace.legalName !== workspace.name && (
+                    <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, margin: '0 0 2px' }}>{workspace.name}</p>
+                  )}
+                  {wsAddr && (
+                    <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, margin: '0 0 2px', whiteSpace: 'pre-line' }}>{wsAddr}</p>
+                  )}
+                  {workspace.contactEmail && (
+                    <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: 0 }}>{workspace.contactEmail}</p>
+                  )}
                 </div>
-              )}
-            </div>
+                {/* BILL TO */}
+                <div>
+                  <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 6px' }}>Bill To</p>
+                  <p style={{ color: '#fff', fontSize: 13, fontWeight: 700, margin: '0 0 2px' }}>
+                    {clLegal ?? client.name}
+                  </p>
+                  {clLegal && clLegal !== client.name && (
+                    <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, margin: '0 0 2px' }}>{client.name}</p>
+                  )}
+                  {client.contactName && (
+                    <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, margin: '0 0 2px' }}>Attn: {client.contactName}</p>
+                  )}
+                  {clAddr && (
+                    <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: 0, whiteSpace: 'pre-line' }}>{clAddr}</p>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
 
-            {/* Balance due */}
-            <div style={{ textAlign: 'right', flexShrink: 0 }}>
-              {isVoid ? (
-                <>
-                  <p style={{ color: 'rgba(0,0,0,0.4)', fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 4px' }}>Status</p>
-                  <p style={{
-                    color: '#6B7280',
-                    fontSize: 'clamp(22px,2.5vw,34px)',
-                    fontWeight: 700,
-                    letterSpacing: '0.06em',
-                    textTransform: 'uppercase',
-                    lineHeight: 1,
-                    margin: 0,
-                    textDecoration: 'line-through',
-                    textDecorationThickness: 3,
-                  }}>
-                    {formatMoney(invoice.totalCents)}
-                  </p>
-                  <p style={{ color: '#6B7280', fontSize: 11, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', margin: '6px 0 0' }}>
-                    Voided
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p style={{ color: 'rgba(0,0,0,0.4)', fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 4px' }}>
-                    {isPaid ? 'Total Paid' : isPartiallyPaid ? 'Balance Due' : 'Amount Due'}
-                  </p>
-                  <p style={{ color: isPaid ? '#15803D' : isOverdue ? '#B91C1C' : '#0A0612', fontSize: 'clamp(26px,3vw,40px)', fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1, letterSpacing: '-0.02em', margin: 0 }}>
-                    {formatMoney(isPaid ? invoice.totalCents : balanceDueCents)}
-                  </p>
-                </>
-              )}
-            </div>
-          </div>
+          {/* Meta strip — dates, terms, PO, balance */}
+          {(() => {
+            const clPaymentTerms = (invoice as unknown as { paymentTerms: string | null }).paymentTerms
+            return (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 20, borderTop: '1px solid rgba(0,0,0,0.18)', paddingTop: 16 }}>
+                <div style={{ display: 'flex', gap: 'clamp(16px,3vw,36px)', flexWrap: 'wrap' }}>
+                  <div>
+                    <p style={{ color: 'rgba(0,0,0,0.4)', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Issue date</p>
+                    <p style={{ color: '#0A0612', fontSize: 13, fontWeight: 700, margin: 0 }}>{fmt(invoice.issueDate)}</p>
+                  </div>
+                  <div>
+                    <p style={{ color: 'rgba(0,0,0,0.4)', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Due date</p>
+                    <p style={{ color: isOverdue ? '#B91C1C' : '#0A0612', fontSize: 13, fontWeight: 700, margin: 0 }}>{fmt(invoice.dueDate)}</p>
+                  </div>
+                  {clPaymentTerms && (
+                    <div>
+                      <p style={{ color: 'rgba(0,0,0,0.4)', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Terms</p>
+                      <p style={{ color: '#0A0612', fontSize: 13, fontWeight: 700, margin: 0 }}>{clPaymentTerms}</p>
+                    </div>
+                  )}
+                  <div>
+                    <p style={{ color: 'rgba(0,0,0,0.4)', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Project</p>
+                    <p style={{ color: '#0A0612', fontSize: 13, fontWeight: 700, margin: 0 }}>{project.name}</p>
+                  </div>
+                  {invoice.poNumber && (
+                    <div>
+                      <p style={{ color: 'rgba(0,0,0,0.4)', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>PO #</p>
+                      <p style={{ color: '#0A0612', fontSize: 13, fontWeight: 700, margin: 0 }}>{invoice.poNumber}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Balance due */}
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  {isVoid ? (
+                    <>
+                      <p style={{ color: 'rgba(0,0,0,0.4)', fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 4px' }}>Status</p>
+                      <p style={{
+                        color: '#6B7280',
+                        fontSize: 'clamp(22px,2.5vw,34px)',
+                        fontWeight: 700,
+                        letterSpacing: '0.06em',
+                        textTransform: 'uppercase',
+                        lineHeight: 1,
+                        margin: 0,
+                        textDecoration: 'line-through',
+                        textDecorationThickness: 3,
+                      }}>
+                        {formatMoney(invoice.totalCents)}
+                      </p>
+                      <p style={{ color: '#6B7280', fontSize: 11, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', margin: '6px 0 0' }}>
+                        Voided
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p style={{ color: 'rgba(0,0,0,0.4)', fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 4px' }}>
+                        {isPaid ? 'Total Paid' : isPartiallyPaid ? 'Balance Due' : 'Amount Due'}
+                      </p>
+                      <p style={{ color: isPaid ? '#15803D' : isOverdue ? '#B91C1C' : '#0A0612', fontSize: 'clamp(26px,3vw,40px)', fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1, letterSpacing: '-0.02em', margin: 0 }}>
+                        {formatMoney(isPaid ? invoice.totalCents : balanceDueCents)}
+                      </p>
+                    </>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
         </div>
       </section>
 
