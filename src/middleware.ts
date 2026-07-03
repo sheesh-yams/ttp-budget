@@ -8,6 +8,7 @@ const isPublicRoute = createRouteMatcher([
   '/',                   // marketing homepage
   '/sign-in(.*)',
   '/sign-up(.*)',
+  '/m/(.*)',             // mobile-optimized auth pages (/m/sign-in, /m/sign-up, future mobile routes)
   '/p/(.*)',             // public proposal pages
   '/i/(.*)',             // public invoice pages
   '/cs/(.*)',            // public call sheet pages
@@ -21,6 +22,13 @@ const isPublicRoute = createRouteMatcher([
   '/api/pdf/invoice/(.*)',
   '/api/payments/(.*)', // payment routes self-authenticate via publicToken / attemptId
 ])
+
+// ── Mobile UA detection ───────────────────────────────────────────────────────
+
+function isMobileUA(req: NextRequest): boolean {
+  const ua = req.headers.get('user-agent') ?? ''
+  return /iPhone|Android.*Mobile|Mobile.*Android|BlackBerry|IEMobile|Opera Mini/i.test(ua)
+}
 
 // ── Rate limiter for public routes ───────────────────────────────────────────
 //
@@ -50,7 +58,18 @@ function policyFor(pathname: string): PolicyName | null {
 export default clerkMiddleware(async (auth, request) => {
   const { pathname } = request.nextUrl
 
-  // 1. Rate-limit check runs first — before any auth work
+  // 1. Mobile redirect — send mobile browsers hitting /sign-in or /sign-up to the
+  //    dedicated mobile-optimised pages before any rate-limit or auth work.
+  if (isMobileUA(request)) {
+    if (pathname === '/sign-in' || pathname === '/sign-in/') {
+      return NextResponse.redirect(new URL('/m/sign-in', request.url))
+    }
+    if (pathname === '/sign-up' || pathname === '/sign-up/') {
+      return NextResponse.redirect(new URL('/m/sign-up', request.url))
+    }
+  }
+
+  // 2. Rate-limit check runs first — before any auth work
   const policy = policyFor(pathname)
   if (policy) {
     const ip     = clientIp(request)
@@ -71,7 +90,7 @@ export default clerkMiddleware(async (auth, request) => {
     }
   }
 
-  // 2. Clerk auth guard for all non-public routes
+  // 3. Clerk auth guard for all non-public routes
   if (!isPublicRoute(request)) {
     await auth.protect()
   }
