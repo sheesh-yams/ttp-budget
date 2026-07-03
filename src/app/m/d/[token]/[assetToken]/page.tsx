@@ -121,13 +121,6 @@ export default async function MobileAssetPage({ params }: Props) {
   const REVIEW_PROVIDER_NAMES: Record<string, string> = { SHADE: 'Shade', FRAME_IO: 'Frame.io' }
   const providerName = v ? REVIEW_PROVIDER_NAMES[v.provider] : null
 
-  // Iframe sizing — on mobile we want the iframe to fill the screen width
-  // Horizontal: true 16:9 based on viewport width (56.25vw) with a healthy minimum
-  // Vertical:   most of the viewport height
-  const iframeStyle: React.CSSProperties = v?.isVertical
-    ? { width: '100%', height: '75vh', minHeight: 400, background: '#111', display: 'block', border: 'none' }
-    : { width: '100%', aspectRatio: '16/9', minHeight: 220, background: '#111', display: 'block', border: 'none' }
-
   return (
     <div style={{
       fontFamily: 'var(--font-sans, -apple-system, system-ui, sans-serif)',
@@ -136,6 +129,12 @@ export default async function MobileAssetPage({ params }: Props) {
       display: 'flex',
       flexDirection: 'column',
     }}>
+      {/* Force embed wrappers (e.g. Shade's padding-bottom responsive trick) to fill the container */}
+      <style>{`
+        .m-embed-wrap { position: relative !important; overflow: hidden !important; }
+        .m-embed-wrap > div { position: absolute !important; top: 0 !important; left: 0 !important; padding: 0 !important; width: 100% !important; height: 100% !important; }
+        .m-embed-wrap iframe { position: absolute !important; top: 0 !important; left: 0 !important; width: 100% !important; height: 100% !important; border: none !important; }
+      `}</style>
 
       {/* ── Top bar ─────────────────────────────────────────────────────── */}
       <div style={{
@@ -178,20 +177,22 @@ export default async function MobileAssetPage({ params }: Props) {
           </div>
         ) : v.renderMode === 'IFRAME' ? (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {/* Iframe — edge to edge, no padding */}
-            <div style={v.isVertical
-              ? { width: '100%', height: '75vh', minHeight: 400, background: '#111', overflow: 'hidden' }
-              : { width: '100%', aspectRatio: '16/9', minHeight: 220, background: '#111', overflow: 'hidden' }
-            }>
+            {/* Iframe — edge to edge, no padding.
+                Vertical: 75vh. Horizontal: max(56.25vw, 45vh) so it never collapses
+                to the tiny 16:9 height at narrow widths. */}
+            <div
+              className="m-embed-wrap"
+              style={v.isVertical
+                ? { width: '100%', height: '75vh', minHeight: 400, background: '#111' }
+                : { width: '100%', height: 'max(56.25vw, 45vh)', minHeight: 260, background: '#111' }
+              }
+            >
               {v.embedHtml ? (
-                <div
-                  style={{ width: '100%', height: '100%' }}
-                  dangerouslySetInnerHTML={{ __html: v.embedHtml }}
-                />
+                <div dangerouslySetInnerHTML={{ __html: v.embedHtml }} />
               ) : (
                 <iframe
                   src={v.url}
-                  style={iframeStyle}
+                  style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
                   allowFullScreen
                   allow="autoplay; fullscreen; picture-in-picture"
                   title="Deliverable"
