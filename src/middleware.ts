@@ -58,14 +58,18 @@ function policyFor(pathname: string): PolicyName | null {
 export default clerkMiddleware(async (auth, request) => {
   const { pathname } = request.nextUrl
 
-  // 1. Mobile redirect — send mobile browsers hitting /sign-in or /sign-up to the
-  //    dedicated mobile-optimised pages before any rate-limit or auth work.
+  // 1. Mobile redirect — send mobile browsers to the dedicated mobile-optimised
+  //    pages before any rate-limit or auth work.
   if (isMobileUA(request)) {
     if (pathname === '/sign-in' || pathname === '/sign-in/') {
       return NextResponse.redirect(new URL('/m/sign-in', request.url))
     }
     if (pathname === '/sign-up' || pathname === '/sign-up/') {
       return NextResponse.redirect(new URL('/m/sign-up', request.url))
+    }
+    // Delivery pages — /d/[token] and /d/[token]/[assetToken]
+    if (pathname.startsWith('/d/')) {
+      return NextResponse.redirect(new URL('/m' + pathname, request.url))
     }
   }
 
