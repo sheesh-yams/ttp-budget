@@ -189,7 +189,7 @@ export default async function PublicDeliveryPage({ params }: Props) {
         <div style={{ maxWidth: 760, margin: '0 auto', padding: '36px 24px 0' }}>
           <div style={{ borderLeft: `3px solid ${brandPrimary}`, paddingLeft: 16 }}>
             <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: '#888', margin: '0 0 8px' }}>
-              Overview
+              Delivery Notes
             </p>
             <div
               style={{ fontSize: 15, color: '#333', lineHeight: 1.65 }}

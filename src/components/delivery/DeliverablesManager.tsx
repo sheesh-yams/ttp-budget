@@ -100,10 +100,11 @@ export function DeliverablesManager({ project, deliveryPage: initialPage, hasApp
   const [, startTransition] = useTransition()
   const { confirm, ConfirmDialog } = useConfirm()
 
-  const [page,           setPage]           = useState<DeliveryPage | null>(initialPage)
-  const [editingAsset,   setEditingAsset]   = useState<Asset | null>(null)
-  const [editingSectionId, setEditingSectionId] = useState<string | null>(null)
-  const [generating,     setGenerating]     = useState(false)
+  const [page,                setPage]                = useState<DeliveryPage | null>(initialPage)
+  const [editingAsset,        setEditingAsset]        = useState<Asset | null>(null)
+  const [editingSectionId,    setEditingSectionId]    = useState<string | null>(null)
+  const [editingDescSectionId, setEditingDescSectionId] = useState<string | null>(null)
+  const [generating,          setGenerating]          = useState(false)
   const [publishPending, setPublishPending] = useState(false)
   const [copied,         setCopied]         = useState(false)
 
@@ -435,6 +436,7 @@ export function DeliverablesManager({ project, deliveryPage: initialPage, hasApp
               onDrop={() => handleSectionDrop(section.id)}
               onDragEnd={() => { setDragSectionId(null); setDropSectionId(null) }}
               onRename={() => setEditingSectionId(section.id)}
+              onEditDescription={() => setEditingDescSectionId(section.id)}
               onDelete={() => handleDeleteSection(section.id, section.title)}
               addingAsset={addingAssetSectionId === section.id}
               onAddAsset={() => handleAddAsset(section.id)}
@@ -468,13 +470,22 @@ export function DeliverablesManager({ project, deliveryPage: initialPage, hasApp
         />
       )}
 
-      {/* ── Section rename inline editor ──────────────────────────────────── */}
+      {/* ── Section rename modal ──────────────────────────────────────────── */}
       {editingSectionId && (
         <SectionRenameModal
           sectionId={editingSectionId}
           currentTitle={page.sections.find(s => s.id === editingSectionId)?.title ?? ''}
-          currentDescription={page.sections.find(s => s.id === editingSectionId)?.description ?? null}
           onClose={() => { setEditingSectionId(null); router.refresh() }}
+        />
+      )}
+
+      {/* ── Section description modal ─────────────────────────────────────── */}
+      {editingDescSectionId && (
+        <SectionDescriptionModal
+          sectionId={editingDescSectionId}
+          currentTitle={page.sections.find(s => s.id === editingDescSectionId)?.title ?? ''}
+          currentDescription={page.sections.find(s => s.id === editingDescSectionId)?.description ?? null}
+          onClose={() => { setEditingDescSectionId(null); router.refresh() }}
         />
       )}
 
@@ -615,11 +626,11 @@ function PageMetaForm({ page, onSaved }: { page: DeliveryPage; onSaved: () => vo
         />
       </div>
       <SmartTextEditor
-        label="Overview"
+        label="Delivery Notes"
         value={overview}
         onChange={setOverview}
         rows={4}
-        placeholder="An optional intro block shown above all deliverables. Supports **bold** and [links](https://...)."
+        placeholder="An optional notes block shown above all deliverables. Supports **bold** and [links](https://...)."
       />
       <div className="space-y-1">
         <label className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground">Cover image</label>
@@ -656,7 +667,7 @@ function SectionCard({
   section, allSections,
   isDragging, isDropTarget,
   onDragStart, onDragOver, onDrop, onDragEnd,
-  onRename, onDelete, addingAsset, onAddAsset,
+  onRename, onEditDescription, onDelete, addingAsset, onAddAsset,
   onEditAsset, onDeleteAsset,
   dragAssetId, onAssetDragStart, onAssetDrop,
   dropAssetSectionId, onAssetDragOver, onAssetDragEnd,
@@ -669,7 +680,8 @@ function SectionCard({
   onDragOver:  (e: React.DragEvent) => void
   onDrop:      () => void
   onDragEnd:   () => void
-  onRename:    () => void
+  onRename:         () => void
+  onEditDescription: () => void
   onDelete:    () => void
   addingAsset: boolean
   onAddAsset:  () => void
@@ -717,13 +729,20 @@ function SectionCard({
             <MoreHorizontal className="h-3.5 w-3.5" />
           </button>
           {menuOpen && (
-            <div className="absolute right-0 top-full z-50 mt-1 min-w-[140px] rounded-lg border border-border bg-popover p-1 shadow-md text-[13px]">
+            <div className="absolute right-0 top-full z-50 mt-1 min-w-[160px] rounded-lg border border-border bg-popover p-1 shadow-md text-[13px]">
               <button
                 type="button"
                 className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left hover:bg-accent"
                 onClick={() => { setMenuOpen(false); onRename() }}
               >
                 <Pencil className="h-3 w-3" /> Rename
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left hover:bg-accent"
+                onClick={() => { setMenuOpen(false); onEditDescription() }}
+              >
+                <Pencil className="h-3 w-3" /> Edit Description
               </button>
               <button
                 type="button"
@@ -901,6 +920,56 @@ function AssetCard({
 // ─── Section rename modal ─────────────────────────────────────────────────────
 
 function SectionRenameModal({
+  sectionId, currentTitle, onClose,
+}: {
+  sectionId:    string
+  currentTitle: string
+  onClose:      () => void
+}) {
+  const [title,  setTitle]  = useState(currentTitle)
+  const [saving, setSaving] = useState(false)
+
+  async function handleSave() {
+    if (!title.trim()) return
+    setSaving(true)
+    await renameSection(sectionId, title.trim())
+    setSaving(false)
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-xl mx-4 space-y-4">
+        <p className="text-sm font-semibold">Rename section</p>
+        <input
+          autoFocus
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleSave()}
+          placeholder="Section title"
+          className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        />
+        <div className="flex gap-2 justify-end">
+          <button type="button" onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground">Cancel</button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={!title.trim() || saving}
+            className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+          >
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Section description modal ────────────────────────────────────────────────
+
+function SectionDescriptionModal({
   sectionId, currentTitle, currentDescription, onClose,
 }: {
   sectionId:          string
@@ -908,14 +977,12 @@ function SectionRenameModal({
   currentDescription: string | null
   onClose:            () => void
 }) {
-  const [title,       setTitle]       = useState(currentTitle)
   const [description, setDescription] = useState(currentDescription ?? '')
   const [saving,      setSaving]      = useState(false)
 
   async function handleSave() {
-    if (!title.trim()) return
     setSaving(true)
-    await renameSection(sectionId, title.trim(), description.trim() || null)
+    await renameSection(sectionId, currentTitle, description.trim() || null)
     setSaving(false)
     onClose()
   }
@@ -924,33 +991,22 @@ function SectionRenameModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
       <div className="relative z-10 w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl mx-4 space-y-4">
-        <p className="text-sm font-semibold">Edit section</p>
-        <div className="space-y-3">
-          <div className="space-y-1">
-            <label className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground">Title</label>
-            <input
-              autoFocus
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSave()}
-              placeholder="Section title"
-              className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            />
-          </div>
-          <SmartTextEditor
-            label="Description"
-            value={description}
-            onChange={setDescription}
-            rows={3}
-            placeholder="Optional text shown below the section title on the client page. Supports **bold** and [links](https://...)."
-          />
+        <div>
+          <p className="text-sm font-semibold">Edit description</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Shown below &ldquo;{currentTitle}&rdquo; on the client page.</p>
         </div>
+        <SmartTextEditor
+          value={description}
+          onChange={setDescription}
+          rows={4}
+          placeholder="Describe what's in this section. Supports **bold** and [links](https://...)."
+        />
         <div className="flex gap-2 justify-end">
           <button type="button" onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground">Cancel</button>
           <button
             type="button"
             onClick={handleSave}
-            disabled={!title.trim() || saving}
+            disabled={saving}
             className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
