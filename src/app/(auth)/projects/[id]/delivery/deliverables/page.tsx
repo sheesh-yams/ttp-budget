@@ -44,6 +44,7 @@ export default async function DeliveryDeliverablesPage({ params }: Props) {
       title:           true,
       subtitle:        true,
       customMessage:   true,
+      overview:        true,
       coverImageUrl:   true,
       status:          true,
       lastPublishedAt: true,

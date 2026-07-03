@@ -177,6 +177,7 @@ export async function updateDeliveryPageMeta(
     title?:         string | null
     subtitle?:      string | null
     customMessage?: string | null
+    overview?:      string | null
     coverImageUrl?: string | null
   },
 ): Promise<ActionResult<void>> {

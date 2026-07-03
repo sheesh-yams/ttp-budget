@@ -6,6 +6,7 @@ import { checkRateLimit }  from '@/lib/rate-limit'
 import { safeHex, lighten, darken } from '@/lib/color'
 import { RateLimitedPage } from '@/components/public/RateLimitedPage'
 import { ShadeThumbImg }   from '@/components/delivery/ShadeThumbImg'
+import { renderSmartText } from '@/lib/smart-text'
 
 interface Props {
   params: Promise<{ token: string }>
@@ -43,6 +44,7 @@ export default async function PublicDeliveryPage({ params }: Props) {
       title:         true,
       subtitle:      true,
       customMessage: true,
+      overview:      true,
       coverImageUrl: true,
       project: {
         select: {
@@ -182,8 +184,23 @@ export default async function PublicDeliveryPage({ params }: Props) {
         </div>
       </div>
 
+      {/* ── Overview block ────────────────────────────────────────────────── */}
+      {page.overview && (
+        <div style={{ maxWidth: 760, margin: '0 auto', padding: '36px 24px 0' }}>
+          <div style={{ borderLeft: `3px solid ${brandPrimary}`, paddingLeft: 16 }}>
+            <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: '#888', margin: '0 0 8px' }}>
+              Overview
+            </p>
+            <div
+              style={{ fontSize: 15, color: '#333', lineHeight: 1.65 }}
+              dangerouslySetInnerHTML={{ __html: renderSmartText(page.overview) }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* ── Sections ──────────────────────────────────────────────────────── */}
-      <div style={{ maxWidth: 760, margin: '0 auto', padding: '40px 24px 80px' }}>
+      <div style={{ maxWidth: 760, margin: '0 auto', padding: page.overview ? '28px 24px 80px' : '40px 24px 80px' }}>
         {visibleSections.length === 0 ? (
           <p style={{ color: '#888', fontSize: 14, textAlign: 'center', paddingTop: 40 }}>
             No deliverables have been shared yet.
@@ -199,9 +216,10 @@ export default async function PublicDeliveryPage({ params }: Props) {
                   {section.title}
                 </h2>
                 {section.description && (
-                  <p style={{ fontSize: 13, color: '#666', margin: '0 0 16px', lineHeight: 1.5 }}>
-                    {section.description}
-                  </p>
+                  <div
+                    style={{ fontSize: 13, color: '#666', margin: '0 0 16px', lineHeight: 1.6 }}
+                    dangerouslySetInnerHTML={{ __html: renderSmartText(section.description) }}
+                  />
                 )}
                 {!section.description && <div style={{ marginBottom: 16 }} />}
 

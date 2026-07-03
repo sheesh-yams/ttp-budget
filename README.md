@@ -30,9 +30,9 @@ The app is fully multi-tenant. Every user signs up into their own **workspace**,
 
 ### Row-level security scoped models
 Auto-scoped through `getScopedDb()` (see `SCOPED_MODELS` in `src/lib/db-scoped.ts`):
-`Client`, `Project`, `RateCard`, `BudgetTemplate`, `Budget`, `Proposal`, `Invoice`, `CallSheet`, `Contact`, `Phase`, `BudgetSection`, `Account`, `LineItem`, `ProjectMember`, `ProjectComment`, `ProjectAssignment`, `ProjectTeamMember`, `AuditEvent`, `WorkspacePaymentConfig`, `PaymentAttempt`
+`Client`, `Project`, `RateCard`, `BudgetTemplate`, `Budget`, `Proposal`, `Invoice`, `CallSheet`, `Contact`, `Phase`, `BudgetSection`, `Account`, `LineItem`, `ProjectMember`, `ProjectComment`, `ProjectAssignment`, `ProjectTeamMember`, `AuditEvent`, `WorkspacePaymentConfig`, `PaymentAttempt`, `Receipt`, `DeliveryPage`, `DeliverableAsset`, `DeliverableVersion`, `DeliverableView`, `ActualSheet`, `ActualEntry`
 
-Non-scoped (shared or workspace-metadata): `Workspace`, `User`, `ProposalView`, `InvoiceView`, `WebhookEvent`
+Non-scoped (shared or workspace-metadata): `Workspace`, `User`, `WorkspaceInvitation`, `ProposalView`, `InvoiceView`, `WebhookEvent`
 
 > **Note:** child models (`Phase`, `BudgetSection`, `Account`, `LineItem`, `ProjectMember`, `ProjectComment`, `ProjectAssignment`) carry a denormalized `workspaceId` column (backfilled via `scripts/backfill-workspace-ids.ts`) so they can be scoped directly — a crafted foreign `phaseId` / `lineItemId` / `commentId` returns not-found rather than data.
 
@@ -486,7 +486,9 @@ The `IframeViewer` on the public asset page uses `aspectRatio: 16/9` by default.
 
 - **Vimeo** — `tryFetchThumbnail()` in `delivery.ts` calls Vimeo's oEmbed API (`vimeo.com/api/oembed.json`) after version creation, stores the `thumbnail_url` before `revalidateDelivery` fires
 - **YouTube** — constructs `img.youtube.com/vi/{id}/hqdefault.jpg` (no API call, always available for public videos)
-- **Frame.io / Shade** — no public API; thumbnail stays null until manually uploaded via the Thumbnail tab
+- **Shade** — `getShadeThumbnailUrl(assetId, driveId)` server action calls `GET /assets/{id}/previews?drive_id={driveId}` (Shade API v1). Pre-signed S3 URLs expire, so thumbnails are fetched dynamically at render time via the `ShadeThumbImg` client component. Requires `SHADE_API_KEY` env var (raw `sk_...` — no "Bearer" prefix). Assets stored with `/publish/` URLs have no `drive_id` and will not produce thumbnails; use the full `/drive/{driveId}/assets/{assetId}` URL format when adding Shade assets.
+- **Frame.io** — no public thumbnail API; thumbnail stays null until manually uploaded via the Thumbnail tab
+- **Priority:** a manually uploaded `thumbnailUrl` always wins over a dynamic provider fetch
 
 **`DeliveryVersion.isVertical`** — `Boolean @default(false)`. Added in migration `20260628000002_version_is_vertical`.
 
@@ -640,6 +642,9 @@ ttp-budget/
 │                                            #   ProjectTeamMember table + 4 indexes
 │                                            #   Partial unique index: one active holder per role per project
 ├── scripts/
+│   ├── audit-scoped-models.ts              # Security: verify all workspaceId models are in SCOPED_MODELS; exits 1 on gaps
+│   ├── report-token-formats.ts             # Security: report UUID v4 vs legacy token counts per public-token model
+│   ├── verify-scoping.ts                   # Security: adversarial cross-workspace IDOR probe (5 models)
 │   ├── backfill-callsheet-contacts.ts      # F6: link existing crew/talent rows to Rolodex contacts by name+email (--apply to write)
 │   ├── backfill-workspace-ids.ts           # A1: fill workspaceId on Phase/Account/LineItem/ProjectMember rows
 │   ├── backfill-deliverable-ids.ts         # Add stable UUIDs to existing deliverable JSON items (prerequisite for section linking)
@@ -689,9 +694,9 @@ ttp-budget/
 │   │   │                                    #   Skips tracking for workspace members (auth() check + DB lookup)
 │   │   └── api/
 │   │       ├── address-autocomplete/        # Nominatim-backed address search; venue names; server-side to avoid CORS
-│   │       ├── pdf/proposal/[id]/
-│   │       ├── pdf/invoice/[id]/
-│   │       ├── pdf/wrap-report/[projectId]/  # Wrap report PDF — @react-pdf/renderer → binary stream
+│   │       ├── pdf/proposal/[token]/         # Proposal PDF — token IS the credential (never accepts raw DB id)
+│   │       ├── pdf/invoice/[token]/          # Invoice PDF — same token-keyed pattern
+│   │       ├── pdf/wrap-report/[projectId]/  # Wrap report PDF — Clerk-auth-gated (NOT public); @react-pdf/renderer → binary stream
 │   │       ├── proposals/[id]/approve/
 │   │       └── webhooks/clerk/              # user.created, organization.created, organizationMembership.created
 │   ├── components/
@@ -867,6 +872,15 @@ CLOUDFLARE_R2_BUCKET_NAME=slatesuite
 NEXT_PUBLIC_R2_PUBLIC_URL="https://assets.slatesuite.io"
 
 NEXT_PUBLIC_APP_URL="https://budget.thethirdplace.co"
+
+# Shade — video review platform; raw sk_... key (no "Bearer" prefix)
+SHADE_API_KEY=sk_...
+
+# Upstash Redis — multi-instance-safe rate limiter (required for multi-replica deploys)
+# Get from console.upstash.com → your database → REST API
+# Omit both to fall back to in-process Map (single-instance only)
+UPSTASH_REDIS_REST_URL=""
+UPSTASH_REDIS_REST_TOKEN=""
 ```
 
 ## Development
@@ -903,6 +917,10 @@ npx tsx scripts/backfill-deliverable-ids.ts --apply    # write UUIDs to DB
 npx tsx scripts/rotate-public-tokens.ts                  # dry-run (preview what would change)
 npx tsx scripts/rotate-public-tokens.ts --live           # rotate DRAFT records only (safe)
 npx tsx scripts/rotate-public-tokens.ts --live --all     # rotate ALL records (invalidates live shared links)
+
+# Security audits:
+npm run audit:scoping    # verify all workspaceId models are in SCOPED_MODELS (exits 1 on gaps)
+npm run audit:tokens     # report UUID v4 vs legacy token counts per public-token model
 ```
 
 ## Clerk Webhook Setup
@@ -952,15 +970,16 @@ If the browser confirm never fires (closed tab, lost signal, or async ACH/EFT th
 
 ### Rate limiting
 
-`src/middleware.ts` (inside the Clerk middleware callback) rate-limits all public doc routes before auth runs:
+`src/middleware.ts` calls `checkRateLimit(policy, ip)` from `src/lib/rate-limit.ts` before Clerk auth runs. All public-facing routes are rate-limited per IP:
 
-| Route prefix | Window | Max requests |
-|---|---|---|
-| `/p/` (proposals) | 60 s | 60 per IP |
-| `/i/` (invoices) | 60 s | 60 per IP |
-| `/cs/` (call sheets) | 60 s | 60 per IP |
+| Policy | Route prefix(es) | Window | Max requests |
+|---|---|---|---|
+| `publicDoc` | `/p/`, `/i/`, `/cs/`, `/d/` | 60 s | 60 per IP |
+| `publicPdf` | `/api/pdf/proposal/`, `/api/pdf/invoice/` | 60 s | 10 per IP |
+| `payments` | `/api/payments/` | 60 s | 20 per IP |
+| `geocode` | `/api/address-autocomplete` | 60 s | 30 per IP |
 
-Returns `429 Too Many Requests` with `Retry-After` and `X-RateLimit-*` headers. State is in-process (`Map`) — correct for single-instance Railway. Upgrade path: swap the `Map` for Upstash Redis + `@upstash/ratelimit` when scaling to multiple replicas.
+**Backend:** `@upstash/ratelimit` + `@upstash/redis` (multi-instance safe, survives deploys). When `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` are not set, falls back to an in-process `Map` (single-instance only — fine for single-replica Railway). Returns `429 Too Many Requests` with `Retry-After` and `X-RateLimit-*` headers.
 
 **Public route exemptions** (`src/middleware.ts` → `isPublicRoute`):
 
@@ -974,8 +993,11 @@ Routes that are public (Clerk auth skipped) — all are token-authenticated at t
 | `/d/(.*)` | Delivery portals — clients have no Clerk account |
 | `/invite/(.*)` | Workspace invitations |
 | `/api/webhooks/(.*)` | Clerk + Helcim webhooks |
-| `/api/pdf/(.*)` | PDF stream endpoints |
+| `/api/pdf/proposal/(.*)` | Proposal PDF stream (token-keyed) |
+| `/api/pdf/invoice/(.*)` | Invoice PDF stream (token-keyed) |
 | `/api/payments/(.*)` | Helcim payment initiation + confirmation |
+
+> **Note:** `/api/pdf/wrap-report/` is NOT listed here — it is Clerk-auth-gated (internal only).
 
 ## Engineering Conventions
 
@@ -997,6 +1019,7 @@ Routes that are public (Clerk auth skipped) — all are token-authenticated at t
   5. Run `npx tsc --noEmit` to verify a clean compile before committing.
   6. Commit both `schema.prisma` and the migration file so the history is preserved.
 - **Fire-and-forget side effects:** crew workflow helpers (`runCrewWorkflow`, team reconciliation, call-time sync) are called with `void fn()` so they never block or fail the primary save. If a kit line item fails to insert, the CREW line item is still saved successfully.
+- **Security audit scripts:** `npm run audit:scoping` exits 1 if any Prisma model with a `workspaceId` column is missing from `SCOPED_MODELS` in `src/lib/db-scoped.ts`. `npm run audit:tokens` reports UUID v4 vs legacy token counts per public-token model. Run both after adding new models or new public-token fields.
 - **Quantity formula:** `quantityFormula = "AxB"` encodes headcount (A) × days (B). Use `parseQtyFormula()` from `money.ts` everywhere it's displayed. `fmtUnit(days, unit)` formats the unit column.
 - **Line item categories:** `lineItemCategory` is auto-derived from the linked rate card's category on insert. Users can override it in the line item modal. CREW-tagged items are importable to call sheets and trigger the Magical Crew Workflow when a `contactId` is present.
 - **Call sheet draft preview:** public `/cs/[token]` and `/p/[token]` both render for DRAFT status with a sticky amber banner. View analytics are skipped for drafts.

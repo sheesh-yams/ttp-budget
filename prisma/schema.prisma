@@ -1204,6 +1204,7 @@ model DeliveryPage {
   title           String?
   subtitle        String?
   customMessage   String?             @db.Text
+  overview        String?             @db.Text  // rich text block shown between hero and sections (smart-text format)
   coverImageUrl   String?
   status          DeliveryPageStatus  @default(DRAFT)
   lastPublishedAt DateTime?

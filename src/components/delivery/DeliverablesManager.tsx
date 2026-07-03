@@ -2,13 +2,15 @@
 
 import { useState, useTransition, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Globe, Copy, Check, Settings, Loader2, MoreHorizontal, GripVertical, Pencil, Trash2, ChevronDown, ArrowRight } from 'lucide-react'
+import { Plus, Globe, Copy, Check, Settings, Loader2, MoreHorizontal, GripVertical, Pencil, Trash2, ArrowRight } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { AssetEditorModal }  from './AssetEditorModal'
 import { ShadeThumbImg }    from './ShadeThumbImg'
 import { GenerateFromProposalModal } from './GenerateFromProposalModal'
 import { AnalyticsPanel } from './AnalyticsPanel'
 import { CoverImageUploader } from './CoverImageUploader'
+import { SmartTextEditor } from './SmartTextEditor'
+import { stripSmartText } from '@/lib/smart-text'
 import {
   ensureDeliveryPage, updateDeliveryPageMeta,
   publishDeliveryPage, unpublishDeliveryPage,
@@ -56,6 +58,7 @@ interface DeliveryPage {
   title:          string | null
   subtitle:       string | null
   customMessage:  string | null
+  overview:       string | null
   coverImageUrl:  string | null
   status:         'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
   lastPublishedAt: Date | string | null
@@ -548,6 +551,7 @@ function PageMetaForm({ page, onSaved }: { page: DeliveryPage; onSaved: () => vo
   const [title,        setTitle]        = useState(page.title ?? '')
   const [subtitle,     setSubtitle]     = useState(page.subtitle ?? '')
   const [customMsg,    setCustomMsg]    = useState(page.customMessage ?? '')
+  const [overview,     setOverview]     = useState(page.overview ?? '')
   const [coverUrl,     setCoverUrl]     = useState(page.coverImageUrl ?? '')
   const [saving,       setSaving]       = useState(false)
 
@@ -557,6 +561,7 @@ function PageMetaForm({ page, onSaved }: { page: DeliveryPage; onSaved: () => vo
       title:         title.trim() || null,
       subtitle:      subtitle.trim() || null,
       customMessage: customMsg.trim() || null,
+      overview:      overview.trim() || null,
       coverImageUrl: coverUrl.trim() || null,
     })
     setSaving(false)
@@ -585,7 +590,7 @@ function PageMetaForm({ page, onSaved }: { page: DeliveryPage; onSaved: () => vo
           <input
             value={title}
             onChange={e => setTitle(e.target.value)}
-            placeholder={`${page.id ? 'Delivery Page' : ''}`}
+            placeholder="Delivery Page"
             className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           />
         </div>
@@ -605,10 +610,17 @@ function PageMetaForm({ page, onSaved }: { page: DeliveryPage; onSaved: () => vo
           rows={2}
           value={customMsg}
           onChange={e => setCustomMsg(e.target.value)}
-          placeholder="A note shown at the top of the client page…"
+          placeholder="A short note shown in the page header…"
           className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
         />
       </div>
+      <SmartTextEditor
+        label="Overview"
+        value={overview}
+        onChange={setOverview}
+        rows={4}
+        placeholder="An optional intro block shown above all deliverables. Supports **bold** and [links](https://...)."
+      />
       <div className="space-y-1">
         <label className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground">Cover image</label>
         <CoverImageUploader
@@ -692,7 +704,7 @@ function SectionCard({
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-foreground truncate">{section.title}</p>
           {section.description && (
-            <p className="text-xs text-muted-foreground truncate">{section.description}</p>
+            <p className="text-xs text-muted-foreground truncate">{stripSmartText(section.description)}</p>
           )}
         </div>
         <span className="text-xs text-muted-foreground">{section.deliverables.length} asset{section.deliverables.length !== 1 ? 's' : ''}</span>
@@ -911,23 +923,26 @@ function SectionRenameModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-xl mx-4 space-y-4">
-        <p className="text-sm font-semibold">Rename section</p>
-        <div className="space-y-2">
-          <input
-            autoFocus
-            value={title}
-            onChange={e => setTitle(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleSave()}
-            placeholder="Section title"
-            className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          />
-          <textarea
-            rows={2}
+      <div className="relative z-10 w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl mx-4 space-y-4">
+        <p className="text-sm font-semibold">Edit section</p>
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <label className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground">Title</label>
+            <input
+              autoFocus
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSave()}
+              placeholder="Section title"
+              className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            />
+          </div>
+          <SmartTextEditor
+            label="Description"
             value={description}
-            onChange={e => setDescription(e.target.value)}
-            placeholder="Description (optional)"
-            className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
+            onChange={setDescription}
+            rows={3}
+            placeholder="Optional text shown below the section title on the client page. Supports **bold** and [links](https://...)."
           />
         </div>
         <div className="flex gap-2 justify-end">
