@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, Users, FolderOpen, FileText,
   Receipt, List, LayoutGrid, Settings, BookOpen,
-  ChevronDown, Check, Plus, LogOut, UsersRound, BookUser,
+  ChevronDown, Check, Plus, LogOut, UsersRound, BookUser, CreditCard,
 } from 'lucide-react'
 import { useEffect, useRef, useState, useTransition } from 'react'
 import { createWorkspace } from '@/server/actions/workspace'
@@ -46,11 +46,12 @@ const navGroups = [
   {
     section: 'Configure',
     items: [
-      { label: 'Rate cards', href: '/rates',     icon: List },
-      { label: 'Templates',  href: '/templates', icon: LayoutGrid },
-      { label: 'Library',    href: '/library',   icon: BookOpen },
-      { label: 'Team',       href: '/team',      icon: UsersRound },
-      { label: 'Settings',   href: '/settings',  icon: Settings },
+      { label: 'Rate cards', href: '/rates',             icon: List },
+      { label: 'Templates',  href: '/templates',         icon: LayoutGrid },
+      { label: 'Library',    href: '/library',           icon: BookOpen },
+      { label: 'Team',       href: '/team',              icon: UsersRound },
+      { label: 'Payments',   href: '/settings/payments', icon: CreditCard },
+      { label: 'Settings',   href: '/settings',          icon: Settings,  exact: true as const },
     ],
   },
 ]
@@ -77,10 +78,10 @@ export function Sidebar({ workspaceName, logoUrl }: { workspaceName: string; log
                 {group.section}
               </p>
             )}
-            {group.items.map(({ label, href, icon: Icon }) => {
+            {group.items.map(({ label, href, icon: Icon, exact }) => {
               const active =
                 pathname === href ||
-                (href !== '/dashboard' && pathname.startsWith(href))
+                (!exact && href !== '/dashboard' && pathname.startsWith(href))
               return (
                 <Link
                   key={href}
