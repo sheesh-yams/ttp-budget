@@ -39,11 +39,20 @@ export class StripeConfigError extends Error {
 
 // ── Stripe client ──────────────────────────────────────────────────────────
 
-// Singleton — module evaluated once per server process.
-// STRIPE_SECRET_KEY is the platform key; no workspace-level secrets.
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? '')
+// Lazy singleton — constructed on first use inside a request, NOT at module
+// load time. This prevents the Stripe constructor (which rejects an empty key)
+// from throwing during Next.js's build-time "Collecting page data" phase when
+// STRIPE_SECRET_KEY is absent from the build environment.
+let _stripe: Stripe | null = null
 
-export { stripe }
+export function getStripeClient(): Stripe {
+  if (!_stripe) {
+    const key = process.env.STRIPE_SECRET_KEY
+    if (!key) throw new Error('[stripe] STRIPE_SECRET_KEY is not configured')
+    _stripe = new Stripe(key)
+  }
+  return _stripe
+}
 
 // ── DB type ───────────────────────────────────────────────────────────────
 
@@ -79,7 +88,8 @@ async function createCheckout(args: {
   const config  = await getStripeConfig(workspaceId)
   const appUrl  = process.env.NEXT_PUBLIC_APP_URL ?? ''
 
-  const session = await stripe.checkout.sessions.create(
+  const stripeClient = getStripeClient()
+  const session = await stripeClient.checkout.sessions.create(
     {
       mode:                'payment',
       client_reference_id: attempt.id,   // maps the Stripe event back to our attempt
@@ -91,7 +101,7 @@ async function createCheckout(args: {
         },
         quantity: 1,
       }],
-      payment_method_types: ['card', 'us_bank_account'] as string[] as Parameters<typeof stripe.checkout.sessions.create>[0]['payment_method_types'],
+      payment_method_types: ['card', 'us_bank_account'] as string[] as Parameters<typeof stripeClient.checkout.sessions.create>[0]['payment_method_types'],
       success_url: `${appUrl}/i/${invoice.publicToken}?paid=1`,
       cancel_url:  `${appUrl}/i/${invoice.publicToken}`,
     },

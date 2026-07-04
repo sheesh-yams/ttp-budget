@@ -17,7 +17,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { stripe } from '@/lib/payments/stripe'
+import { getStripeClient } from '@/lib/payments/stripe'
 import { parseStateCookie } from '@/lib/payments/stripe-state'
 import { logAuditEvent } from '@/lib/audit'
 import { cookies } from 'next/headers'
@@ -50,10 +50,11 @@ export async function GET(req: NextRequest) {
   // ── 3. Exchange code → connected account ───────────────────────────────
   let stripeUserId: string
   try {
-    const token = await stripe.oauth.token({
+    const client = getStripeClient()
+    const token = await client.oauth.token({
       grant_type: 'authorization_code',
       code,
-    } as Parameters<typeof stripe.oauth.token>[0])
+    } as Parameters<typeof client.oauth.token>[0])
     if (!token.stripe_user_id) throw new Error('No stripe_user_id in token response')
     stripeUserId = token.stripe_user_id
   } catch (err) {
@@ -63,7 +64,7 @@ export async function GET(req: NextRequest) {
   // ── 4. Fetch account details to seed chargesEnabled ───────────────────
   let chargesEnabled = false
   try {
-    const account = await stripe.accounts.retrieve(stripeUserId)
+    const account = await getStripeClient().accounts.retrieve(stripeUserId)
     chargesEnabled = account.charges_enabled ?? false
   } catch {
     // Non-fatal — chargesEnabled will be updated by the account.updated webhook

@@ -21,7 +21,7 @@ import { cookies } from 'next/headers'
 import { requireRole } from '@/lib/auth'
 import { getScopedDb } from '@/lib/db-scoped'
 import { logAuditEvent } from '@/lib/audit'
-import { stripe } from '@/lib/payments/stripe'
+import { getStripeClient } from '@/lib/payments/stripe'
 import { buildStateCookieValue } from '@/lib/payments/stripe-state'
 import type { ActionResult } from '@/types'
 
@@ -81,10 +81,11 @@ export async function disconnectStripe(): Promise<ActionResult<void>> {
   // Best-effort deauthorize — proceed even if Stripe rejects (account may already be deauthorized)
   if (config.stripeAccountId) {
     try {
-      await stripe.oauth.deauthorize({
+      const stripeClient = getStripeClient()
+      await stripeClient.oauth.deauthorize({
         client_id:       process.env.STRIPE_CONNECT_CLIENT_ID ?? '',
         stripe_user_id:  config.stripeAccountId,
-      } as Parameters<typeof stripe.oauth.deauthorize>[0])
+      } as Parameters<typeof stripeClient.oauth.deauthorize>[0])
     } catch (err) {
       console.warn('[disconnectStripe] Stripe deauthorize failed (proceeding with local disconnect):', (err as Error).message)
     }
