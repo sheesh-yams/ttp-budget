@@ -205,8 +205,20 @@ Rate cards are the **source of defaults** but never retroactively change histori
 | `/i/[token]` | Invoice — wire/ACH details, download PDF. Same per-workspace branding. |
 | `/cs/[token]` | Call sheet for crew — desktop 2-col layout, mobile single-column. DRAFT shows a preview banner. `?print=1` auto-triggers `window.print()`. |
 | `/invite/[token]` | Team invitation acceptance page |
-| `/d/[token]` | Public delivery portal — asset listing with sections, thumbnails, provider badges, unseen indicators |
-| `/d/[token]/[assetToken]` | Public individual deliverable — iframe embed, native media, or external link depending on provider + render mode |
+| `/d/[token]` | Public delivery portal — asset listing with sections, thumbnails, provider badges, unseen indicators. Desktop UA → this route; mobile UA → auto-redirected to `/m/d/[token]`. |
+| `/d/[token]/[assetToken]` | Public individual deliverable — iframe embed, native media, or external link depending on provider + render mode. Mobile UA → auto-redirected to `/m/d/[token]/[assetToken]`. |
+
+### Mobile (no auth, UA-redirected from `/d/`)
+| Route | Description |
+|-------|-------------|
+| `/m/sign-in` | Mobile-optimized Clerk sign-in page |
+| `/m/sign-up` | Mobile-optimized Clerk sign-up page |
+| `/m/d/[token]` | Mobile delivery portal — stacked single-column layout, optimized for phone screens |
+| `/m/d/[token]/[assetToken]` | Mobile individual deliverable — fills viewport height using `.m-embed-wrap` CSS pattern (see below) |
+
+**UA-based redirect** — `src/middleware.ts` detects mobile user-agents (`/Android|iPhone|iPad|iPod|Mobile/i`) for all `/d/` paths and issues a `307` redirect to the equivalent `/m/d/` path. Auth is not required for any `/m/` routes (all pre-registered as public in the Clerk middleware config). The mobile pages share the same token-authenticated data layer as their desktop equivalents.
+
+**`.m-embed-wrap` iframe pattern** — Shade's `embedHtml` uses `padding-bottom: 56.25%` to derive height from width, which ignores an explicit container height. The mobile asset page wraps the embed in a `.m-embed-wrap` container and overrides the inner div and iframe with `position: absolute; inset: 0; padding: 0; width/height: 100%` via `!important` rules, forcing the iframe to fill the container. The container itself uses `height: max(56.25vw, 45vh)` for horizontal content and `height: 75vh` for portrait (`isVertical = true`) content.
 
 ## Core Features
 
@@ -313,9 +325,28 @@ All crew side effects use `sdb` (scoped Prisma client) so no explicit `workspace
 
 Invoices can be generated from a budget (choose percentage or flat amount) or created standalone (ad-hoc line items).
 
-Numbering: `TTP-2026-001` — auto-incrementing per year, counter stored on `Workspace`.
+**Numbering:** `TTP-2026-001` — auto-incrementing per year, counter stored on `Workspace.invoiceNumberSeq`. Workspace-scoped (not per-client) — two different clients will never receive the same invoice number. A `@@unique([workspaceId, number])` constraint provides a safety backstop.
 
 **Status auto-flips:** `SENT → VIEWED` on first public page open. `PAID` is set manually. Overdue detection via `dueDate`.
+
+**Invoice header layout (FROM / BILL TO):**
+
+Both the public invoice page (`InvoicePublicView`) and the PDF (`InvoicePDF`) render a two-column header block:
+
+- **FROM** — workspace legal name (`Workspace.legalName`) or display name; address lines 1 + 2, city, region, postal code; contact email
+- **BILL TO** — client legal entity name (`Client.legalName`) or display name; "Attn: [contactName]" when a contact is set; billing address (`Client.billingAddress`, preserves line breaks)
+
+**Meta strip** — Issue date | Due date | Terms (`Invoice.paymentTerms`) | Project name | PO # (when set)
+
+**Client fields for invoicing:**
+
+| Field | Where set | Used on invoice |
+|-------|-----------|----------------|
+| `Client.legalName` | Client modal → "Legal / entity name" | BILL TO header (falls back to `name`) |
+| `Client.billingAddress` | Client modal → "Billing address" textarea | BILL TO address block |
+| `Client.contactName` | Client modal → "Primary contact" | "Attn: [contactName]" in BILL TO |
+
+**Payment terms** — `Invoice.paymentTerms` is a short human-readable label (e.g. "Net 30", "Due on Receipt"). Auto-populated on invoice creation from `workspace.defaultPaymentTermsDays` (e.g. `30` → "Net 30"). Can be overridden per invoice. Distinct from `Invoice.terms` (the full text block shown at the bottom of the invoice). Migration: `20260703000002_client_legalname_invoice_paymentterms`.
 
 ### 4. Call sheets (`/projects/[id]/call-sheets/[csId]`)
 
@@ -427,6 +458,18 @@ Two distinct team concepts live on every project:
 ### 7. Delivery (`/projects/[id]/delivery`)
 
 A client-facing deliverable portal for sharing video and creative assets from a project. Replaces the need to share raw Frame.io or Shade links directly — clients get a branded URL (`/d/[token]`) listing all deliverables organized into sections.
+
+**Delivery Notes overview block** — `DeliveryPage.overview` is an optional Smart Text block displayed between the hero and the section list on the public `/d/[token]` page. Supports bold (`**text**`) and links (`[text](url)`). Rendered via `renderSmartText()`. Added in migration `20260703000001_delivery_overview`.
+
+**Smart Text** — a lightweight markup subset used in delivery notes and section descriptions, implemented in `src/lib/smart-text.ts`:
+
+| Syntax | Output |
+|--------|--------|
+| `**text**` | `<strong>text</strong>` |
+| `[label](https://url)` | `<a href="…" target="_blank" …>label</a>` (http/https only) |
+| newline | `<br>` |
+
+Input is HTML-escaped before substitution — user content cannot inject arbitrary tags. `stripSmartText()` removes markers for plain-text contexts (truncated previews, etc.). The editor exposes a `SmartTextEditor` component with a Bold and Link toolbar.
 
 **Admin side (`/projects/[id]/delivery/deliverables`):**
 
@@ -637,10 +680,15 @@ ttp-budget/
 │       │                                    #   thumbnailUrl, note, firstClientViewAt), DeliverableView
 │       ├── 20260628000002_version_is_vertical/migration.sql
 │       │                                    #   DeliverableVersion.isVertical Boolean @default(false)
-│       └── 20260701000001_project_team/migration.sql
-│                                            #   ProjectTeamRole enum (PROJECT_LEAD, ACCOUNT_MANAGER, PROJECT_MANAGER)
-│                                            #   ProjectTeamMember table + 4 indexes
-│                                            #   Partial unique index: one active holder per role per project
+│       ├── 20260701000001_project_team/migration.sql
+│       │                                    #   ProjectTeamRole enum (PROJECT_LEAD, ACCOUNT_MANAGER, PROJECT_MANAGER)
+│       │                                    #   ProjectTeamMember table + 4 indexes
+│       │                                    #   Partial unique index: one active holder per role per project
+│       ├── 20260703000001_delivery_overview/migration.sql
+│       │                                    #   DeliveryPage.overview TEXT — Smart Text overview block above sections
+│       └── 20260703000002_client_legalname_invoice_paymentterms/migration.sql
+│                                            #   Client.legalName TEXT — legal entity name shown on invoice BILL TO
+│                                            #   Invoice.paymentTerms TEXT — short label (e.g. "Net 30"); auto-set from workspace default
 ├── scripts/
 │   ├── audit-scoped-models.ts              # Security: verify all workspaceId models are in SCOPED_MODELS; exits 1 on gaps
 │   ├── report-token-formats.ts             # Security: report UUID v4 vs legacy token counts per public-token model
@@ -683,6 +731,12 @@ ttp-budget/
 │   │   │   ├── onboarding/                  # First-time setup wizard
 │   │   │   └── settings/
 │   │   │       └── layout.tsx               # RBAC gate — redirects non-OWNER to /
+│   │   ├── m/                               # Mobile routes (UA-redirected from /d/; all Clerk-public)
+│   │   │   ├── sign-in/                     # Mobile-optimized Clerk sign-in
+│   │   │   ├── sign-up/                     # Mobile-optimized Clerk sign-up
+│   │   │   └── d/[token]/
+│   │   │       ├── page.tsx                 # Mobile delivery portal listing
+│   │   │       └── [assetToken]/page.tsx    # Mobile asset viewer — .m-embed-wrap iframe fill pattern
 │   │   ├── (public)/
 │   │   │   ├── p/[token]/page.tsx           # Proposal public view (draft-aware; per-workspace branded)
 │   │   │   ├── i/[token]/page.tsx           # Invoice public view (per-workspace branded)
@@ -749,6 +803,7 @@ ttp-budget/
 │   │   ├── delivery/
 │   │   │   ├── DeliverablesManager.tsx      # Admin manager: sections, asset cards, DnD, optimistic add/move
 │   │   │   ├── AssetEditorModal.tsx         # 3-tab modal: Details, Versions (history + add + vertical toggle), Thumbnail (drag/drop/paste)
+│   │   │   ├── SmartTextEditor.tsx          # Textarea + Bold/Link toolbar; renders Smart Text syntax
 │   │   │   └── ClientPagePreview.tsx        # Read-only preview of the published client portal
 │   │   ├── actuals/
 │   │   │   └── WrapReportPDF.tsx            # @react-pdf/renderer Document for the wrap report PDF
@@ -795,6 +850,8 @@ ttp-budget/
 │   │   │                                    #   sanitizeIframe: strips scripts, validates src against provider allow-list,
 │   │   │                                    #   rebuilds <iframe> with safe attrs only. Never stores VIMEO embedHtml —
 │   │   │                                    #   canonicalUrl carries all query params and fills the container correctly.
+│   │   ├── smart-text.ts                    # renderSmartText(raw) → safe HTML (**bold**, [link](url), newlines)
+│   │   │                                    #   stripSmartText(raw) → plain text (for truncated previews)
 │   │   └── email.ts
 │   └── server/
 │       └── actions/
@@ -959,6 +1016,15 @@ If the browser confirm never fires (closed tab, lost signal, or async ACH/EFT th
 
 ## Security
 
+Four hardening phases were applied to the production codebase:
+
+| Phase | Scope |
+|-------|-------|
+| **Phase 1** | `SCOPED_MODELS` completeness audit — all workspaceId-carrying models verified in `src/lib/db-scoped.ts`; Receipt IDOR fixed (token-keyed lookup, never raw DB id) |
+| **Phase 2** | PDF endpoint IDOR audit — `/api/pdf/proposal/[token]` and `/api/pdf/invoice/[token]` verified to use `publicToken` as the sole credential; middleware hardening |
+| **Phase 3** | Upstash Redis rate limiter — replaced in-process Map with `@upstash/ratelimit` for multi-replica safety (see Rate limiting below) |
+| **Phase 4** | Token format audit — all 106 public token records confirmed UUID v4; `scripts/report-token-formats.ts` added as an ongoing audit tool |
+
 ### Public token generation
 
 `Proposal`, `Invoice`, and `CallSheet` each carry a `publicToken` used in their shareable URLs (`/p/`, `/i/`, `/cs/`). Tokens are **UUID v4** (122 bits of entropy, generated via `crypto.randomUUID()`), replacing the original CUID1 format which had only ~32 bits of randomness and embedded a timestamp fingerprint.
@@ -974,7 +1040,7 @@ If the browser confirm never fires (closed tab, lost signal, or async ACH/EFT th
 
 | Policy | Route prefix(es) | Window | Max requests |
 |---|---|---|---|
-| `publicDoc` | `/p/`, `/i/`, `/cs/`, `/d/` | 60 s | 60 per IP |
+| `publicDoc` | `/p/`, `/i/`, `/cs/`, `/d/`, `/m/d/` | 60 s | 60 per IP |
 | `publicPdf` | `/api/pdf/proposal/`, `/api/pdf/invoice/` | 60 s | 10 per IP |
 | `payments` | `/api/payments/` | 60 s | 20 per IP |
 | `geocode` | `/api/address-autocomplete` | 60 s | 30 per IP |
@@ -991,6 +1057,7 @@ Routes that are public (Clerk auth skipped) — all are token-authenticated at t
 | `/i/(.*)` | Invoices |
 | `/cs/(.*)` | Call sheets |
 | `/d/(.*)` | Delivery portals — clients have no Clerk account |
+| `/m/(.*)` | Mobile delivery pages (sign-in, sign-up, /m/d/ asset views) — UA-redirected from /d/ |
 | `/invite/(.*)` | Workspace invitations |
 | `/api/webhooks/(.*)` | Clerk + Helcim webhooks |
 | `/api/pdf/proposal/(.*)` | Proposal PDF stream (token-keyed) |

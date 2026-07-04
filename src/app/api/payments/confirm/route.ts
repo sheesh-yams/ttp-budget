@@ -19,7 +19,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { validateHelcimHash, sha256Hex, helcimAdapter } from '@/lib/payments/helcim'
+import { validateHelcimHash, sha256Hex, getTransaction } from '@/lib/payments/helcim'
 import { settlePaymentAttempt } from '@/lib/payments/settle'
 import { sendPaymentReceiptEmails } from '@/lib/email'
 
@@ -122,8 +122,9 @@ export async function POST(req: NextRequest) {
     const transactionId = String(rawTxId)
 
     // ── 6. Fetch transaction server-to-server ──────────────────────────────
-    // This is the canonical source of truth — we never trust the client for amount.
-    const tx = await helcimAdapter.getTransaction(transactionId)
+    // workspaceId is sourced from the verified PaymentAttempt row — never from
+    // browser input. This is the credential-resolution anchor.
+    const tx = await getTransaction(transactionId, attempt.workspaceId)
 
     // ── 7. Settle (shared idempotent path with the webhook) ────────────────
     // Amount tamper check + atomic INITIATED → SUCCEEDED transition live here.

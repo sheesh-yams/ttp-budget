@@ -20,7 +20,8 @@ const isPublicRoute = createRouteMatcher([
   // wrap-report and any future internal PDF routes intentionally omitted — they require Clerk auth.
   '/api/pdf/proposal/(.*)',
   '/api/pdf/invoice/(.*)',
-  '/api/payments/(.*)', // payment routes self-authenticate via publicToken / attemptId
+  '/api/payments/(.*)',         // payment routes self-authenticate via publicToken / attemptId
+  '/api/stripe/connect/callback', // OAuth redirect from Stripe — authenticated via HMAC-signed cookie
 ])
 
 // ── Mobile UA detection ───────────────────────────────────────────────────────

@@ -84,15 +84,17 @@ export default async function PublicInvoicePage({ params }: Props) {
   // the user runs `npx prisma generate` locally.
   const paymentConfig = await (db as unknown as {
     workspacePaymentConfig: {
-      findUnique: (args: object) => Promise<{ provider: string } | null>
+      findUnique: (args: object) => Promise<{ provider: string; helcimEnabled: boolean; stripeChargesEnabled: boolean } | null>
     }
   }).workspacePaymentConfig.findUnique({
     where: { workspaceId: invoice.workspaceId },
-    select: { provider: true },
+    select: { provider: true, helcimEnabled: true, stripeChargesEnabled: true },
   })
 
+  const provider = paymentConfig?.provider ?? 'NONE'
   const paymentEnabled =
-    paymentConfig != null && paymentConfig.provider !== 'NONE'
+    (provider === 'HELCIM' && paymentConfig?.helcimEnabled === true) ||
+    (provider === 'STRIPE' && paymentConfig?.stripeChargesEnabled === true)
 
   return <InvoicePublicView invoice={invoice} paymentEnabled={paymentEnabled} />
 }

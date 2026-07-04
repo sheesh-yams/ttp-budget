@@ -1027,18 +1027,54 @@ model WorkspaceInvitation {
 
 enum PaymentProvider {
   NONE
+  STRIPE
   HELCIM
 }
 
 // One row per workspace — controls which payment provider is active.
-// Created on first enable; provider = NONE means payments are off.
+// Created on first enable; provider = NONE means payments are off (wire/ACH fallback shown).
 model WorkspacePaymentConfig {
   id          String          @id @default(cuid())
   workspaceId String          @unique
   workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   provider    PaymentProvider @default(NONE)
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+
+  // ── Entitlement flag ──────────────────────────────────────────────────────
+  // Helcim is invite-only. No UI exists to flip this — set via SQL / admin backend.
+  helcimEnabled Boolean @default(false)
+
+  // ── Stripe Connect (Standard) — only identifiers stored, never secrets ────
+  stripeAccountId      String?   @unique
+  stripeOnboardedAt    DateTime?
+  stripeChargesEnabled Boolean   @default(false) // updated by account.updated webhook
+
+  // ── Helcim — references to encrypted credential rows, never raw tokens ────
+  helcimCredentialId      String? @unique
+  helcimWebhookVerifierId String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workspaceId])
+}
+
+// Envelope-encrypted storage for per-workspace payment credentials.
+// AES-256-GCM; KEK loaded from CREDENTIAL_KEK_V<n> env vars.
+// Plaintext is NEVER stored — ui shows last4 only.
+// See src/lib/crypto/credentials.ts for the full implementation.
+model EncryptedCredential {
+  id          String    @id @default(cuid())
+  workspaceId String
+  kind        String    // 'HELCIM_API_TOKEN' | 'HELCIM_WEBHOOK_VERIFIER'
+  ciphertext  Bytes
+  iv          Bytes
+  authTag     Bytes
+  keyVersion  Int
+  last4       String    // display-only — never derive anything from this
+  createdAt   DateTime  @default(now())
+  rotatedAt   DateTime?
+
+  @@index([workspaceId])
 }
 
 // Tracks a single checkout attempt for an invoice payment.

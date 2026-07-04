@@ -5,6 +5,8 @@ const config: Config = {
   testEnvironment: 'node',
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
+    // 'server-only' throws in non-Next.js contexts; replace with a no-op in Jest.
+    '^server-only$': '<rootDir>/src/__mocks__/server-only.js',
   },
   transform: {
     '^.+\\.tsx?$': ['ts-jest', {

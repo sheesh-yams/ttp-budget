@@ -3,99 +3,77 @@
  *
  * All payment-provider implementations must satisfy `PaymentProviderAdapter`.
  * This file is safe to import anywhere — it contains no secrets, no fetch
- * calls, and no server-only code. The concrete adapters (helcim.ts, etc.) are
- * marked `import 'server-only'` and must never be imported from client code.
+ * calls, and no server-only code. The concrete adapters (helcim.ts, stripe.ts)
+ * are marked `import 'server-only'` and must never be imported from client code.
  */
 
-// ── Initialize ─────────────────────────────────────────────────────────────
+// ── Provider result types ────────────────────────────────────────────────────
 
-export type InitializeCheckoutInput = {
-  /** Invoice-derived amount in **cents** (integer). Adapter converts to provider units. */
-  amountCents: number
-  /** ISO 4217 currency code. Default "USD". */
-  currency: string
-  /** Idempotency key — caller-generated, used to detect duplicate requests. */
-  idempotencyKey: string
-  /**
-   * Opaque reference attached to the provider transaction (sent as Helcim
-   * `invoiceNumber`) and echoed back on lookups. Lets an inbound webhook map a
-   * bare transactionId back to our PaymentAttempt. Caller stores it on the row.
-   */
-  reference?: string
+/**
+ * Union returned by every adapter's `createCheckout`.
+ * - helcim_modal: launch the HelcimPay.js modal on the client; secretToken is
+ *   needed by the client confirm step and must NOT be logged.
+ * - redirect: full-page navigation to a hosted checkout URL (Stripe).
+ */
+export type CheckoutResult =
+  | { mode: 'helcim_modal'; checkoutToken: string; secretToken: string }
+  | { mode: 'redirect'; url: string }
+
+/**
+ * Verified event delivered to `settleAttempt`. Populated by the provider
+ * adapter after signature / hash validation — amount is always integer cents.
+ */
+export type VerifiedPaymentEvent = {
+  provider:    'STRIPE' | 'HELCIM'
+  providerRef: string        // transaction / session id at the provider
+  amountCents: number        // converted to integer cents by the adapter
+  currency:    string
+  workspaceId: string        // resolved from verified data only, never from URL/body
+  attemptId?:  string        // when the provider echoes our reference back
 }
 
-export type InitializeCheckoutResult = {
-  /** Opaque token passed to the client-side modal renderer. */
-  checkoutToken: string
-  /**
-   * Used server-side to validate the modal's callback hash.
-   * NEVER include this in client responses or logs.
-   */
-  secretToken: string
-}
-
-// ── Transaction fetch ───────────────────────────────────────────────────────
-
-export type ProviderTransaction = {
-  /** Provider's unique transaction identifier. */
-  transactionId: string
-  /** Settled amount in **cents** (converted from provider units by the adapter). */
-  amountCents: number
-  /** ISO 4217 currency code as returned by the provider. */
-  currency: string
-  /** Provider-normalised status string, e.g. "APPROVED". */
-  status: string
-  /** The reference we attached at init (Helcim `invoiceNumber`), if present. */
-  reference?: string
-}
-
-// ── Adapter interface ───────────────────────────────────────────────────────
+// ── Adapter interface ────────────────────────────────────────────────────────
 
 export interface PaymentProviderAdapter {
   /**
-   * Create a hosted-checkout session with the provider.
-   * Called from `initiatePayment` server action — runs server-side only.
-   * Must never include API credentials in thrown errors or returned values.
+   * Create a checkout session for an invoice payment.
+   * Amount originates from `attempt.amountCents` (server-side) — never from
+   * client input. Must never include API credentials in thrown errors or
+   * returned values.
    */
-  initializeCheckout(
-    input: InitializeCheckoutInput,
-  ): Promise<InitializeCheckoutResult>
-
-  /**
-   * Fetch a transaction by provider reference ID.
-   * Called from the confirm route to verify amount and status server-side.
-   * Must never include API credentials in thrown errors or returned values.
-   */
-  getTransaction(providerRef: string): Promise<ProviderTransaction>
+  createCheckout(args: {
+    workspaceId: string
+    invoice:     { id: string; number: string; publicToken: string }
+    attempt:     { id: string; amountCents: number; currency: string; idempotencyKey: string; checkoutRef: string }
+  }): Promise<CheckoutResult>
 }
 
-// ── Client-side event shape (iFrame postMessage) ────────────────────────────
-// These types describe the data flowing FROM the HelcimPay.js iFrame TO the
-// client page. They live here (not in helcim.ts) because the client-side
-// confirm modal component needs them — and this file has no server-only import.
+// ── Helcim-specific types (used by confirm + webhook routes) ─────────────────
+// These live here (not in helcim.ts) because the client-side confirm modal
+// component needs them — and this file has no server-only import.
 
 export type HelcimEventStatus = 'SUCCESS' | 'ABORTED' | 'HIDE'
 
-/** Raw transaction data returned in the iFrame SUCCESS event. */
+/** Raw transaction data returned in the HelcimPay.js iFrame SUCCESS event. */
 export type HelcimTransactionData = {
-  transactionId: string
-  dateCreated: string
-  cardBatchId?: string
-  status: string          // "APPROVED"
-  type: string            // "purchase"
+  transactionId:   string
+  dateCreated:     string
+  cardBatchId?:    string
+  status:          string    // "APPROVED"
+  type:            string    // "purchase"
   /** Dollar amount as a string, e.g. "100.00" */
-  amount: string
-  currency: string
-  avsResponse?: string
-  cvvResponse?: string
-  approvalCode?: string
-  cardToken?: string
-  cardNumber?: string
+  amount:          string
+  currency:        string
+  avsResponse?:    string
+  cvvResponse?:    string
+  approvalCode?:   string
+  cardToken?:      string
+  cardNumber?:     string
   cardHolderName?: string
-  cardType?: string
-  customerCode?: string
-  invoiceNumber?: string
-  warning?: string
+  cardType?:       string
+  customerCode?:   string
+  invoiceNumber?:  string
+  warning?:        string
 }
 
 /** Shape of `event.data.eventMessage` for a SUCCESS event. */
@@ -103,4 +81,26 @@ export type HelcimSuccessPayload = {
   data: HelcimTransactionData
   /** SHA-256 hash to validate on the server. */
   hash: string
+}
+
+// ── Legacy adapter types (used internally by the Helcim adapter) ─────────────
+
+export type InitializeCheckoutInput = {
+  amountCents:    number
+  currency:       string
+  idempotencyKey: string
+  reference?:     string
+}
+
+export type InitializeCheckoutResult = {
+  checkoutToken: string
+  secretToken:   string
+}
+
+export type ProviderTransaction = {
+  transactionId: string
+  amountCents:   number
+  currency:      string
+  status:        string
+  reference?:    string
 }

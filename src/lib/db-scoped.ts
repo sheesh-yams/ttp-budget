@@ -52,9 +52,10 @@ export const SCOPED_MODELS = new Set([
   'ProjectTeamMember',
   // A9: audit log — workspaceId plain column (no FK), same injection pattern
   'AuditEvent',
-  // Payments — workspace-owned config and attempt records
+  // Payments — workspace-owned config, attempt records, encrypted credentials
   'WorkspacePaymentConfig',
   'PaymentAttempt',
+  'EncryptedCredential',
   // Receipts — financial documents attached to actuals; must be scoped to prevent IDOR
   'Receipt',
   // Delivery — client-facing deliverable pages and assets

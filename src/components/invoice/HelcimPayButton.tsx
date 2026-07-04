@@ -225,13 +225,28 @@ export function HelcimPayButton({
       })
 
       const json = await res.json() as {
-        attemptId?: string
+        mode?:          'redirect' | 'helcim_modal'
+        url?:           string
+        attemptId?:     string
         checkoutToken?: string
-        secretToken?: string
-        error?: string
+        secretToken?:   string
+        error?:         string
       }
 
-      if (!res.ok || !json.attemptId || !json.checkoutToken || !json.secretToken) {
+      if (!res.ok) {
+        setState('error')
+        setErrorMsg(json.error ?? 'Could not initialize payment. Please try again.')
+        return
+      }
+
+      // Stripe: full-page redirect to hosted Checkout — state stays 'loading'
+      if (json.mode === 'redirect' && json.url) {
+        window.location.href = json.url
+        return
+      }
+
+      // Helcim: open HelcimPay.js modal
+      if (!json.attemptId || !json.checkoutToken || !json.secretToken) {
         setState('error')
         setErrorMsg(json.error ?? 'Could not initialize payment. Please try again.')
         return
@@ -385,16 +400,7 @@ export function HelcimPayButton({
       </button>
 
       <p style={{ textAlign: 'center', fontSize: 12, color: MUTED, margin: '12px 0 0' }}>
-        Secured by{' '}
-        <a
-          href="https://www.helcim.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ color: MUTED, textDecoration: 'underline' }}
-        >
-          Helcim
-        </a>
-        {' '}· Your card details are never stored on our servers
+        Secured payment · Your card details are never stored on our servers
       </p>
     </div>
   )
