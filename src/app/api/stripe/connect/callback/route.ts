@@ -18,7 +18,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { stripe } from '@/lib/payments/stripe'
-import { parseStateCookie } from '@/server/actions/stripe-connect'
+import { parseStateCookie } from '@/lib/payments/stripe-state'
 import { logAuditEvent } from '@/lib/audit'
 import { cookies } from 'next/headers'
 

@@ -16,47 +16,19 @@
  *     Stripe deauthorize API call fails.
  */
 
-import { createHmac, randomBytes } from 'crypto'
+import { randomBytes } from 'crypto'
 import { cookies } from 'next/headers'
 import { requireRole } from '@/lib/auth'
 import { getScopedDb } from '@/lib/db-scoped'
 import { logAuditEvent } from '@/lib/audit'
 import { stripe } from '@/lib/payments/stripe'
+import { buildStateCookieValue } from '@/lib/payments/stripe-state'
 import type { ActionResult } from '@/types'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const COOKIE_NAME    = 'stripe_oauth_state'
 const COOKIE_MAX_AGE = 600  // 10 minutes
-
-// ── HMAC helpers ───────────────────────────────────────────────────────────
-
-function signState(state: string, workspaceId: string): string {
-  return createHmac('sha256', process.env.STRIPE_SECRET_KEY ?? 'dev')
-    .update(`${state}:${workspaceId}`)
-    .digest('hex')
-}
-
-export function buildStateCookieValue(state: string, workspaceId: string): string {
-  return `${state}.${workspaceId}.${signState(state, workspaceId)}`
-}
-
-/** Returns { state, workspaceId } if the cookie is valid; null otherwise. */
-export function parseStateCookie(cookieValue: string): { state: string; workspaceId: string } | null {
-  const parts = cookieValue.split('.')
-  if (parts.length !== 3) return null
-  const [state, workspaceId, sig] = parts
-  if (!state || !workspaceId || !sig) return null
-
-  const expected = signState(state, workspaceId)
-  // Constant-time comparison to prevent timing side-channels
-  if (sig.length !== expected.length) return null
-  let diff = 0
-  for (let i = 0; i < expected.length; i++) diff |= sig.charCodeAt(i) ^ expected.charCodeAt(i)
-  if (diff !== 0) return null
-
-  return { state, workspaceId }
-}
 
 // ── getStripeConnectUrl ────────────────────────────────────────────────────
 
