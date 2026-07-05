@@ -33,7 +33,8 @@ import { encryptCredential } from '../src/lib/crypto/credentials'
 
 // ── CLI args ───────────────────────────────────────────────────────────────
 
-const apply = process.argv.includes('--apply')
+const apply        = process.argv.includes('--apply')
+const skipValidate = process.argv.includes('--skip-validate')
 
 const wsIdx       = process.argv.indexOf('--workspace')
 const workspaceId = wsIdx !== -1 ? process.argv[wsIdx + 1] : undefined
@@ -133,9 +134,13 @@ async function main(): Promise<void> {
   }
 
   // ── Validate token ────────────────────────────────────────────────────────
-  process.stdout.write('Validating HELCIM_API_TOKEN... ')
-  await validateHelcimToken(apiToken)
-  console.log('OK')
+  if (skipValidate) {
+    console.log('Skipping token validation (--skip-validate).')
+  } else {
+    process.stdout.write('Validating HELCIM_API_TOKEN... ')
+    await validateHelcimToken(apiToken)
+    console.log('OK')
+  }
 
   if (!apply) {
     console.log()
