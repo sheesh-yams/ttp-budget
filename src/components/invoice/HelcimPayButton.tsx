@@ -103,19 +103,31 @@ export function HelcimPayButton({
   useEffect(() => {
     if (state !== 'modal_open') return
 
-    const observer = new MutationObserver(() => {
-      const helcimEl = document.querySelector(
-        '[id*="helcim"], [class*="helcim-pay"], iframe[src*="helcim"]',
-      )
-      if (!helcimEl) {
-        observer.disconnect()
-        setTimeout(() => {
-          if (stateRef.current === 'modal_open') window.location.reload()
-        }, 1500)
+    // Give Helcim's JS time to add its element before we start watching for removal.
+    const setupTimer = setTimeout(() => {
+      const isHelcimGone = () => {
+        const el = document.querySelector(
+          '[id*="helcim"], [class*="helcim-pay"], iframe[src*="helcim"]',
+        )
+        if (!el) return true
+        const style = getComputedStyle(el)
+        return style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0'
       }
-    })
-    observer.observe(document.body, { childList: true, subtree: true })
-    return () => observer.disconnect()
+
+      const observer = new MutationObserver(() => {
+        if (isHelcimGone()) {
+          observer.disconnect()
+          setTimeout(() => {
+            if (stateRef.current === 'modal_open') window.location.reload()
+          }, 1500)
+        }
+      })
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] })
+
+      return () => observer.disconnect()
+    }, 800)
+
+    return () => clearTimeout(setupTimer)
   }, [state])
 
   // ── iFrame message handler ─────────────────────────────────────────────
@@ -143,12 +155,15 @@ export function HelcimPayButton({
 
     // ── HIDE / ABORTED ─────────────────────────────────────────────────
     if (payload.eventName === 'HIDE') {
-      // iFrame closed without a terminal event — user dismissed it
-      if (listenerRef.current) {
-        window.removeEventListener('message', listenerRef.current)
-        listenerRef.current = null
+      // iFrame closed — only reset to idle if we haven't already received SUCCESS.
+      // Helcim sometimes sends HIDE after SUCCESS; don't let it overwrite confirming/success.
+      if (stateRef.current === 'modal_open') {
+        if (listenerRef.current) {
+          window.removeEventListener('message', listenerRef.current)
+          listenerRef.current = null
+        }
+        setState('idle')
       }
-      setState('idle')
       return
     }
 
@@ -200,6 +215,7 @@ export function HelcimPayButton({
             )
           } else {
             setState('success')
+            setTimeout(() => window.location.reload(), 2000)
           }
         })
         .catch(() => {
