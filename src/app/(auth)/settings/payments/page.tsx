@@ -30,14 +30,7 @@ export default async function PaymentsPage({
   const connectFailed = params.error === 'stripe_connect_failed'
 
   return (
-    <div className="max-w-3xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-foreground">Payments</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Connect a payment provider so clients can pay invoices online.
-        </p>
-      </div>
-
+    <div>
       {justConnected && (
         <div className="mb-4 rounded-lg border border-green-500/20 bg-green-500/10 px-4 py-3 text-sm text-green-700 dark:text-green-400">
           Stripe connected. The payment button will now appear on your invoices.

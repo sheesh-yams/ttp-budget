@@ -52,14 +52,7 @@ export default async function SettingsPage() {
   }
 
   return (
-    <div className="max-w-3xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-foreground">Settings</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Manage your workspace, branding, and default content.
-        </p>
-      </div>
-
+    <div>
       <SettingsForm
         workspace={settings}
         currentUser={{ id: user.id, name: user.name ?? '', avatarUrl: user.avatarUrl ?? null }}
