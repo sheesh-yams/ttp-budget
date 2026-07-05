@@ -14,7 +14,9 @@
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
     "audit:scoping": "tsx scripts/audit-scoped-models.ts",
-    "audit:tokens": "tsx scripts/report-token-formats.ts"
+    "audit:tokens": "tsx scripts/report-token-formats.ts",
+    "migrate:helcim": "NODE_OPTIONS='--conditions=react-server' tsx scripts/migrate-ttp-helcim.ts",
+    "rotate:kek": "NODE_OPTIONS='--conditions=react-server' tsx scripts/rotate-credential-kek.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1068.0",
