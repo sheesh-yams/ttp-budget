@@ -452,7 +452,7 @@ export function ProposalPublicView({
                 If the scope of work, budget, and payment terms look good, continue to review and sign the contract.
               </p>
               <p style={{ fontSize: 13, color: MUTED, margin: '0 0 28px' }}>
-                You'll have a chance to read the full terms before signing.
+                You&apos;ll have a chance to read the full terms before signing.
               </p>
               <a
                 href={`/p/${proposal.publicToken}/sign`}
