@@ -8,9 +8,11 @@ import { getStripeConnectUrl, disconnectStripe } from '@/server/actions/stripe-c
 export function StripeConnectCard({
   stripeAccountId,
   stripeChargesEnabled,
+  isActiveProvider = true,
 }: {
   stripeAccountId:      string | null
   stripeChargesEnabled: boolean
+  isActiveProvider?:    boolean
 }) {
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -52,18 +54,24 @@ export function StripeConnectCard({
           <span
             className={cn(
               'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium',
-              stripeChargesEnabled
-                ? 'bg-green-500/10 text-green-700 dark:text-green-400'
-                : 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-500',
+              !isActiveProvider
+                ? 'bg-muted text-muted-foreground'
+                : stripeChargesEnabled
+                  ? 'bg-green-500/10 text-green-700 dark:text-green-400'
+                  : 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-500',
             )}
           >
             <span
               className={cn(
                 'h-1.5 w-1.5 rounded-full',
-                stripeChargesEnabled ? 'bg-green-500' : 'bg-yellow-500',
+                !isActiveProvider
+                  ? 'bg-muted-foreground'
+                  : stripeChargesEnabled ? 'bg-green-500' : 'bg-yellow-500',
               )}
             />
-            {stripeChargesEnabled ? 'Active' : 'Pending activation'}
+            {!isActiveProvider
+              ? 'Connected'
+              : stripeChargesEnabled ? 'Active' : 'Pending activation'}
           </span>
         )}
       </div>
@@ -75,7 +83,7 @@ export function StripeConnectCard({
           : 'Accept card payments on invoices via Stripe Connect.'}
       </p>
 
-      {isConnected && !stripeChargesEnabled && (
+      {isConnected && isActiveProvider && !stripeChargesEnabled && (
         <p className="mt-1 text-sm text-yellow-700 dark:text-yellow-500">
           Complete onboarding in your Stripe dashboard to enable charges.
         </p>
