@@ -6,6 +6,9 @@ import { headers } from 'next/headers'
 import { sendProposalApprovedEmail } from '@/lib/email'
 import { logAuditEvent } from '@/lib/audit'
 import { trustedClientIp } from '@/lib/client-ip'
+import { toJsonSafe } from '@/lib/json-safe'
+import { renderSmartText } from '@/lib/smart-text'
+import { resolveMergeTags, resolveMergeTagsPlain, type MergeTagContext } from '@/lib/merge-tags'
 
 const schema = z.object({
   signatureName: z.string().min(2).max(120),
@@ -30,7 +33,7 @@ export async function POST(
     where: { id, publicToken: proposalToken },
     include: {
       project: { include: { client: true } },
-      workspace: { select: { contactEmail: true } },
+      workspace: { select: { contactEmail: true, name: true, legalName: true } },
     },
   })
 
@@ -58,6 +61,51 @@ export async function POST(
   const content = proposal.content as Record<string, unknown>
   const approvedTotal = typeof content.totalCents === 'number' ? content.totalCents : null
 
+  // ── Contract snapshot ──────────────────────────────────────────────────────
+  // Freeze the contract exactly as the client sees it at signing. Sections stay
+  // editable pre-approval and merge tags resolve live, so without this snapshot
+  // the "signed" contract could silently change afterwards. bodyHtml is the
+  // final safe HTML the approved web views render; bodyText is the plain
+  // resolved form the PDF renders.
+  const contractEnabled = (proposal as unknown as { contractEnabled?: boolean }).contractEnabled ?? true
+  type SectionRow = { id: string; title: string; body: string }
+  const liveSections = contractEnabled
+    ? await (db as unknown as {
+        proposalContractSection: { findMany: (a: object) => Promise<SectionRow[]> }
+      }).proposalContractSection.findMany({
+        where:   { proposalId: proposal.id },
+        orderBy: { orderIndex: 'asc' },
+        select:  { id: true, title: true, body: true },
+      })
+    : []
+
+  const snapTotal = (content?.budgetSnapshot as { totalCents?: number } | undefined)?.totalCents ?? approvedTotal
+  const mergeCtx: MergeTagContext = {
+    workspace: { name: proposal.workspace.name, legalName: proposal.workspace.legalName ?? undefined },
+    client:    { name: proposal.project.client.name },
+    project:   { name: proposal.project.name },
+    proposal: {
+      total: snapTotal != null
+        ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(snapTotal / 100)
+        : undefined,
+      validThrough: proposal.expiresAt
+        ? proposal.expiresAt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+        : undefined,
+    },
+  }
+
+  const contractSnapshot = liveSections.length > 0
+    ? {
+        signedAt: now.toISOString(),
+        sections: liveSections.map(s => ({
+          id:       s.id,
+          title:    s.title,
+          bodyHtml: resolveMergeTags(renderSmartText(s.body), mergeCtx),
+          bodyText: resolveMergeTagsPlain(s.body, mergeCtx),
+        })),
+      }
+    : null
+
   const updated = await db.proposal.update({
     where: { id: proposal.id },
     data: {
@@ -66,6 +114,9 @@ export async function POST(
       signatureName,
       signatureIp: ip,
       approvedTotalCents: approvedTotal,
+      ...(contractSnapshot
+        ? { content: toJsonSafe({ ...content, contractSnapshot }) }
+        : {}),
     },
   })
 

@@ -27,6 +27,8 @@ interface ContractSection {
   title:      string
   body:       string
   orderIndex: number
+  /** Pre-resolved HTML from the signing snapshot — takes precedence over live rendering. */
+  resolvedHtml?: string
 }
 
 interface SerialProposal {
@@ -174,10 +176,11 @@ export function ProposalSignView({ proposal, contractSections }: Props) {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
             {contractSections.map((cs, i) => {
-              // Render smart-text first, then substitute (HTML-escaped) merge
-              // values into the finished HTML — resolving before rendering would
-              // double-escape the body; resolving after keeps values un-injectable.
-              const html = resolveMergeTags(renderSmartText(cs.body), mergeCtx)
+              // Signed proposals carry pre-resolved snapshot HTML (frozen at
+              // approval). Otherwise: render smart-text first, then substitute
+              // (HTML-escaped) merge values into the finished HTML — resolving
+              // before rendering would double-escape; after keeps values inert.
+              const html = cs.resolvedHtml ?? resolveMergeTags(renderSmartText(cs.body), mergeCtx)
               return (
                 <div key={cs.id}>
                   {contractSections.length > 1 && (

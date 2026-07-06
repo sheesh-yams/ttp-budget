@@ -74,6 +74,39 @@ export function resolveMergeTags(body: string, ctx: MergeTagContext): string {
   })
 }
 
+/**
+ * Plain-text merge-tag resolution — for contexts that render text, not HTML
+ * (the PDF, and the bodyText half of the signing snapshot). Values are
+ * substituted verbatim (react-pdf renders them as literal text, so no escaping
+ * is needed), deliverables become a dash list, and unresolved tags stay as
+ * literal {{tag}} with no warning markup.
+ */
+export function resolveMergeTagsPlain(body: string, ctx: MergeTagContext): string {
+  const deliverablesList = ctx.deliverables?.length
+    ? ctx.deliverables
+        .map(d => `- ${d.title}${d.quantity && d.quantity > 1 ? ` × ${d.quantity}` : ''}`)
+        .join('\n')
+    : undefined
+
+  const replacements: Record<string, string | undefined> = {
+    'client.name':        ctx.client?.name,
+    'client.company':     ctx.client?.company,
+    'project.name':       ctx.project?.name,
+    'workspace.name':     ctx.workspace?.name,
+    'workspace.legalName': ctx.workspace?.legalName ?? ctx.workspace?.name,
+    'proposal.total':     ctx.proposal?.total,
+    'proposal.validThrough': ctx.proposal?.validThrough,
+    'deliverables.list':  deliverablesList,
+    'payment.schedule':   undefined,
+  }
+
+  return body.replace(/\{\{([^}]+)\}\}/g, (match, tag: string) => {
+    const key = tag.trim()
+    const val = key in replacements ? replacements[key] : undefined
+    return val !== undefined && val !== '' ? val : match
+  })
+}
+
 /** Returns true if the resolved body contains any unresolved tags. */
 export function hasUnresolvedTags(resolved: string): boolean {
   return resolved.includes(SENTINEL)

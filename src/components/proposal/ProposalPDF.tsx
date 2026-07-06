@@ -65,6 +65,8 @@ interface Props {
   discountLabel?: string
   budgetSections?: BudgetSection[]
   contractSections?: ContractSection[]
+  /** Present once the proposal is signed — renders the signature block. */
+  signature?: { name: string; dateISO: string }
   pageBreakBetweenAccounts?: boolean
 }
 
@@ -198,6 +200,13 @@ const s = StyleSheet.create({
   contractBulletDot: { width: 12, fontSize: 10, color: BODY },
   contractDivider:   { height: 0.5, backgroundColor: BDR, marginVertical: 16 },
 
+  // Signature block (rendered when the proposal is signed)
+  sigBlock:   { marginTop: 28, paddingTop: 20, borderTop: `1 solid ${BDR}` },
+  sigLabel:   { fontSize: 8, fontFamily: 'Helvetica-Bold', color: V, letterSpacing: 1.4, textTransform: 'uppercase', marginBottom: 14 },
+  sigName:    { fontSize: 24, fontFamily: 'Helvetica-Oblique', color: BODY, marginBottom: 6 },
+  sigLine:    { height: 1, backgroundColor: BODY, width: 220, marginBottom: 6 },
+  sigMeta:    { fontSize: 9, color: MUT, marginBottom: 2 },
+
   // Footer — pinned absolutely
   footer:    { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: '12 48', backgroundColor: INK },
   footerLbl: { fontSize: 8, color: 'rgba(255,255,255,0.45)' },
@@ -217,7 +226,7 @@ function SectionLabel({ label }: { label: string }) {
 
 // ─── Main PDF component ───────────────────────────────────────────────────────
 
-export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0, discountLabel = 'Discount', budgetSections = [], contractSections = [], pageBreakBetweenAccounts = false }: Props) {
+export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0, discountLabel = 'Discount', budgetSections = [], contractSections = [], signature, pageBreakBetweenAccounts = false }: Props) {
   const content  = proposal.content as ProposalContent
   const sections = content?.sections ?? []
 
@@ -556,6 +565,22 @@ export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0,
                 </View>
               )
             })}
+          </View>
+        )}
+
+        {/* ══ SIGNATURE ══ */}
+        {signature && (
+          <View style={[s.section, s.sigBlock]} wrap={false}>
+            <Text style={s.sigLabel}>Signed &amp; Approved</Text>
+            <Text style={s.sigName}>{signature.name}</Text>
+            <View style={s.sigLine} />
+            <Text style={s.sigMeta}>
+              Signed electronically by {signature.name} on{' '}
+              {new Date(signature.dateISO).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+            </Text>
+            {totalCents > 0 && (
+              <Text style={s.sigMeta}>Approved total: {formatMoney(totalCents)}</Text>
+            )}
           </View>
         )}
 

@@ -59,14 +59,27 @@ export default async function ProposalSignPage({ params }: Props) {
   const contractEnabled = (proposal as unknown as { contractEnabled?: boolean }).contractEnabled ?? true
   if (!contractEnabled) redirect(`/p/${token}`)
 
-  type ContractRow = { id: string; title: string; body: string; orderIndex: number }
-  const contractSections = await (db as unknown as {
-    proposalContractSection: { findMany: (a: object) => Promise<ContractRow[]> }
-  }).proposalContractSection.findMany({
-    where:   { proposalId: proposal.id },
-    orderBy: { orderIndex: 'asc' },
-    select:  { id: true, title: true, body: true, orderIndex: true },
-  })
+  type ContractRow = { id: string; title: string; body: string; orderIndex: number; resolvedHtml?: string }
+
+  // Signed proposals render the contract snapshot frozen at approval — the exact
+  // text the client agreed to — never the live (still-editable) sections.
+  const signedSnapshot = proposal.status === 'APPROVED'
+    ? ((proposal.content as Record<string, unknown>)?.contractSnapshot as {
+        sections?: { id: string; title: string; bodyHtml?: string }[]
+      } | undefined)
+    : undefined
+
+  const contractSections: ContractRow[] = signedSnapshot?.sections?.length
+    ? signedSnapshot.sections.map((s, i) => ({
+        id: s.id, title: s.title, body: '', orderIndex: i, resolvedHtml: s.bodyHtml ?? '',
+      }))
+    : await (db as unknown as {
+        proposalContractSection: { findMany: (a: object) => Promise<ContractRow[]> }
+      }).proposalContractSection.findMany({
+        where:   { proposalId: proposal.id },
+        orderBy: { orderIndex: 'asc' },
+        select:  { id: true, title: true, body: true, orderIndex: true },
+      })
 
   // No sections → fall back to main page (inline sign-off)
   if (contractSections.length === 0) redirect(`/p/${token}`)

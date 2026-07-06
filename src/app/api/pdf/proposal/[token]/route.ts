@@ -3,6 +3,7 @@ import { renderToBuffer } from '@react-pdf/renderer'
 import { db } from '@/lib/db'
 import { ProposalPDF } from '@/components/proposal/ProposalPDF'
 import { sumAccount, type AccountInput } from '@/lib/totals'
+import { resolveMergeTagsPlain, type MergeTagContext } from '@/lib/merge-tags'
 import React from 'react'
 import fs from 'fs'
 import path from 'path'
@@ -32,10 +33,11 @@ export async function GET(
     return new NextResponse('Not found', { status: 404 })
   }
 
-  // Contract sections attached to this proposal (skipped if contractEnabled is false)
+  // Contract sections attached to this proposal (skipped if contractEnabled is false).
+  // Merge tags are resolved further down, once totalCents is known.
   type ContractRow = { id: string; title: string; body: string }
   const contractEnabled = (proposal as unknown as { contractEnabled?: boolean }).contractEnabled ?? true
-  const contractSections = contractEnabled
+  const liveContractSections = contractEnabled
     ? await (db as unknown as {
         proposalContractSection: { findMany: (a: object) => Promise<ContractRow[]> }
       }).proposalContractSection.findMany({
@@ -131,6 +133,43 @@ export async function GET(
     totalCents = Math.max(0, rawTotal - discountCents)
   }
 
+  // ── Resolve contract merge tags ────────────────────────────────────────────
+  // Signed proposals render from the contract snapshot frozen at approval (the
+  // exact text the client agreed to). Unsigned ones resolve live against the
+  // same context the public pages use — the PDF must never show raw {{tags}}.
+  const contractSnapshot = proposalContent?.contractSnapshot as {
+    sections?: { id: string; title: string; bodyText?: string }[]
+  } | undefined
+
+  let contractSections: ContractRow[]
+  if (proposal.status === 'APPROVED' && contractSnapshot?.sections?.length) {
+    contractSections = contractSnapshot.sections.map(s => ({
+      id: s.id, title: s.title, body: s.bodyText ?? '',
+    }))
+  } else {
+    const mergeCtx: MergeTagContext = {
+      workspace: { name: proposal.workspace.name, legalName: proposal.workspace.legalName ?? undefined },
+      client:    { name: proposal.project.client.name },
+      project:   { name: proposal.project.name },
+      proposal: {
+        total: totalCents > 0
+          ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(totalCents / 100)
+          : undefined,
+        validThrough: proposal.expiresAt
+          ? proposal.expiresAt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+          : undefined,
+      },
+    }
+    contractSections = liveContractSections.map(s => ({
+      id: s.id, title: s.title, body: resolveMergeTagsPlain(s.body, mergeCtx),
+    }))
+  }
+
+  // Signature block data — rendered on the PDF once the proposal is signed.
+  const signature = proposal.status === 'APPROVED' && proposal.signatureName && proposal.approvedAt
+    ? { name: proposal.signatureName, dateISO: proposal.approvedAt.toISOString() }
+    : undefined
+
   let logoSrc: string | undefined
   try {
     const logoBuffer = fs.readFileSync(path.join(process.cwd(), 'public', 'logo.png'))
@@ -172,6 +211,7 @@ export async function GET(
         discountLabel,
         budgetSections,
         contractSections,
+        signature,
         pageBreakBetweenAccounts,
       }) as Parameters<typeof renderToBuffer>[0]
     )

@@ -57,6 +57,41 @@ function pcs(sdb: Awaited<ReturnType<typeof getScopedDb>>) {
   return (sdb as unknown as { proposalContractSection: PCS }).proposalContractSection
 }
 
+// ─── Signed-contract lock ─────────────────────────────────────────────────────
+// Once a proposal is APPROVED the contract has been signed — its sections and
+// the contractEnabled toggle are immutable. The approved views render the
+// snapshot frozen at signing, so editing here would desynchronise the DB from
+// the legal record. Every mutating action below checks this first.
+
+const CONTRACT_LOCKED_ERROR = 'This proposal has been signed — the contract can no longer be changed.'
+
+async function isProposalLocked(
+  sdb: Awaited<ReturnType<typeof getScopedDb>>,
+  proposalId: string,
+): Promise<boolean | null> {
+  const proposal = await (sdb as unknown as {
+    proposal: { findFirst: (a: object) => Promise<{ status: string } | null> }
+  }).proposal.findFirst({ where: { id: proposalId }, select: { status: true } })
+  if (!proposal) return null  // not found (or cross-workspace)
+  return proposal.status === 'APPROVED'
+}
+
+async function isSectionProposalLocked(
+  sdb: Awaited<ReturnType<typeof getScopedDb>>,
+  sectionId: string,
+): Promise<boolean | null> {
+  const section = await (sdb as unknown as {
+    proposalContractSection: {
+      findFirst: (a: object) => Promise<{ proposal: { status: string } } | null>
+    }
+  }).proposalContractSection.findFirst({
+    where:  { id: sectionId },
+    select: { proposal: { select: { status: true } } },
+  })
+  if (!section) return null
+  return section.proposal.status === 'APPROVED'
+}
+
 // ─── Merge-tag context for the preview panel ──────────────────────────────────
 
 export async function getMergeTagContext(
@@ -124,6 +159,11 @@ export async function setContractEnabled(
 ): Promise<ActionResult<void>> {
   try {
     const sdb = await getScopedDb()
+
+    const locked = await isProposalLocked(sdb, proposalId)
+    if (locked === null) return { success: false, error: 'Proposal not found.' }
+    if (locked) return { success: false, error: CONTRACT_LOCKED_ERROR }
+
     await (sdb as unknown as {
       proposal: { update: (a: object) => Promise<unknown> }
     }).proposal.update({
@@ -229,6 +269,10 @@ export async function attachDefaultBlocks(
       contractBlock: { findMany: (a: object) => Promise<BlockRow[]> }
     }
 
+    const locked = await isProposalLocked(sdb, proposalId)
+    if (locked === null) return { success: false, error: 'Proposal not found.' }
+    if (locked) return { success: false, error: CONTRACT_LOCKED_ERROR }
+
     const existing = await sdbAny.proposalContractSection.findFirst({
       where: { proposalId }, select: { id: true },
     })
@@ -280,6 +324,10 @@ export async function attachContractBlock(
       }
     }
 
+    const locked = await isProposalLocked(sdb, proposalId)
+    if (locked === null) return { success: false, error: 'Proposal not found.' }
+    if (locked) return { success: false, error: CONTRACT_LOCKED_ERROR }
+
     const block = await sdbAny.contractBlock.findFirst({ where: { id: blockId } })
     if (!block) return { success: false, error: 'Block not found.' }
 
@@ -327,6 +375,10 @@ export async function addAdHocSection(
       }
     }
 
+    const locked = await isProposalLocked(sdb, proposalId)
+    if (locked === null) return { success: false, error: 'Proposal not found.' }
+    if (locked) return { success: false, error: CONTRACT_LOCKED_ERROR }
+
     const maxOrder = await sdbAny.proposalContractSection.aggregate({
       where: { proposalId }, _max: { orderIndex: true },
     })
@@ -369,6 +421,10 @@ export async function updateContractSection(
       }
     }
 
+    const locked = await isSectionProposalLocked(sdb, sectionId)
+    if (locked === null) return { success: false, error: 'Section not found.' }
+    if (locked) return { success: false, error: CONTRACT_LOCKED_ERROR }
+
     const existing = await sdbAny.proposalContractSection.findFirst({
       where: { id: sectionId }, select: { sourceBlockId: true, title: true, body: true },
     })
@@ -405,6 +461,10 @@ export async function resetContractSection(sectionId: string): Promise<ActionRes
       contractBlock: { findFirst: (a: object) => Promise<BlockRow | null> }
     }
 
+    const locked = await isSectionProposalLocked(sdb, sectionId)
+    if (locked === null) return { success: false, error: 'Section not found.' }
+    if (locked) return { success: false, error: CONTRACT_LOCKED_ERROR }
+
     const existing = await sdbAny.proposalContractSection.findFirst({
       where: { id: sectionId }, select: { sourceBlockId: true },
     })
@@ -430,6 +490,11 @@ export async function resetContractSection(sectionId: string): Promise<ActionRes
 export async function removeContractSection(sectionId: string): Promise<ActionResult<void>> {
   try {
     const sdb = await getScopedDb()
+
+    const locked = await isSectionProposalLocked(sdb, sectionId)
+    if (locked === null) return { success: false, error: 'Section not found.' }
+    if (locked) return { success: false, error: CONTRACT_LOCKED_ERROR }
+
     await (sdb as unknown as {
       proposalContractSection: { delete: (a: object) => Promise<unknown> }
     }).proposalContractSection.delete({ where: { id: sectionId } })
@@ -446,7 +511,13 @@ export async function reorderContractSections(
   orderedIds: string[]
 ): Promise<ActionResult<void>> {
   try {
+    if (orderedIds.length === 0) return { success: true, data: undefined }
     const sdb = await getScopedDb()
+
+    const locked = await isSectionProposalLocked(sdb, orderedIds[0])
+    if (locked === null) return { success: false, error: 'Section not found.' }
+    if (locked) return { success: false, error: CONTRACT_LOCKED_ERROR }
+
     const sdbAny = sdb as unknown as {
       proposalContractSection: { update: (a: object) => Promise<unknown> }
     }
