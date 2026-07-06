@@ -334,7 +334,7 @@ function ContractPreview({ sections, mergeCtx }: { sections: ContractSectionRow[
               </p>
               <div
                 className="text-xs leading-relaxed text-foreground/90 [&>ul]:list-disc [&>ul]:pl-4 [&>ul]:space-y-0.5 [&>ol]:list-decimal [&>ol]:pl-4 [&>ol]:space-y-0.5 [&>br]:block"
-                dangerouslySetInnerHTML={{ __html: renderSmartText(resolveMergeTags(s.body, mergeCtx)) }}
+                dangerouslySetInnerHTML={{ __html: resolveMergeTags(renderSmartText(s.body), mergeCtx) }}
               />
               {i < sections.length - 1 && <div className="mt-5 border-t border-border/40" />}
             </div>

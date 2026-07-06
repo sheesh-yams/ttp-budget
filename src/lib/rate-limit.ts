@@ -24,6 +24,7 @@ const POLICIES = {
   publicPdf: { requests: 10, window: '60 s' },  // /api/pdf/proposal/ and /api/pdf/invoice/
   payments:  { requests: 20, window: '60 s' },  // /api/payments/*
   geocode:   { requests: 30, window: '60 s' },  // /api/address-autocomplete
+  approve:   { requests: 10, window: '60 s' },  // /api/proposals/*/approve (public sign-off)
 } as const
 export type PolicyName = keyof typeof POLICIES
 

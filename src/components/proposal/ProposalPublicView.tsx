@@ -413,8 +413,10 @@ export function ProposalPublicView({
             <SectionHeader label="Terms" />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
               {contractSections.map((cs, i) => {
-                const resolved = resolveMergeTags(cs.body, mergeCtx)
-                const html     = renderSmartText(resolved)
+                // Render smart-text first, then substitute (HTML-escaped) merge
+                // values into the finished HTML — resolving before rendering would
+                // double-escape the body; resolving after keeps values un-injectable.
+                const html = resolveMergeTags(renderSmartText(cs.body), mergeCtx)
                 return (
                   <div key={cs.id}>
                     {contractSections.length > 1 && (

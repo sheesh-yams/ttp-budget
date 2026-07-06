@@ -21,6 +21,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/pdf/proposal/(.*)',
   '/api/pdf/invoice/(.*)',
   '/api/payments/(.*)',         // payment routes self-authenticate via publicToken / attemptId
+  '/api/proposals/(.*)/approve', // public client sign-off — self-authenticates via proposal publicToken
   '/api/stripe/connect/callback', // OAuth redirect from Stripe — authenticated via HMAC-signed cookie
 ])
 
@@ -50,6 +51,7 @@ function policyFor(pathname: string): PolicyName | null {
   if (/^\/(p|i|cs|d)\//.test(pathname))                                               return 'publicDoc'
   if (pathname.startsWith('/api/pdf/proposal/') || pathname.startsWith('/api/pdf/invoice/')) return 'publicPdf'
   if (pathname.startsWith('/api/payments/'))                                           return 'payments'
+  if (pathname.startsWith('/api/proposals/') && pathname.endsWith('/approve'))          return 'approve'
   if (pathname.startsWith('/api/address-autocomplete'))                                return 'geocode'
   return null
 }
