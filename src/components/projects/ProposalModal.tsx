@@ -389,7 +389,7 @@ export function ProposalModal({
 
         {/* Contract tab */}
         {activeTab === 'contract' && mode === 'edit-draft' && existing && !successToken && (
-          <div className="py-2 max-h-[65vh] overflow-y-auto pr-1">
+          <div className="py-2">
             <ContractTab proposalId={existing.id} contractEnabled={existing.contractEnabled ?? true} />
           </div>
         )}

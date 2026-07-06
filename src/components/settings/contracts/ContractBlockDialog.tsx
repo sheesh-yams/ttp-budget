@@ -151,6 +151,7 @@ export function ContractBlockDialog({ open, onClose, editing }: Props) {
               onChange={setBody}
               rows={12}
               placeholder="Enter contract text…"
+              showMergeTags
             />
             <p className="text-xs text-muted-foreground">
               Merge tags: <code className="text-xs">{'{{client.name}}'}</code>{' '}

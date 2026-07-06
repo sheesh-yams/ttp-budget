@@ -7,12 +7,18 @@
  *   ++text++        → <u>text</u>
  *   [text](url)     → <a href="url" …>text</a>  (http/https only)
  *   - item          → <ul><li>…</li></ul>  (consecutive lines)
- *   1. item         → <ol><li>…</li></ol>  (consecutive lines)
+ *   1. item         → <ol><li>…</li></ul>  (consecutive lines)
  *   blank line      → paragraph break
  *
- * HTML is escaped before pattern substitution, so user content cannot
- * inject arbitrary tags.
+ * Legacy HTML content (from before the SmartText editor was introduced) is
+ * detected and passed through without escaping so existing blocks render
+ * correctly. New content written through the SmartTextEditor uses the format
+ * above and is always escaped before pattern substitution.
  */
+
+function looksLikeHtml(s: string): boolean {
+  return /<(p|div|ul|ol|li|br|strong|em|h[1-6])\b/i.test(s)
+}
 
 function escapeHtml(s: string): string {
   return s
@@ -40,6 +46,9 @@ function applyInline(s: string): string {
 }
 
 export function renderSmartText(raw: string): string {
+  // Legacy blocks were saved as HTML — pass them through without re-escaping.
+  if (looksLikeHtml(raw)) return raw
+
   const lines = raw.split('\n')
   let html = ''
   let i = 0
@@ -79,6 +88,10 @@ export function renderSmartText(raw: string): string {
 
 /** Strip smart-text syntax markers for plain-text contexts (e.g. truncated previews). */
 export function stripSmartText(raw: string): string {
+  // Legacy HTML content — strip tags
+  if (looksLikeHtml(raw)) {
+    return raw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+  }
   return raw
     .replace(/\*\*([\s\S]+?)\*\*/g, '$1')
     .replace(/_([\s\S]+?)_/g, '$1')

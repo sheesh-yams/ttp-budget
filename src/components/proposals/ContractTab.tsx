@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useTransition, useCallback } from 'react'
+import { Eye, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -122,6 +123,7 @@ function SectionCard({
             onChange={setEditBody}
             rows={7}
             placeholder="Contract text…"
+            showMergeTags
           />
           {error && <p className="text-xs text-destructive">{error}</p>}
           <div className="flex items-center gap-2 flex-wrap">
@@ -366,15 +368,16 @@ export function ContractTab({
   contractEnabled:  boolean
   height?:          string
 }) {
-  const [enabled,      setEnabled]     = useState(initialEnabled)
-  const [sections,     setSections]    = useState<ContractSectionRow[]>([])
-  const [suggestions,  setSuggestions] = useState<SuggestedBlock[]>([])
-  const [loading,      setLoading]     = useState(true)
-  const [activeId,     setActiveId]    = useState<string | null>(null)
-  const [pickerOpen,   setPickerOpen]  = useState(false)
-  const [adHocOpen,    setAdHocOpen]   = useState(false)
-  const [togglePending, startToggle]  = useTransition()
-  const [initPending,   startInit]    = useTransition()
+  const [enabled,       setEnabled]      = useState(initialEnabled)
+  const [sections,      setSections]     = useState<ContractSectionRow[]>([])
+  const [suggestions,   setSuggestions]  = useState<SuggestedBlock[]>([])
+  const [loading,       setLoading]      = useState(true)
+  const [activeId,      setActiveId]     = useState<string | null>(null)
+  const [pickerOpen,    setPickerOpen]   = useState(false)
+  const [adHocOpen,     setAdHocOpen]    = useState(false)
+  const [previewOpen,   setPreviewOpen]  = useState(false)
+  const [togglePending, startToggle]     = useTransition()
+  const [initPending,   startInit]       = useTransition()
 
   const load = useCallback(async () => {
     const [secRes, evalRes] = await Promise.all([
@@ -413,31 +416,50 @@ export function ContractTab({
   return (
     <div className="flex flex-col" style={{ height }}>
 
-      {/* ── Toggle bar ── */}
-      <div className="flex items-center justify-between py-2 mb-3 border-b border-border/60">
+      {/* ── Toggle + preview bar ── */}
+      <div className="flex items-center justify-between py-2 mb-3 border-b border-border/60 flex-shrink-0">
         <div>
           <p className="text-sm font-medium text-foreground">Contract terms</p>
           <p className="text-xs text-muted-foreground">
             {enabled ? 'A Terms section will appear on the proposal.' : 'No contract will be included with this proposal.'}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => handleToggle(!enabled)}
-          disabled={togglePending}
-          className={cn(
-            'relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-            enabled ? 'bg-primary' : 'bg-muted-foreground/30',
-            togglePending && 'opacity-50 cursor-not-allowed',
+        <div className="flex items-center gap-3">
+          {/* Preview toggle — only shown when contract is enabled and loaded */}
+          {enabled && !isLoading && (
+            <button
+              type="button"
+              onClick={() => setPreviewOpen(v => !v)}
+              className={cn(
+                'flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium border transition-colors',
+                previewOpen
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'border-border/60 text-muted-foreground hover:text-foreground hover:border-border',
+              )}
+            >
+              <Eye className="h-3.5 w-3.5" />
+              Preview
+            </button>
           )}
-          role="switch"
-          aria-checked={enabled}
-        >
-          <span className={cn(
-            'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform',
-            enabled ? 'translate-x-6' : 'translate-x-1',
-          )} />
-        </button>
+          {/* On/off toggle */}
+          <button
+            type="button"
+            onClick={() => handleToggle(!enabled)}
+            disabled={togglePending}
+            className={cn(
+              'relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              enabled ? 'bg-primary' : 'bg-muted-foreground/30',
+              togglePending && 'opacity-50 cursor-not-allowed',
+            )}
+            role="switch"
+            aria-checked={enabled}
+          >
+            <span className={cn(
+              'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform',
+              enabled ? 'translate-x-6' : 'translate-x-1',
+            )} />
+          </button>
+        </div>
       </div>
 
       {/* ── Disabled state ── */}
@@ -455,20 +477,18 @@ export function ContractTab({
         </div>
       )}
 
-      {/* ── Enabled: two-column layout ── */}
+      {/* ── Enabled: full-width editor + slide-in preview ── */}
       {enabled && (
-        <div className="flex gap-4 flex-1 min-h-0">
+        <div className="flex flex-1 min-h-0 overflow-hidden">
 
-          {/* ── Left: sections editor ── */}
-          <div className="w-[42%] flex flex-col gap-2.5 overflow-y-auto pr-1">
-
+          {/* Editor — takes all available width */}
+          <div className="flex-1 min-w-0 overflow-y-auto flex flex-col gap-2.5 pr-1 pt-0.5">
             {isLoading ? (
-              <div className="flex-1 flex items-center justify-center">
+              <div className="flex-1 flex items-center justify-center py-10">
                 <p className="text-xs text-muted-foreground">Loading sections…</p>
               </div>
             ) : (
               <>
-                {/* Suggestion banner */}
                 {suggestions.length > 0 && (
                   <SuggestionBanner
                     suggestions={suggestions}
@@ -477,7 +497,6 @@ export function ContractTab({
                   />
                 )}
 
-                {/* Section cards */}
                 {sections.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-border p-6 text-center">
                     <p className="text-xs text-muted-foreground">No sections yet. Add from library or write a custom one.</p>
@@ -494,7 +513,6 @@ export function ContractTab({
                   ))
                 )}
 
-                {/* Add actions */}
                 {!pickerOpen && !adHocOpen && (
                   <div className="flex gap-2 pt-1">
                     <button
@@ -522,12 +540,30 @@ export function ContractTab({
             )}
           </div>
 
-          {/* ── Right: preview ── */}
-          <div className="flex-1 min-h-0">
-            {isLoading
-              ? <div className="h-full flex items-center justify-center"><p className="text-xs text-muted-foreground">Loading…</p></div>
-              : <ContractPreview sections={sections} />
-            }
+          {/* ── Slide-in preview panel ── */}
+          <div
+            className={cn(
+              'flex-shrink-0 border-l border-border flex flex-col bg-background',
+              'transition-[width] duration-300 ease-in-out overflow-hidden',
+              previewOpen ? 'w-[480px]' : 'w-0',
+            )}
+          >
+            {/* Inner at fixed width so content doesn't squish during animation */}
+            <div className="w-[480px] flex flex-col h-full">
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/60 bg-muted/30 flex-shrink-0">
+                <p className="text-[10px] font-bold tracking-[0.18em] uppercase text-muted-foreground/70">Preview</p>
+                <button
+                  type="button"
+                  onClick={() => setPreviewOpen(false)}
+                  className="rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <div className="flex-1 min-h-0">
+                <ContractPreview sections={sections} />
+              </div>
+            </div>
           </div>
         </div>
       )}
