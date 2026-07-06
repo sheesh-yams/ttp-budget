@@ -360,9 +360,11 @@ function ContractPreview({ sections }: { sections: ContractSectionRow[] }) {
 export function ContractTab({
   proposalId,
   contractEnabled: initialEnabled,
+  height = '62vh',
 }: {
   proposalId:       string
   contractEnabled:  boolean
+  height?:          string
 }) {
   const [enabled,      setEnabled]     = useState(initialEnabled)
   const [sections,     setSections]    = useState<ContractSectionRow[]>([])
@@ -409,7 +411,7 @@ export function ContractTab({
   const isLoading = loading || initPending
 
   return (
-    <div className="flex flex-col" style={{ height: '62vh' }}>
+    <div className="flex flex-col" style={{ height }}>
 
       {/* ── Toggle bar ── */}
       <div className="flex items-center justify-between py-2 mb-3 border-b border-border/60">
