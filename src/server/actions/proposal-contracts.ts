@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { getScopedDb } from '@/lib/db-scoped'
-import { getWorkspaceId } from '@/lib/auth'
+import { getWorkspaceId, requireRole } from '@/lib/auth'
 import { evaluateContractTriggers } from '@/lib/contract-triggers'
 import type { ActionResult } from '@/types'
 import type { ScopeItem, ProposalContent } from '@/types'
@@ -64,6 +64,21 @@ function pcs(sdb: Awaited<ReturnType<typeof getScopedDb>>) {
 // the legal record. Every mutating action below checks this first.
 
 const CONTRACT_LOCKED_ERROR = 'This proposal has been signed — the contract can no longer be changed.'
+
+// Contract terms are part of what the client signs — same edit rights as
+// sending the proposal itself (OWNER/PRODUCER; Collaborators are read-only).
+const EDITOR_ROLES: ('OWNER' | 'PRODUCER')[] = ['OWNER', 'PRODUCER']
+
+// Input bounds — a section is a contract clause, not a document dump. Caps keep
+// the PDF renderer and the public page responsive.
+const MAX_TITLE_LEN = 200
+const MAX_BODY_LEN  = 20_000
+
+function validateSectionInput(title: string, body: string): string | null {
+  if (title.length > MAX_TITLE_LEN) return `Section title must be under ${MAX_TITLE_LEN} characters.`
+  if (body.length > MAX_BODY_LEN)   return `Section body must be under ${MAX_BODY_LEN.toLocaleString()} characters.`
+  return null
+}
 
 async function isProposalLocked(
   sdb: Awaited<ReturnType<typeof getScopedDb>>,
@@ -158,6 +173,9 @@ export async function setContractEnabled(
   enabled: boolean,
 ): Promise<ActionResult<void>> {
   try {
+    const gate = await requireRole(EDITOR_ROLES)
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
 
     const locked = await isProposalLocked(sdb, proposalId)
@@ -256,6 +274,9 @@ export async function attachDefaultBlocks(
   proposalId: string
 ): Promise<ActionResult<void>> {
   try {
+    const gate = await requireRole(EDITOR_ROLES)
+    if (!gate.ok) return gate.error
+
     const workspaceId = await getWorkspaceId()
     const sdb = await getScopedDb()
 
@@ -310,6 +331,9 @@ export async function attachContractBlock(
   source:     AttachSource = 'MANUAL',
 ): Promise<ActionResult<{ id: string }>> {
   try {
+    const gate = await requireRole(EDITOR_ROLES)
+    if (!gate.ok) return gate.error
+
     const workspaceId = await getWorkspaceId()
     const sdb = await getScopedDb()
 
@@ -363,6 +387,12 @@ export async function addAdHocSection(
   body:       string,
 ): Promise<ActionResult<{ id: string }>> {
   try {
+    const gate = await requireRole(EDITOR_ROLES)
+    if (!gate.ok) return gate.error
+
+    const invalid = validateSectionInput(title, body)
+    if (invalid) return { success: false, error: invalid }
+
     const workspaceId = await getWorkspaceId()
     const sdb = await getScopedDb()
 
@@ -411,6 +441,12 @@ export async function updateContractSection(
   body:      string,
 ): Promise<ActionResult<void>> {
   try {
+    const gate = await requireRole(EDITOR_ROLES)
+    if (!gate.ok) return gate.error
+
+    const invalid = validateSectionInput(title, body)
+    if (invalid) return { success: false, error: invalid }
+
     const sdb = await getScopedDb()
 
     type SectionRow = { sourceBlockId: string | null; title: string; body: string }
@@ -449,6 +485,9 @@ export async function updateContractSection(
 
 export async function resetContractSection(sectionId: string): Promise<ActionResult<void>> {
   try {
+    const gate = await requireRole(EDITOR_ROLES)
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
 
     type SectionRow = { sourceBlockId: string | null }
@@ -489,6 +528,9 @@ export async function resetContractSection(sectionId: string): Promise<ActionRes
 
 export async function removeContractSection(sectionId: string): Promise<ActionResult<void>> {
   try {
+    const gate = await requireRole(EDITOR_ROLES)
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
 
     const locked = await isSectionProposalLocked(sdb, sectionId)
@@ -512,16 +554,33 @@ export async function reorderContractSections(
 ): Promise<ActionResult<void>> {
   try {
     if (orderedIds.length === 0) return { success: true, data: undefined }
+
+    const gate = await requireRole(EDITOR_ROLES)
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
 
-    const locked = await isSectionProposalLocked(sdb, orderedIds[0])
-    if (locked === null) return { success: false, error: 'Section not found.' }
-    if (locked) return { success: false, error: CONTRACT_LOCKED_ERROR }
+    // All ids must be existing sections of ONE proposal — rejects stray ids
+    // from another proposal in the same workspace.
+    type IdRow = { id: string; proposalId: string; proposal: { status: string } }
+    const rows = await (sdb as unknown as {
+      proposalContractSection: { findMany: (a: object) => Promise<IdRow[]> }
+    }).proposalContractSection.findMany({
+      where:  { id: { in: orderedIds } },
+      select: { id: true, proposalId: true, proposal: { select: { status: true } } },
+    })
+    if (rows.length !== orderedIds.length) return { success: false, error: 'Section not found.' }
+    if (new Set(rows.map(r => r.proposalId)).size !== 1) {
+      return { success: false, error: 'Sections belong to different proposals.' }
+    }
+    if (rows[0].proposal.status === 'APPROVED') return { success: false, error: CONTRACT_LOCKED_ERROR }
 
+    // Transactional — a partial failure must not leave the order scrambled.
     const sdbAny = sdb as unknown as {
       proposalContractSection: { update: (a: object) => Promise<unknown> }
+      $transaction: (ops: unknown[]) => Promise<unknown>
     }
-    await Promise.all(
+    await sdbAny.$transaction(
       orderedIds.map((id, i) =>
         sdbAny.proposalContractSection.update({ where: { id }, data: { orderIndex: (i + 1) * 10 } })
       )

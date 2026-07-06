@@ -109,7 +109,7 @@ export function ProposalSignView({ proposal, contractSections }: Props) {
       const res = await fetch(`/api/proposals/${proposal.id}/approve`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ signatureName: name, proposalToken: proposal.publicToken }),
+        body:    JSON.stringify({ signatureName: name, proposalToken: proposal.publicToken, agreedToTerms: true }),
       })
       if (res.ok) {
         setSigState('done')

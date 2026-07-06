@@ -228,7 +228,9 @@ export function ProposalPublicView({
       const res = await fetch(`/api/proposals/${proposal.id}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ signatureName: name, proposalToken: proposal.publicToken }),
+        // The inline sign-off's approve button sits under the "By signing below,
+        // you confirm your agreement…" text — clicking it is the affirmative act.
+        body: JSON.stringify({ signatureName: name, proposalToken: proposal.publicToken, agreedToTerms: true }),
       })
       if (res.ok) {
         setSigState('done')

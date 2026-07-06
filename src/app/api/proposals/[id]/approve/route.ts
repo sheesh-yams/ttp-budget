@@ -13,6 +13,9 @@ import { resolveMergeTags, resolveMergeTagsPlain, type MergeTagContext } from '@
 const schema = z.object({
   signatureName: z.string().min(2).max(120),
   proposalToken: z.string(),
+  // Explicit assent must be asserted by the caller, not assumed — the client
+  // checkbox alone is not evidence; this field is stored in the audit trail.
+  agreedToTerms: z.literal(true),
 })
 
 export async function POST(
@@ -49,12 +52,22 @@ export async function POST(
     return NextResponse.json({ error: 'Cannot approve this proposal' }, { status: 400 })
   }
 
+  // Expiry — both the share-link expiry and the business validity deadline
+  // must be enforced here, not just on the page: this endpoint is the actual
+  // signing surface and can be called directly.
+  const now = new Date()
+  const tokenExpiry = (proposal as unknown as { publicTokenExpiresAt: Date | null }).publicTokenExpiresAt
+  if (tokenExpiry && tokenExpiry < now) {
+    return NextResponse.json({ error: 'This proposal link has expired' }, { status: 410 })
+  }
+  if (proposal.expiresAt && proposal.expiresAt < now) {
+    return NextResponse.json({ error: 'This proposal is no longer valid — please request an updated proposal' }, { status: 410 })
+  }
+
   const headersList = await headers()
   // Trusted client IP (rightmost proxy-appended XFF entry) — recorded as the
   // signature IP, so it must not be client-spoofable.
   const ip = trustedClientIp(name => headersList.get(name))
-
-  const now = new Date()
 
   // Compute the total from the budget phase linked to this proposal
   // For now we use the value stored in content; Phase 2 will compute from live line items
@@ -106,8 +119,11 @@ export async function POST(
       }
     : null
 
-  const updated = await db.proposal.update({
-    where: { id: proposal.id },
+  // Atomic compare-and-set: only a SENT/VIEWED proposal can flip to APPROVED.
+  // Two concurrent approvals (double-click, two tabs) race here — the loser
+  // matches zero rows and gets the same 409 as an already-approved proposal.
+  const res = await db.proposal.updateMany({
+    where: { id: proposal.id, status: { in: ['SENT', 'VIEWED'] } },
     data: {
       status: 'APPROVED',
       approvedAt: now,
@@ -119,6 +135,9 @@ export async function POST(
         : {}),
     },
   })
+  if (res.count === 0) {
+    return NextResponse.json({ error: 'Already approved' }, { status: 409 })
+  }
 
   // Fire notification email to workspace owner
   if (proposal.workspace.contactEmail) {
@@ -146,6 +165,7 @@ export async function POST(
     metadata: {
       signatureName:     signatureName,
       signatureIp:       ip,
+      agreedToTerms:     true,
       approvedTotalCents: approvedTotal ?? undefined,
       publicToken:       proposalToken,
     },
