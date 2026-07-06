@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { headers } from 'next/headers'
 import { sendProposalApprovedEmail } from '@/lib/email'
 import { logAuditEvent } from '@/lib/audit'
+import { trustedClientIp } from '@/lib/client-ip'
 
 const schema = z.object({
   signatureName: z.string().min(2).max(120),
@@ -46,7 +47,9 @@ export async function POST(
   }
 
   const headersList = await headers()
-  const ip = headersList.get('x-forwarded-for') ?? 'unknown'
+  // Trusted client IP (rightmost proxy-appended XFF entry) — recorded as the
+  // signature IP, so it must not be client-spoofable.
+  const ip = trustedClientIp(name => headersList.get(name))
 
   const now = new Date()
 

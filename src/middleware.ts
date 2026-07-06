@@ -2,6 +2,7 @@ import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { checkRateLimit, type PolicyName } from '@/lib/rate-limit'
+import { trustedClientIp } from '@/lib/client-ip'
 
 // ── Public routes (Clerk auth exempt) ────────────────────────────────────────
 const isPublicRoute = createRouteMatcher([
@@ -40,11 +41,13 @@ function isMobileUA(req: NextRequest): boolean {
 //
 // Policy limits are defined in src/lib/rate-limit.ts.
 
-/** Extract real client IP — Railway sets x-forwarded-for. */
+/**
+ * Extract the real client IP for rate limiting. Uses the rightmost (trusted-
+ * proxy-appended) x-forwarded-for entry so a client cannot spoof its IP to
+ * evade limits. See trustedClientIp / TRUSTED_PROXY_HOPS.
+ */
 function clientIp(req: NextRequest): string {
-  const xff = req.headers.get('x-forwarded-for')
-  if (xff) return xff.split(',')[0].trim()
-  return req.headers.get('x-real-ip') ?? '127.0.0.1'
+  return trustedClientIp(name => req.headers.get(name), '127.0.0.1')
 }
 
 function policyFor(pathname: string): PolicyName | null {

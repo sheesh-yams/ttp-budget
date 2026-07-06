@@ -144,9 +144,19 @@ export async function getScopedDb() {
           }
 
           // findUnique / findUniqueOrThrow / upsert / etc.
-          // Pass through — server actions should avoid findUnique on scoped models
-          // (use findFirst instead) and upsert is only used on User in auth.ts.
-          return query(args)
+          //
+          // These take a *unique* selector, so workspaceId can't be safely merged
+          // into `where` (Prisma rejects non-unique fields on findUnique, and an
+          // upsert would need scoping on where/create/update independently). Rather
+          // than silently return or mutate cross-tenant data, FAIL CLOSED.
+          //
+          // On scoped models use findFirst (auto-scoped) instead of findUnique, and
+          // create/update/delete (auto-scoped) instead of upsert. `upsert` on User
+          // lives in auth.ts and uses the raw `db` client, so it never reaches here.
+          throw new Error(
+            `[db-scoped] "${operation}" is not allowed on scoped model "${model}" — ` +
+            `it bypasses workspace scoping. Use findFirst / create / update / delete instead.`,
+          )
         },
       },
     },
