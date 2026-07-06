@@ -230,6 +230,11 @@ export default async function PublicProposalPage({ params }: Props) {
     void recordProposalView(proposal.id, ip, ua)
   }
 
+  // When the contract toggle is ON and sections exist, the contract + sign-off
+  // move to /p/[token]/sign. The main proposal view shows a "Continue to Sign" CTA.
+  // If toggle is OFF or no sections have been added yet, fall back to inline sign-off.
+  const effectiveContractEnabled = contractEnabled && contractSections.length > 0
+
   return (
     <ProposalPublicView
       proposal={serialisedProposal as never}
@@ -239,7 +244,8 @@ export default async function PublicProposalPage({ params }: Props) {
       discountLabel={discountLabel}
       isDraft={isDraft}
       budgetSections={budgetSections}
-      contractSections={contractSections}
+      contractEnabled={effectiveContractEnabled}
+      contractSections={effectiveContractEnabled ? [] : contractSections}
     />
   )
 }

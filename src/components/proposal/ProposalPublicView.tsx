@@ -108,6 +108,7 @@ interface Props {
   isDraft?: boolean
   budgetSections?: SerialBudgetSection[]
   contractSections?: ContractSection[]
+  contractEnabled?: boolean
   deliverableLinkMode?: 'scroll' | 'filter'
 }
 
@@ -115,7 +116,8 @@ interface Props {
 
 export function ProposalPublicView({
   proposal, accounts, totalCents, discountCents = 0, discountLabel = 'Discount',
-  isDraft = false, budgetSections = [], contractSections = [], deliverableLinkMode = 'scroll',
+  isDraft = false, budgetSections = [], contractSections = [], contractEnabled = false,
+  deliverableLinkMode = 'scroll',
 }: Props) {
   const content     = proposal.content as ProposalContent
   const sections    = content?.sections ?? []
@@ -440,8 +442,70 @@ export function ProposalPublicView({
         </section>
       )}
 
-      {/* ════════════════════ SIGN OFF ════════════════════ */}
-      {!isDraft && <section style={{ padding: 'clamp(48px,7vw,96px) clamp(24px,6vw,80px)', background: V_TINT }}>
+      {/* ════════════════════ CONTINUE TO SIGN (contract flow) ════════════════════ */}
+      {!isDraft && contractEnabled && !isAlreadyApproved && (
+        <section style={{ padding: 'clamp(48px,7vw,96px) clamp(24px,6vw,80px)', background: V_TINT }}>
+          <div style={{ maxWidth: 560, margin: '0 auto' }}>
+            <SectionHeader label="Ready to proceed?" />
+            <div style={{ background: '#fff', border: `0.5px solid ${BORDER}`, borderRadius: 10, padding: '40px 36px' }}>
+              <p style={{ fontSize: 15, color: BODY, lineHeight: 1.7, margin: '0 0 10px' }}>
+                If the scope of work, budget, and payment terms look good, continue to review and sign the contract.
+              </p>
+              <p style={{ fontSize: 13, color: MUTED, margin: '0 0 28px' }}>
+                You'll have a chance to read the full terms before signing.
+              </p>
+              <a
+                href={`/p/${proposal.publicToken}/sign`}
+                style={{
+                  display: 'block', width: '100%', padding: '14px', boxSizing: 'border-box',
+                  background: MINT, color: MINT_DK,
+                  fontSize: 15, fontWeight: 700, letterSpacing: '0.02em',
+                  textDecoration: 'none', borderRadius: 6, textAlign: 'center',
+                  marginBottom: 12,
+                }}
+              >
+                Continue to review contract →
+              </a>
+              <a
+                href={`mailto:${proposal.workspace.contactEmail ?? ''}?subject=Changes requested: ${encodeURIComponent(proposal.title)}`}
+                style={{
+                  display: 'block', color: V, fontSize: 14, fontWeight: 600,
+                  textDecoration: 'none', textAlign: 'center',
+                }}
+              >
+                Request changes instead
+              </a>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ════════════════════ ALREADY APPROVED (contract flow) ═══════════════════ */}
+      {!isDraft && contractEnabled && isAlreadyApproved && (
+        <section style={{ padding: 'clamp(48px,7vw,96px) clamp(24px,6vw,80px)', background: V_TINT }}>
+          <div style={{ maxWidth: 560, margin: '0 auto', textAlign: 'center' }}>
+            <div style={{ background: '#fff', border: `0.5px solid ${BORDER}`, borderRadius: 10, padding: '44px 36px' }}>
+              <div style={{ width: 52, height: 52, borderRadius: '50%', background: MINT, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px' }}>
+                <Check size={26} color={MINT_DK} />
+              </div>
+              <p style={{ fontSize: 22, fontWeight: 700, color: BODY, margin: '0 0 10px' }}>Proposal Approved</p>
+              <p style={{ fontSize: 14, color: MUTED, margin: '0 0 20px', lineHeight: 1.6 }}>
+                Signed by <strong style={{ color: BODY }}>{proposal.signatureName}</strong>
+                {proposal.approvedAt && <> on {fmt(proposal.approvedAt)}</>}
+              </p>
+              <a
+                href={`/api/pdf/proposal/${proposal.publicToken}`}
+                style={{ color: MUTED, fontSize: 13, textDecoration: 'underline' }}
+              >
+                Download signed PDF
+              </a>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ════════════════════ SIGN OFF (inline — no contract) ════════════════════ */}
+      {!isDraft && !contractEnabled && <section style={{ padding: 'clamp(48px,7vw,96px) clamp(24px,6vw,80px)', background: V_TINT }}>
         <div style={{ maxWidth: 560, margin: '0 auto', textAlign: 'center' }}>
           <SectionHeader label="Sign Off" />
 
