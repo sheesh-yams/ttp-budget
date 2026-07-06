@@ -619,7 +619,8 @@ model Proposal {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  views         ProposalView[]
+  views            ProposalView[]
+  contractSections ProposalContractSection[]
 
   @@index([projectId])
   @@index([workspaceId])
@@ -1561,4 +1562,32 @@ model GlobalContractBlockTrigger {
   matchValue String
 
   @@index([blockId])
+}
+
+// =============================================================
+// PROPOSAL CONTRACT SECTIONS
+// =============================================================
+
+enum AttachSource {
+  AUTO     // trigger fired and user confirmed
+  MANUAL   // user picked from library or created ad-hoc
+  DEFAULT  // block.isDefault — attached when Contract tab first opened
+}
+
+model ProposalContractSection {
+  id               String       @id @default(cuid())
+  workspaceId      String
+  proposalId       String
+  proposal         Proposal     @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  sourceBlockId    String?      // null = ad-hoc; back-ref to ContractBlock (kept if block later deleted)
+  title            String
+  body             String       @db.Text
+  orderIndex       Int          @default(0)
+  attachedBy       AttachSource @default(MANUAL)
+  editedFromSource Boolean      @default(false)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([proposalId, orderIndex])
+  @@index([workspaceId])
 }

@@ -13,6 +13,7 @@ import {
   sendDraftProposal,
 } from '@/server/actions/proposals'
 import type { MilestoneTrigger, PaymentMilestone, ProposalDiscount } from '@/types'
+import { ContractTab } from '@/components/proposals/ContractTab'
 
 export type ProposalModalMode = 'create' | 'edit-draft' | 'revision'
 
@@ -146,6 +147,7 @@ export function ProposalModal({
   proposalExpiryDays = 30,
 }: Props) {
   const [pending, startTransition] = useTransition()
+  const [activeTab, setActiveTab]  = useState<'overview' | 'contract'>('overview')
 
   const [title,      setTitle]      = useState('')
   const [expiresAt,  setExpiresAt]  = useState(() => defaultExpiry(proposalExpiryDays))
@@ -196,6 +198,7 @@ export function ProposalModal({
     setCopied(false)
     setIsDraft(false)
     setIsSentManually(false)
+    setActiveTab('overview')
   }, [open, existing, projectName, prefill])
 
   // ── Milestone helpers ──────────────────────────────────────────────────────
@@ -356,14 +359,41 @@ export function ProposalModal({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[520px]">
+      <DialogContent className={activeTab === 'contract' && mode === 'edit-draft' && !successToken ? 'sm:max-w-[700px]' : 'sm:max-w-[520px]'}>
         <DialogHeader>
           <DialogTitle>
             {successToken ? (isDraft ? 'Draft Saved' : (isSentManually ? 'Marked as Sent' : 'Proposal Sent')) : MODE_TITLE[mode]}
           </DialogTitle>
         </DialogHeader>
 
-        {successToken ? (
+        {/* Tab bar — only visible in edit-draft mode, not on the success screen */}
+        {mode === 'edit-draft' && !successToken && existing && (
+          <div className="flex border-b border-border -mx-6 px-6 -mt-1">
+            {(['overview', 'contract'] as const).map(tab => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setActiveTab(tab)}
+                className={`px-4 py-2 text-sm font-medium capitalize border-b-2 transition-colors ${
+                  activeTab === tab
+                    ? 'border-primary text-foreground'
+                    : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+                }`}
+              >
+                {tab === 'overview' ? 'Overview' : 'Contract'}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Contract tab */}
+        {activeTab === 'contract' && mode === 'edit-draft' && existing && !successToken && (
+          <div className="py-2 max-h-[65vh] overflow-y-auto pr-1">
+            <ContractTab proposalId={existing.id} />
+          </div>
+        )}
+
+        {activeTab === 'overview' && successToken ? (
           <div className="py-2 space-y-4">
             {isDraft ? (
               <div className="space-y-3">
@@ -398,7 +428,7 @@ export function ProposalModal({
             )}
             <Button variant="outline" size="sm" className="w-full" onClick={() => handleClose(false)}>Done</Button>
           </div>
-        ) : (
+        ) : activeTab === 'overview' ? (
           <div className="grid gap-5 py-2">
 
             {/* Title */}
@@ -601,9 +631,9 @@ export function ProposalModal({
 
             {error && <p className="text-sm text-destructive">{error}</p>}
           </div>
-        )}
+        ) : null}
 
-        {!successToken && (
+        {!successToken && activeTab === 'overview' && (
           <DialogFooter className="gap-2 sm:gap-1 flex-wrap">
             <Button variant="outline" onClick={() => handleClose(false)} disabled={pending}>Cancel</Button>
             <Button variant="outline" onClick={handleSaveDraft} disabled={pending}>

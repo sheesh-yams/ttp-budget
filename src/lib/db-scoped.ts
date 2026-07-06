@@ -73,6 +73,8 @@ export const SCOPED_MODELS = new Set([
   // Contract Blocks — workspace library; triggers carry denormalized workspaceId
   'ContractBlock',
   'ContractBlockTrigger',
+  // Proposal contract sections — per-proposal editable copies of contract blocks
+  'ProposalContractSection',
   // NOTE: WebhookEvent is NOT workspace-scoped (keyed by provider+eventId only)
   // NOTE: GlobalContractBlock / GlobalContractBlockTrigger are NOT workspace-scoped
 ])

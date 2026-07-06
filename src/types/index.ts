@@ -157,12 +157,13 @@ export interface ProposalContent {
 export type DeliverableItemType = 'DELIVERABLE' | 'SERVICE' | 'RAW_FOOTAGE' | 'OTHER'
 
 export interface ScopeItem {
-  number:     string
-  title:      string
+  number:      string
+  title:       string
   description: string
   sectionIds?: string[]
   type?:       DeliverableItemType
   quantity?:   number
+  tags?:       string[]  // explicit keyword tags for contract trigger matching
 }
 
 export type ProposalSection =
