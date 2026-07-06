@@ -46,8 +46,10 @@ function applyInline(s: string): string {
 }
 
 export function renderSmartText(raw: string): string {
-  // Legacy blocks were saved as HTML — pass them through without re-escaping.
-  if (looksLikeHtml(raw)) return raw
+  // Legacy blocks were saved as HTML — preserve the HTML structure but still
+  // apply inline smart-text formatting (bold, italic, etc.) so that blocks
+  // edited with SmartTextEditor after the migration continue to work.
+  if (looksLikeHtml(raw)) return applyInline(raw)
 
   const lines = raw.split('\n')
   let html = ''

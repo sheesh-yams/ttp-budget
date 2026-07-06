@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { SmartTextEditor } from '@/components/delivery/SmartTextEditor'
 import { renderSmartText } from '@/lib/smart-text'
+import { resolveMergeTags, type MergeTagContext } from '@/lib/merge-tags'
 import {
   listContractSections,
   evaluateProposalContractTriggers,
@@ -18,6 +19,7 @@ import {
   removeContractSection,
   listLibraryBlocksForPicker,
   setContractEnabled,
+  getMergeTagContext,
   type ContractSectionRow,
   type SuggestedBlock,
   type LibraryBlockOption,
@@ -300,7 +302,7 @@ function AdHocCreator({ proposalId, onCreated, onClose }: {
 
 // ── RIGHT PANEL: contract preview ─────────────────────────────────────────────
 
-function ContractPreview({ sections }: { sections: ContractSectionRow[] }) {
+function ContractPreview({ sections, mergeCtx }: { sections: ContractSectionRow[]; mergeCtx: MergeTagContext }) {
   if (sections.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center px-8">
@@ -332,7 +334,7 @@ function ContractPreview({ sections }: { sections: ContractSectionRow[] }) {
               </p>
               <div
                 className="text-xs leading-relaxed text-foreground/90 [&>ul]:list-disc [&>ul]:pl-4 [&>ul]:space-y-0.5 [&>ol]:list-decimal [&>ol]:pl-4 [&>ol]:space-y-0.5 [&>br]:block"
-                dangerouslySetInnerHTML={{ __html: renderSmartText(s.body) }}
+                dangerouslySetInnerHTML={{ __html: renderSmartText(resolveMergeTags(s.body, mergeCtx)) }}
               />
               {i < sections.length - 1 && <div className="mt-5 border-t border-border/40" />}
             </div>
@@ -371,6 +373,7 @@ export function ContractTab({
   const [enabled,       setEnabled]      = useState(initialEnabled)
   const [sections,      setSections]     = useState<ContractSectionRow[]>([])
   const [suggestions,   setSuggestions]  = useState<SuggestedBlock[]>([])
+  const [mergeCtx,      setMergeCtx]     = useState<MergeTagContext>({})
   const [loading,       setLoading]      = useState(true)
   const [activeId,      setActiveId]     = useState<string | null>(null)
   const [pickerOpen,    setPickerOpen]   = useState(false)
@@ -380,12 +383,14 @@ export function ContractTab({
   const [initPending,   startInit]       = useTransition()
 
   const load = useCallback(async () => {
-    const [secRes, evalRes] = await Promise.all([
+    const [secRes, evalRes, ctxRes] = await Promise.all([
       listContractSections(proposalId),
       evaluateProposalContractTriggers(proposalId),
+      getMergeTagContext(proposalId),
     ])
     if (secRes.success)  setSections(secRes.data)
     if (evalRes.success) setSuggestions(evalRes.data.suggested)
+    if (ctxRes.success)  setMergeCtx(ctxRes.data)
     setLoading(false)
   }, [proposalId])
 
@@ -561,7 +566,7 @@ export function ContractTab({
                 </button>
               </div>
               <div className="flex-1 min-h-0">
-                <ContractPreview sections={sections} />
+                <ContractPreview sections={sections} mergeCtx={mergeCtx} />
               </div>
             </div>
           </div>

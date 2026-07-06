@@ -7,6 +7,7 @@ import { evaluateContractTriggers } from '@/lib/contract-triggers'
 import type { ActionResult } from '@/types'
 import type { ScopeItem, ProposalContent } from '@/types'
 import type { AttachSource, ContractBlockCategory } from '@prisma/client'
+import type { MergeTagContext } from '@/lib/merge-tags'
 
 // ─── Public types ──────────────────────────────────────────────────────────────
 
@@ -54,6 +55,65 @@ type PCS = { create: (a: { data: unknown }) => Promise<unknown> }
 
 function pcs(sdb: Awaited<ReturnType<typeof getScopedDb>>) {
   return (sdb as unknown as { proposalContractSection: PCS }).proposalContractSection
+}
+
+// ─── Merge-tag context for the preview panel ──────────────────────────────────
+
+export async function getMergeTagContext(
+  proposalId: string,
+): Promise<ActionResult<MergeTagContext>> {
+  try {
+    const sdb = await getScopedDb()
+
+    type ProposalRow = {
+      expiresAt: Date | null
+      content:   unknown
+      project: {
+        name:   string
+        client: { name: string; company: string | null }
+      }
+      workspace: { name: string; legalName: string | null }
+    }
+
+    const proposal = await (sdb as unknown as {
+      proposal: { findFirst: (a: object) => Promise<ProposalRow | null> }
+    }).proposal.findFirst({
+      where: { id: proposalId },
+      select: {
+        expiresAt: true,
+        content:   true,
+        project: {
+          select: {
+            name:   true,
+            client: { select: { name: true, company: true } },
+          },
+        },
+        workspace: { select: { name: true, legalName: true } },
+      },
+    })
+
+    if (!proposal) return { success: false, error: 'Proposal not found.' }
+
+    const snap      = (proposal.content as { budgetSnapshot?: { totalCents?: number } } | null)?.budgetSnapshot
+    const totalStr  = snap?.totalCents != null
+      ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(snap.totalCents / 100)
+      : undefined
+    const validThrough = proposal.expiresAt
+      ? new Date(proposal.expiresAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+      : undefined
+
+    return {
+      success: true,
+      data: {
+        workspace: { name: proposal.workspace.name, legalName: proposal.workspace.legalName ?? undefined },
+        client:    { name: proposal.project.client.name, company: proposal.project.client.company ?? undefined },
+        project:   { name: proposal.project.name },
+        proposal:  { total: totalStr, validThrough },
+      },
+    }
+  } catch {
+    return { success: false, error: 'Failed to fetch context.' }
+  }
 }
 
 // ─── Toggle contract on/off for a proposal ────────────────────────────────────
