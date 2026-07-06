@@ -30,7 +30,7 @@ The app is fully multi-tenant. Every user signs up into their own **workspace**,
 
 ### Row-level security scoped models
 Auto-scoped through `getScopedDb()` (see `SCOPED_MODELS` in `src/lib/db-scoped.ts`):
-`Client`, `Project`, `RateCard`, `BudgetTemplate`, `Budget`, `Proposal`, `Invoice`, `CallSheet`, `Contact`, `Phase`, `BudgetSection`, `Account`, `LineItem`, `ProjectMember`, `ProjectComment`, `ProjectAssignment`, `ProjectTeamMember`, `AuditEvent`, `WorkspacePaymentConfig`, `PaymentAttempt`, `Receipt`, `DeliveryPage`, `DeliverableAsset`, `DeliverableVersion`, `DeliverableView`, `ActualSheet`, `ActualEntry`
+`Client`, `Project`, `RateCard`, `BudgetTemplate`, `Budget`, `Proposal`, `Invoice`, `CallSheet`, `Contact`, `Phase`, `BudgetSection`, `Account`, `LineItem`, `ProjectMember`, `ProjectComment`, `ProjectAssignment`, `ProjectTeamMember`, `AuditEvent`, `WorkspacePaymentConfig`, `EncryptedCredential`, `PaymentAttempt`, `Receipt`, `DeliveryPage`, `DeliverableAsset`, `DeliverableVersion`, `DeliverableView`, `ActualSheet`, `ActualEntry`, `Location`, `ShootDay`, `Scene`, `Schedule`, `ScheduleEntry`
 
 Non-scoped (shared or workspace-metadata): `Workspace`, `User`, `WorkspaceInvitation`, `ProposalView`, `InvoiceView`, `WebhookEvent`
 
@@ -81,6 +81,12 @@ Workspace (1)
   ├── Users (OWNER | PRODUCER | COLLABORATOR — User.role; see Roles & Permissions)
   ├── RateCards (workspace-owned copies, seeded from global library)
   ├── BudgetTemplates (workspace-owned copies, seeded from global library)
+  ├── Locations (reusable shoot locations — see Schedule)
+  │     ├── address / city / region / postalCode / country
+  │     ├── latitude / longitude (geocoded)
+  │     ├── parkingNotes / accessNotes
+  │     ├── nearestHospital / hospitalAddress / hospitalPhone / hospitalDistance
+  │     └── contactName / contactPhone / contactEmail
   ├── Contacts (Rolodex — persistent across projects)
   │     ├── hasKit        Boolean  — crew member brings their own equipment package
   │     ├── kitRateCents  Int?     — day-rate for the kit (cents)
@@ -116,10 +122,35 @@ Workspace (1)
   │           │                             ├── taxRate          (per-item tax override)
   │           │                             └── quantityFormula  (A×B multiplier, e.g. "3x2" = 3 people × 2 days)
   │           ├── Proposals (public /p/[token] page + PDF)
+  │           │     ├── contractEnabled    Boolean @default(true)
+  │           │     └── ProposalContractSections[]
+  │           │           ├── title / body (Smart Text + merge tags) / orderIndex
+  │           │           └── attachSource  DEFAULT | AUTO | MANUAL
   │           ├── Invoices  (public /i/[token] page + PDF)
   │           ├── ProjectComments  (activity feed — see Project hub)
   │           ├── ProjectAssignments (Collaborator visibility — see Roles & Permissions)
   │           ├── CallSheets (public /cs/[token] page)
+  │           │     ├── locationId → Location (optional; replaces inline locationName field)
+  │           │     └── shootDayId → ShootDay (optional; links to the project shoot day)
+  │           ├── Scenes[]
+  │           │     ├── sceneNumber / setting / synopsis / description
+  │           │     ├── intExt          INT | EXT | INT_EXT | CONTINUOUS
+  │           │     ├── timeOfDay       DAY | NIGHT | DUSK | DAWN | MORNING | EVENING
+  │           │     ├── pageCount / pageEighths / estimatedDuration
+  │           │     ├── locationId → Location (FK, optional)
+  │           │     └── castContactIds  TEXT[] — Rolodex contact IDs in scene
+  │           ├── Schedules[]
+  │           │     ├── name / isPrimary / columnPrefs JSONB
+  │           │     └── ScheduleEntries[]
+  │           │           ├── kind  SCENE | BANNER
+  │           │           ├── sceneId → Scene (when kind=SCENE)
+  │           │           ├── bannerType MEAL_BREAK | COMPANY_MOVE | COFFEE_BREAK | NOTE | CUSTOM
+  │           │           ├── bannerLabel / bannerDurationMin / bannerNote
+  │           │           ├── computedStartTime / computedEndTime (derived from strip order)
+  │           │           └── shootDayId → ShootDay (groups entries by day)
+  │           ├── ShootDays[]
+  │           │     ├── date / orderIndex / label / startTime
+  │           │     └── primaryLocationId → Location
   │           └── DeliveryPage (public /d/[token] portal)
   │                 ├── status            DRAFT | PUBLISHED
   │                 ├── publicToken       UUID v4
@@ -182,6 +213,8 @@ Rate cards are the **source of defaults** but never retroactively change histori
 | `/projects/[id]/team` | Internal workspace team — three role slots (Project Lead, Account Manager, Project Manager) with assign/replace/remove history |
 | `/projects/[id]/actuals` | Actuals tracker — per-line-item spend, ad-hoc entries, status (Pending/Approved), date, vendor |
 | `/projects/[id]/actuals/wrap` | Wrap report — budgeted vs. actual by account, margin, top overages, PDF download |
+| `/projects/[id]/schedule` | Stripboard — scenes, shoot days, schedule entries; multiple named schedules with switcher |
+| `/projects/[id]/contract` | Full-page contract builder — section CRUD, toggle, slide-in preview with merge tags |
 | `/projects/[id]/call-sheets/[csId]` | Call sheet editor |
 | `/projects/[id]/delivery/deliverables` | Deliverables manager — sections, asset cards, drag-and-drop, asset editor modal (Details / Versions / Thumbnail tabs) |
 | `/projects/[id]/delivery/page` | Client page preview — shows what `/d/[token]` looks like; publish/unpublish |
@@ -201,7 +234,8 @@ Rate cards are the **source of defaults** but never retroactively change histori
 ### Public (no auth, tokenized)
 | Route | Description |
 |-------|-------------|
-| `/p/[token]` | Proposal — approve, download PDF, request changes. Uses the **workspace's own brand color + logo** (see Per-workspace Branding). DRAFT renders a preview banner instead of 404. Multi-section budgets render section headings, subtotals, and clickable deliverable cards that scroll + highlight the linked section. |
+| `/p/[token]` | Proposal — approve, download PDF, request changes. Uses the **workspace's own brand color + logo** (see Per-workspace Branding). DRAFT renders a preview banner instead of 404. Multi-section budgets render section headings, subtotals, and clickable deliverable cards that scroll + highlight the linked section. When `contractEnabled` is ON and sections exist, shows a "Continue to review contract →" CTA instead of the inline sign-off. |
+| `/p/[token]/sign` | Contract signing page — renders all contract sections (merge tags resolved, full Smart Text), agree checkbox, cursive signature preview, Sign & Approve button. Redirects to main proposal if contract toggle is OFF, no sections added, proposal is a draft, or token is expired. |
 | `/i/[token]` | Invoice — wire/ACH details, download PDF. Same per-workspace branding. |
 | `/cs/[token]` | Call sheet for crew — desktop 2-col layout, mobile single-column. DRAFT shows a preview banner. `?print=1` auto-triggers `window.print()`. |
 | `/invite/[token]` | Team invitation acceptance page |
@@ -320,6 +354,41 @@ All crew side effects use `sdb` (scoped Prisma client) so no explicit `workspace
 **Proposals Kanban** (`/proposals`): CRM-style drag-and-drop board — DRAFTS | SENT | VIEWED | CHANGES NEEDED | WON | LOST. Lost column hidden by default. All columns including WON and LOST are droppable.
 
 **Approval flow:** client types their name → `signatureName`, `signatureIp`, `approvedAt`, `approvedTotalCents` recorded → Resend email fires → public page flips to approved state with typed signature in script font.
+
+**Contract Builder** — a per-proposal toggle that replaces the inline sign-off with a dedicated contract review and signing page. Managed from two places: the **Contract** tab in the `ProposalModal` (project page) and the **Contract** page in the project sub-nav (`/projects/[id]/contract`).
+
+- **`contractEnabled` toggle** — stored on the `Proposal` model (`@default(true)`). The effective state is `effectiveContractEnabled = contractEnabled && contractSections.length > 0`. When the toggle is ON but no sections have been added yet, the proposal falls back to the inline sign-off so the client flow is never broken.
+
+- **Contract sections** (`ProposalContractSection`) — ordered blocks of contract text (title + body). Can be pre-loaded from the workspace's default contract template (Settings → Contracts), created manually, or auto-attached. Each section body uses the full extended Smart Text syntax including merge tags.
+
+- **Merge tags** — dynamically resolved at render time (never stored as resolved text):
+
+  | Tag | Resolves to |
+  |-----|------------|
+  | `{{workspace.name}}` | Workspace display name |
+  | `{{workspace.legalName}}` | Legal entity name |
+  | `{{client.name}}` | Client name |
+  | `{{project.name}}` | Project name |
+  | `{{proposal.total}}` | Formatted total (e.g. "$12,500) |
+  | `{{proposal.validThrough}}` | Proposal expiry date |
+
+  The `SmartTextEditor` in contract context shows a **Tags** dropdown that inserts a tag at the cursor. `getMergeTagContext(proposalId)` server action fetches workspace/project/client data to resolve tags in the live editor preview.
+
+- **Full-width editor with slide-in preview** — the Contract tab uses a full-width textarea editor. Clicking **Preview** slides in a 480 px panel (`transition-[width] duration-300`) showing the contract with merge tags resolved against live data. The inner div is fixed at `w-[480px]` to prevent content squishing during the CSS transition.
+
+- **Two-page signing flow (Phase 4)** — when `effectiveContractEnabled` is true:
+  - **Main proposal page** (`/p/[token]`) — hides the inline sign-off section; shows a "Continue to review contract →" CTA. If already approved, shows an approved state with PDF download.
+  - **Contract signing page** (`/p/[token]/sign`) — the dedicated second-step page:
+    - Sticky header with "← Back to proposal" link and proposal reference
+    - "Step 2 of 2 — Contract review" label
+    - All contract sections rendered with merge tags resolved and full Smart Text
+    - Agree checkbox — must be checked before the Sign button is enabled
+    - Cursive signature preview (Dancing Script font; updates live as the client types)
+    - **Sign & Approve** — calls `POST /api/proposals/[id]/approve` (same endpoint as inline sign-off)
+    - Already-approved state: checkmark badge, "Signed by [name] on [date]", PDF download link
+    - **Guards:** redirects to `/p/[token]` if proposal is a draft, token is expired, toggle is OFF, or no sections have been added
+
+- **PDF gating** — `/api/pdf/proposal/[token]` respects `contractEnabled`; when the contract flow is active, the PDF does not duplicate contract sections inline.
 
 ### 3. Invoice generation & status tracking
 
@@ -461,15 +530,24 @@ A client-facing deliverable portal for sharing video and creative assets from a 
 
 **Delivery Notes overview block** — `DeliveryPage.overview` is an optional Smart Text block displayed between the hero and the section list on the public `/d/[token]` page. Supports bold (`**text**`) and links (`[text](url)`). Rendered via `renderSmartText()`. Added in migration `20260703000001_delivery_overview`.
 
-**Smart Text** — a lightweight markup subset used in delivery notes and section descriptions, implemented in `src/lib/smart-text.ts`:
+**Smart Text** — a lightweight markup subset used in delivery notes, contract sections, and proposal descriptions, implemented in `src/lib/smart-text.ts`:
 
 | Syntax | Output |
 |--------|--------|
 | `**text**` | `<strong>text</strong>` |
+| `_text_` | `<em>text</em>` |
+| `++text++` | `<u>text</u>` |
 | `[label](https://url)` | `<a href="…" target="_blank" …>label</a>` (http/https only) |
-| newline | `<br>` |
+| `- item` | `<ul><li>…</li></ul>` bullet list |
+| `1. item` | `<ol><li>…</li></ol>` numbered list |
+| blank line | paragraph break (`<p>` wrapper) |
+| `{{tag.field}}` | merge tag — resolved via `resolveMergeTags()` before render (contract builder only) |
 
-Input is HTML-escaped before substitution — user content cannot inject arbitrary tags. `stripSmartText()` removes markers for plain-text contexts (truncated previews, etc.). The editor exposes a `SmartTextEditor` component with a Bold and Link toolbar.
+Input is HTML-escaped before substitution — user content cannot inject arbitrary tags. **HTML passthrough:** legacy contract blocks stored as raw HTML are detected by `looksLikeHtml()` and passed through `applyInline()` only (inline markers still apply; block structure is preserved). `stripSmartText()` removes markers and strips HTML tags for plain-text contexts (truncated previews, etc.).
+
+`SmartTextEditor` component (`src/components/delivery/SmartTextEditor.tsx`) toolbar:
+- **¶** — inserts a paragraph break at the cursor position (always visible)
+- **Tags** dropdown — inserts a merge tag at cursor; only shown when the `showMergeTags` prop is set (contract builder context)
 
 **Admin side (`/projects/[id]/delivery/deliverables`):**
 
@@ -572,7 +650,28 @@ All image uploads bypass the Next.js server entirely. The browser never holds ra
 
 **User avatar note:** `getCurrentUser()` in `src/lib/auth.ts` no longer overwrites `User.avatarUrl` with Clerk's `imageUrl` on every request — it only sets it during initial account creation. Once a custom R2 avatar is uploaded, it persists. Users can update their avatar in **Settings → My profile**.
 
-### 10. Actuals tracker (`/projects/[id]/actuals`)
+### 10. Schedule & Stripboard (`/projects/[id]/schedule`)
+
+A production scheduling system for planning shoot days, scenes, and crew. Inspired by traditional stripboards.
+
+**Core concepts:**
+
+- **Location** — workspace-scoped, reusable. Stores address, geocoded lat/lng, parking notes, access notes, nearest hospital, and a site contact. Created from the Locations manager or inline from a call sheet; linked by FK rather than duplicating address text.
+- **ShootDay** — a calendar date within a project. Backfilled automatically from `Project.shootStartDate/EndDate` (one day per calendar date in the range). Has an optional primary location.
+- **Scene** — a script scene (or shot) within a project. Fields: scene number, setting, synopsis, description, INT/EXT, time of day, page count, cast (Rolodex contact IDs), location link, estimated duration, color override (for the strip).
+- **Schedule** — a named stripboard document. Each project can have multiple schedules (e.g. "Option A", "Approved Schedule"). One is marked `isPrimary`. Column preferences (which columns are visible) stored as `columnPrefs JSONB`.
+- **ScheduleEntry** — a row on the stripboard, ordered within a shoot day. Two kinds:
+  - `SCENE` — links to a `Scene` row; columns derive from scene data
+  - `BANNER` — a non-scene row (meal break, company move, coffee break, custom note) with optional duration
+
+**Features:**
+- **Schedule switcher** — rename, duplicate, set as primary, delete schedules from a dropdown
+- **Adjustable columns** — toggle which columns are visible per schedule (stored in `columnPrefs`)
+- **Scene sort dialog** — sort scenes by scene number, setting, location, time of day, etc. before locking in order
+- **Location management** — CRUD for workspace locations; linked from scenes and call sheets
+- **Call sheet integration** — a call sheet can be linked to a specific `ShootDay` and `Location`. When linked, the location address fields populate from the shared `Location` record instead of the inline text fields.
+
+### 11. Actuals tracker (`/projects/[id]/actuals`)
 
 Post-production spend tracking per project.
 
@@ -585,6 +684,7 @@ Post-production spend tracking per project.
   - Top overages ranked list
   - **Download PDF** — `/api/pdf/wrap-report/[projectId]` generates a branded PDF via `@react-pdf/renderer`
 - **Project card burn bar** — when actuals exist, each project card shows a small burn bar (`actual / budget`) coloured green (<80%), amber (80–100%), or red (>100%).
+- **Receipt metadata** — `Receipt` rows can store `amountCents`, `merchantName`, and `receiptDate` for reconciliation against actuals entries.
 
 ## Project Archiving
 
@@ -684,11 +784,35 @@ ttp-budget/
 │       │                                    #   ProjectTeamRole enum (PROJECT_LEAD, ACCOUNT_MANAGER, PROJECT_MANAGER)
 │       │                                    #   ProjectTeamMember table + 4 indexes
 │       │                                    #   Partial unique index: one active holder per role per project
+│       ├── 20260628000003_receipt_details/migration.sql
+│       │                                    #   Receipt.amountCents INT, merchantName TEXT, receiptDate TIMESTAMP
+│       ├── 20260628000007_phase_overview/migration.sql
+│       │                                    #   Phase.overview TEXT — tagline shown on the proposal cover hero
+│       ├── 20260629000001_schedule_feature/migration.sql
+│       │                                    #   Location table (workspaceId, address, geocoords, parking/access notes, hospital, contact)
+│       │                                    #   ShootDay table (projectId, date, orderIndex, label, startTime, primaryLocationId)
+│       │                                    #   Scene table (projectId, sceneNumber, setting, intExt, timeOfDay, pageCount, castContactIds, locationId)
+│       │                                    #   Schedule table (projectId, name, isPrimary, columnPrefs JSONB)
+│       │                                    #   ScheduleEntry table (scheduleId, shootDayId, kind SCENE|BANNER, sceneId, bannerType)
+│       │                                    #   CallSheet: locationId FK, shootDayId FK, scheduleSnapshot JSONB
+│       │                                    #   Backfills: CallSheet inline locations → Location rows; Project dates → ShootDay rows
+│       ├── 20260701000001_project_team/migration.sql
+│       │                                    #   ProjectTeamRole enum (PROJECT_LEAD, ACCOUNT_MANAGER, PROJECT_MANAGER)
+│       │                                    #   ProjectTeamMember table + 4 indexes
+│       │                                    #   Partial unique index: one active holder per role per project
 │       ├── 20260703000001_delivery_overview/migration.sql
 │       │                                    #   DeliveryPage.overview TEXT — Smart Text overview block above sections
-│       └── 20260703000002_client_legalname_invoice_paymentterms/migration.sql
-│                                            #   Client.legalName TEXT — legal entity name shown on invoice BILL TO
-│                                            #   Invoice.paymentTerms TEXT — short label (e.g. "Net 30"); auto-set from workspace default
+│       ├── 20260703000002_client_legalname_invoice_paymentterms/migration.sql
+│       │                                    #   Client.legalName TEXT — legal entity name shown on invoice BILL TO
+│       │                                    #   Invoice.paymentTerms TEXT — short label (e.g. "Net 30"); auto-set from workspace default
+│       └── 20260704000001_per_workspace_payments/migration.sql
+│                                            #   PaymentProvider enum: STRIPE added (was HELCIM-only)
+│                                            #   WorkspacePaymentConfig: helcimEnabled (entitlement flag), stripeAccountId,
+│                                            #     stripeOnboardedAt, stripeChargesEnabled, helcimCredentialId, helcimWebhookVerifierId
+│                                            #   EncryptedCredential table: AES-256-GCM envelope encryption for Helcim tokens
+│                                            #     (ciphertext/iv/authTag/keyVersion/last4 — see src/lib/crypto/credentials.ts)
+│                                            #   ProposalContractSection table: proposalId, workspaceId, title, body, orderIndex, attachSource
+│                                            #   Proposal.contractEnabled Boolean @default(true)
 ├── scripts/
 │   ├── audit-scoped-models.ts              # Security: verify all workspaceId models are in SCOPED_MODELS; exits 1 on gaps
 │   ├── report-token-formats.ts             # Security: report UUID v4 vs legacy token counts per public-token model
@@ -716,6 +840,7 @@ ttp-budget/
 │   │   │   │       ├── actuals/             # Actuals tracker (per-line spend, ad-hoc entries, status)
 │   │   │   │       │   └── wrap/            # Wrap report — budgeted vs. actual, PDF download
 │   │   │   │       ├── call-sheets/[csId]/  # Call sheet editor page
+│   │   │   │       ├── contract/            # Full-page contract builder (latest non-draft proposal)
 │   │   │   │       └── delivery/
 │   │   │   │           ├── deliverables/    # Admin deliverables manager (sections, assets, drag-and-drop)
 │   │   │   │           └── page/            # Client page preview + publish/unpublish
@@ -739,6 +864,10 @@ ttp-budget/
 │   │   │       └── [assetToken]/page.tsx    # Mobile asset viewer — .m-embed-wrap iframe fill pattern
 │   │   ├── (public)/
 │   │   │   ├── p/[token]/page.tsx           # Proposal public view (draft-aware; per-workspace branded)
+│   │   │   │                                #   effectiveContractEnabled check; shows CTA or inline sign-off
+│   │   │   ├── p/[token]/sign/page.tsx      # Contract signing page (Phase 4 two-page flow)
+│   │   │   │                                #   Guards: draft/expiry/no-toggle/no-sections → redirect to /p/[token]
+│   │   │   │                                #   Renders ProposalSignView with merge-tag-resolved contract sections
 │   │   │   ├── i/[token]/page.tsx           # Invoice public view (per-workspace branded)
 │   │   │   ├── cs/[token]/page.tsx          # Call sheet public view (draft-aware)
 │   │   │   ├── invite/[token]/page.tsx      # Team invitation acceptance
@@ -774,7 +903,10 @@ ttp-budget/
 │   │   ├── proposals/
 │   │   │   ├── ProposalsKanban.tsx          # Drag-and-drop Kanban; WON + LOST columns droppable
 │   │   │   ├── ProposalsTable.tsx           # All-proposals table with per-row delete
-│   │   │   └── ProposalTemplatePreview.tsx  # Branded proposal mockup (Document Hub → Proposals tab)
+│   │   │   ├── ProposalTemplatePreview.tsx  # Branded proposal mockup (Document Hub → Proposals tab)
+│   │   │   └── ContractTab.tsx             # Contract builder tab: section CRUD, toggle, full-width editor,
+│   │   │                                    #   slide-in preview panel (transition-[width] 0→480px),
+│   │   │                                    #   getMergeTagContext for live merge-tag preview
 │   │   ├── projects/
 │   │   │   ├── projects-types.ts            # Shared types (ProjectForCard, ProjectInvoiceSnap incl. amountPaidCents, …)
 │   │   │   ├── ProjectMetricsStrip.tsx      # 4 solid-color KPI cards; metrics exclude ARCHIVED projects
@@ -819,6 +951,10 @@ ttp-budget/
 │   │   │   └── InviteAcceptClient.tsx       # /invite/[token] acceptance UI
 │   │   ├── proposal/
 │   │   │   ├── ProposalPublicView.tsx       # Multi-section: section anchors, highlight animation, subtotal rows, clickable deliverable cards
+│   │   │   │                                #   contractEnabled prop: CTA section / approved state / inline sign-off gating
+│   │   │   ├── ProposalSignView.tsx         # Contract signing page component (Phase 4)
+│   │   │   │                                #   Merge tag resolution, agree checkbox, cursive sig preview, Sign & Approve,
+│   │   │   │                                #   already-approved state, PDF download; same brand-var pattern as ProposalPublicView
 │   │   │   └── ProposalPDF.tsx             # Multi-section: page breaks between sections, section headings + subtotals, §deliverable refs
 │   │   ├── public/
 │   │   │   └── PrintTrigger.tsx             # Client component: delays 800 ms then calls window.print() when ?print=1
@@ -850,8 +986,11 @@ ttp-budget/
 │   │   │                                    #   sanitizeIframe: strips scripts, validates src against provider allow-list,
 │   │   │                                    #   rebuilds <iframe> with safe attrs only. Never stores VIMEO embedHtml —
 │   │   │                                    #   canonicalUrl carries all query params and fills the container correctly.
-│   │   ├── smart-text.ts                    # renderSmartText(raw) → safe HTML (**bold**, [link](url), newlines)
-│   │   │                                    #   stripSmartText(raw) → plain text (for truncated previews)
+│   │   ├── smart-text.ts                    # renderSmartText(raw) → safe HTML (bold/italic/underline/links/lists/paragraphs)
+│   │   │                                    #   looksLikeHtml(s) — detects legacy raw-HTML blocks; passed through applyInline() only
+│   │   │                                    #   stripSmartText(raw) → plain text; strips HTML tags for legacy blocks
+│   │   ├── merge-tags.ts                    # MergeTagContext type + resolveMergeTags(body, ctx)
+│   │   │                                    #   Replaces {{workspace.name}}, {{client.name}}, {{proposal.total}}, etc.
 │   │   └── email.ts
 │   └── server/
 │       └── actions/
@@ -868,6 +1007,11 @@ ttp-budget/
 │           ├── library.ts
 │           ├── proposals.ts                 # updateProposalStatus → reconcileTeamFromWonProposal on APPROVED
 │           │                                #   markProposalWon, markProposalLost
+│           ├── proposal-contracts.ts        # Contract builder server actions
+│           │                                #   listContractSections, upsertContractSection, deleteContractSection
+│           │                                #   reorderContractSections, toggleContractEnabled
+│           │                                #   evaluateProposalContractTriggers — checks auto-attach conditions
+│           │                                #   getMergeTagContext(proposalId) → MergeTagContext for live preview
 │           ├── invoices.ts
 │           ├── rates.ts
 │           ├── templates.ts
@@ -938,6 +1082,20 @@ SHADE_API_KEY=sk_...
 # Omit both to fall back to in-process Map (single-instance only)
 UPSTASH_REDIS_REST_URL=""
 UPSTASH_REDIS_REST_TOKEN=""
+
+# Helcim — only required for workspaces with helcimEnabled = true (invite-only entitlement)
+# These are stored as encrypted credentials in EncryptedCredential; not used globally
+HELCIM_API_TOKEN=
+HELCIM_WEBHOOK_VERIFIER_TOKEN=
+
+# Stripe — Stripe Connect platform credentials (see Payments section)
+STRIPE_SECRET_KEY=sk_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_...
+
+# Credential encryption key — AES-256-GCM KEK for EncryptedCredential storage
+# Increment suffix (V2, V3, ...) when rotating; keep old versions for decryption of existing rows
+CREDENTIAL_KEK_V1=<32-byte hex or base64 key>
 ```
 
 ## Development
@@ -992,7 +1150,35 @@ The `/api/webhooks/clerk` endpoint must be registered in the Clerk dashboard. Re
 
 The webhook uses `svix` signature verification. Set `CLERK_WEBHOOK_SECRET` from the Clerk dashboard endpoint page.
 
-## Payments (Helcim)
+## Payments
+
+Payment processing is **per-workspace** — each workspace independently connects a payment provider. The payment layer is configured via `WorkspacePaymentConfig` (one row per workspace, scoped via `getScopedDb()`).
+
+### Providers
+
+| Provider | Status | How to enable |
+|----------|--------|---------------|
+| **Stripe Connect** (Standard) | Default | Workspace owner goes through Stripe Connect OAuth flow from Settings |
+| **Helcim** | Invite-only | `helcimEnabled = true` set via SQL (no UI) |
+
+**Stripe Connect** — the workspace owner connects their existing Stripe account via OAuth (Standard Connect). Only identifiers are stored (`stripeAccountId`, `stripeChargesEnabled`, `stripeOnboardedAt`) — Stripe's platform handles routing.
+
+**Helcim** — invite-only; entitlement flag has **no UI whatsoever**. Flip it via SQL:
+```sql
+UPDATE "WorkspacePaymentConfig" SET "helcimEnabled" = true
+  WHERE "workspaceId" = (SELECT id FROM "Workspace" WHERE name ILIKE '%your-workspace%' LIMIT 1);
+```
+
+### Credential storage
+
+Helcim API tokens and webhook verifier tokens are stored in `EncryptedCredential` using **AES-256-GCM** envelope encryption:
+- KEK (Key Encryption Key) sourced from `CREDENTIAL_KEK_V<n>` env vars — versioned for rotation
+- Stored columns: `ciphertext`, `iv`, `authTag`, `keyVersion`, and `last4` (display-only, last 4 chars)
+- `last4` is the **only** thing ever shown in the UI. There is no "reveal" path.
+- `decryptCredential` is server-only (`server-only` import guard) — never importable from client components
+- Plaintext never appears in logs, thrown errors, `ActionResult` payloads, or Prisma query logs
+
+### Helcim flow
 
 Online invoice payments use **HelcimPay.js** (the hosted iFrame). Flow:
 
