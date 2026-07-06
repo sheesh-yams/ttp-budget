@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { SmartTextEditor } from '@/components/delivery/SmartTextEditor'
 import { createContractBlock, updateContractBlock } from '@/server/actions/contract-blocks'
 import type { ContractBlockRow, TriggerInput } from '@/server/actions/contract-blocks'
 import type { ContractBlockCategory, TriggerKind } from '@prisma/client'
@@ -144,14 +145,12 @@ export function ContractBlockDialog({ open, onClose, editing }: Props) {
 
           {/* Body */}
           <div className="space-y-1.5">
-            <Label htmlFor="cb-body">Body</Label>
-            <textarea
-              id="cb-body"
+            <Label>Body</Label>
+            <SmartTextEditor
               value={body}
-              onChange={e => setBody(e.target.value)}
+              onChange={setBody}
               rows={12}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm leading-relaxed shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-y"
-              placeholder="Enter contract text. HTML is supported for formatting (e.g. <strong>, <p>, <ul>)."
+              placeholder="Enter contract text…"
             />
             <p className="text-xs text-muted-foreground">
               Merge tags: <code className="text-xs">{'{{client.name}}'}</code>{' '}

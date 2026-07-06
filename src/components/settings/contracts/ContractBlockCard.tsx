@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { ContractBlockDialog } from './ContractBlockDialog'
+import { renderSmartText, stripSmartText } from '@/lib/smart-text'
 import { toggleContractBlockActive, deleteContractBlock } from '@/server/actions/contract-blocks'
 import type { ContractBlockRow } from '@/server/actions/contract-blocks'
 import type { ContractBlockCategory, TriggerKind } from '@prisma/client'
@@ -59,9 +60,8 @@ export function ContractBlockCard({ block }: Props) {
     })
   }
 
-  const bodyPreview = block.body
-    .replace(/<[^>]*>/g, ' ')   // strip HTML tags
-    .replace(/\s+/g, ' ')       // collapse whitespace
+  const bodyPreview = stripSmartText(block.body)
+    .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 180)
 
@@ -124,8 +124,8 @@ export function ContractBlockCard({ block }: Props) {
 
             {expanded && (
               <div
-                className="mt-2 text-sm text-foreground border-t border-border pt-3 leading-relaxed [&>p]:mb-2 [&>ul]:list-disc [&>ul]:pl-5 [&>ul]:mb-2 [&>li]:mb-1"
-                dangerouslySetInnerHTML={{ __html: block.body }}
+                className="mt-2 text-sm text-foreground border-t border-border pt-3 leading-relaxed"
+                dangerouslySetInnerHTML={{ __html: renderSmartText(block.body) }}
               />
             )}
           </div>

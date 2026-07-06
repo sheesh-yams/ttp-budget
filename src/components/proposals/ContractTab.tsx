@@ -4,6 +4,8 @@ import { useState, useEffect, useTransition, useCallback } from 'react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { SmartTextEditor } from '@/components/delivery/SmartTextEditor'
+import { renderSmartText } from '@/lib/smart-text'
 import {
   listContractSections,
   evaluateProposalContractTriggers,
@@ -149,8 +151,8 @@ function ContractSectionItem({
         <div className="px-3 pb-3 border-t border-border/50">
           {section.body ? (
             <div
-              className="mt-2 text-sm text-foreground leading-relaxed [&>p]:mb-2 [&>ul]:list-disc [&>ul]:pl-5 [&>ul]:mb-2 [&>li]:mb-1"
-              dangerouslySetInnerHTML={{ __html: section.body }}
+              className="mt-2 text-sm text-foreground leading-relaxed"
+              dangerouslySetInnerHTML={{ __html: renderSmartText(section.body) }}
             />
           ) : (
             <p className="mt-2 text-sm text-muted-foreground italic">No body text.</p>
@@ -167,12 +169,11 @@ function ContractSectionItem({
             placeholder="Section title"
             className="h-8 text-sm"
           />
-          <textarea
+          <SmartTextEditor
             value={editBody}
-            onChange={e => setEditBody(e.target.value)}
+            onChange={setEditBody}
             rows={8}
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm leading-relaxed shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-y"
-            placeholder="Contract text (HTML supported)"
+            placeholder="Contract text…"
           />
           <p className="text-xs text-muted-foreground">
             Merge tags: <code className="text-xs">{'{{client.name}}'}</code>{' '}
@@ -381,12 +382,11 @@ function AdHocCreator({
         className="h-7 text-xs"
         autoFocus
       />
-      <textarea
-        rows={5}
+      <SmartTextEditor
         value={body}
-        onChange={e => setBody(e.target.value)}
-        className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs leading-relaxed shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-y"
-        placeholder="Contract text (HTML supported)"
+        onChange={setBody}
+        rows={5}
+        placeholder="Contract text…"
       />
       {error && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex gap-2">

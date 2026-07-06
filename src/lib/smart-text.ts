@@ -1,24 +1,34 @@
 /**
- * Renders a simple "smart text" format to safe HTML.
+ * Renders "smart text" — a lightweight markdown-like format — to safe HTML.
  *
  * Supported syntax:
  *   **text**        → <strong>text</strong>
+ *   _text_          → <em>text</em>
+ *   ++text++        → <u>text</u>
  *   [text](url)     → <a href="url" …>text</a>  (http/https only)
- *   newline         → <br>
+ *   - item          → <ul><li>…</li></ul>  (consecutive lines)
+ *   1. item         → <ol><li>…</li></ol>  (consecutive lines)
+ *   blank line      → paragraph break
  *
  * HTML is escaped before pattern substitution, so user content cannot
  * inject arbitrary tags.
  */
-export function renderSmartText(raw: string): string {
-  let s = raw
+
+function escapeHtml(s: string): string {
+  return s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
+}
 
-  // Bold ([\s\S] instead of . + s flag for broader tsconfig compatibility)
+function applyInline(s: string): string {
+  // Bold — must be processed before italic to avoid partial matches on ***
   s = s.replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
-
+  // Italic
+  s = s.replace(/_([\s\S]+?)_/g, '<em>$1</em>')
+  // Underline
+  s = s.replace(/\+\+([\s\S]+?)\+\+/g, '<u>$1</u>')
   // Links — only allow http(s) URLs
   s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => {
     const trimmed = url.trim()
@@ -26,16 +36,54 @@ export function renderSmartText(raw: string): string {
     const safeUrl = trimmed.replace(/&quot;/g, '%22')
     return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline;text-underline-offset:2px">${text}</a>`
   })
-
-  // Line breaks
-  s = s.replace(/\n/g, '<br>')
-
   return s
+}
+
+export function renderSmartText(raw: string): string {
+  const lines = raw.split('\n')
+  let html = ''
+  let i = 0
+
+  while (i < lines.length) {
+    const line = lines[i]
+
+    // Unordered list — group consecutive `- ` lines
+    if (/^- /.test(line)) {
+      html += '<ul style="margin:0.25em 0 0.5em;padding-left:1.25em;list-style-type:disc">'
+      while (i < lines.length && /^- /.test(lines[i])) {
+        html += `<li>${applyInline(escapeHtml(lines[i].slice(2)))}</li>`
+        i++
+      }
+      html += '</ul>'
+      continue
+    }
+
+    // Ordered list — group consecutive `N. ` lines
+    if (/^\d+\. /.test(line)) {
+      html += '<ol style="margin:0.25em 0 0.5em;padding-left:1.25em">'
+      while (i < lines.length && /^\d+\. /.test(lines[i])) {
+        html += `<li>${applyInline(escapeHtml(lines[i].replace(/^\d+\. /, '')))}</li>`
+        i++
+      }
+      html += '</ol>'
+      continue
+    }
+
+    // Regular line (empty line becomes a visual paragraph break)
+    html += applyInline(escapeHtml(line)) + '<br>'
+    i++
+  }
+
+  return html
 }
 
 /** Strip smart-text syntax markers for plain-text contexts (e.g. truncated previews). */
 export function stripSmartText(raw: string): string {
   return raw
     .replace(/\*\*([\s\S]+?)\*\*/g, '$1')
+    .replace(/_([\s\S]+?)_/g, '$1')
+    .replace(/\+\+([\s\S]+?)\+\+/g, '$1')
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/^- /gm, '')
+    .replace(/^\d+\. /gm, '')
 }
