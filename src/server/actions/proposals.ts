@@ -673,6 +673,37 @@ export async function createProposalRevision(
         createdById: user.id,
       } as unknown as Parameters<typeof sdb.proposal.create>[0]['data'],
     })
+    // Copy contract sections from source proposal to the new revision
+    type SectionRow = { title: string; body: string; orderIndex: number; attachedBy: string; sourceBlockId: string | null; editedFromSource: boolean }
+    const sourceSections = await (sdb as unknown as {
+      proposalContractSection: {
+        findMany: (a: object) => Promise<SectionRow[]>
+        createMany: (a: object) => Promise<unknown>
+      }
+    }).proposalContractSection.findMany({
+      where:   { proposalId },
+      orderBy: { orderIndex: 'asc' },
+      select:  { title: true, body: true, orderIndex: true, attachedBy: true, sourceBlockId: true, editedFromSource: true },
+    })
+    if (sourceSections.length > 0) {
+      const newProposalId  = (proposal as unknown as { id: string }).id
+      const wsId = (source as unknown as { workspaceId: string }).workspaceId
+      await (sdb as unknown as {
+        proposalContractSection: { createMany: (a: object) => Promise<unknown> }
+      }).proposalContractSection.createMany({
+        data: sourceSections.map(s => ({
+          workspaceId:      wsId,
+          proposalId:       newProposalId,
+          sourceBlockId:    s.sourceBlockId,
+          title:            s.title,
+          body:             s.body,
+          orderIndex:       s.orderIndex,
+          attachedBy:       s.attachedBy,
+          editedFromSource: s.editedFromSource,
+        })),
+      })
+    }
+
     revalidatePath(`/projects/${(source as unknown as { projectId: string }).projectId}`)
     return { success: true, data: { id: proposal.id, publicToken: (proposal as unknown as { publicToken: string }).publicToken } }
   } catch (err) {

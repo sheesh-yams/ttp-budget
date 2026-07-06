@@ -8,6 +8,8 @@ import { parseLocalDate } from '@/lib/time-format'
 import type { ProposalContent, PaymentMilestone } from '@/types'
 import { BudgetReadOnly } from '@/components/budget/BudgetReadOnly'
 import type { SerialAccount, SerialBudgetSection } from '@/components/budget/BudgetReadOnly'
+import { renderSmartText } from '@/lib/smart-text'
+import { resolveMergeTags, type MergeTagContext } from '@/lib/merge-tags'
 
 // ─── Brand tokens ─────────────────────────────────────────────────────────────
 // V / V_TINT / MINT / MINT_DK resolve to per-workspace CSS variables set on the
@@ -91,6 +93,12 @@ interface SerialProposal {
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
+interface ContractSection {
+  id: string
+  title: string
+  body: string
+}
+
 interface Props {
   proposal: SerialProposal
   accounts: SerialAccount[]
@@ -99,6 +107,7 @@ interface Props {
   discountLabel?: string
   isDraft?: boolean
   budgetSections?: SerialBudgetSection[]
+  contractSections?: ContractSection[]
   deliverableLinkMode?: 'scroll' | 'filter'
 }
 
@@ -106,7 +115,7 @@ interface Props {
 
 export function ProposalPublicView({
   proposal, accounts, totalCents, discountCents = 0, discountLabel = 'Discount',
-  isDraft = false, budgetSections = [], deliverableLinkMode = 'scroll',
+  isDraft = false, budgetSections = [], contractSections = [], deliverableLinkMode = 'scroll',
 }: Props) {
   const content     = proposal.content as ProposalContent
   const sections    = content?.sections ?? []
@@ -182,6 +191,21 @@ export function ProposalPublicView({
   const productionCents = snap?.productionCents ?? totalCents
   const budgetMarkupPct = snap?.budgetMarkupPct ?? 0
   const budgetTaxPct    = snap?.budgetTaxPct    ?? 0
+
+  // Merge-tag context for contract section bodies
+  const mergeCtx: MergeTagContext = {
+    workspace: {
+      name:      workspace.name ?? undefined,
+      legalName: workspace.legalName ?? undefined,
+    },
+    client:   { name: clientName },
+    project:  { name: project.name },
+    proposal: {
+      total:        totalCents > 0 ? formatMoney(totalCents) : undefined,
+      validThrough: validThrough ?? undefined,
+    },
+    deliverables: deliverables.map(d => ({ title: d.title, quantity: d.quantity })),
+  }
 
   // Sign-off
   const isAlreadyApproved = proposal.status === 'APPROVED'
@@ -380,6 +404,42 @@ export function ProposalPublicView({
         variant="proposal"
       />
 
+      {/* ════════════════════ CONTRACT TERMS ════════════════════ */}
+      {contractSections.length > 0 && (
+        <section style={{ padding: 'clamp(48px,7vw,96px) clamp(24px,6vw,80px)' }}>
+          <div style={{ maxWidth: 760, margin: '0 auto' }}>
+            <SectionHeader label="Terms" />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
+              {contractSections.map((cs, i) => {
+                const resolved = resolveMergeTags(cs.body, mergeCtx)
+                const html     = renderSmartText(resolved)
+                return (
+                  <div key={cs.id}>
+                    {contractSections.length > 1 && (
+                      <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: V, margin: '0 0 10px' }}>
+                        {String(i + 1).padStart(2, '0')} — {cs.title}
+                      </p>
+                    )}
+                    {contractSections.length === 1 && (
+                      <p style={{ fontSize: 15, fontWeight: 700, color: BODY, margin: '0 0 10px' }}>
+                        {cs.title}
+                      </p>
+                    )}
+                    <div
+                      style={{ fontSize: 13, lineHeight: 1.8, color: BODY }}
+                      dangerouslySetInnerHTML={{ __html: html }}
+                    />
+                    {i < contractSections.length - 1 && (
+                      <div style={{ height: 1, background: BORDER, marginTop: 36 }} />
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* ════════════════════ SIGN OFF ════════════════════ */}
       {!isDraft && <section style={{ padding: 'clamp(48px,7vw,96px) clamp(24px,6vw,80px)', background: V_TINT }}>
         <div style={{ maxWidth: 560, margin: '0 auto', textAlign: 'center' }}>
@@ -401,7 +461,7 @@ export function ProposalPublicView({
           ) : (
             <div style={{ background: '#fff', border: `0.5px solid ${BORDER}`, borderRadius: 10, padding: '40px 36px' }}>
               <p style={{ fontSize: 15, color: BODY, lineHeight: 1.7, margin: '0 0 28px', textAlign: 'left' }}>
-                By typing your name and clicking <em>Approve</em>, you agree to the scope, budget, and payment terms outlined in this proposal.
+                By signing below, you confirm your agreement to the scope of work, terms, and payment schedule outlined above.
               </p>
 
               {/* Cursive signature preview */}

@@ -58,6 +58,18 @@ export default async function PublicProposalPage({ params }: Props) {
 
   if (!proposal) notFound()
 
+  // ── Contract sections ─────────────────────────────────────────────────────
+  type ContractSectionRow = { id: string; title: string; body: string; orderIndex: number }
+  const contractSections = await (db as unknown as {
+    proposalContractSection: {
+      findMany: (a: object) => Promise<ContractSectionRow[]>
+    }
+  }).proposalContractSection.findMany({
+    where:   { proposalId: proposal.id },
+    orderBy: { orderIndex: 'asc' },
+    select:  { id: true, title: true, body: true, orderIndex: true },
+  })
+
   // ── Expiry check ──────────────────────────────────────────────────────────
   const proposalExpiry = (proposal as unknown as { publicTokenExpiresAt: Date | null }).publicTokenExpiresAt
   if (proposalExpiry && proposalExpiry < new Date()) {
@@ -224,6 +236,7 @@ export default async function PublicProposalPage({ params }: Props) {
       discountLabel={discountLabel}
       isDraft={isDraft}
       budgetSections={budgetSections}
+      contractSections={contractSections}
     />
   )
 }

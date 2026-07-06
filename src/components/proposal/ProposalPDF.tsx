@@ -51,6 +51,12 @@ interface ProposalData {
   };
 }
 
+interface ContractSection {
+  id:    string
+  title: string
+  body:  string
+}
+
 interface Props {
   proposal: ProposalData
   accounts: Account[]
@@ -58,6 +64,7 @@ interface Props {
   discountCents?: number
   discountLabel?: string
   budgetSections?: BudgetSection[]
+  contractSections?: ContractSection[]
   pageBreakBetweenAccounts?: boolean
 }
 
@@ -86,6 +93,29 @@ function milestoneLabelPdf(m: PaymentMilestone, shootStartDate: string | null): 
 function fmtDate(d: string | null) {
   if (!d) return ''
   return (parseLocalDate(d) ?? new Date(d)).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+}
+
+// ─── Smart-text → PDF plain-text ──────────────────────────────────────────────
+// react-pdf renders plain text only, so we strip inline markers and convert
+// list prefixes to visible characters.
+
+interface PdfLine { text: string; bullet?: boolean; numbered?: string }
+
+function parsePdfLines(raw: string): PdfLine[] {
+  return raw.split('\n').map(line => {
+    if (/^- /.test(line)) return { text: stripInline(line.slice(2)), bullet: true }
+    const numMatch = line.match(/^(\d+)\. (.*)/)
+    if (numMatch) return { text: stripInline(numMatch[2]), numbered: `${numMatch[1]}.` }
+    return { text: stripInline(line) }
+  })
+}
+
+function stripInline(s: string): string {
+  return s
+    .replace(/\*\*([\s\S]+?)\*\*/g, '$1')
+    .replace(/_([\s\S]+?)_/g, '$1')
+    .replace(/\+\+([\s\S]+?)\+\+/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -159,6 +189,15 @@ const s = StyleSheet.create({
   milestoneTrig: { fontSize: 9.5, color: MUT, marginBottom: 12 },
   milestoneAmt:  { fontSize: 12, fontFamily: 'Helvetica-Bold', color: V },
 
+  // Contract terms
+  contractBlock:     { marginBottom: 20 },
+  contractSectionNum:{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: V, letterSpacing: 1.4, textTransform: 'uppercase', marginBottom: 5 },
+  contractTitle:     { fontSize: 12, fontFamily: 'Helvetica-Bold', color: BODY, marginBottom: 8 },
+  contractBody:      { fontSize: 10, lineHeight: 1.7, color: BODY },
+  contractBullet:    { fontSize: 10, lineHeight: 1.7, color: BODY, flexDirection: 'row' },
+  contractBulletDot: { width: 12, fontSize: 10, color: BODY },
+  contractDivider:   { height: 0.5, backgroundColor: BDR, marginVertical: 16 },
+
   // Footer — pinned absolutely
   footer:    { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: '12 48', backgroundColor: INK },
   footerLbl: { fontSize: 8, color: 'rgba(255,255,255,0.45)' },
@@ -178,7 +217,7 @@ function SectionLabel({ label }: { label: string }) {
 
 // ─── Main PDF component ───────────────────────────────────────────────────────
 
-export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0, discountLabel = 'Discount', budgetSections = [], pageBreakBetweenAccounts = false }: Props) {
+export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0, discountLabel = 'Discount', budgetSections = [], contractSections = [], pageBreakBetweenAccounts = false }: Props) {
   const content  = proposal.content as ProposalContent
   const sections = content?.sections ?? []
 
@@ -475,6 +514,48 @@ export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0,
                 </View>
               ))}
             </View>
+          </View>
+        )}
+
+        {/* ══ CONTRACT TERMS ══ */}
+        {contractSections.length > 0 && (
+          <View style={s.section} break>
+            <SectionLabel label="Terms" />
+            {contractSections.map((cs, i) => {
+              const lines = parsePdfLines(cs.body)
+              return (
+                <View key={cs.id} style={s.contractBlock}>
+                  {contractSections.length > 1 ? (
+                    <Text style={s.contractSectionNum}>{String(i + 1).padStart(2, '0')} — {cs.title}</Text>
+                  ) : (
+                    <Text style={s.contractTitle}>{cs.title}</Text>
+                  )}
+                  {lines.map((line, li) => {
+                    if (!line.text && !line.bullet && !line.numbered) {
+                      return <Text key={li} style={{ fontSize: 5 }}>{' '}</Text>
+                    }
+                    if (line.bullet) {
+                      return (
+                        <View key={li} style={s.contractBullet}>
+                          <Text style={s.contractBulletDot}>•</Text>
+                          <Text style={[s.contractBody, { flex: 1 }]}>{line.text}</Text>
+                        </View>
+                      )
+                    }
+                    if (line.numbered) {
+                      return (
+                        <View key={li} style={s.contractBullet}>
+                          <Text style={[s.contractBulletDot, { width: 18 }]}>{line.numbered}</Text>
+                          <Text style={[s.contractBody, { flex: 1 }]}>{line.text}</Text>
+                        </View>
+                      )
+                    }
+                    return <Text key={li} style={s.contractBody}>{line.text}</Text>
+                  })}
+                  {i < contractSections.length - 1 && <View style={s.contractDivider} />}
+                </View>
+              )
+            })}
           </View>
         )}
 
