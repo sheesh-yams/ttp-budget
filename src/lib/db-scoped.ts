@@ -70,7 +70,11 @@ export const SCOPED_MODELS = new Set([
   'Scene',
   'Schedule',
   'ScheduleEntry',
+  // Contract Blocks — workspace library; triggers carry denormalized workspaceId
+  'ContractBlock',
+  'ContractBlockTrigger',
   // NOTE: WebhookEvent is NOT workspace-scoped (keyed by provider+eventId only)
+  // NOTE: GlobalContractBlock / GlobalContractBlockTrigger are NOT workspace-scoped
 ])
 
 // Operations that read data — inject workspaceId into `where`

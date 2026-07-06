@@ -91,8 +91,10 @@ model Workspace {
   actualSheets      ActualSheet[]
   invitations       WorkspaceInvitation[]
   contacts          Contact[]
-  paymentConfig     WorkspacePaymentConfig?
-  receipts          Receipt[]
+  paymentConfig            WorkspacePaymentConfig?
+  receipts                 Receipt[]
+  contractBlocks           ContractBlock[]
+  autoAttachContractBlocks Boolean @default(false)
 }
 
 enum UserRole {
@@ -1488,4 +1490,75 @@ model ScheduleEntry {
 
   @@index([scheduleId, shootDayId, orderIndex])
   @@index([workspaceId])
+}
+
+// =============================================================
+// CONTRACT BLOCKS
+// =============================================================
+
+enum ContractBlockCategory {
+  SOW
+  TERMS
+  PAYMENT
+  IP_RIGHTS
+  COMPLIANCE
+  CUSTOM
+}
+
+enum TriggerKind {
+  DELIVERABLE_TYPE
+  KEYWORD
+  BUDGET_ACCOUNT
+}
+
+model ContractBlock {
+  id          String                 @id @default(cuid())
+  workspaceId String
+  workspace   Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title       String
+  category    ContractBlockCategory  @default(CUSTOM)
+  body        String                 @db.Text
+  isDefault   Boolean                @default(false)
+  isActive    Boolean                @default(true)
+  orderIndex  Int                    @default(0)
+  triggers    ContractBlockTrigger[]
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+
+  @@index([workspaceId, isActive])
+}
+
+model ContractBlockTrigger {
+  id          String        @id @default(cuid())
+  workspaceId String
+  blockId     String
+  block       ContractBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  kind        TriggerKind
+  matchValue  String
+
+  @@index([blockId])
+  @@index([workspaceId])
+}
+
+model GlobalContractBlock {
+  id         String                       @id @default(cuid())
+  title      String
+  category   ContractBlockCategory        @default(CUSTOM)
+  body       String                       @db.Text
+  isDefault  Boolean                      @default(false)
+  orderIndex Int                          @default(0)
+  isFeatured Boolean                      @default(true)
+  triggers   GlobalContractBlockTrigger[]
+  createdAt  DateTime                     @default(now())
+  updatedAt  DateTime                     @updatedAt
+}
+
+model GlobalContractBlockTrigger {
+  id         String              @id @default(cuid())
+  blockId    String
+  block      GlobalContractBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  kind       TriggerKind
+  matchValue String
+
+  @@index([blockId])
 }

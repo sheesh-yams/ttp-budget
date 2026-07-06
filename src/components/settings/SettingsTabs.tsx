@@ -5,8 +5,9 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 
 const tabs = [
-  { label: 'General',  href: '/settings' },
-  { label: 'Payments', href: '/settings/payments' },
+  { label: 'General',   href: '/settings' },
+  { label: 'Payments',  href: '/settings/payments' },
+  { label: 'Contracts', href: '/settings/contracts' },
 ]
 
 export function SettingsTabs() {

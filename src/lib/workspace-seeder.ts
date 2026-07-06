@@ -15,12 +15,12 @@
  */
 
 import { db } from '@/lib/db'
-import type { RateCategory, RateUnit, ShootType, TemplateKind } from '@prisma/client'
+import type { RateCategory, RateUnit, ShootType, TemplateKind, ContractBlockCategory, TriggerKind } from '@prisma/client'
 import { toJsonSafe } from '@/lib/json-safe'
 
 export async function seedWorkspaceFromGlobals(workspaceId: string): Promise<void> {
   // Fetch all featured globals in parallel
-  const [globalRates, globalTemplates] = await Promise.all([
+  const [globalRates, globalTemplates, globalContractBlocks] = await Promise.all([
     db.globalRateCard.findMany({
       where:   { isFeatured: true },
       orderBy: { sortOrder: 'asc' },
@@ -28,6 +28,11 @@ export async function seedWorkspaceFromGlobals(workspaceId: string): Promise<voi
     db.globalTemplate.findMany({
       where:   { isFeatured: true },
       orderBy: { sortOrder: 'asc' },
+    }),
+    db.globalContractBlock.findMany({
+      where:   { isFeatured: true },
+      orderBy: { orderIndex: 'asc' },
+      include: { triggers: true },
     }),
   ])
 
@@ -64,10 +69,32 @@ export async function seedWorkspaceFromGlobals(workspaceId: string): Promise<voi
         } as unknown as Parameters<typeof tx.budgetTemplate.create>[0]['data'],
       })
     }
+
+    // ── Contract blocks ─────────────────────────────────────────────────────
+    for (const g of globalContractBlocks) {
+      await tx.contractBlock.create({
+        data: {
+          workspaceId,
+          title:      g.title,
+          category:   g.category as ContractBlockCategory,
+          body:       g.body,
+          isDefault:  g.isDefault,
+          isActive:   true,
+          orderIndex: g.orderIndex,
+          triggers: {
+            create: g.triggers.map(t => ({
+              workspaceId,
+              kind:       t.kind as TriggerKind,
+              matchValue: t.matchValue,
+            })),
+          },
+        },
+      })
+    }
   })
 
   console.log(
-    `[workspace-seeder] Seeded workspace ${workspaceId} with ${globalRates.length} rate cards and ${globalTemplates.length} templates.`
+    `[workspace-seeder] Seeded workspace ${workspaceId} with ${globalRates.length} rate cards, ${globalTemplates.length} templates, and ${globalContractBlocks.length} contract blocks.`
   )
 }
 
@@ -79,22 +106,27 @@ export async function seedWorkspaceFromGlobals(workspaceId: string): Promise<voi
 export async function reseedWorkspaceFromGlobals(workspaceId: string): Promise<{
   ratesAdded: number
   templatesAdded: number
+  contractBlocksAdded: number
 }> {
-  const [globalRates, globalTemplates, existingRates, existingTemplates] = await Promise.all([
+  const [globalRates, globalTemplates, globalContractBlocks, existingRates, existingTemplates, existingBlocks] = await Promise.all([
     db.globalRateCard.findMany({ where: { isFeatured: true }, orderBy: { sortOrder: 'asc' } }),
     db.globalTemplate.findMany({ where: { isFeatured: true }, orderBy: { sortOrder: 'asc' } }),
+    db.globalContractBlock.findMany({ where: { isFeatured: true }, orderBy: { orderIndex: 'asc' }, include: { triggers: true } }),
     db.rateCard.findMany({ where: { workspaceId, archivedAt: null }, select: { role: true } }),
     db.budgetTemplate.findMany({ where: { workspaceId }, select: { name: true } }),
+    db.contractBlock.findMany({ where: { workspaceId }, select: { title: true } }),
   ])
 
-  const existingRoles = new Set(existingRates.map(r => r.role))
-  const existingNames = new Set(existingTemplates.map(t => t.name))
+  const existingRoles  = new Set(existingRates.map(r => r.role))
+  const existingNames  = new Set(existingTemplates.map(t => t.name))
+  const existingTitles = new Set(existingBlocks.map(b => b.title))
 
-  const ratesToAdd     = globalRates.filter(g => !existingRoles.has(g.role))
-  const templatesToAdd = globalTemplates.filter(g => !existingNames.has(g.name))
+  const ratesToAdd          = globalRates.filter(g => !existingRoles.has(g.role))
+  const templatesToAdd      = globalTemplates.filter(g => !existingNames.has(g.name))
+  const contractBlocksToAdd = globalContractBlocks.filter(g => !existingTitles.has(g.title))
 
-  if (ratesToAdd.length === 0 && templatesToAdd.length === 0) {
-    return { ratesAdded: 0, templatesAdded: 0 }
+  if (ratesToAdd.length === 0 && templatesToAdd.length === 0 && contractBlocksToAdd.length === 0) {
+    return { ratesAdded: 0, templatesAdded: 0, contractBlocksAdded: 0 }
   }
 
   await db.$transaction(async (tx) => {
@@ -125,9 +157,30 @@ export async function reseedWorkspaceFromGlobals(workspaceId: string): Promise<{
         } as unknown as Parameters<typeof tx.budgetTemplate.create>[0]['data'],
       })
     }
+
+    for (const g of contractBlocksToAdd) {
+      await tx.contractBlock.create({
+        data: {
+          workspaceId,
+          title:      g.title,
+          category:   g.category as ContractBlockCategory,
+          body:       g.body,
+          isDefault:  g.isDefault,
+          isActive:   true,
+          orderIndex: g.orderIndex,
+          triggers: {
+            create: g.triggers.map(t => ({
+              workspaceId,
+              kind:       t.kind as TriggerKind,
+              matchValue: t.matchValue,
+            })),
+          },
+        },
+      })
+    }
   })
 
-  return { ratesAdded: ratesToAdd.length, templatesAdded: templatesToAdd.length }
+  return { ratesAdded: ratesToAdd.length, templatesAdded: templatesToAdd.length, contractBlocksAdded: contractBlocksToAdd.length }
 }
 
 // ---------------------------------------------------------------------------

@@ -339,6 +339,238 @@ const globalTemplates = [
   },
 ] as const
 
+// ---------------------------------------------------------------------------
+// Global contract blocks
+// Convention: "gcb-" prefix for GlobalContractBlock
+// "isFeatured: true" = seeded into every new workspace automatically
+// ---------------------------------------------------------------------------
+
+const globalContractBlocks = [
+  // ── ALWAYS-ON (isDefault) ────────────────────────────────────────────────
+  {
+    id: 'gcb-general-terms',
+    title: 'General Terms & Conditions',
+    category: 'TERMS',
+    isDefault: true,
+    orderIndex: 10,
+    isFeatured: true,
+    triggers: [],
+    body: `<p><strong>{{workspace.name}}</strong> ("Company") and the client identified in this proposal ("Client") agree to the following terms governing all work performed under this engagement.</p>
+
+<p><strong>Payment.</strong> All fees are due per the payment schedule in this proposal. Invoices unpaid after thirty (30) days accrue a late fee of 1.5% per month (18% per annum) on the outstanding balance. The Company reserves the right to pause work on any project with an overdue balance exceeding fourteen (14) days.</p>
+
+<p><strong>Intellectual Property.</strong> All creative work, footage, deliverables, and materials produced by the Company remain the exclusive property of {{workspace.name}} until payment is received in full. Upon receipt of final payment, the Company grants Client the usage rights specified in this proposal. The Company retains the right to display completed work in its portfolio unless otherwise agreed in writing.</p>
+
+<p><strong>Client Responsibilities.</strong> Client is responsible for providing accurate creative briefs, timely approvals, and access to any locations, talent, or assets required for production. Delays caused by Client availability, late approvals, or incomplete information may result in revised timelines and additional fees.</p>
+
+<p><strong>Cancellation.</strong> If Client cancels this engagement after a signed proposal, any deposits paid are non-refundable. If cancellation occurs after production has begun, Client is responsible for all costs incurred to date plus a kill fee equal to 25% of the remaining balance.</p>
+
+<p><strong>Limitation of Liability.</strong> The Company's total liability for any claim arising from this engagement shall not exceed the total fees paid by Client under this proposal. The Company is not liable for indirect, incidental, or consequential damages of any kind.</p>
+
+<p><strong>Governing Law.</strong> This agreement is governed by the laws of the state in which {{workspace.name}} operates. Any dispute shall be resolved by binding arbitration in that jurisdiction.</p>`,
+  },
+
+  {
+    id: 'gcb-revision-policy',
+    title: 'Revision Policy',
+    category: 'TERMS',
+    isDefault: true,
+    orderIndex: 20,
+    isFeatured: true,
+    triggers: [],
+    body: `<p>This proposal includes a defined number of revision rounds as specified in the deliverables above. Revisions are defined as reasonable adjustments to color, pacing, text, or music within the agreed creative direction. Revisions do not include fundamental changes to concept, structure, or scope.</p>
+
+<p><strong>Revision process.</strong> Client feedback should be consolidated into a single, detailed note per round delivered via email or the project management platform designated by the Company. Fragmented or sequential feedback within the same revision round may consume multiple rounds.</p>
+
+<p><strong>Additional revisions.</strong> Revision rounds beyond the included number are billed at the applicable day rate, invoiced and due before work resumes.</p>
+
+<p><strong>Approval.</strong> Once Client provides written approval of a deliverable, that deliverable is considered final. Any changes requested after approval are treated as additional revisions and billed accordingly.</p>`,
+  },
+
+  // ── TRIGGERED BLOCKS ─────────────────────────────────────────────────────
+  {
+    id: 'gcb-video-sow',
+    title: 'Video Production — Scope of Work',
+    category: 'SOW',
+    isDefault: false,
+    orderIndex: 30,
+    isFeatured: true,
+    triggers: [
+      { kind: 'KEYWORD', matchValue: 'video' },
+      { kind: 'KEYWORD', matchValue: 'film' },
+      { kind: 'KEYWORD', matchValue: 'shoot' },
+    ],
+    body: `<p>This scope of work governs video production services provided by {{workspace.name}} for the project identified in this proposal.</p>
+
+<p><strong>Pre-Production.</strong> The Company will develop a shot list and production schedule based on the approved creative brief. Client must confirm final locations, talent, and any branded assets no later than five (5) business days before the scheduled shoot date. Changes to these elements after confirmation may result in additional fees.</p>
+
+<p><strong>Production.</strong> All shoot days are scheduled for the hours defined in the confirmed call sheet. Overtime beyond the scheduled wrap time is billed at 1.5× the daily crew rate, invoiced after completion. The Company maintains creative control over technical execution (camera operation, lighting design, audio capture) while following the agreed creative direction.</p>
+
+<p><strong>Post-Production.</strong> The Company will edit and deliver the agreed deliverables per the revision policy in this proposal. Delivery format, resolution, and codec will match the specifications outlined in the deliverables section. Final files are delivered digitally via the Company's preferred platform.</p>
+
+<p><strong>Music & Licensing.</strong> Unless otherwise specified, music is sourced from a licensed library included in the production budget. Client-requested commercial tracks (e.g., major label music) require a sync license purchased separately by Client.</p>`,
+  },
+
+  {
+    id: 'gcb-photo-sow',
+    title: 'Photography — Scope of Work',
+    category: 'SOW',
+    isDefault: false,
+    orderIndex: 40,
+    isFeatured: true,
+    triggers: [
+      { kind: 'KEYWORD', matchValue: 'photo' },
+      { kind: 'KEYWORD', matchValue: 'stills' },
+      { kind: 'KEYWORD', matchValue: 'photography' },
+    ],
+    body: `<p>This scope of work governs photography services provided by {{workspace.name}} for the project identified in this proposal.</p>
+
+<p><strong>Shoot day.</strong> The Company will photograph the agreed subjects and scenarios per the approved shot list. Client must confirm wardrobe, props, and talent no later than three (3) business days before the shoot. Setup and breakdown time is included in the scheduled day rate.</p>
+
+<p><strong>Selection & editing.</strong> The Company will provide a private online gallery of selects (unretouched low-resolution previews) for Client to choose final images. Client selects the quantity of finals specified in the deliverables section. Images not selected are not delivered.</p>
+
+<p><strong>Retouching.</strong> Final images are delivered retouched to a professional standard appropriate for the intended use. Extensive retouching beyond standard color correction, exposure, and skin tone adjustment is scoped separately.</p>
+
+<p><strong>Delivery.</strong> Final high-resolution files are delivered as full-resolution JPEGs (sRGB, unless otherwise specified) via the Company's preferred digital delivery platform within the turnaround time stated in the deliverables section.</p>`,
+  },
+
+  {
+    id: 'gcb-raw-footage-terms',
+    title: 'Raw Footage Delivery Terms',
+    category: 'TERMS',
+    isDefault: false,
+    orderIndex: 50,
+    isFeatured: true,
+    triggers: [
+      { kind: 'DELIVERABLE_TYPE', matchValue: 'RAW_FOOTAGE' },
+      { kind: 'KEYWORD', matchValue: 'raw' },
+      { kind: 'KEYWORD', matchValue: 'rushes' },
+    ],
+    body: `<p>Where raw or unedited footage is included as a deliverable, the following terms apply.</p>
+
+<p><strong>What "raw footage" means.</strong> Raw footage consists of all camera-original files captured during the production day(s), delivered in the original recording codec and color space (e.g., R3D, BRAW, S-Log, LOG-C). No color correction, audio mix, or sync is applied unless specifically noted in the deliverables section.</p>
+
+<p><strong>No editing guarantee.</strong> Raw footage is delivered as-captured. The Company makes no representation that raw files are suitable for any particular use without further post-production work. Technical variations in exposure, focus, or audio level are inherent to the nature of raw acquisition.</p>
+
+<p><strong>Storage & delivery.</strong> Raw files are delivered on a hard drive (at Client's cost, if applicable) or via high-capacity file transfer. Delivery timelines for raw footage are separate from those for edited deliverables and will be specified in the project schedule.</p>
+
+<p><strong>Retention.</strong> The Company will retain a backup of raw files for sixty (60) days after delivery. After that period, the Company may delete source files. Client is responsible for maintaining its own archival copies.</p>`,
+  },
+
+  {
+    id: 'gcb-social-usage-rights',
+    title: 'Social Content Usage Rights',
+    category: 'IP_RIGHTS',
+    isDefault: false,
+    orderIndex: 60,
+    isFeatured: true,
+    triggers: [
+      { kind: 'KEYWORD', matchValue: 'social' },
+      { kind: 'KEYWORD', matchValue: 'tiktok' },
+      { kind: 'KEYWORD', matchValue: 'instagram' },
+      { kind: 'KEYWORD', matchValue: 'reels' },
+      { kind: 'KEYWORD', matchValue: 'content' },
+    ],
+    body: `<p>Upon receipt of final payment, {{workspace.name}} grants Client a non-exclusive, perpetual license to use the delivered social content assets on Client's owned digital and social media channels, including but not limited to Instagram, TikTok, Facebook, YouTube, and LinkedIn.</p>
+
+<p><strong>Included uses.</strong> Organic posting on Client's own social channels; reposting or sharing by tagged parties; use in paid social advertising campaigns run by or on behalf of Client.</p>
+
+<p><strong>Excluded uses.</strong> Broadcast (TV, out-of-home, cinema); third-party licensing or resale; use in campaigns for brands or products other than those named in this proposal. Extended or additional usage rights are available at an additional licensing fee.</p>
+
+<p><strong>Credits.</strong> Client agrees to credit {{workspace.name}} when tagging or mentioning production on public posts, unless Client operates in a category where supplier disclosure is not standard practice.</p>
+
+<p><strong>Portfolio.</strong> The Company retains the right to display all delivered assets in its portfolio, social channels, and marketing materials, unless Client requests a written embargo before signing.</p>`,
+  },
+
+  {
+    id: 'gcb-talent-releases',
+    title: 'Talent & Appearance Releases',
+    category: 'COMPLIANCE',
+    isDefault: false,
+    orderIndex: 70,
+    isFeatured: true,
+    triggers: [
+      { kind: 'BUDGET_ACCOUNT', matchValue: 'Talent' },
+      { kind: 'BUDGET_ACCOUNT', matchValue: 'Cast' },
+      { kind: 'KEYWORD', matchValue: 'talent' },
+    ],
+    body: `<p>Any production involving on-screen talent (principals, background, extras, or any identifiable person) requires a signed appearance release before that individual's likeness may be used in any deliverable or marketing material.</p>
+
+<p><strong>Client responsibility.</strong> Unless the Company is separately engaged to manage talent casting and contracting, Client is responsible for obtaining signed appearance releases from all on-screen talent prior to the shoot date. The Company will not knowingly deliver content featuring individuals who have not signed a valid release.</p>
+
+<p><strong>Minors.</strong> Any talent under the age of 18 requires a release signed by a parent or legal guardian. The Company reserves the right to require proof of age and guardian identity before any minor appears on camera.</p>
+
+<p><strong>Release archive.</strong> Client must retain signed releases for the full duration of any usage of the applicable content. The Company is indemnified by Client for any claims arising from Client's failure to obtain or retain valid releases.</p>
+
+<p><strong>Indemnification.</strong> Client agrees to indemnify and hold harmless {{workspace.name}}, its employees, and agents from any claims, damages, or costs arising from the use of a person's likeness without proper authorization.</p>`,
+  },
+
+  {
+    id: 'gcb-drone-compliance',
+    title: 'Drone & Aerial Operations',
+    category: 'COMPLIANCE',
+    isDefault: false,
+    orderIndex: 80,
+    isFeatured: true,
+    triggers: [
+      { kind: 'KEYWORD', matchValue: 'drone' },
+      { kind: 'KEYWORD', matchValue: 'aerial' },
+      { kind: 'KEYWORD', matchValue: 'fpv' },
+    ],
+    body: `<p>Aerial and drone operations are conducted in compliance with FAA regulations under Part 107. The following conditions apply to any engagement that includes drone or aerial cinematography.</p>
+
+<p><strong>Permits & airspace.</strong> Drone operations in controlled airspace require advance authorization (LAANC or FAA waiver). Authorization times vary and are not guaranteed. Client must notify the Company of the shoot location no later than ten (10) business days in advance to allow sufficient time to obtain required authorizations.</p>
+
+<p><strong>Weather & safety.</strong> Drone operations may be cancelled or postponed at the operator's sole discretion due to weather conditions (wind, precipitation, visibility), airspace conflicts, or safety concerns. Weather cancellations will be rescheduled at no additional charge if caused by conditions outside the Company's control.</p>
+
+<p><strong>Location access.</strong> Client is responsible for obtaining property owner permission for drone flights over private land. The Company is not liable for shots that cannot be executed due to denied access or late-arising permit restrictions.</p>
+
+<p><strong>Privacy.</strong> The Company will not intentionally capture images of private individuals without consent. Any such incidental captures will be removed in post-production upon request.</p>`,
+  },
+
+  {
+    id: 'gcb-rush-delivery',
+    title: 'Rush Delivery Terms',
+    category: 'TERMS',
+    isDefault: false,
+    orderIndex: 90,
+    isFeatured: true,
+    triggers: [
+      { kind: 'KEYWORD', matchValue: 'rush' },
+      { kind: 'KEYWORD', matchValue: 'expedited' },
+      { kind: 'KEYWORD', matchValue: 'urgent' },
+    ],
+    body: `<p>Rush delivery is defined as any delivery timeline shorter than the Company's standard post-production turnaround of five (5) business days per finished minute of content, or the standard editing window stated in the deliverables section.</p>
+
+<p><strong>Rush fee.</strong> Rush delivery carries a surcharge of 30–50% of the applicable post-production rate, depending on the severity of acceleration required. The exact rush rate will be quoted and agreed in writing before work begins.</p>
+
+<p><strong>Scope of rush.</strong> Rush timelines apply only to the specific deliverables noted as rush in this proposal. Other deliverables in the same project remain on standard timelines unless separately designated as rush.</p>
+
+<p><strong>Client cooperation.</strong> Rush delivery requires Client to provide consolidated, complete feedback within 24 hours of each review link being shared. Delays in Client feedback will extend the delivery timeline accordingly, and the rush fee remains due regardless.</p>`,
+  },
+
+  {
+    id: 'gcb-deliverable-licensing',
+    title: 'Deliverable Licensing & Usage Rights',
+    category: 'IP_RIGHTS',
+    isDefault: false,
+    orderIndex: 100,
+    isFeatured: true,
+    triggers: [
+      { kind: 'DELIVERABLE_TYPE', matchValue: 'DELIVERABLE' },
+    ],
+    body: `<p>Upon receipt of final payment in full, {{workspace.name}} grants Client the following rights in the delivered content ("Deliverables"):</p>
+
+<p><strong>License grant.</strong> A non-exclusive, perpetual license to reproduce, display, distribute, and publicly perform the Deliverables for the purpose(s) stated in the approved creative brief. Any use beyond the stated purpose requires a separate license agreement.</p>
+
+<p><strong>Exclusivity.</strong> Unless an exclusivity fee is included in this proposal, the license is non-exclusive. The Company retains the right to use similar creative approaches, styles, and techniques for other clients.</p>
+
+<p><strong>Modifications.</strong> Client may edit or adapt the Deliverables for internal use (resizing, cropping, format conversion). Material alterations to creative content — including adding or removing significant visual elements, changing voiceover, or recontextualizing the work — require written approval from the Company.</p>
+
+<p><strong>Third-party elements.</strong> The Company will use commercially reasonable efforts to license or clear all third-party elements (music, stock footage, fonts) included in the Deliverables. Client assumes responsibility for any third-party clearances required for uses beyond the scope of this proposal.</p>`,
+  },
+]
+
 async function main() {
   console.log('🌱  Seeding database...')
 
@@ -401,6 +633,37 @@ async function main() {
     gtplCount++
   }
   console.log(`✓  GlobalTemplate: ${gtplCount} upserted`)
+
+  // ── 2b. GlobalContractBlock rows ────────────────────────────────────────────
+  console.log('\nSeeding GlobalContractBlock...')
+  let gcbCount = 0
+  for (const b of globalContractBlocks) {
+    await db.globalContractBlock.upsert({
+      where: { id: b.id },
+      update: {
+        title:      b.title,
+        category:   b.category as never,
+        body:       b.body,
+        isDefault:  b.isDefault,
+        orderIndex: b.orderIndex,
+        isFeatured: b.isFeatured,
+      },
+      create: {
+        id:         b.id,
+        title:      b.title,
+        category:   b.category as never,
+        body:       b.body,
+        isDefault:  b.isDefault,
+        orderIndex: b.orderIndex,
+        isFeatured: b.isFeatured,
+        triggers: {
+          create: b.triggers.map(t => ({ kind: t.kind as never, matchValue: t.matchValue })),
+        },
+      },
+    })
+    gcbCount++
+  }
+  console.log(`✓  GlobalContractBlock: ${gcbCount} upserted`)
 
   // ── 3. TTP workspace (production workspace — existing data preserved) ────────
   console.log('\nSeeding TTP workspace...')
@@ -654,6 +917,41 @@ async function main() {
     console.log(`✓  TTP template: ${t.name}`)
   }
 
+  // ── 5b. TTP contract blocks (seeded from globals, additive) ─────────────────
+  // Uses the same upsert-skip pattern as TTP rate cards: existing blocks are
+  // never overwritten so TTP customizations persist across re-seeds.
+  console.log('\nSeeding TTP contract blocks...')
+  const ttpWorkspaceId = workspace.id
+  const [allGlobals, existingTtpBlocks] = await Promise.all([
+    db.globalContractBlock.findMany({ where: { isFeatured: true }, orderBy: { orderIndex: 'asc' }, include: { triggers: true } }),
+    db.contractBlock.findMany({ where: { workspaceId: ttpWorkspaceId }, select: { title: true } }),
+  ])
+  const existingTitles = new Set(existingTtpBlocks.map(b => b.title))
+  let cbCount = 0
+  for (const g of allGlobals) {
+    if (existingTitles.has(g.title)) continue
+    await db.contractBlock.create({
+      data: {
+        workspaceId: ttpWorkspaceId,
+        title:       g.title,
+        category:    g.category,
+        body:        g.body,
+        isDefault:   g.isDefault,
+        isActive:    true,
+        orderIndex:  g.orderIndex,
+        triggers: {
+          create: g.triggers.map(t => ({
+            workspaceId: ttpWorkspaceId,
+            kind:        t.kind,
+            matchValue:  t.matchValue,
+          })),
+        },
+      },
+    })
+    cbCount++
+  }
+  console.log(`✓  TTP contract blocks: ${cbCount} created (${existingTtpBlocks.length} already existed)`)
+
   // ── 6. Sample data for TTP (client + project) ──────────────────────────────
   const hulu = await db.client.upsert({
     where: { id: 'seed-client-hulu' },
@@ -690,12 +988,13 @@ async function main() {
 Global library:
   • ${grcCount} GlobalRateCard rows
   • ${gtplCount} GlobalTemplate rows
+  • ${gcbCount} GlobalContractBlock rows
 
 TTP workspace:
   • Rate cards and templates preserved (upsert skips existing rows)
 
 Next steps:
-  1. npx prisma studio  — inspect the new GlobalRateCard and GlobalTemplate tables
+  1. npx prisma studio  — inspect the global library tables
   2. npm run dev        — start the app
 `)
 }
