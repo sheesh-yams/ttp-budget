@@ -614,6 +614,9 @@ model Proposal {
   // Snapshot of the totals at time of approval — preserves the number the client agreed to
   approvedTotalCents Int?
 
+  // Contract section toggle — when false no Terms section appears on the public view
+  contractEnabled Boolean @default(true)
+
   createdById   String?
   createdBy     User?    @relation("ProposalCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt     DateTime @default(now())

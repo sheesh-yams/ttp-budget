@@ -32,15 +32,18 @@ export async function GET(
     return new NextResponse('Not found', { status: 404 })
   }
 
-  // Contract sections attached to this proposal
+  // Contract sections attached to this proposal (skipped if contractEnabled is false)
   type ContractRow = { id: string; title: string; body: string }
-  const contractSections = await (db as unknown as {
-    proposalContractSection: { findMany: (a: object) => Promise<ContractRow[]> }
-  }).proposalContractSection.findMany({
-    where:   { proposalId: proposal.id },
-    orderBy: { orderIndex: 'asc' },
-    select:  { id: true, title: true, body: true },
-  })
+  const contractEnabled = (proposal as unknown as { contractEnabled?: boolean }).contractEnabled ?? true
+  const contractSections = contractEnabled
+    ? await (db as unknown as {
+        proposalContractSection: { findMany: (a: object) => Promise<ContractRow[]> }
+      }).proposalContractSection.findMany({
+        where:   { proposalId: proposal.id },
+        orderBy: { orderIndex: 'asc' },
+        select:  { id: true, title: true, body: true },
+      })
+    : []
 
   // Use frozen budget snapshot if present, fall back to live query for legacy proposals
   const proposalContent = proposal.content as Record<string, unknown>

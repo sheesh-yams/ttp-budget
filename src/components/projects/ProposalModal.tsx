@@ -103,6 +103,7 @@ interface ExistingProposal {
   discount?: ProposalDiscount
   about?: string
   deliverables?: unknown[]
+  contractEnabled?: boolean
 }
 
 interface Props {
@@ -359,7 +360,7 @@ export function ProposalModal({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className={activeTab === 'contract' && mode === 'edit-draft' && !successToken ? 'sm:max-w-[700px]' : 'sm:max-w-[520px]'}>
+      <DialogContent className={activeTab === 'contract' && mode === 'edit-draft' && !successToken ? 'sm:max-w-[960px]' : 'sm:max-w-[520px]'}>
         <DialogHeader>
           <DialogTitle>
             {successToken ? (isDraft ? 'Draft Saved' : (isSentManually ? 'Marked as Sent' : 'Proposal Sent')) : MODE_TITLE[mode]}
@@ -389,7 +390,7 @@ export function ProposalModal({
         {/* Contract tab */}
         {activeTab === 'contract' && mode === 'edit-draft' && existing && !successToken && (
           <div className="py-2 max-h-[65vh] overflow-y-auto pr-1">
-            <ContractTab proposalId={existing.id} />
+            <ContractTab proposalId={existing.id} contractEnabled={existing.contractEnabled ?? true} />
           </div>
         )}
 

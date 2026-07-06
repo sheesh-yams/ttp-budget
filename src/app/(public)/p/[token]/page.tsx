@@ -60,15 +60,18 @@ export default async function PublicProposalPage({ params }: Props) {
 
   // ── Contract sections ─────────────────────────────────────────────────────
   type ContractSectionRow = { id: string; title: string; body: string; orderIndex: number }
-  const contractSections = await (db as unknown as {
-    proposalContractSection: {
-      findMany: (a: object) => Promise<ContractSectionRow[]>
-    }
-  }).proposalContractSection.findMany({
-    where:   { proposalId: proposal.id },
-    orderBy: { orderIndex: 'asc' },
-    select:  { id: true, title: true, body: true, orderIndex: true },
-  })
+  const contractEnabled = (proposal as unknown as { contractEnabled?: boolean }).contractEnabled ?? true
+  const contractSections = contractEnabled
+    ? await (db as unknown as {
+        proposalContractSection: {
+          findMany: (a: object) => Promise<ContractSectionRow[]>
+        }
+      }).proposalContractSection.findMany({
+        where:   { proposalId: proposal.id },
+        orderBy: { orderIndex: 'asc' },
+        select:  { id: true, title: true, body: true, orderIndex: true },
+      })
+    : []
 
   // ── Expiry check ──────────────────────────────────────────────────────────
   const proposalExpiry = (proposal as unknown as { publicTokenExpiresAt: Date | null }).publicTokenExpiresAt

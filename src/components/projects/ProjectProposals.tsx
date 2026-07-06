@@ -21,6 +21,7 @@ interface ProposalRow {
   signatureName: string | null
   approvedAt: Date | null
   content: unknown
+  contractEnabled: boolean
 }
 
 interface Props {
@@ -142,6 +143,7 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
           deliverables,
           milestones,
           discount,
+          contractEnabled: editingProposal.contractEnabled,
         }
       })()
     : undefined

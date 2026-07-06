@@ -56,6 +56,27 @@ function pcs(sdb: Awaited<ReturnType<typeof getScopedDb>>) {
   return (sdb as unknown as { proposalContractSection: PCS }).proposalContractSection
 }
 
+// ─── Toggle contract on/off for a proposal ────────────────────────────────────
+
+export async function setContractEnabled(
+  proposalId: string,
+  enabled: boolean,
+): Promise<ActionResult<void>> {
+  try {
+    const sdb = await getScopedDb()
+    await (sdb as unknown as {
+      proposal: { update: (a: object) => Promise<unknown> }
+    }).proposal.update({
+      where: { id: proposalId },
+      data:  { contractEnabled: enabled },
+    })
+    revalidatePath('/projects')
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to update contract setting.' }
+  }
+}
+
 // ─── List sections ─────────────────────────────────────────────────────────────
 
 export async function listContractSections(
