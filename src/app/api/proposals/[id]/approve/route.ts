@@ -113,7 +113,7 @@ export async function POST(
         sections: liveSections.map(s => ({
           id:       s.id,
           title:    s.title,
-          bodyHtml: resolveMergeTags(renderSmartText(s.body), mergeCtx),
+          bodyHtml: resolveMergeTags(renderSmartText(s.body), mergeCtx, { warnUnresolved: false }),
           bodyText: resolveMergeTagsPlain(s.body, mergeCtx),
         })),
       }

@@ -421,7 +421,7 @@ export function ProposalPublicView({
                 // approval). Otherwise: render smart-text first, then substitute
                 // (HTML-escaped) merge values into the finished HTML — resolving
                 // before rendering would double-escape; after keeps values inert.
-                const html = cs.resolvedHtml ?? resolveMergeTags(renderSmartText(cs.body), mergeCtx)
+                const html = cs.resolvedHtml ?? resolveMergeTags(renderSmartText(cs.body), mergeCtx, { warnUnresolved: false })
                 return (
                   <div key={cs.id}>
                     {contractSections.length > 1 && (

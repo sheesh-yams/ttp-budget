@@ -35,7 +35,19 @@ function escapeHtml(s: string): string {
     .replace(/'/g, '&#39;')
 }
 
-export function resolveMergeTags(body: string, ctx: MergeTagContext): string {
+export interface ResolveOptions {
+  /**
+   * When true (default), unresolved tags render as a highlighted ⚠ warning
+   * marker — useful in the internal editor preview. When false, they render as
+   * empty string so a client never sees a raw/warning tag on a public page or a
+   * signed snapshot. Producers catch typos via the editor's warning banner.
+   */
+  warnUnresolved?: boolean
+}
+
+export function resolveMergeTags(body: string, ctx: MergeTagContext, opts?: ResolveOptions): string {
+  const warn = opts?.warnUnresolved ?? true
+
   // The <ul>/<li> structure here is trusted HTML we build; the titles inside
   // it are untrusted and are escaped individually.
   const deliverablesList = ctx.deliverables?.length
@@ -67,10 +79,14 @@ export function resolveMergeTags(body: string, ctx: MergeTagContext): string {
         return RAW_HTML_KEYS.has(key) ? val : escapeHtml(val)
       }
       // Known tag but value not available (e.g. client has no company)
-      return `<mark class="bg-yellow-100 text-yellow-800 rounded px-0.5" title="No value available">⚠ ${SENTINEL}{{${safeKey}}}${SENTINEL}</mark>`
+      return warn
+        ? `<mark class="bg-yellow-100 text-yellow-800 rounded px-0.5" title="No value available">⚠ ${SENTINEL}{{${safeKey}}}${SENTINEL}</mark>`
+        : ''
     }
     // Unknown tag
-    return `<mark class="bg-red-100 text-red-800 rounded px-0.5" title="Unknown merge tag">⚠ ${SENTINEL}{{${safeKey}}}${SENTINEL}</mark>`
+    return warn
+      ? `<mark class="bg-red-100 text-red-800 rounded px-0.5" title="Unknown merge tag">⚠ ${SENTINEL}{{${safeKey}}}${SENTINEL}</mark>`
+      : ''
   })
 }
 

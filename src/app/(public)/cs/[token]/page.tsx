@@ -3,6 +3,7 @@ import { MapPin, Phone, Clock, Hospital, Cloud, Calendar, User } from 'lucide-re
 import { db } from '@/lib/db'
 import { headers } from 'next/headers'
 import { checkRateLimit } from '@/lib/rate-limit'
+import { trustedClientIp } from '@/lib/client-ip'
 import { ExpiredLinkPage } from '@/components/public/ExpiredLinkPage'
 import { RateLimitedPage } from '@/components/public/RateLimitedPage'
 import { PrintTrigger } from '@/components/public/PrintTrigger'
@@ -40,7 +41,7 @@ export default async function PublicCallSheetPage({
 
   // ── Rate limiting ─────────────────────────────────────────────────────────
   const reqHeaders = await headers()
-  const ip = reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  const ip = trustedClientIp(name => reqHeaders.get(name))
   const { success } = await checkRateLimit('publicDoc', ip)
   if (!success) return <RateLimitedPage />
 

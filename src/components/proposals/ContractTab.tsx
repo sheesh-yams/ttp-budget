@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { SmartTextEditor } from '@/components/delivery/SmartTextEditor'
 import { renderSmartText } from '@/lib/smart-text'
-import { resolveMergeTags, type MergeTagContext } from '@/lib/merge-tags'
+import { resolveMergeTags, unresolvedTagNames, type MergeTagContext } from '@/lib/merge-tags'
+import { useConfirm } from '@/components/ui/confirm-dialog'
 import {
   listContractSections,
   evaluateProposalContractTriggers,
@@ -54,6 +55,7 @@ function SectionCard({
   const [editTitle, setEditTitle]    = useState(section.title)
   const [editBody,  setEditBody]     = useState(section.body)
   const [error,     setError]        = useState<string | null>(null)
+  const { confirm, ConfirmDialog }   = useConfirm()
 
   // Sync when section data changes (e.g. after reset)
   useEffect(() => {
@@ -71,8 +73,10 @@ function SectionCard({
   }
 
   function handleReset() {
-    if (!confirm('Reset to library version? Your edits will be lost.')) return
     startTransition(async () => {
+      if (!await confirm('Reset to library version? Your edits will be lost.', {
+        title: 'Reset section', confirmLabel: 'Reset', key: 'contract-section-reset',
+      })) return
       const result = await resetContractSection(section.id)
       if (!result.success) setError((result as { success: false; error: string }).error)
       else onRefresh()
@@ -80,8 +84,10 @@ function SectionCard({
   }
 
   function handleRemove() {
-    if (!confirm(`Remove "${section.title}"?`)) return
     startTransition(async () => {
+      if (!await confirm(`Remove "${section.title}"?`, {
+        title: 'Remove section', confirmLabel: 'Remove', key: 'contract-section-remove',
+      })) return
       const result = await removeContractSection(section.id)
       if (!result.success) setError((result as { success: false; error: string }).error)
       else { onRefresh() }
@@ -91,6 +97,8 @@ function SectionCard({
   const preview = section.body.replace(/\*\*|__|_|\+\+/g, '').replace(/^- /gm, '').replace(/^\d+\. /gm, '').replace(/\s+/g, ' ').trim().slice(0, 90)
 
   return (
+    <>
+    {ConfirmDialog}
     <div className={cn('rounded-lg border bg-card transition-all', isPending && 'opacity-60', isActive && 'ring-1 ring-primary/40 border-primary/30')}>
       {/* Header */}
       <button
@@ -151,6 +159,7 @@ function SectionCard({
         </div>
       )}
     </div>
+    </>
   )
 }
 
@@ -418,6 +427,12 @@ export function ContractTab({
 
   const isLoading = loading || initPending
 
+  // Merge tags that won't resolve with the current client/workspace/proposal
+  // data — warn the producer here so a client never sees a blank or stray tag.
+  const unresolved = Array.from(
+    new Set(sections.flatMap(s => unresolvedTagNames(s.body, mergeCtx)))
+  )
+
   return (
     <div className="flex flex-col" style={{ height }}>
 
@@ -500,6 +515,19 @@ export function ContractTab({
                     proposalId={proposalId}
                     onAccepted={() => { setSuggestions([]); load() }}
                   />
+                )}
+
+                {unresolved.length > 0 && (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 p-2.5">
+                    <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
+                      {unresolved.length} merge tag{unresolved.length > 1 ? 's' : ''} won&apos;t fill in
+                    </p>
+                    <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5">
+                      The client will see nothing where{' '}
+                      {unresolved.map(t => `{{${t}}}`).join(', ')}{' '}
+                      appears. Fix the tag or the missing data before sending.
+                    </p>
+                  </div>
                 )}
 
                 {sections.length === 0 ? (

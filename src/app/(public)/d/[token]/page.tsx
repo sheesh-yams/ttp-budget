@@ -3,6 +3,7 @@ import { headers }         from 'next/headers'
 import Link                from 'next/link'
 import { db }              from '@/lib/db'
 import { checkRateLimit }  from '@/lib/rate-limit'
+import { trustedClientIp } from '@/lib/client-ip'
 import { safeHex, lighten, darken } from '@/lib/color'
 import { RateLimitedPage } from '@/components/public/RateLimitedPage'
 import { ShadeThumbImg }   from '@/components/delivery/ShadeThumbImg'
@@ -31,7 +32,7 @@ export default async function PublicDeliveryPage({ params }: Props) {
   const { token } = await params
 
   const reqHeaders = await headers()
-  const ip = reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  const ip = trustedClientIp(name => reqHeaders.get(name))
   const { success } = await checkRateLimit('publicDoc', ip)
   if (!success) return <RateLimitedPage />
 

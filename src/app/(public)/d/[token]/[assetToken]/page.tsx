@@ -5,6 +5,7 @@ import { ExternalLink, ChevronLeft } from 'lucide-react'
 import { auth }                   from '@clerk/nextjs/server'
 import { db }                     from '@/lib/db'
 import { checkRateLimit }         from '@/lib/rate-limit'
+import { trustedClientIp } from '@/lib/client-ip'
 import { safeHex, lighten, darken } from '@/lib/color'
 import { RateLimitedPage }        from '@/components/public/RateLimitedPage'
 import { recordDeliverableView }  from '@/server/actions/delivery'
@@ -31,7 +32,7 @@ export default async function PublicAssetPage({ params }: Props) {
   const { token, assetToken } = await params
 
   const reqHeaders = await headers()
-  const ip        = reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  const ip        = trustedClientIp(name => reqHeaders.get(name))
   const userAgent = reqHeaders.get('user-agent') ?? null
   const { success } = await checkRateLimit('publicDoc', ip)
   if (!success) return <RateLimitedPage />

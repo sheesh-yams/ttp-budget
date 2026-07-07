@@ -4,6 +4,7 @@ import { InvoicePublicView } from '@/components/invoice/InvoicePublicView'
 import { recordInvoiceView } from '@/server/actions/invoices'
 import { headers } from 'next/headers'
 import { checkRateLimit } from '@/lib/rate-limit'
+import { trustedClientIp } from '@/lib/client-ip'
 import { ExpiredLinkPage } from '@/components/public/ExpiredLinkPage'
 import { RateLimitedPage } from '@/components/public/RateLimitedPage'
 
@@ -30,7 +31,7 @@ export default async function PublicInvoicePage({ params }: Props) {
 
   // ── Rate limiting ─────────────────────────────────────────────────────────
   const headersList = await headers()
-  const ip = headersList.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  const ip = trustedClientIp(name => headersList.get(name))
   const { success } = await checkRateLimit('publicDoc', ip)
   if (!success) return <RateLimitedPage />
 

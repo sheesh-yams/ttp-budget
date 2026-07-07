@@ -98,6 +98,7 @@ export function ProposalSignView({ proposal, contractSections }: Props) {
     isAlreadyApproved ? 'done' : 'idle'
   )
   const [sigError, setSigError] = useState('')
+  const [signedAt, setSignedAt] = useState<string | null>(proposal.approvedAt)
 
   async function handleApprove() {
     if (!agreed) { setSigError('Please check the box confirming you agree to the terms above.'); return }
@@ -112,6 +113,8 @@ export function ProposalSignView({ proposal, contractSections }: Props) {
         body:    JSON.stringify({ signatureName: name, proposalToken: proposal.publicToken, agreedToTerms: true }),
       })
       if (res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setSignedAt((d as { approvedAt?: string }).approvedAt ?? new Date().toISOString())
         setSigState('done')
       } else {
         const d = await res.json().catch(() => ({}))
@@ -180,7 +183,7 @@ export function ProposalSignView({ proposal, contractSections }: Props) {
               // approval). Otherwise: render smart-text first, then substitute
               // (HTML-escaped) merge values into the finished HTML — resolving
               // before rendering would double-escape; after keeps values inert.
-              const html = cs.resolvedHtml ?? resolveMergeTags(renderSmartText(cs.body), mergeCtx)
+              const html = cs.resolvedHtml ?? resolveMergeTags(renderSmartText(cs.body), mergeCtx, { warnUnresolved: false })
               return (
                 <div key={cs.id}>
                   {contractSections.length > 1 && (
@@ -225,7 +228,7 @@ export function ProposalSignView({ proposal, contractSections }: Props) {
               <p style={{ fontSize: 22, fontWeight: 700, color: BODY, margin: '0 0 10px' }}>Contract Signed</p>
               <p style={{ fontSize: 14, color: MUTED, margin: '0 0 20px', lineHeight: 1.6 }}>
                 Signed by <strong style={{ color: BODY }}>{proposal.signatureName || sigName}</strong>
-                {proposal.approvedAt && <> on {fmt(proposal.approvedAt)}</>}
+                {signedAt && <> on {fmt(signedAt)}</>}
               </p>
               <a
                 href={`/api/pdf/proposal/${proposal.publicToken}`}

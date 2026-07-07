@@ -5,6 +5,7 @@ import { recordProposalView } from '@/server/actions/proposals'
 import { sumAccount, calcBudgetTotals, type AccountInput } from '@/lib/totals'
 import { headers } from 'next/headers'
 import { checkRateLimit } from '@/lib/rate-limit'
+import { trustedClientIp } from '@/lib/client-ip'
 import { ExpiredLinkPage } from '@/components/public/ExpiredLinkPage'
 import { RateLimitedPage } from '@/components/public/RateLimitedPage'
 
@@ -30,7 +31,7 @@ export default async function PublicProposalPage({ params }: Props) {
 
   // ── Rate limiting ─────────────────────────────────────────────────────────
   const reqHeaders = await headers()
-  const ip = reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  const ip = trustedClientIp(name => reqHeaders.get(name))
   const { success } = await checkRateLimit('publicDoc', ip)
   if (!success) return <RateLimitedPage />
 

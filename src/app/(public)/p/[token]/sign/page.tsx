@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation'
 import { db } from '@/lib/db'
 import { headers } from 'next/headers'
 import { checkRateLimit } from '@/lib/rate-limit'
+import { trustedClientIp } from '@/lib/client-ip'
 import { RateLimitedPage } from '@/components/public/RateLimitedPage'
 import { ProposalSignView } from '@/components/proposal/ProposalSignView'
 import { sumAccount, calcBudgetTotals, type AccountInput } from '@/lib/totals'
@@ -27,7 +28,7 @@ export default async function ProposalSignPage({ params }: Props) {
   const { token } = await params
 
   const reqHeaders = await headers()
-  const ip = reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  const ip = trustedClientIp(name => reqHeaders.get(name))
   const { success } = await checkRateLimit('publicDoc', ip)
   if (!success) return <RateLimitedPage />
 
