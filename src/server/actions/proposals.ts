@@ -10,7 +10,7 @@ import type { ActionResult, ProposalDiscount } from '@/types'
 import { logAuditEvent } from '@/lib/audit'
 import { generatePublicToken } from '@/lib/secure-token'
 import { syncDeliverablesFromProposal } from './delivery'
-import { sendProposalEmail } from '@/lib/email'
+import { sendProposalEmail, normalizeRecipientEmails, buildProposalSendList } from '@/lib/email'
 
 function uid() { return crypto.randomUUID().slice(0, 8) }
 
@@ -217,7 +217,7 @@ export async function sendProposal(proposalId: string): Promise<ActionResult<{ p
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const existing = await sdb.proposal.findFirst({
       where: { id: proposalId },
-      select: { budgetId: true, content: true, workspaceId: true, projectId: true, title: true, publicToken: true, expiresAt: true },
+      select: { budgetId: true, content: true, workspaceId: true, projectId: true, title: true, publicToken: true, expiresAt: true, recipientEmails: true } as unknown as Parameters<typeof sdb.proposal.findFirst>[0]['select'],
     })
     if (!existing) return { success: false, error: 'Proposal not found' }
 
@@ -225,6 +225,7 @@ export async function sendProposal(proposalId: string): Promise<ActionResult<{ p
     if (!emailCtx.clientEmail) {
       return { success: false, error: 'This client has no contact email on file. Add one in the client profile before sending.' }
     }
+    const sendList = buildProposalSendList(emailCtx.clientEmail, (existing as unknown as { recipientEmails?: string[] }).recipientEmails)
 
     const discount = (existing.content as { discount?: ProposalDiscount }).discount
     const snapshot = await captureBudgetSnapshot(sdb, existing.budgetId as string, discount)
@@ -235,7 +236,7 @@ export async function sendProposal(proposalId: string): Promise<ActionResult<{ p
     let messageId: string
     try {
       const sent = await sendProposalEmail({
-        to:            emailCtx.clientEmail,
+        to:            sendList,
         proposalTitle: existing.title,
         projectName:   emailCtx.projectName,
         proposalUrl:   publicUrl,
@@ -256,7 +257,7 @@ export async function sendProposal(proposalId: string): Promise<ActionResult<{ p
         action:      'proposal.email_failed',
         entityType:  'Proposal',
         entityId:    proposalId,
-        metadata:    { to: emailCtx.clientEmail, error: message },
+        metadata:    { to: sendList, error: message },
       })
       return { success: false, error: `Email failed to send: ${message}` }
     }
@@ -280,7 +281,7 @@ export async function sendProposal(proposalId: string): Promise<ActionResult<{ p
       action:      'proposal.email_sent',
       entityType:  'Proposal',
       entityId:    proposalId,
-      metadata:    { to: emailCtx.clientEmail, messageId },
+      metadata:    { to: sendList, messageId },
     })
 
     return { success: true, data: { publicUrl } }
@@ -323,6 +324,8 @@ export async function createSentProposal(input: {
   expiresAt: string
   totalCents: number
   discount?: ProposalDiscount
+  /** Extra addresses to email + allow to e-sign, beyond the client contact email. */
+  recipientEmails?: string[]
   /** true = actually email the client (status only flips to SENT on success).
    *  false = "Mark as Sent" bypass — flips to SENT immediately, no email attempted. */
   sendEmail: boolean
@@ -359,6 +362,7 @@ export async function createSentProposal(input: {
 
     const content = buildContent({ ...input, overview: phaseOverview, about: phaseAbout, deliverables: phaseDeliverables })
     const snapshot = await captureBudgetSnapshot(sdb, input.budgetId, input.discount)
+    const recipientEmails = normalizeRecipientEmails(input.recipientEmails)
 
     const maxVersion = await sdb.proposal.aggregate({
       where: { projectId: input.projectId },
@@ -380,6 +384,7 @@ export async function createSentProposal(input: {
         sentAt: input.sendEmail ? null : new Date(),
         expiresAt: new Date(input.expiresAt),
         publicTokenExpiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) as unknown as undefined,
+        recipientEmails,
         version: nextVersion,
         createdById: user.id,
       } as unknown as Parameters<typeof sdb.proposal.create>[0]['data'],
@@ -388,9 +393,10 @@ export async function createSentProposal(input: {
     const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/p/${(proposal as unknown as { publicToken: string }).publicToken}`
 
     if (input.sendEmail && emailCtx) {
+      const sendList = buildProposalSendList(emailCtx.clientEmail, recipientEmails)
       try {
         const sent = await sendProposalEmail({
-          to:            emailCtx.clientEmail!,
+          to:            sendList,
           proposalTitle: input.title,
           projectName:   emailCtx.projectName,
           proposalUrl:   publicUrl,
@@ -408,7 +414,7 @@ export async function createSentProposal(input: {
           action:      'proposal.email_sent',
           entityType:  'Proposal',
           entityId:    proposal.id,
-          metadata:    { to: emailCtx.clientEmail, messageId: sent.id },
+          metadata:    { to: sendList, messageId: sent.id },
         })
       } catch (emailErr) {
         const message = emailErr instanceof Error ? emailErr.message : 'Unknown error'
@@ -453,6 +459,7 @@ export async function createDraftProposal(input: {
   expiresAt: string
   totalCents: number
   discount?: ProposalDiscount
+  recipientEmails?: string[]
 }): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
@@ -488,6 +495,7 @@ export async function createDraftProposal(input: {
         content: content as object,
         status: 'DRAFT',
         expiresAt: new Date(input.expiresAt),
+        recipientEmails: normalizeRecipientEmails(input.recipientEmails),
         version: nextVersion,
         createdById: user.id,
       } as unknown as Parameters<typeof sdb.proposal.create>[0]['data'],
@@ -510,6 +518,7 @@ export async function updateDraftProposal(
     expiresAt: string
     totalCents: number
     discount?: ProposalDiscount
+    recipientEmails?: string[]
   }
 ): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
@@ -538,8 +547,9 @@ export async function updateDraftProposal(
         title: input.title,
         content: content as object,
         expiresAt: new Date(input.expiresAt),
+        recipientEmails: normalizeRecipientEmails(input.recipientEmails),
         updatedAt: new Date(),
-      },
+      } as unknown as Parameters<typeof sdb.proposal.update>[0]['data'],
     })
     revalidatePath(`/projects/${(proposal as unknown as { projectId: string }).projectId}`)
     return { success: true, data: { id: proposal.id, publicToken: (proposal as unknown as { publicToken: string }).publicToken } }
@@ -563,16 +573,18 @@ export async function sendDraftProposal(
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const existing = await sdb.proposal.findFirst({
       where: { id: proposalId },
-      select: { budgetId: true, projectId: true, content: true, title: true, publicToken: true, expiresAt: true },
+      select: { budgetId: true, projectId: true, content: true, title: true, publicToken: true, expiresAt: true, recipientEmails: true } as unknown as Parameters<typeof sdb.proposal.findFirst>[0]['select'],
     })
     if (!existing) return { success: false, error: 'Proposal not found' }
 
     let emailCtx: Awaited<ReturnType<typeof resolveProposalEmailContext>> | null = null
+    let sendList: string[] = []
     if (sendEmail) {
       emailCtx = await resolveProposalEmailContext(sdb, existing.projectId)
       if (!emailCtx.clientEmail) {
         return { success: false, error: 'This client has no contact email on file. Add one in the client profile, or use "Mark as Sent" instead.' }
       }
+      sendList = buildProposalSendList(emailCtx.clientEmail, (existing as unknown as { recipientEmails?: string[] }).recipientEmails)
     }
 
     const discount2 = (existing.content as { discount?: ProposalDiscount }).discount
@@ -584,7 +596,7 @@ export async function sendDraftProposal(
     if (sendEmail && emailCtx) {
       try {
         const sent = await sendProposalEmail({
-          to:            emailCtx.clientEmail!,
+          to:            sendList,
           proposalTitle: existing.title,
           projectName:   emailCtx.projectName,
           proposalUrl:   publicUrl,
@@ -601,7 +613,7 @@ export async function sendDraftProposal(
           action:      'proposal.email_sent',
           entityType:  'Proposal',
           entityId:    proposalId,
-          metadata:    { to: emailCtx.clientEmail, messageId: sent.id },
+          metadata:    { to: sendList, messageId: sent.id },
         })
       } catch (emailErr) {
         const message = emailErr instanceof Error ? emailErr.message : 'Unknown error'
@@ -612,7 +624,7 @@ export async function sendDraftProposal(
           action:      'proposal.email_failed',
           entityType:  'Proposal',
           entityId:    proposalId,
-          metadata:    { to: emailCtx.clientEmail, error: message },
+          metadata:    { to: sendList, error: message },
         })
         // Stays DRAFT — content snapshot below is skipped too, nothing changes until retried.
         return { success: false, error: `Email failed to send: ${message}` }

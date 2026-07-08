@@ -102,6 +102,7 @@ export default async function ProjectDetailPage({
           content:         true,
           budgetId:        true,
           contractEnabled: true,
+          recipientEmails: true,
         },
       },
       invoices: {

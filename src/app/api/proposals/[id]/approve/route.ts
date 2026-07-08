@@ -12,11 +12,19 @@ import { resolveMergeTags, resolveMergeTagsPlain, type MergeTagContext } from '@
 
 const schema = z.object({
   signatureName: z.string().min(2).max(120),
+  // Signer must verify with an email that the proposal was actually sent to
+  // (the client contact email or an additional recipient). Validated below.
+  signatureEmail: z.string().trim().email().max(200),
   proposalToken: z.string(),
   // Explicit assent must be asserted by the caller, not assumed — the client
   // checkbox alone is not evidence; this field is stored in the audit trail.
   agreedToTerms: z.literal(true),
 })
+
+/** Lowercase + trim for case-insensitive email comparison. */
+function normEmail(e: string): string {
+  return e.trim().toLowerCase()
+}
 
 export async function POST(
   req: NextRequest,
@@ -30,7 +38,7 @@ export async function POST(
     return NextResponse.json({ error: 'Invalid input' }, { status: 422 })
   }
 
-  const { signatureName, proposalToken } = parsed.data
+  const { signatureName, signatureEmail, proposalToken } = parsed.data
 
   const proposal = await db.proposal.findUnique({
     where: { id, publicToken: proposalToken },
@@ -43,6 +51,29 @@ export async function POST(
   if (!proposal) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
+
+  // ── Email verification ──────────────────────────────────────────────────────
+  // The signer's email must match an address the proposal was actually sent to:
+  // the client's contact email, or one of the additional recipients.
+  const recipientEmails = (proposal as unknown as { recipientEmails: string[] }).recipientEmails ?? []
+  const allowedEmails = new Set(
+    [proposal.project.client.contactEmail, ...recipientEmails]
+      .filter((e): e is string => !!e)
+      .map(normEmail),
+  )
+  if (allowedEmails.size === 0) {
+    return NextResponse.json(
+      { error: 'No signer email is on file for this proposal. Please contact the sender to add one.' },
+      { status: 422 },
+    )
+  }
+  if (!allowedEmails.has(normEmail(signatureEmail))) {
+    return NextResponse.json(
+      { error: 'This email isn’t authorized to sign this proposal. Use the email address the proposal was sent to.' },
+      { status: 403 },
+    )
+  }
+  const verifiedEmail = normEmail(signatureEmail)
 
   if (proposal.status === 'APPROVED') {
     return NextResponse.json({ error: 'Already approved' }, { status: 409 })
@@ -128,6 +159,7 @@ export async function POST(
       status: 'APPROVED',
       approvedAt: now,
       signatureName,
+      signatureEmail: verifiedEmail,
       signatureIp: ip,
       approvedTotalCents: approvedTotal,
       ...(contractSnapshot
@@ -164,6 +196,7 @@ export async function POST(
     entityId:    proposal.id,
     metadata: {
       signatureName:     signatureName,
+      signatureEmail:    verifiedEmail,
       signatureIp:       ip,
       agreedToTerms:     true,
       approvedTotalCents: approvedTotal ?? undefined,

@@ -604,9 +604,14 @@ model Proposal {
   lastViewedAt  DateTime?
   viewCount     Int      @default(0)
 
+  // Recipients — additional addresses the proposal was emailed to, beyond the
+  // client's contactEmail. Also the set (plus contactEmail) allowed to e-sign.
+  recipientEmails String[] @default([])
+
   // Approval (typed signature)
   approvedAt    DateTime?
   signatureName String?  // typed name
+  signatureEmail String? // verified at signing: must match contactEmail or recipientEmails
   signatureIp   String?
   declinedAt    DateTime?
   declineReason String?  @db.Text

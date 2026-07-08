@@ -37,6 +37,7 @@ export function NewProposalModal({
 
   const [title,      setTitle]      = useState(`${projectName} — Proposal`)
   const [depositPct, setDepositPct] = useState('50')
+  const [recipients, setRecipients] = useState('')
   const [expiresAt,  setExpiresAt]  = useState(defaultExpiry)
   const [error,      setError]      = useState('')
   const [publicUrl,  setPublicUrl]  = useState<string | null>(null)
@@ -75,6 +76,7 @@ export function NewProposalModal({
         ],
         expiresAt,
         totalCents,
+        recipientEmails: recipients.split(/[,\n;]+/).map(s => s.trim()).filter(Boolean),
         sendEmail: true,
       })
       if (result.success) {
@@ -161,6 +163,20 @@ export function NewProposalModal({
                   onChange={e => setExpiresAt(e.target.value)}
                 />
               </div>
+            </div>
+
+            <div className="grid gap-1.5">
+              <Label htmlFor="prop-recipients">Additional recipients</Label>
+              <Input
+                id="prop-recipients"
+                value={recipients}
+                onChange={e => setRecipients(e.target.value)}
+                placeholder="colleague@client.com, approver@client.com"
+              />
+              <p className="text-xs text-muted-foreground">
+                Comma-separated. Emailed the proposal too, and — with the client contact email — the only
+                addresses allowed to e-sign it.
+              </p>
             </div>
 
             <p className="text-xs text-muted-foreground rounded-lg bg-secondary/40 px-3 py-2">

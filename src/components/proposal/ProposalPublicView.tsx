@@ -214,6 +214,7 @@ export function ProposalPublicView({
   // Sign-off
   const isAlreadyApproved = proposal.status === 'APPROVED'
   const [sigName, setSigName]   = useState(proposal.signatureName ?? '')
+  const [sigEmail, setSigEmail] = useState('')
   const [sigState, setSigState] = useState<'idle' | 'submitting' | 'done' | 'error'>(
     isAlreadyApproved ? 'done' : 'idle'
   )
@@ -222,6 +223,8 @@ export function ProposalPublicView({
   async function handleApprove() {
     const name = sigName.trim()
     if (name.length < 2) { setSigError('Please enter your full name'); return }
+    const email = sigEmail.trim()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setSigError('Please enter a valid email address'); return }
     setSigState('submitting')
     setSigError('')
     try {
@@ -230,7 +233,7 @@ export function ProposalPublicView({
         headers: { 'Content-Type': 'application/json' },
         // The inline sign-off's approve button sits under the "By signing below,
         // you confirm your agreement…" text — clicking it is the affirmative act.
-        body: JSON.stringify({ signatureName: name, proposalToken: proposal.publicToken, agreedToTerms: true }),
+        body: JSON.stringify({ signatureName: name, signatureEmail: email, proposalToken: proposal.publicToken, agreedToTerms: true }),
       })
       if (res.ok) {
         setSigState('done')
@@ -568,12 +571,31 @@ export function ProposalPublicView({
                   fontSize: 15,
                   border: `1.5px solid ${sigError ? '#ef4444' : BORDER}`,
                   borderRadius: 8, outline: 'none', color: BODY, background: '#fff',
-                  boxSizing: 'border-box', marginBottom: sigError ? 6 : 14,
+                  boxSizing: 'border-box', marginBottom: 10,
+                }}
+              />
+
+              <input
+                type="email"
+                placeholder="Your email (the one this was sent to)"
+                value={sigEmail}
+                onChange={e => setSigEmail(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleApprove()}
+                autoComplete="email"
+                style={{
+                  display: 'block', width: '100%', padding: '12px 16px',
+                  fontSize: 15,
+                  border: `1.5px solid ${sigError ? '#ef4444' : BORDER}`,
+                  borderRadius: 8, outline: 'none', color: BODY, background: '#fff',
+                  boxSizing: 'border-box', marginBottom: sigError ? 6 : 8,
                 }}
               />
               {sigError && (
-                <p style={{ fontSize: 13, color: '#ef4444', margin: '0 0 14px', textAlign: 'left' }}>{sigError}</p>
+                <p style={{ fontSize: 13, color: '#ef4444', margin: '0 0 8px', textAlign: 'left' }}>{sigError}</p>
               )}
+              <p style={{ fontSize: 11, color: MUTED, margin: '0 0 14px', textAlign: 'left', lineHeight: 1.5 }}>
+                For verification, use the email address this proposal was sent to.
+              </p>
 
               <button
                 type="button"

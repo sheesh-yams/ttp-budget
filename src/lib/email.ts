@@ -38,6 +38,42 @@ function buildFrom(actorName: string | null | undefined, workspaceName?: string 
   return `${label} <${addr}>`
 }
 
+// ── Recipient emails ──────────────────────────────────────────────────────────
+// Additional proposal recipients (beyond the client's contact email). Also the
+// set of addresses allowed to e-sign. Normalize aggressively: trim, lowercase,
+// keep only well-formed addresses, dedupe, and cap the count so the field can't
+// be abused as an unbounded mail blast.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+export const MAX_RECIPIENTS = 10
+
+export function normalizeRecipientEmails(emails?: string[] | null): string[] {
+  if (!emails) return []
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of emails) {
+    if (typeof raw !== 'string') continue
+    const e = raw.trim().toLowerCase()
+    if (!EMAIL_RE.test(e) || seen.has(e)) continue
+    seen.add(e)
+    out.push(e)
+    if (out.length >= MAX_RECIPIENTS) break
+  }
+  return out
+}
+
+/** Combined, deduped send list: client contact email first, then recipients. */
+export function buildProposalSendList(clientEmail: string | null | undefined, recipientEmails?: string[] | null): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const e of [clientEmail ?? '', ...normalizeRecipientEmails(recipientEmails)]) {
+    const v = e.trim().toLowerCase()
+    if (!v || seen.has(v)) continue
+    seen.add(v)
+    out.push(v)
+  }
+  return out
+}
+
 // Resolve the public app URL without ever using a localhost value.
 // NEXT_PUBLIC_APP_URL is the canonical source. Fall through to Railway's
 // auto-populated RAILWAY_PUBLIC_DOMAIN before using the hardcoded fallback.
@@ -89,7 +125,7 @@ export async function sendProposalApprovedEmail(payload: ProposalApprovedPayload
 // ─── Proposal sent to client ────────────────────────────────────────────────
 
 interface ProposalSentPayload {
-  to:            string
+  to:            string | string[]
   proposalTitle: string
   projectName:   string
   proposalUrl:   string

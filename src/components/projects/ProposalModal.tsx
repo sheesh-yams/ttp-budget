@@ -104,6 +104,7 @@ interface ExistingProposal {
   about?: string
   deliverables?: unknown[]
   contractEnabled?: boolean
+  recipientEmails?: string[]
 }
 
 interface Props {
@@ -151,6 +152,7 @@ export function ProposalModal({
   const [activeTab, setActiveTab]  = useState<'overview' | 'contract'>('overview')
 
   const [title,      setTitle]      = useState('')
+  const [recipients, setRecipients] = useState('')
   const [expiresAt,  setExpiresAt]  = useState(() => defaultExpiry(proposalExpiryDays))
   const [milestones, setMilestones] = useState<LocalMilestone[]>(defaultMilestones)
   const [error,      setError]      = useState('')
@@ -177,6 +179,7 @@ export function ProposalModal({
     if (successTokenRef.current) return
     if (existing) {
       setTitle(existing.title)
+      setRecipients((existing.recipientEmails ?? []).join(', '))
       setExpiresAt(existing.expiresAt ? existing.expiresAt.split('T')[0] : defaultExpiry(proposalExpiryDays))
       setMilestones(existing.milestones?.length ? fromPaymentMilestones(existing.milestones) : defaultMilestones())
       const d = existing.discount
@@ -190,6 +193,7 @@ export function ProposalModal({
       }
     } else {
       setTitle(`${projectName} — Proposal`)
+      setRecipients('')
       setExpiresAt(defaultExpiry(proposalExpiryDays))
       setMilestones(prefill?.milestones?.length ? fromPaymentMilestones(prefill.milestones) : defaultMilestones())
       setDiscountType('none'); setDiscountLabel('Discount'); setDiscountFlat(''); setDiscountPct('')
@@ -235,6 +239,10 @@ export function ProposalModal({
 
   // ── Base input ─────────────────────────────────────────────────────────────
 
+  function parseRecipients(raw: string): string[] {
+    return raw.split(/[,\n;]+/).map(s => s.trim()).filter(Boolean)
+  }
+
   function baseInput() {
     return {
       projectId,
@@ -244,6 +252,7 @@ export function ProposalModal({
       expiresAt,
       totalCents: discountedTotalCents,
       discount: discountPayload,
+      recipientEmails: parseRecipients(recipients),
     }
   }
 
@@ -442,6 +451,21 @@ export function ProposalModal({
             <div className="grid gap-1.5">
               <Label htmlFor="pm-expiry">Valid through</Label>
               <Input id="pm-expiry" type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)} className="w-48" />
+            </div>
+
+            {/* Additional recipients */}
+            <div className="grid gap-1.5">
+              <Label htmlFor="pm-recipients">Additional recipients</Label>
+              <Input
+                id="pm-recipients"
+                value={recipients}
+                onChange={e => setRecipients(e.target.value)}
+                placeholder="colleague@client.com, approver@client.com"
+              />
+              <p className="text-xs text-muted-foreground">
+                Comma-separated. These addresses are emailed the proposal too, and — along with the
+                client contact email — are the only ones allowed to e-sign it.
+              </p>
             </div>
 
             {/* Payment schedule */}
