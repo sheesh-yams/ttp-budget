@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { getScopedDb } from '@/lib/db-scoped'
-import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
+import { getCurrentUser, getWorkspaceId, requireRole } from '@/lib/auth'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import { Prisma } from '@prisma/client'
@@ -46,6 +46,9 @@ export async function upsertClient(
   input: z.infer<typeof clientSchema>
 ): Promise<ActionResult<{ id: string }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const [db] = await Promise.all([getScopedDb(), getCurrentUser()])
     const data = clientSchema.parse(input)
     const client = id
@@ -60,6 +63,9 @@ export async function upsertClient(
 
 export async function archiveClient(id: string): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const db = await getScopedDb()
     await db.client.update({ where: { id }, data: { archivedAt: new Date() } })
     revalidatePath('/clients')
@@ -85,6 +91,9 @@ export async function getClientLogoUploadUrl(
   byteSize:    number,
 ): Promise<ActionResult<{ uploadUrl: string; publicUrl: string }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const [sdb, workspaceId] = await Promise.all([getScopedDb(), getWorkspaceId()])
 
     // Ownership check — sdb auto-scopes to the active workspace
@@ -119,6 +128,9 @@ export async function updateClientLogo(
   logoUrl:  string,
 ): Promise<ActionResult<void>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
     const client = await sdb.client.findFirst({ where: { id: clientId }, select: { id: true } })
     if (!client) return { success: false, error: 'Client not found' }
@@ -151,6 +163,9 @@ export async function upsertProject(
   input: z.infer<typeof projectSchema>
 ): Promise<ActionResult<{ id: string }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const [db, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const data = projectSchema.parse(input)
     const payload = {
@@ -175,6 +190,9 @@ export async function updateProjectStatus(
   status: 'LEAD' | 'ACTIVE' | 'WRAPPED' | 'ARCHIVED'
 ): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const db = await getScopedDb()
     await db.project.update({ where: { id }, data: { status } })
     revalidatePath('/dashboard')

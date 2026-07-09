@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { getScopedDb } from '@/lib/db-scoped'
-import { getCurrentUser } from '@/lib/auth'
+import { getCurrentUser, requireRole } from '@/lib/auth'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import { Prisma } from '@prisma/client'
@@ -25,6 +25,9 @@ export async function createProjectWithBudget(
   input: z.infer<typeof createProjectSchema>
 ): Promise<ActionResult<{ id: string }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const [db, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const data = createProjectSchema.parse(input)
 
@@ -83,6 +86,9 @@ export async function updateProject(
   }
 ): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const db = await getScopedDb()
     const wantedKeys = [...new Set(input.shootDates)].sort()
 
@@ -151,6 +157,9 @@ export async function listShootDays(projectId: string): Promise<ActionResult<{ i
 
 export async function archiveProject(projectId: string): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const db = await getScopedDb()
     await db.project.update({
       where: { id: projectId },
@@ -173,6 +182,9 @@ export async function archiveProject(projectId: string): Promise<ActionResult> {
 
 export async function unarchiveProject(projectId: string): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const db = await getScopedDb()
     await db.project.update({
       where: { id: projectId },

@@ -19,7 +19,7 @@
 
 import { randomUUID } from 'crypto'
 import { getScopedDb } from '@/lib/db-scoped'
-import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
+import { getCurrentUser, getWorkspaceId, requireRole } from '@/lib/auth'
 import { helcimAdapter, sha256Hex, PaymentConfigError } from '@/lib/payments/helcim'
 import { stripeAdapter, StripeConfigError } from '@/lib/payments/stripe'
 import { logAuditEvent } from '@/lib/audit'
@@ -63,6 +63,9 @@ export async function initiatePayment(
   invoiceId: string,
 ): Promise<ActionResult<InitiatePaymentResult>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const [sdb, workspaceId] = await Promise.all([getScopedDb(), getWorkspaceId()])
 
     // ── 1. Fetch invoice (scoped) ──────────────────────────────────────────

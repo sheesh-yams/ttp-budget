@@ -149,6 +149,9 @@ export async function createProposal(
   title: string
 ): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
 
     const defaultContent = {
@@ -194,6 +197,9 @@ export async function updateProposalContent(
   content: Record<string, unknown>
 ): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
     await sdb.proposal.update({
       where: { id: proposalId },
@@ -462,6 +468,9 @@ export async function createDraftProposal(input: {
   recipientEmails?: string[]
 }): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
 
     // sdb.phase.findFirst auto-scopes — blocks foreign budgetId cross-workspace reads.
@@ -522,6 +531,9 @@ export async function updateDraftProposal(
   }
 ): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
     const existing = await sdb.proposal.findFirst({
       where: { id: proposalId },
@@ -663,6 +675,9 @@ export async function createProposalRevision(
   proposalId: string
 ): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const source = await sdb.proposal.findFirst({ where: { id: proposalId } })
     if (!source) return { success: false, error: 'Proposal not found' }
@@ -767,6 +782,9 @@ export async function updateProposalStatus(
   status: string
 ): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const proposal = await sdb.proposal.findFirst({
       where: { id: proposalId },
@@ -874,6 +892,9 @@ export async function markProposalLost(proposalId: string): Promise<ActionResult
 
 export async function deleteProposal(proposalId: string): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
     const proposal = await sdb.proposal.findFirst({
       where: { id: proposalId },
@@ -1039,6 +1060,9 @@ export async function updateProposalBranding(
   brandOverrides: Record<string, unknown>
 ): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
     await sdb.proposal.update({
       where: { id: proposalId },

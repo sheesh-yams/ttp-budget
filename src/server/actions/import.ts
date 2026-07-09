@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { requireRole } from '@/lib/auth'
 import { z }              from 'zod'
 import { db }             from '@/lib/db'
 import { getScopedDb }    from '@/lib/db-scoped'
@@ -46,6 +47,9 @@ export async function importToBudget(
   rawData:  unknown
 ): Promise<ActionResult<ImportResult>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
 
     // ── Auth: verify budget belongs to active workspace (extension scopes automatically)
@@ -165,6 +169,9 @@ export async function importToTemplate(
   rawData:    unknown
 ): Promise<ActionResult<ImportResult>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
 
     // ── Auth: verify template belongs to active workspace (extension scopes automatically)

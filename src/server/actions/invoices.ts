@@ -41,6 +41,9 @@ export async function createInvoice(
   input: z.infer<typeof createSchema>
 ): Promise<ActionResult<{ id: string; number: string; publicToken: string }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const [scopedDb, user, workspaceId] = await Promise.all([
       getScopedDb(),
       getCurrentUser(),
@@ -91,6 +94,9 @@ export async function markInvoicePaid(
   paymentRef?: string
 ): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const [scopedDb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const invoice = await scopedDb.invoice.findFirst({
       where: { id: invoiceId },
@@ -268,6 +274,9 @@ export async function sendInvoice(
 export async function voidInvoice(invoiceId: string): Promise<ActionResult> {
   console.log('[voidInvoice] called', { invoiceId })
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const [scopedDb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
 
     const invoice = await scopedDb.invoice.findFirst({
@@ -308,6 +317,9 @@ export async function voidInvoice(invoiceId: string): Promise<ActionResult> {
 
 export async function deleteInvoice(invoiceId: string): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const [scopedDb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
 
     const invoice = await scopedDb.invoice.findFirst({
@@ -373,6 +385,9 @@ export async function updateInvoiceStatus(
   status: 'DRAFT' | 'SENT' | 'VIEWED' | 'PAID' | 'OVERDUE' | 'VOID'
 ): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const scopedDb = await getScopedDb()
     const invoice = await scopedDb.invoice.findFirst({
       where: { id: invoiceId },
@@ -406,6 +421,9 @@ export async function recordPayment(
   ref?: string
 ): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const scopedDb = await getScopedDb()
     const invoice = await scopedDb.invoice.findFirst({
       where: { id: invoiceId },
@@ -452,6 +470,9 @@ export async function updateInvoiceLineItems(
   dueDate?:     string,
 ): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const [scopedDb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
 
     const invoice = await scopedDb.invoice.findFirst({

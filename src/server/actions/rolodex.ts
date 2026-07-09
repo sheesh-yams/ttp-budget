@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { requireRole } from '@/lib/auth'
 import { getScopedDb } from '@/lib/db-scoped'
 import { db } from '@/lib/db'
 import { z } from 'zod'
@@ -123,6 +124,9 @@ export async function createContact(
   input: ContactFormData
 ): Promise<ActionResult<{ id: string }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const db   = await getScopedDb()
     const data = contactSchema.parse(input)
     const contact = await db.contact.create({
@@ -146,6 +150,9 @@ export async function updateContact(
   projectId?: string,
 ): Promise<ActionResult<{ id: string }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const db   = await getScopedDb()
     const data = contactSchema.parse(input)
     await db.contact.update({
@@ -169,6 +176,9 @@ export async function updateContact(
 
 export async function archiveContact(id: string): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const db = await getScopedDb()
     await db.contact.update({
       where: { id },
@@ -292,6 +302,9 @@ export async function mergeContacts(
   duplicateId: string,
 ): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const db = await getScopedDb()
 
     const [primary, duplicate] = await Promise.all([
@@ -429,6 +442,9 @@ export async function patchContactField(
   value: string | null,
 ): Promise<ActionResult<void>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
     await sdb.contact.update({
       where: { id: contactId },
@@ -594,6 +610,9 @@ export async function bulkImportContacts(
   members: ImportableMember[]
 ): Promise<ActionResult<{ count: number }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const db = await getScopedDb()
     const toCreate = members.filter(m => !m.alreadyInRolodex)
 

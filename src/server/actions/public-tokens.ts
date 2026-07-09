@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { getScopedDb } from '@/lib/db-scoped'
-import { getCurrentUser } from '@/lib/auth'
+import { getCurrentUser, requireRole } from '@/lib/auth'
 import { logAuditEvent } from '@/lib/audit'
 import type { ActionResult } from '@/types'
 
@@ -16,6 +16,9 @@ export async function regenerateProposalToken(
   proposalId: string
 ): Promise<ActionResult<{ token: string }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const existing = await sdb.proposal.findFirst({ where: { id: proposalId }, select: { id: true, workspaceId: true } })
     if (!existing) return { success: false, error: 'Proposal not found' }
@@ -51,6 +54,9 @@ export async function regenerateInvoiceToken(
   invoiceId: string
 ): Promise<ActionResult<{ token: string }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const existing = await sdb.invoice.findFirst({ where: { id: invoiceId }, select: { id: true, workspaceId: true } })
     if (!existing) return { success: false, error: 'Invoice not found' }
@@ -86,6 +92,9 @@ export async function regenerateCallSheetToken(
   callSheetId: string
 ): Promise<ActionResult<{ token: string }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const existing = await sdb.callSheet.findFirst({ where: { id: callSheetId }, select: { id: true, workspaceId: true } })
     if (!existing) return { success: false, error: 'Call sheet not found' }

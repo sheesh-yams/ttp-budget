@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { requireRole } from '@/lib/auth'
 import { getScopedDb } from '@/lib/db-scoped'
 import { toJsonSafe } from '@/lib/json-safe'
 import { z } from 'zod'
@@ -61,6 +62,9 @@ export async function addProjectMember(
   input: MemberFormData
 ): Promise<ActionResult<{ id: string }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
     // Scoped read — verifies project belongs to this workspace.
     const project = await sdb.project.findFirst({ where: { id: projectId }, select: { id: true } })
@@ -98,6 +102,9 @@ export async function updateProjectMember(
   input: MemberFormData
 ): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
     // Scoped update — WHERE id = ? AND workspaceId = ? blocks foreign member ids.
     const data = memberSchema.parse(input)
@@ -180,6 +187,9 @@ export async function seedTeamFromBudget(
   projectId: string
 ): Promise<ActionResult<{ count: number; proposalTitle: string | null }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
 
     // Scoped read — verifies project belongs to this workspace.
@@ -317,6 +327,9 @@ export async function removeProjectMember(
   projectId: string
 ): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
     // Scoped delete — WHERE id = ? AND workspaceId = ? blocks foreign member ids.
     await sdb.projectMember.delete({ where: { id } })
@@ -335,6 +348,9 @@ export async function dismissMismatch(
   projectId: string
 ): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
     await sdb.projectMember.update({ where: { id }, data: { mismatchFlag: false } })
     revalidatePath(`/projects/${projectId}/crew`)

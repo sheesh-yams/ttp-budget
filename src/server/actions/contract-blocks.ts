@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { getScopedDb } from '@/lib/db-scoped'
-import { getWorkspaceId } from '@/lib/auth'
+import { getWorkspaceId, requireRole } from '@/lib/auth'
 import type { ActionResult } from '@/types'
 import type { ContractBlockCategory, TriggerKind } from '@prisma/client'
 
@@ -61,6 +61,9 @@ export async function createContractBlock(
   input: ContractBlockInput
 ): Promise<ActionResult<{ id: string }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const workspaceId = await getWorkspaceId()
     const sdb = await getScopedDb()
 
@@ -103,6 +106,9 @@ export async function updateContractBlock(
   input: ContractBlockInput
 ): Promise<ActionResult<void>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const workspaceId = await getWorkspaceId()
     const sdb = await getScopedDb()
 
@@ -142,6 +148,9 @@ export async function toggleContractBlockActive(
   isActive: boolean
 ): Promise<ActionResult<void>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
     await sdb.contractBlock.update({ where: { id }, data: { isActive } })
     revalidatePath('/settings/contracts')
@@ -157,6 +166,9 @@ export async function toggleContractBlockActive(
 
 export async function deleteContractBlock(id: string): Promise<ActionResult<void>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
     await sdb.contractBlock.delete({ where: { id } })
     revalidatePath('/settings/contracts')
@@ -174,6 +186,9 @@ export async function reorderContractBlocks(
   orderedIds: string[]
 ): Promise<ActionResult<void>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
     await Promise.all(
       orderedIds.map((id, index) =>

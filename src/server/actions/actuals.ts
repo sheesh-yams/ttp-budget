@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
-import { getWorkspaceId } from '@/lib/auth'
+import { getWorkspaceId, requireRole } from '@/lib/auth'
 import { getScopedDb } from '@/lib/db-scoped'
 import { sumAccount, calcBudgetTotals, type AccountInput } from '@/lib/totals'
 import { lineTotal } from '@/lib/money'
@@ -84,6 +84,9 @@ export async function createActualSheet(
   phaseId: string,
 ): Promise<ActionResult<{ id: string }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
 
     // Verify the budget belongs to the active workspace
@@ -166,6 +169,9 @@ export async function updateActualEntry(
   },
 ): Promise<ActionResult<void>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     await db.actualEntry.update({
       where: { id: entryId },
       data: {
@@ -203,6 +209,9 @@ export async function addAdHocEntry(
   },
 ): Promise<ActionResult<ActualEntryDb>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     // Verify the sheet belongs to this workspace via sdb
     const sdb = await getScopedDb()
     const sheet = await sdb.actualSheet.findFirst({
@@ -251,6 +260,9 @@ export async function deleteAdHocEntry(
   projectId: string,
 ): Promise<ActionResult<void>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     await db.actualEntry.delete({
       where: { id: entryId, isAdHoc: true },
     })
@@ -274,6 +286,9 @@ export async function updateActualSheet(
   data: { revenueOverrideCents?: number | null; name?: string },
 ): Promise<ActionResult<void>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
     await sdb.actualSheet.update({
       where: { id: sheetId },
@@ -327,6 +342,9 @@ export async function syncActualSheetEntries(
   phaseAccounts: AccountNode[],
 ): Promise<ActualSheetFull | null> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return null
+
     const sdb = await getScopedDb()
     const sheet = await sdb.actualSheet.findFirst({
       where:   { id: sheetId },

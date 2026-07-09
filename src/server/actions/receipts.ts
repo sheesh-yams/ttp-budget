@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { r2, R2_BUCKET } from '@/lib/r2'
-import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
+import { getCurrentUser, getWorkspaceId, requireRole } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { getScopedDb } from '@/lib/db-scoped'
 import { generatePublicToken } from '@/lib/secure-token'
@@ -78,6 +78,9 @@ export async function getReceiptUploadUrl(
   fileName:    string,
 ): Promise<ActionResult<{ uploadUrl: string; publicUrl: string }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const [user, workspaceId] = await Promise.all([getCurrentUser(), getWorkspaceId()])
     void user // auth gate only; workspace is the scope
 
@@ -130,6 +133,9 @@ export async function createReceiptRecord(
   actualEntryId: string | null = null,
 ): Promise<ActionResult<ReceiptDb>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const workspaceId = await getWorkspaceId()
     const sdb         = await getScopedDb()
 
@@ -183,6 +189,9 @@ export async function linkReceiptToEntry(
   projectId:     string,
 ): Promise<ActionResult<void>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
 
     const receipt = await sdb.receipt.findFirst({
@@ -218,6 +227,9 @@ export async function unlinkReceipt(
   projectId: string,
 ): Promise<ActionResult<void>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
 
     const receipt = await sdb.receipt.findFirst({
@@ -256,6 +268,9 @@ export async function deleteReceipt(
   projectId: string,
 ): Promise<ActionResult<void>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
 
     const receipt = await sdb.receipt.findFirst({
@@ -337,6 +352,9 @@ export async function updateReceiptDetails(
   },
 ): Promise<ActionResult<ReceiptDb>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
 
     const existing = await sdb.receipt.findFirst({
@@ -422,6 +440,9 @@ export async function createAdHocEntryFromReceipt(
   description: string,
 ): Promise<ActionResult<{ entryId: string; entryDescription: string }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const sdb = await getScopedDb()
 
     // Load receipt to get amount + verify ownership

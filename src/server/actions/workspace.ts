@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { db } from '@/lib/db'
-import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
+import { getCurrentUser, getWorkspaceId, requireRole } from '@/lib/auth'
 import { auth, clerkClient } from '@clerk/nextjs/server'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
@@ -58,6 +58,9 @@ export async function updateCompanySettings(
   input: z.infer<typeof companySchema>
 ): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER'])
+    if (!gate.ok) return gate.error
+
     const workspaceId = await getWorkspaceId()
     const data = companySchema.parse(input)
 
@@ -101,6 +104,9 @@ export async function updateBrandingSettings(
   input: z.infer<typeof brandingSchema>
 ): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER'])
+    if (!gate.ok) return gate.error
+
     const workspaceId = await getWorkspaceId()
     const data = brandingSchema.parse(input)
     await db.workspace.update({
@@ -121,6 +127,9 @@ export async function updateInvoiceDefaults(
   input: z.infer<typeof invoiceDefaultsSchema>
 ): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER'])
+    if (!gate.ok) return gate.error
+
     const workspaceId = await getWorkspaceId()
     const data = invoiceDefaultsSchema.parse(input)
     await db.workspace.update({
@@ -381,6 +390,9 @@ export async function getLogoUploadUrl(
   variant:     'light' | 'dark',
 ): Promise<ActionResult<{ uploadUrl: string; publicUrl: string }>> {
   try {
+    const gate = await requireRole(['OWNER'])
+    if (!gate.ok) return gate.error
+
     const workspaceId = await getWorkspaceId()
 
     const allowed = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'])
@@ -419,6 +431,9 @@ export async function saveWorkspaceLogo(
   variant: 'light' | 'dark',
 ): Promise<ActionResult<{ url: string }>> {
   try {
+    const gate = await requireRole(['OWNER'])
+    if (!gate.ok) return gate.error
+
     const workspaceId = await getWorkspaceId()
     await db.workspace.update({
       where: { id: workspaceId },
@@ -439,6 +454,9 @@ export async function removeWorkspaceLogo(
   variant: 'light' | 'dark',
 ): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER'])
+    if (!gate.ok) return gate.error
+
     const workspaceId = await getWorkspaceId()
 
     await db.workspace.update({
@@ -459,6 +477,9 @@ export async function removeWorkspaceLogo(
 /** Additive re-seed: adds any missing featured globals. Never modifies existing rows. */
 export async function reseedWorkspace(): Promise<ActionResult<{ ratesAdded: number; templatesAdded: number }>> {
   try {
+    const gate = await requireRole(['OWNER'])
+    if (!gate.ok) return gate.error
+
     const workspaceId = await getWorkspaceId()
     const result = await reseedWorkspaceFromGlobals(workspaceId)
     revalidatePath('/rates')
@@ -473,6 +494,9 @@ export async function updateProposalDefaults(
   input: z.infer<typeof proposalDefaultsSchema>
 ): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER'])
+    if (!gate.ok) return gate.error
+
     const workspaceId = await getWorkspaceId()
     const data = proposalDefaultsSchema.parse(input)
     await db.workspace.update({
@@ -499,6 +523,9 @@ export async function updateProductionSettings(
   input: z.infer<typeof productionSchema>
 ): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER'])
+    if (!gate.ok) return gate.error
+
     const workspaceId = await getWorkspaceId()
     const data = productionSchema.parse(input)
     await db.workspace.update({

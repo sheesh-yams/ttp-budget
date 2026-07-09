@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { getScopedDb } from '@/lib/db-scoped'
-import { getCurrentUser } from '@/lib/auth'
+import { getCurrentUser, requireRole } from '@/lib/auth'
 import { z } from 'zod'
 import type { ActionResult, TemplateKind, TemplateStructure } from '@/types'
 import type { ShootType } from '@prisma/client'
@@ -28,6 +28,9 @@ export async function createTemplate(
   input: z.infer<typeof templateMetaSchema>
 ): Promise<ActionResult<{ id: string }>> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const db = await getScopedDb()
     const data = templateMetaSchema.parse(input)
     const createData = {
@@ -53,6 +56,9 @@ export async function updateTemplateMeta(
   input: z.infer<typeof templateMetaSchema>
 ): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const db = await getScopedDb()
     const data = templateMetaSchema.parse(input)
     const updateData = {
@@ -78,6 +84,9 @@ export async function saveTemplateStructure(
   structure: TemplateStructure
 ): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const db = await getScopedDb()
     await db.budgetTemplate.update({
       where: { id },
@@ -94,6 +103,9 @@ export async function saveTemplateStructure(
 
 export async function deleteTemplate(id: string): Promise<ActionResult> {
   try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
     const db = await getScopedDb()
     await db.budgetTemplate.delete({ where: { id } })
     revalidatePath('/templates')
