@@ -24,6 +24,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/payments/(.*)',         // payment routes self-authenticate via publicToken / attemptId
   '/api/proposals/(.*)/approve', // public client sign-off — self-authenticates via proposal publicToken
   '/api/stripe/connect/callback', // OAuth redirect from Stripe — authenticated via HMAC-signed cookie
+  '/api/csp-report',              // browser-posted CSP violation reports (no session)
 ])
 
 // ── Mobile UA detection ───────────────────────────────────────────────────────
@@ -55,6 +56,7 @@ function policyFor(pathname: string): PolicyName | null {
   if (pathname.startsWith('/api/pdf/proposal/') || pathname.startsWith('/api/pdf/invoice/')) return 'publicPdf'
   if (pathname.startsWith('/api/payments/'))                                           return 'payments'
   if (pathname.startsWith('/api/proposals/') && pathname.endsWith('/approve'))          return 'approve'
+  if (pathname.startsWith('/api/csp-report'))                                          return 'cspReport'
   if (pathname.startsWith('/api/address-autocomplete'))                                return 'geocode'
   return null
 }

@@ -25,6 +25,7 @@ const POLICIES = {
   payments:  { requests: 20, window: '60 s' },  // /api/payments/*
   geocode:   { requests: 30, window: '60 s' },  // /api/address-autocomplete
   approve:   { requests: 10, window: '60 s' },  // /api/proposals/*/approve (public sign-off)
+  cspReport: { requests: 20, window: '60 s' },  // /api/csp-report (violation collector — cap log flooding)
 } as const
 export type PolicyName = keyof typeof POLICIES
 

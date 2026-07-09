@@ -36,19 +36,62 @@ try {
   console.error('» Failed to patch @react-pdf/renderer:', e.message)
 }
 
+// ─── Content Security Policy ──────────────────────────────────────────────────
+// Shipped in Report-Only mode first: browsers report violations to
+// /api/csp-report but nothing is blocked, so we can watch real traffic and
+// tighten the allow-list before switching the header to enforcing.
+//
+// Third parties that must be allow-listed: Clerk (auth), Stripe (payments),
+// Helcim (payments iframe), Google Fonts (signature font), Cloudflare R2
+// (assets), and the delivery-page embed providers (Vimeo/YouTube/Frame.io/
+// Shade/Drive). 'unsafe-inline'/'unsafe-eval' are required by Next.js hydration
+// + Clerk today; a later pass can move to nonces to drop them.
+const CSP_DIRECTIVES = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'self'",
+  "form-action 'self'",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://*.clerk.accounts.dev https://*.clerk.com https://*.clerk.services https://challenges.cloudflare.com",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' data: https://fonts.gstatic.com",
+  "img-src 'self' data: blob: https:",
+  "media-src 'self' blob: https:",
+  "connect-src 'self' https://api.stripe.com https://*.clerk.accounts.dev https://*.clerk.com https://*.clerk.services https://clerk-telemetry.com https://*.helcim.com",
+  "frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://*.stripe.com https://player.vimeo.com https://www.youtube-nocookie.com https://www.youtube.com https://*.frame.io https://*.shade.inc https://drive.google.com https://*.helcim.com https://secure.helcim.app https://challenges.cloudflare.com",
+  "worker-src 'self' blob:",
+  "report-uri /api/csp-report",
+].join('; ')
+
+// Safe headers — enforced immediately on every route.
+const BASE_SECURITY_HEADERS = [
+  { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains' },
+  { key: 'X-Content-Type-Options',    value: 'nosniff' },
+  { key: 'X-Frame-Options',           value: 'SAMEORIGIN' },
+  { key: 'Referrer-Policy',           value: 'strict-origin-when-cross-origin' },
+  { key: 'Permissions-Policy',        value: 'camera=(), microphone=(), geolocation=()' },
+  { key: 'Content-Security-Policy-Report-Only', value: CSP_DIRECTIVES },
+]
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Don't advertise the framework/version.
+  poweredByHeader: false,
   async headers() {
     return [
       {
-        // Match all three public document routes
-        source: '/:prefix(p|i|cs)/:token*',
+        // Every route gets the baseline security headers.
+        source: '/:path*',
+        headers: BASE_SECURITY_HEADERS,
+      },
+      {
+        // Public shareable documents also get no-index + no-store (they carry
+        // financial data behind a secret token — never cache or index them).
+        // Keys here are additive; they don't collide with the baseline above.
+        source: '/:prefix(p|i|cs|d|m)/:rest*',
         headers: [
-          { key: 'X-Robots-Tag',    value: 'noindex, nofollow, noarchive, nosnippet' },
-          { key: 'Referrer-Policy', value: 'no-referrer' },
-          { key: 'X-Frame-Options', value: 'DENY' },
-          { key: 'X-Content-Type-Options', value: 'nosniff' },
-          { key: 'Cache-Control',   value: 'private, no-store' },
+          { key: 'X-Robots-Tag',  value: 'noindex, nofollow, noarchive, nosnippet' },
+          { key: 'Cache-Control', value: 'private, no-store' },
         ],
       },
     ]
