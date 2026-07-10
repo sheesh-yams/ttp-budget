@@ -9,6 +9,7 @@ import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import { logAuditEvent } from '@/lib/audit'
 import { generatePublicToken } from '@/lib/secure-token'
+import { normalizeRecipientEmails, buildCcList } from '@/lib/email'
 
 const createSchema = z.object({
   projectId: z.string(),
@@ -139,6 +140,7 @@ export async function getInvoiceSendData(invoiceId: string) {
         totalCents: true,
         dueDate: true,
         publicToken: true,
+        recipientEmails: true,
         client: { select: { name: true, contactEmail: true } },
         project: { select: { name: true } },
       },
@@ -161,6 +163,7 @@ export async function getInvoiceSendData(invoiceId: string) {
       publicToken:   invoice.publicToken,
       clientName:    (invoice.client as { name: string }).name,
       clientEmail:   (invoice.client as { contactEmail: string | null }).contactEmail ?? '',
+      recipientEmails: invoice.recipientEmails ?? [],
       projectName:   (invoice.project as { name: string }).name,
       workspaceName: workspace?.name ?? '',
       fromEmail:     workspace?.contactEmail ?? '',
@@ -174,13 +177,20 @@ export async function getInvoiceSendData(invoiceId: string) {
 
 export async function sendInvoice(
   invoiceId: string,
-  emailOpts: { to: string; subject: string; message: string },
+  emailOpts: { to: string; cc?: string[]; subject: string; message: string },
 ): Promise<ActionResult<{ publicUrl: string }>> {
   try {
     const gate = await requireRole(['OWNER', 'PRODUCER'])
     if (!gate.ok) return gate.error
 
     const [scopedDb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+
+    // CC recipients the user entered — persisted + pre-filled next time, with the
+    // client's own "to" address stripped so it isn't both To and CC.
+    const ccRecipients = normalizeRecipientEmails(emailOpts.cc)
+      .filter(e => e !== emailOpts.to.trim().toLowerCase())
+    // What actually goes out as CC = the sender (so the client can reply-all) + those recipients.
+    const ccToSend = buildCcList(emailOpts.to, ccRecipients, user.email)
 
     const existing = await scopedDb.invoice.findFirst({
       where: { id: invoiceId },
@@ -218,6 +228,7 @@ export async function sendInvoice(
     try {
       const sent = await sendInvoiceEmail({
         to:             emailOpts.to,
+        cc:             ccToSend,
         subject:        emailOpts.subject,
         customMessage:  emailOpts.message,
         invoiceNumber:  existing.number,
@@ -251,6 +262,7 @@ export async function sendInvoice(
       data: {
         status: 'SENT',
         sentAt: new Date(),
+        recipientEmails: ccRecipients,
         publicTokenExpiresAt: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
       } as unknown as Parameters<typeof scopedDb.invoice.update>[0]['data'],
     })
@@ -261,7 +273,7 @@ export async function sendInvoice(
       action:      'invoice.email_sent',
       entityType:  'Invoice',
       entityId:    invoiceId,
-      metadata:    { to: emailOpts.to, messageId },
+      metadata:    { to: emailOpts.to, cc: ccToSend, messageId },
     })
 
     return { success: true, data: { publicUrl } }

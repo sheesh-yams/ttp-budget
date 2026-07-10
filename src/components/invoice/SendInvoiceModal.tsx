@@ -160,6 +160,7 @@ export function SendInvoiceModal({ invoiceId, trigger, onSent }: SendInvoiceModa
   const [data, setData]         = useState<NonNullable<SendData> | null>(null)
   const [loading, setLoading]   = useState(false)
   const [to, setTo]             = useState('')
+  const [cc, setCc]             = useState('')
   const [subject, setSubject]   = useState('')
   const [message, setMessage]   = useState('')
   const [error, setError]       = useState<string | null>(null)
@@ -182,6 +183,7 @@ export function SendInvoiceModal({ invoiceId, trigger, onSent }: SendInvoiceModa
       }
       setData(result)
       setTo(result.clientEmail ?? '')
+      setCc((result.recipientEmails ?? []).join(', '))
       setSubject(buildDefaultSubject(result))
       setMessage(buildDefaultMessage(result))
       setLoading(false)
@@ -204,6 +206,7 @@ export function SendInvoiceModal({ invoiceId, trigger, onSent }: SendInvoiceModa
     startTransition(async () => {
       const result = await sendInvoice(invoiceId, {
         to:      to.trim(),
+        cc:      cc.split(/[,\n;]+/).map(s => s.trim()).filter(Boolean),
         subject: subject.trim() || buildDefaultSubject(data!),
         message: message.trim(),
       })
@@ -282,6 +285,20 @@ export function SendInvoiceModal({ invoiceId, trigger, onSent }: SendInvoiceModa
                       placeholder="client@example.com"
                       className="mt-1"
                     />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="inv-cc">CC</Label>
+                    <Input
+                      id="inv-cc"
+                      value={cc}
+                      onChange={e => setCc(e.target.value)}
+                      placeholder="accounts@client.com, manager@client.com"
+                      className="mt-1"
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Comma-separated. A copy is also sent to you, the sender.
+                    </p>
                   </div>
 
                   <div>

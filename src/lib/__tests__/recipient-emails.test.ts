@@ -1,4 +1,4 @@
-import { normalizeRecipientEmails, buildProposalSendList, MAX_RECIPIENTS } from '@/lib/email'
+import { normalizeRecipientEmails, buildCcList, MAX_RECIPIENTS } from '@/lib/email'
 
 describe('normalizeRecipientEmails', () => {
   it('trims, lowercases, and keeps only valid addresses', () => {
@@ -23,18 +23,27 @@ describe('normalizeRecipientEmails', () => {
   })
 })
 
-describe('buildProposalSendList', () => {
-  it('puts the client email first, then recipients, deduped', () => {
-    expect(buildProposalSendList('Client@X.com', ['extra@x.com', 'client@x.com']))
-      .toEqual(['client@x.com', 'extra@x.com'])
+describe('buildCcList (sender + extra recipients, minus the To address)', () => {
+  it('puts the sender first, then recipients, deduped', () => {
+    expect(buildCcList('client@x.com', ['extra@x.com'], 'Me@Studio.com'))
+      .toEqual(['me@studio.com', 'extra@x.com'])
   })
 
-  it('works with no client email (manual-send / mark-as-sent case)', () => {
-    expect(buildProposalSendList(null, ['a@b.com'])).toEqual(['a@b.com'])
+  it('removes the To (client) address so it is never both To and CC', () => {
+    expect(buildCcList('Client@X.com', ['client@x.com', 'extra@x.com'], 'me@studio.com'))
+      .toEqual(['me@studio.com', 'extra@x.com'])
   })
 
-  it('returns empty when nothing is available', () => {
-    expect(buildProposalSendList(null, [])).toEqual([])
-    expect(buildProposalSendList('', undefined)).toEqual([])
+  it('works with just the sender (no extra recipients)', () => {
+    expect(buildCcList('client@x.com', [], 'me@studio.com')).toEqual(['me@studio.com'])
+    expect(buildCcList('client@x.com', undefined, 'me@studio.com')).toEqual(['me@studio.com'])
+  })
+
+  it('returns empty when there is no sender and no recipients', () => {
+    expect(buildCcList('client@x.com', [], null)).toEqual([])
+  })
+
+  it('does not duplicate the sender if also listed as a recipient', () => {
+    expect(buildCcList('client@x.com', ['me@studio.com'], 'me@studio.com')).toEqual(['me@studio.com'])
   })
 })

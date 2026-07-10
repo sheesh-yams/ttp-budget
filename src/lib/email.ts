@@ -61,17 +61,20 @@ export function normalizeRecipientEmails(emails?: string[] | null): string[] {
   return out
 }
 
-/** Combined, deduped send list: client contact email first, then recipients. */
-export function buildProposalSendList(clientEmail: string | null | undefined, recipientEmails?: string[] | null): string[] {
-  const seen = new Set<string>()
-  const out: string[] = []
-  for (const e of [clientEmail ?? '', ...normalizeRecipientEmails(recipientEmails)]) {
-    const v = e.trim().toLowerCase()
-    if (!v || seen.has(v)) continue
-    seen.add(v)
-    out.push(v)
-  }
-  return out
+/**
+ * CC list for a client-facing send: the sender (so the client can reply-all to
+ * reach them) plus any additional recipients, deduped, format-validated, capped,
+ * and with the primary To address removed so it's never both To and CC. The
+ * sender goes first so it survives the recipient cap.
+ */
+export function buildCcList(
+  toEmail:         string | null | undefined,
+  recipientEmails: string[] | null | undefined,
+  senderEmail:     string | null | undefined,
+): string[] {
+  const toNorm = (toEmail ?? '').trim().toLowerCase()
+  const all = normalizeRecipientEmails([senderEmail ?? '', ...(recipientEmails ?? [])])
+  return all.filter(e => e !== toNorm)
 }
 
 // Resolve the public app URL without ever using a localhost value.
@@ -125,7 +128,9 @@ export async function sendProposalApprovedEmail(payload: ProposalApprovedPayload
 // ─── Proposal sent to client ────────────────────────────────────────────────
 
 interface ProposalSentPayload {
-  to:            string | string[]
+  to:            string
+  /** Additional recipients + the sender, shown as CC (visible to the client). */
+  cc?:           string[]
   proposalTitle: string
   projectName:   string
   proposalUrl:   string
@@ -140,7 +145,7 @@ interface ProposalSentPayload {
 
 export async function sendProposalEmail(payload: ProposalSentPayload): Promise<{ id: string }> {
   const {
-    to, proposalTitle, projectName, proposalUrl, expiresAt,
+    to, cc, proposalTitle, projectName, proposalUrl, expiresAt,
     actorName, actorEmail, workspaceName, brandPrimary, brandAccent,
   } = payload
   const primary   = brandPrimary || '#5D00A4'
@@ -150,6 +155,8 @@ export async function sendProposalEmail(payload: ProposalSentPayload): Promise<{
   const result = await resend.emails.send({
     from:    buildFrom(actorName, workspaceName),
     to,
+    // Sender + any extra recipients are CC'd (visible) so the client can reply-all.
+    ...(cc && cc.length ? { cc } : {}),
     ...(actorEmail ? { replyTo: actorEmail } : {}),
     subject: `Proposal for ${projectName}: ${proposalTitle}`,
     html: `
@@ -209,6 +216,8 @@ export async function sendProposalEmail(payload: ProposalSentPayload): Promise<{
 
 interface InvoiceSentPayload {
   to: string
+  /** Additional recipients, shown as CC (visible to the client). */
+  cc?: string[]
   subject?: string
   /** Custom message from the sender — rendered above the invoice details. */
   customMessage?: string
@@ -511,7 +520,7 @@ export async function sendPaymentReceiptEmails(invoiceId: string): Promise<void>
 }
 
 export async function sendInvoiceEmail(payload: InvoiceSentPayload): Promise<{ id: string }> {
-  const { to, subject, customMessage, invoiceNumber, projectName, amountCents, dueDate, invoiceUrl, actorName, actorEmail } = payload
+  const { to, cc, subject, customMessage, invoiceNumber, projectName, amountCents, dueDate, invoiceUrl, actorName, actorEmail } = payload
   const primary   = payload.brandPrimary || '#5D00A4'
   const accent    = payload.brandAccent  || '#04FFCC'
   const brandName = payload.workspaceName || 'The Third Place Creative'
@@ -533,6 +542,8 @@ export async function sendInvoiceEmail(payload: InvoiceSentPayload): Promise<{ i
   const result = await resend.emails.send({
     from: buildFrom(actorName, payload.workspaceName),
     to,
+    // Sender + any extra recipients are CC'd (visible) so the client can reply-all.
+    ...(cc && cc.length ? { cc } : {}),
     ...(actorEmail ? { replyTo: actorEmail } : {}),
     subject: subject ?? defaultSubject,
     html: `

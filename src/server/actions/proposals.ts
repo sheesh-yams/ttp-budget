@@ -10,7 +10,7 @@ import type { ActionResult, ProposalDiscount } from '@/types'
 import { logAuditEvent } from '@/lib/audit'
 import { generatePublicToken } from '@/lib/secure-token'
 import { syncDeliverablesFromProposal } from './delivery'
-import { sendProposalEmail, normalizeRecipientEmails, buildProposalSendList } from '@/lib/email'
+import { sendProposalEmail, normalizeRecipientEmails, buildCcList } from '@/lib/email'
 
 function uid() { return crypto.randomUUID().slice(0, 8) }
 
@@ -231,7 +231,8 @@ export async function sendProposal(proposalId: string): Promise<ActionResult<{ p
     if (!emailCtx.clientEmail) {
       return { success: false, error: 'This client has no contact email on file. Add one in the client profile before sending.' }
     }
-    const sendList = buildProposalSendList(emailCtx.clientEmail, (existing as unknown as { recipientEmails?: string[] }).recipientEmails)
+    const toEmail = emailCtx.clientEmail
+    const ccList  = buildCcList(toEmail, (existing as unknown as { recipientEmails?: string[] }).recipientEmails, user.email)
 
     const discount = (existing.content as { discount?: ProposalDiscount }).discount
     const snapshot = await captureBudgetSnapshot(sdb, existing.budgetId as string, discount)
@@ -242,7 +243,8 @@ export async function sendProposal(proposalId: string): Promise<ActionResult<{ p
     let messageId: string
     try {
       const sent = await sendProposalEmail({
-        to:            sendList,
+        to:            toEmail,
+        cc:            ccList,
         proposalTitle: existing.title,
         projectName:   emailCtx.projectName,
         proposalUrl:   publicUrl,
@@ -263,7 +265,7 @@ export async function sendProposal(proposalId: string): Promise<ActionResult<{ p
         action:      'proposal.email_failed',
         entityType:  'Proposal',
         entityId:    proposalId,
-        metadata:    { to: sendList, error: message },
+        metadata:    { to: toEmail, cc: ccList, error: message },
       })
       return { success: false, error: `Email failed to send: ${message}` }
     }
@@ -287,7 +289,7 @@ export async function sendProposal(proposalId: string): Promise<ActionResult<{ p
       action:      'proposal.email_sent',
       entityType:  'Proposal',
       entityId:    proposalId,
-      metadata:    { to: sendList, messageId },
+      metadata:    { to: toEmail, cc: ccList, messageId },
     })
 
     return { success: true, data: { publicUrl } }
@@ -399,10 +401,12 @@ export async function createSentProposal(input: {
     const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/p/${(proposal as unknown as { publicToken: string }).publicToken}`
 
     if (input.sendEmail && emailCtx) {
-      const sendList = buildProposalSendList(emailCtx.clientEmail, recipientEmails)
+      const toEmail = emailCtx.clientEmail!
+      const ccList  = buildCcList(toEmail, recipientEmails, user.email)
       try {
         const sent = await sendProposalEmail({
-          to:            sendList,
+          to:            toEmail,
+          cc:            ccList,
           proposalTitle: input.title,
           projectName:   emailCtx.projectName,
           proposalUrl:   publicUrl,
@@ -420,7 +424,7 @@ export async function createSentProposal(input: {
           action:      'proposal.email_sent',
           entityType:  'Proposal',
           entityId:    proposal.id,
-          metadata:    { to: sendList, messageId: sent.id },
+          metadata:    { to: toEmail, cc: ccList, messageId: sent.id },
         })
       } catch (emailErr) {
         const message = emailErr instanceof Error ? emailErr.message : 'Unknown error'
@@ -590,13 +594,15 @@ export async function sendDraftProposal(
     if (!existing) return { success: false, error: 'Proposal not found' }
 
     let emailCtx: Awaited<ReturnType<typeof resolveProposalEmailContext>> | null = null
-    let sendList: string[] = []
+    let toEmail = ''
+    let ccList: string[] = []
     if (sendEmail) {
       emailCtx = await resolveProposalEmailContext(sdb, existing.projectId)
       if (!emailCtx.clientEmail) {
         return { success: false, error: 'This client has no contact email on file. Add one in the client profile, or use "Mark as Sent" instead.' }
       }
-      sendList = buildProposalSendList(emailCtx.clientEmail, (existing as unknown as { recipientEmails?: string[] }).recipientEmails)
+      toEmail = emailCtx.clientEmail
+      ccList  = buildCcList(toEmail, (existing as unknown as { recipientEmails?: string[] }).recipientEmails, user.email)
     }
 
     const discount2 = (existing.content as { discount?: ProposalDiscount }).discount
@@ -608,7 +614,8 @@ export async function sendDraftProposal(
     if (sendEmail && emailCtx) {
       try {
         const sent = await sendProposalEmail({
-          to:            sendList,
+          to:            toEmail,
+          cc:            ccList,
           proposalTitle: existing.title,
           projectName:   emailCtx.projectName,
           proposalUrl:   publicUrl,
@@ -625,7 +632,7 @@ export async function sendDraftProposal(
           action:      'proposal.email_sent',
           entityType:  'Proposal',
           entityId:    proposalId,
-          metadata:    { to: sendList, messageId: sent.id },
+          metadata:    { to: toEmail, cc: ccList, messageId: sent.id },
         })
       } catch (emailErr) {
         const message = emailErr instanceof Error ? emailErr.message : 'Unknown error'
@@ -636,7 +643,7 @@ export async function sendDraftProposal(
           action:      'proposal.email_failed',
           entityType:  'Proposal',
           entityId:    proposalId,
-          metadata:    { to: sendList, error: message },
+          metadata:    { to: toEmail, cc: ccList, error: message },
         })
         // Stays DRAFT — content snapshot below is skipped too, nothing changes until retried.
         return { success: false, error: `Email failed to send: ${message}` }

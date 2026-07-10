@@ -690,6 +690,10 @@ model Invoice {
   paymentTerms  String?  // human-readable label, e.g. "Net 30", "Due on Receipt"
   poNumber      String?  // client's PO
 
+  // Additional recipients (CC) the invoice email was sent to, beyond the client
+  // contact email. The sender is bcc'd separately at send time.
+  recipientEmails String[] @default([])
+
   // Embedded line items — invoices don't share the budget tree
   // [{ description, quantity, unit, rateCents, lineTotalCents, notes }]
   lineItems     Json     @default("[]")
