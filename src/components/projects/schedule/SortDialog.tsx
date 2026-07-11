@@ -33,7 +33,10 @@ export function SortDialog({ open, onClose, onApply }: Props) {
   if (!mounted || !open) return null
 
   const modal = (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto py-10">
+    // z-[1300]: matches select.tsx/popover.tsx/confirm-dialog.tsx — this is
+    // portaled to document.body, so it must outrank DialogContent's z-[1200]
+    // if ever opened from inside a shadcn Dialog.
+    <div className="fixed inset-0 z-[1300] flex items-start justify-center overflow-y-auto py-10">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={onClose} />
       <div className="relative z-10 w-full max-w-sm mx-4 rounded-2xl border border-border bg-card shadow-2xl">
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">

@@ -93,7 +93,10 @@ export function useConfirm() {
 
   const dialog = state ? (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
+      // z-[1300] — see the matching comment in select.tsx: this is portaled to
+      // document.body (below), so it must outrank DialogContent's z-[1200] to
+      // stay visible when confirm() is called from inside an open modal.
+      className="fixed inset-0 z-[1300] flex items-center justify-center"
       aria-modal="true"
       role="dialog"
     >
