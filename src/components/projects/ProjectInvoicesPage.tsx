@@ -63,7 +63,10 @@ interface Props {
   project: Project
   budget: { id: string; name: string } | null
   proposal: ProposalRef | null
+  /** Net of the budget's discount (if any) — the real amount the client owes. */
   budgetTotalCents: number
+  /** Full, un-prorated discount amount baked into budgetTotalCents above. */
+  budgetDiscountCents?: number
   invoices: InvoiceRow[]
   invoiceExpiryDays?: number
 }
@@ -119,6 +122,7 @@ export function ProjectInvoicesPage({
   budget,
   proposal,
   budgetTotalCents,
+  budgetDiscountCents = 0,
   invoices,
   invoiceExpiryDays = 30,
 }: Props) {
@@ -485,6 +489,7 @@ export function ProjectInvoicesPage({
             content:  proposal.content,
           }}
           liveTotalCents={budgetTotalCents}
+          budgetDiscountCents={budgetDiscountCents}
           defaultMilestoneIdx={newInvMilestoneIdx}
           invoiceExpiryDays={invoiceExpiryDays}
         />

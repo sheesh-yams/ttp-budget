@@ -4,7 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { ChevronDown } from 'lucide-react'
 import { BudgetReadOnly } from '@/components/budget/BudgetReadOnly'
-import { sumAccount, calcBudgetTotals, type AccountInput } from '@/lib/totals'
+import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 import type { BudgetWithPhases } from '@/types'
 import type { SerialAccount, SerialBudgetSection } from '@/components/budget/BudgetReadOnly'
 
@@ -39,19 +39,33 @@ interface Props {
   budgetMeta: BudgetMeta[]
 }
 
-function serializeAccounts(budget: BudgetWithPhases): { accounts: SerialAccount[]; sections: SerialBudgetSection[]; productionCents: number; markupPct: number; taxPct: number; totalCents: number } {
+function serializeAccounts(budget: BudgetWithPhases): { accounts: SerialAccount[]; sections: SerialBudgetSection[]; productionCents: number; markupPct: number; taxPct: number; totalCents: number; discountCents: number; discountLabel: string } {
   const primaryPhase = budget.phases.find(p => p.isPrimary) ?? budget.phases[0]
-  if (!primaryPhase) return { accounts: [], sections: [], productionCents: 0, markupPct: 0, taxPct: 0, totalCents: 0 }
+  if (!primaryPhase) return { accounts: [], sections: [], productionCents: 0, markupPct: 0, taxPct: 0, totalCents: 0, discountCents: 0, discountLabel: '' }
 
   const rawAccounts = primaryPhase.accounts as unknown as AccountInput[]
   const productionCents = rawAccounts.reduce((sum, acc) => sum + sumAccount(acc), 0)
   const markupPct  = Number((budget as unknown as { markupPct?: number | null }).markupPct ?? 0)
   const taxPct     = Number((budget as unknown as { taxPct?: number | null }).taxPct ?? 0)
+  const budgetDiscount = budget as unknown as {
+    discountType?: string | null; discountLabel?: string | null
+    discountValueCents?: number | null; discountValuePct?: number | null
+  }
+  const discountConfig: BudgetDiscountConfig | null = budgetDiscount.discountType ? {
+    type:       budgetDiscount.discountType as 'flat' | 'pct',
+    label:      budgetDiscount.discountLabel,
+    valueCents: budgetDiscount.discountValueCents,
+    valuePct:   budgetDiscount.discountValuePct != null ? Number(budgetDiscount.discountValuePct) : null,
+  } : null
 
-  let totalCents = productionCents
-  if (markupPct > 0 || taxPct > 0) {
-    const totals = calcBudgetTotals(rawAccounts, markupPct, taxPct)
-    totalCents = totals.grandTotalCents
+  let totalCents    = productionCents
+  let discountCents = 0
+  let discountLabel = ''
+  if (markupPct > 0 || taxPct > 0 || discountConfig) {
+    const totals = calcBudgetTotals(rawAccounts, markupPct, taxPct, discountConfig)
+    totalCents    = totals.grandTotalCents
+    discountCents = totals.discountCents
+    discountLabel = totals.discountLabel
   }
 
   const accounts: SerialAccount[] = (primaryPhase.accounts as unknown as Array<{
@@ -91,7 +105,7 @@ function serializeAccounts(budget: BudgetWithPhases): { accounts: SerialAccount[
 
   const sections: SerialBudgetSection[] = ((primaryPhase as unknown as { sections?: Array<{ id: string; title: string }> }).sections ?? []).map(s => ({ id: s.id, title: s.title }))
 
-  return { accounts, sections, productionCents, markupPct, taxPct, totalCents }
+  return { accounts, sections, productionCents, markupPct, taxPct, totalCents, discountCents, discountLabel }
 }
 
 export function BudgetBreakdown({ projectId, budgets, primaryBudgetId, budgetMeta }: Props) {
@@ -99,7 +113,7 @@ export function BudgetBreakdown({ projectId, budgets, primaryBudgetId, budgetMet
 
   const activeBudget = budgets.find(b => b.id === selectedId) ?? budgets[0]
   const activeMeta   = budgetMeta.find(m => m.id === selectedId) ?? budgetMeta[0]
-  const { accounts, sections, productionCents, markupPct, taxPct, totalCents } = serializeAccounts(activeBudget)
+  const { accounts, sections, productionCents, markupPct, taxPct, totalCents, discountCents, discountLabel } = serializeAccounts(activeBudget)
 
   const multibudget = budgets.length > 1
 
@@ -164,6 +178,8 @@ export function BudgetBreakdown({ projectId, budgets, primaryBudgetId, budgetMet
           budgetMarkupPct={markupPct}
           budgetTaxPct={taxPct}
           budgetSections={sections}
+          discountCents={discountCents}
+          discountLabel={discountLabel}
           showPaymentSchedule={false}
           variant="overview"
         />

@@ -5,7 +5,7 @@ import { canSeeFinancials } from '@/lib/budget-visibility'
 import type { Prisma } from '@prisma/client'
 import { ProjectsPageClient } from '@/components/projects/ProjectsPageClient'
 import type { ProjectForCard, ProjectMetrics, AttentionItem, UpcomingShoot, StatusCounts } from '@/components/projects/projects-types'
-import { calcBudgetTotals, type AccountInput } from '@/lib/totals'
+import { calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 
 export const metadata = { title: 'Projects' }
 
@@ -177,6 +177,7 @@ export default async function ProjectsPage({
             projectId: true,
             markupPct:  true,
             taxPct:     true,
+            discountType: true, discountLabel: true, discountValueCents: true, discountValuePct: true,
           },
         },
         accounts: {
@@ -237,10 +238,17 @@ export default async function ProjectsPage({
     if (!projectId) continue
     const markupPct = phase.budget?.markupPct != null ? Number(phase.budget.markupPct) : 0
     const taxPct    = phase.budget?.taxPct    != null ? Number(phase.budget.taxPct)    : 0
+    const discountConfig: BudgetDiscountConfig | null = phase.budget?.discountType ? {
+      type:       phase.budget.discountType as 'flat' | 'pct',
+      label:      phase.budget.discountLabel,
+      valueCents: phase.budget.discountValueCents,
+      valuePct:   phase.budget.discountValuePct != null ? Number(phase.budget.discountValuePct) : null,
+    } : null
     const { grandTotalCents } = calcBudgetTotals(
       phase.accounts as unknown as AccountInput[],
       markupPct,
       taxPct,
+      discountConfig,
     )
     budgetTotalByProject.set(projectId, grandTotalCents)
   }

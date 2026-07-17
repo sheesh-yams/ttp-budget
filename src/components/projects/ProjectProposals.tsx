@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { ProposalModal, type ProposalModalMode } from './ProposalModal'
 import { NewInvoiceModal } from './NewInvoiceModal'
 import { deleteProposal, updateProposalStatus } from '@/server/actions/proposals'
-import type { ProposalStatus, ProposalContent, PaymentMilestone, ProposalDiscount } from '@/types'
+import type { ProposalStatus, ProposalContent, PaymentMilestone } from '@/types'
 
 interface ProposalRow {
   id: string
@@ -51,7 +51,6 @@ function extractFromContent(content: unknown): {
   about: string
   deliverables: { title: string; description: string }[]
   milestones: PaymentMilestone[]
-  discount?: ProposalDiscount
 } {
   try {
     const c = content as ProposalContent
@@ -67,9 +66,8 @@ function extractFromContent(content: unknown): {
     const milestones: PaymentMilestone[] = termsSection?.type === 'terms' && termsSection.milestones?.length
       ? termsSection.milestones
       : []
-    const discount = c?.discount
 
-    return { about, deliverables, milestones, discount }
+    return { about, deliverables, milestones }
   } catch {
     return { about: '', deliverables: [], milestones: [] }
   }
@@ -134,7 +132,7 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
 
   const existing = editingProposal
     ? (() => {
-        const { about, deliverables, milestones, discount } = extractFromContent(editingProposal.content)
+        const { about, deliverables, milestones } = extractFromContent(editingProposal.content)
         return {
           id: editingProposal.id,
           title: editingProposal.title,
@@ -143,7 +141,6 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
           about,
           deliverables,
           milestones,
-          discount,
           contractEnabled: editingProposal.contractEnabled,
           recipientEmails: editingProposal.recipientEmails ?? [],
         }

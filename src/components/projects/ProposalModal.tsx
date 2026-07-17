@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useTransition, useEffect, useMemo, useRef } from 'react'
-import { Copy, Check, ExternalLink, Plus, X, Tag } from 'lucide-react'
+import { useState, useTransition, useEffect, useRef } from 'react'
+import { Copy, Check, ExternalLink, Plus, X } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,7 +12,7 @@ import {
   updateDraftProposal,
   sendDraftProposal,
 } from '@/server/actions/proposals'
-import type { MilestoneTrigger, PaymentMilestone, ProposalDiscount } from '@/types'
+import type { MilestoneTrigger, PaymentMilestone } from '@/types'
 import { ContractTab } from '@/components/proposals/ContractTab'
 
 export type ProposalModalMode = 'create' | 'edit-draft' | 'revision'
@@ -100,7 +100,6 @@ interface ExistingProposal {
   publicToken: string
   expiresAt: string | null
   milestones?: PaymentMilestone[]
-  discount?: ProposalDiscount
   about?: string
   deliverables?: unknown[]
   contractEnabled?: boolean
@@ -161,12 +160,6 @@ export function ProposalModal({
   const [isDraft,        setIsDraft]        = useState(false)
   const [isSentManually, setIsSentManually] = useState(false)
 
-  // Discount state
-  const [discountType,  setDiscountType]  = useState<'none' | 'flat' | 'pct'>('none')
-  const [discountLabel, setDiscountLabel] = useState('Discount')
-  const [discountFlat,  setDiscountFlat]  = useState('')   // dollar string, e.g. "500"
-  const [discountPct,   setDiscountPct]   = useState('')   // percent string, e.g. "10"
-
   // Keep a ref so the reset effect can read the current successToken without
   // adding it to the dependency array (which would cause spurious re-runs).
   const successTokenRef = useRef(successToken)
@@ -182,21 +175,11 @@ export function ProposalModal({
       setRecipients((existing.recipientEmails ?? []).join(', '))
       setExpiresAt(existing.expiresAt ? existing.expiresAt.split('T')[0] : defaultExpiry(proposalExpiryDays))
       setMilestones(existing.milestones?.length ? fromPaymentMilestones(existing.milestones) : defaultMilestones())
-      const d = existing.discount
-      if (d) {
-        setDiscountType(d.type)
-        setDiscountLabel(d.label || 'Discount')
-        setDiscountFlat(d.type === 'flat' && d.valueCents ? String(d.valueCents / 100) : '')
-        setDiscountPct(d.type === 'pct' && d.valuePct ? String(d.valuePct) : '')
-      } else {
-        setDiscountType('none'); setDiscountLabel('Discount'); setDiscountFlat(''); setDiscountPct('')
-      }
     } else {
       setTitle(`${projectName} — Proposal`)
       setRecipients('')
       setExpiresAt(defaultExpiry(proposalExpiryDays))
       setMilestones(prefill?.milestones?.length ? fromPaymentMilestones(prefill.milestones) : defaultMilestones())
-      setDiscountType('none'); setDiscountLabel('Discount'); setDiscountFlat(''); setDiscountPct('')
     }
     setError('')
     setSuccessToken(null)
@@ -248,10 +231,9 @@ export function ProposalModal({
       projectId,
       budgetId,
       title: title.trim(),
-      milestones: toPaymentMilestones(milestones, discountedTotalCents),
+      milestones: toPaymentMilestones(milestones, totalCents),
       expiresAt,
-      totalCents: discountedTotalCents,
-      discount: discountPayload,
+      totalCents,
       recipientEmails: parseRecipients(recipients),
     }
   }
@@ -335,35 +317,13 @@ export function ProposalModal({
     onOpenChange(v)
   }
 
-  // ── Discount computation ──────────────────────────────────────────────────
-
-  const discountedTotalCents = useMemo(() => {
-    if (discountType === 'flat') {
-      const d = Math.round((parseFloat(discountFlat) || 0) * 100)
-      return Math.max(0, totalCents - d)
-    }
-    if (discountType === 'pct') {
-      const pct = parseFloat(discountPct) || 0
-      return Math.max(0, Math.round(totalCents * (1 - pct / 100)))
-    }
-    return totalCents
-  }, [discountType, discountFlat, discountPct, totalCents])
-
-  const discountPayload = useMemo((): ProposalDiscount | undefined => {
-    if (discountType === 'none') return undefined
-    return {
-      type: discountType,
-      label: discountLabel.trim() || 'Discount',
-      ...(discountType === 'flat' ? { valueCents: Math.round((parseFloat(discountFlat) || 0) * 100) } : {}),
-      ...(discountType === 'pct'  ? { valuePct: parseFloat(discountPct) || 0 } : {}),
-    }
-  }, [discountType, discountLabel, discountFlat, discountPct])
-
   // ── Derived ────────────────────────────────────────────────────────────────
+  // totalCents already reflects the budget's own discount (set in the Budget
+  // editor's rates bar) — proposals no longer carry a separate discount.
 
-  const totalPct   = computeTotalPct(milestones, discountedTotalCents)
+  const totalPct   = computeTotalPct(milestones, totalCents)
   const totalOk    = Math.abs(totalPct - 100) <= 0.5
-  const totalDollars = discountedTotalCents / 100
+  const totalDollars = totalCents / 100
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
@@ -571,87 +531,9 @@ export function ProposalModal({
               </div>
             </div>
 
-            {/* Discount */}
-            <div className="grid gap-2">
-              <div className="flex items-center justify-between">
-                <Label className="flex items-center gap-1.5">
-                  <Tag className="h-3 w-3 text-muted-foreground" />
-                  Discount
-                </Label>
-                <div className="flex items-center rounded-md border border-border/60 overflow-hidden text-xs">
-                  {(['none', 'flat', 'pct'] as const).map(t => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => setDiscountType(t)}
-                      className={`px-2.5 py-1 font-medium transition-colors ${
-                        discountType === t
-                          ? 'bg-violet-600 text-white'
-                          : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                      }`}
-                    >
-                      {t === 'none' ? 'None' : t === 'flat' ? 'Flat $' : '% of total'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {discountType !== 'none' && (
-                <div className="rounded-lg border border-border/60 p-3 space-y-2.5">
-                  {/* Label */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="grid gap-1">
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Label</p>
-                      <input
-                        type="text"
-                        placeholder="New client discount"
-                        value={discountLabel}
-                        onChange={e => setDiscountLabel(e.target.value)}
-                        className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground/50 rounded-md border border-input px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring"
-                      />
-                    </div>
-                    <div className="grid gap-1">
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                        {discountType === 'flat' ? 'Amount ($)' : 'Percentage (%)'}
-                      </p>
-                      <div className="flex items-center rounded-md border border-input overflow-hidden">
-                        <span className="px-2 py-1.5 text-xs text-muted-foreground bg-muted/40 border-r border-input select-none">
-                          {discountType === 'flat' ? '$' : '%'}
-                        </span>
-                        <input
-                          type="number"
-                          min="0"
-                          step={discountType === 'flat' ? '50' : '1'}
-                          placeholder={discountType === 'flat' ? '500' : '10'}
-                          value={discountType === 'flat' ? discountFlat : discountPct}
-                          onChange={e => discountType === 'flat'
-                            ? setDiscountFlat(e.target.value)
-                            : setDiscountPct(e.target.value)
-                          }
-                          className="flex-1 px-2 py-1.5 text-sm text-right bg-transparent focus:outline-none"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Discount preview */}
-                  {discountedTotalCents < totalCents && (
-                    <div className="flex items-center justify-between text-xs pt-1 border-t border-border/40">
-                      <span className="text-muted-foreground">After discount</span>
-                      <span className="font-semibold text-foreground">
-                        ${(discountedTotalCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        <span className="ml-1.5 text-emerald-600 font-medium">
-                          (-${((totalCents - discountedTotalCents) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
-                        </span>
-                      </span>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
             <p className="text-xs text-muted-foreground rounded-lg bg-secondary/40 px-3 py-2">
               Description and deliverables are pulled from the <strong>Proposal Overview</strong> section on the project page.
+              Discounts are now set in the <strong>Budget</strong> editor, alongside the agency fee — they apply here and on invoices automatically.
             </p>
 
             {error && <p className="text-sm text-destructive">{error}</p>}

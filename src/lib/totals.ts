@@ -14,9 +14,18 @@ export interface AccountInput {
   children?: AccountInput[]
 }
 
+export interface BudgetDiscountConfig {
+  type:        'flat' | 'pct'
+  label?:      string | null
+  valueCents?: number | null
+  valuePct?:   number | null  // 0–1 fraction, same convention as markupPct/taxPct
+}
+
 export interface BudgetTotals {
   subtotalCents: number   // sum of all line items before budget-level markup
   markupCents: number     // budget-level markup amount
+  discountCents: number   // 0 when no discount
+  discountLabel: string   // '' when no discount
   taxCents: number
   grandTotalCents: number
 }
@@ -34,19 +43,42 @@ export function sumAccount(account: AccountInput): number {
   return ownItems + childItems
 }
 
-/** Calculate full budget totals from a list of top-level accounts */
+/**
+ * Calculate full budget totals from a list of top-level accounts.
+ *
+ * Canonical order: net subtotal → + agency fee (markup) → − discount →
+ * + tax (on the post-discount amount) → grand total. This order is relied on
+ * by every renderer of a budget's totals (proposal web/PDF, invoices,
+ * BudgetSummaryBar) — do not reorder without updating all of them.
+ */
 export function calcBudgetTotals(
   accounts: AccountInput[],
   markupPct: number,
-  taxPct: number
+  taxPct: number,
+  discount?: BudgetDiscountConfig | null
 ): BudgetTotals {
   const subtotalCents = accounts.reduce((acc, a) => acc + sumAccount(a), 0)
   const markupCents = Math.round(subtotalCents * markupPct)
   const preTax = subtotalCents + markupCents
-  const taxCents = Math.round(preTax * taxPct)
-  const grandTotalCents = preTax + taxCents
 
-  return { subtotalCents, markupCents, taxCents, grandTotalCents }
+  let discountCents = 0
+  let discountLabel = ''
+  if (discount?.type) {
+    if (discount.type === 'flat' && discount.valueCents) {
+      discountCents = discount.valueCents
+    } else if (discount.type === 'pct' && discount.valuePct) {
+      discountCents = Math.round(preTax * discount.valuePct)
+    }
+    // Never let a discount exceed the pre-tax amount or go negative.
+    discountCents = Math.max(0, Math.min(discountCents, preTax))
+    if (discountCents > 0) discountLabel = discount.label || 'Discount'
+  }
+
+  const afterDiscount = preTax - discountCents
+  const taxCents = Math.round(afterDiscount * taxPct)
+  const grandTotalCents = afterDiscount + taxCents
+
+  return { subtotalCents, markupCents, discountCents, discountLabel, taxCents, grandTotalCents }
 }
 
 /**

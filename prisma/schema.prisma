@@ -411,6 +411,14 @@ model Budget {
   markupPct     Decimal? @db.Decimal(6, 4)
   taxPct        Decimal? @db.Decimal(6, 4)
 
+  // Budget-level discount — single source of truth for proposals + invoices
+  // generated from this budget. discountValuePct is a 0–1 fraction, same
+  // convention as markupPct/taxPct above (NOT a 0–100 display value).
+  discountType       String?  // 'flat' | 'pct' | null (no discount)
+  discountLabel      String?  // shown on proposal/invoice; defaults to "Discount" when blank
+  discountValueCents Int?     // used when discountType === 'flat'
+  discountValuePct   Decimal? @db.Decimal(6, 4) // used when discountType === 'pct'
+
   createdById   String?
   createdBy     User?    @relation("BudgetCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt     DateTime @default(now())

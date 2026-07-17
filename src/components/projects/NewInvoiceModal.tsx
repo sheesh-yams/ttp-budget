@@ -104,15 +104,18 @@ interface Props {
   projectName: string
   clientId: string
   proposal: ProposalForInvoice
+  /** Net of the budget's discount (if any) — the real amount the client owes. */
   liveTotalCents: number
+  /** Full, un-prorated discount amount already baked into liveTotalCents above. */
+  budgetDiscountCents?: number
   /** Pre-select a specific milestone by index (0-based). */
   defaultMilestoneIdx?: number
   invoiceExpiryDays?: number
 }
 
 type InvoiceOption =
-  | { type: 'milestone'; milestone: PaymentMilestone; amountCents: number }
-  | { type: 'full'; amountCents: number }
+  | { type: 'milestone'; milestone: PaymentMilestone; amountCents: number; preDiscountAmountCents: number }
+  | { type: 'full'; amountCents: number; preDiscountAmountCents: number }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -138,6 +141,7 @@ export function NewInvoiceModal({
   clientId,
   proposal,
   liveTotalCents,
+  budgetDiscountCents = 0,
   defaultMilestoneIdx,
   invoiceExpiryDays = 30,
 }: Props) {
@@ -152,16 +156,24 @@ export function NewInvoiceModal({
   const snapshot = (proposal.content as unknown as Record<string, unknown>)?.budgetSnapshot as BudgetSnapshot | undefined
   // Always use the live gross budget total (includes markup + agency fee).
   // The snapshot.totalCents can be stale if the budget changed after the proposal was created.
-  const totalCents = liveTotalCents
+  // liveTotalCents is already net of any budget-level discount; preDiscountTotalCents
+  // adds the discount back so line-item rows (which must sum to a pre-discount
+  // subtotal for Subtotal − Discount + Tax = Total to reconcile on the invoice)
+  // have the right dollar value to work from.
+  const totalCents            = liveTotalCents
+  const preDiscountTotalCents = liveTotalCents + budgetDiscountCents
 
-  // Build options: one per milestone + "Full invoice"
+  // Build options: one per milestone + "Full invoice". amountCents is the net
+  // (already-discounted) amount shown to the user; preDiscountAmountCents is
+  // the same slice of the pre-discount total, used to build line-item rows.
   const options: InvoiceOption[] = [
     ...milestones.map(m => ({
       type: 'milestone' as const,
       milestone: m,
-      amountCents: Math.round(totalCents * m.percentPct),
+      amountCents:            Math.round(totalCents * m.percentPct),
+      preDiscountAmountCents: Math.round(preDiscountTotalCents * m.percentPct),
     })),
-    { type: 'full', amountCents: totalCents },
+    { type: 'full', amountCents: totalCents, preDiscountAmountCents: preDiscountTotalCents },
   ]
 
   // Build line items for a given option
@@ -194,9 +206,10 @@ export function NewInvoiceModal({
       }
       if (items.length > 0) return items
     }
-    // Milestone or fallback → single line item
+    // Milestone or fallback → single line item, pre-discount dollar value
+    // (the modal's own Discount row nets it back out — see subtotalCents/discountCents below)
     const label = opt.type === 'milestone' ? opt.milestone.name : projectName
-    const amountCents = opt.amountCents
+    const amountCents = opt.preDiscountAmountCents
     return [{
       id: crypto.randomUUID(),
       description: label,
@@ -267,8 +280,13 @@ export function NewInvoiceModal({
   // ── Derived totals (always from rows) ────────────────────────────────────────
 
   const subtotalCents = rows.reduce((s, r) => s + rowToCents(r), 0)
-  const taxCents      = Math.round(subtotalCents * taxPct / 100)
-  const totalWithTax  = subtotalCents + taxCents
+  // Discount for the currently selected option — prorated for a milestone slice,
+  // or the full budget discount for "Full invoice". Falls out of the pre-discount
+  // vs. net amounts computed above; works the same for both branches of
+  // buildLineItemsForOption (detailed snapshot items or a single summary row).
+  const discountCents = selected ? Math.max(0, selected.preDiscountAmountCents - selected.amountCents) : 0
+  const taxCents       = Math.round((subtotalCents - discountCents) * taxPct / 100)
+  const totalWithTax   = subtotalCents - discountCents + taxCents
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -313,7 +331,7 @@ export function NewInvoiceModal({
         subtotalCents,
         taxPct,
         taxCents,
-        discountCents: 0,
+        discountCents,
         totalCents: totalWithTax,
         notes: notes.trim() || undefined,
       })
@@ -542,6 +560,12 @@ export function NewInvoiceModal({
               <span>Subtotal</span>
               <span className="tabular-nums">{formatMoney(subtotalCents)}</span>
             </div>
+            {discountCents > 0 && (
+              <div className="flex items-center justify-between text-sm text-green-600">
+                <span>Discount</span>
+                <span className="tabular-nums">-{formatMoney(discountCents)}</span>
+              </div>
+            )}
             {taxPct > 0 && (
               <div className="flex items-center justify-between text-sm text-muted-foreground">
                 <span>Tax ({taxPct}%)</span>

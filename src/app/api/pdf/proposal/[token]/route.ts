@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { db } from '@/lib/db'
 import { ProposalPDF } from '@/components/proposal/ProposalPDF'
-import { sumAccount, type AccountInput } from '@/lib/totals'
+import { calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 import { resolveMergeTagsPlain, type MergeTagContext } from '@/lib/merge-tags'
 import React from 'react'
 import fs from 'fs'
@@ -116,21 +116,26 @@ export async function GET(
       })),
     }))
 
-    const rawTotal = (accounts as unknown[]).reduce<number>(
-      (sum, acc) => sum + sumAccount(acc as unknown as AccountInput),
-      0
-    )
-    const contentDiscount = proposalContent?.discount as { type: string; label?: string; valueCents?: number; valuePct?: number } | undefined
-    if (contentDiscount) {
-      discountLabel = contentDiscount.label || 'Discount'
-      if (contentDiscount.type === 'flat' && contentDiscount.valueCents) {
-        discountCents = contentDiscount.valueCents
-      } else if (contentDiscount.type === 'pct' && contentDiscount.valuePct) {
-        discountCents = Math.round(rawTotal * (contentDiscount.valuePct / 100))
-      }
-      discountCents = Math.max(0, Math.min(discountCents, rawTotal))
-    }
-    totalCents = Math.max(0, rawTotal - discountCents)
+    // Historical edge case: proposals sent before the snapshot feature existed
+    // have no frozen totals, so this reads the *live* budget's current discount
+    // (never applied budget-level markup/tax here either — narrow, pre-existing
+    // legacy-only path, not touched beyond adding discount-awareness).
+    const legacyBudget = proposal.budgetId
+      ? await db.budget.findUnique({
+          where: { id: proposal.budgetId },
+          select: { discountType: true, discountLabel: true, discountValueCents: true, discountValuePct: true },
+        })
+      : null
+    const legacyDiscountConfig: BudgetDiscountConfig | null = legacyBudget?.discountType ? {
+      type:       legacyBudget.discountType as 'flat' | 'pct',
+      label:      legacyBudget.discountLabel,
+      valueCents: legacyBudget.discountValueCents,
+      valuePct:   legacyBudget.discountValuePct != null ? Number(legacyBudget.discountValuePct) : null,
+    } : null
+    const legacyTotals = calcBudgetTotals(accounts as unknown as AccountInput[], 0, 0, legacyDiscountConfig)
+    discountCents = legacyTotals.discountCents
+    discountLabel = legacyTotals.discountLabel || 'Discount'
+    totalCents    = legacyTotals.grandTotalCents
   }
 
   // ── Resolve contract merge tags ────────────────────────────────────────────

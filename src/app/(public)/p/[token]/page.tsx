@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation'
 import { db } from '@/lib/db'
 import { ProposalPublicView } from '@/components/proposal/ProposalPublicView'
 import { recordProposalView } from '@/server/actions/proposals'
-import { sumAccount, calcBudgetTotals, type AccountInput } from '@/lib/totals'
+import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 import { headers } from 'next/headers'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { trustedClientIp } from '@/lib/client-ip'
@@ -153,37 +153,36 @@ export default async function PublicProposalPage({ params }: Props) {
       })),
     }))
 
-    // Fetch budget-level markup/tax so the draft preview total matches what the
-    // sent proposal will show (the snapshot captures these; the draft path must
-    // apply them manually or the hero total is missing the agency fee).
+    // Fetch budget-level markup/tax/discount so the draft preview total matches
+    // what the sent proposal will show (the snapshot captures these; the draft
+    // path must apply them manually or the hero total is missing them).
     const budgetForMarkup = proposal.budgetId
       ? await db.budget.findUnique({
           where: { id: proposal.budgetId },
-          select: { markupPct: true, taxPct: true },
+          select: {
+            markupPct: true, taxPct: true,
+            discountType: true, discountLabel: true, discountValueCents: true, discountValuePct: true,
+          },
         })
       : null
     const draftMarkupPct = budgetForMarkup?.markupPct != null ? Number(budgetForMarkup.markupPct) : 0
     const draftTaxPct    = budgetForMarkup?.taxPct    != null ? Number(budgetForMarkup.taxPct)    : 0
+    const draftDiscountConfig: BudgetDiscountConfig | null = budgetForMarkup?.discountType ? {
+      type:       budgetForMarkup.discountType as 'flat' | 'pct',
+      label:      budgetForMarkup.discountLabel,
+      valueCents: budgetForMarkup.discountValueCents,
+      valuePct:   budgetForMarkup.discountValuePct != null ? Number(budgetForMarkup.discountValuePct) : null,
+    } : null
 
     const draftTotals = calcBudgetTotals(
       serialisedAccounts as unknown as AccountInput[],
       draftMarkupPct,
       draftTaxPct,
+      draftDiscountConfig,
     )
-    const rawTotal = draftTotals.grandTotalCents
-
-    // Apply discount from content (draft preview — no snapshot yet)
-    const contentDiscount = content?.discount as { type: string; label?: string; valueCents?: number; valuePct?: number } | undefined
-    if (contentDiscount) {
-      discountLabel = contentDiscount.label || 'Discount'
-      if (contentDiscount.type === 'flat' && contentDiscount.valueCents) {
-        discountCents = contentDiscount.valueCents
-      } else if (contentDiscount.type === 'pct' && contentDiscount.valuePct) {
-        discountCents = Math.round(rawTotal * (contentDiscount.valuePct / 100))
-      }
-      discountCents = Math.max(0, Math.min(discountCents, rawTotal))
-    }
-    totalCents = Math.max(0, rawTotal - discountCents)
+    discountCents = draftTotals.discountCents
+    discountLabel = draftTotals.discountLabel || 'Discount'
+    totalCents    = draftTotals.grandTotalCents
 
     // Inject a synthetic budgetSnapshot so ProposalPublicView's breakdown
     // section shows the agency fee row correctly for draft previews.

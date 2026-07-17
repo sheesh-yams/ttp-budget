@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
 import { getWorkspaceId, requireRole } from '@/lib/auth'
 import { getScopedDb } from '@/lib/db-scoped'
-import { sumAccount, calcBudgetTotals, type AccountInput } from '@/lib/totals'
+import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 import { lineTotal } from '@/lib/money'
 import type { ActionResult } from '@/types'
 
@@ -470,6 +470,7 @@ export async function getWrapReportData(
         name: true,
         markupPct: true,
         taxPct: true,
+        discountType: true, discountLabel: true, discountValueCents: true, discountValuePct: true,
         phases: {
           where: { id: sheet.phaseId },
           select: {
@@ -576,12 +577,20 @@ export async function getWrapReportData(
 
     // ── Budget grand total ────────────────────────────────────────────────────
 
+    const discountConfig: BudgetDiscountConfig | null = budget.discountType ? {
+      type:       budget.discountType as 'flat' | 'pct',
+      label:      budget.discountLabel,
+      valueCents: budget.discountValueCents,
+      valuePct:   budget.discountValuePct != null ? Number(budget.discountValuePct) : null,
+    } : null
     const totals = calcBudgetTotals(
       phase.accounts as unknown as AccountInput[],
       Number(budget.markupPct ?? 0),
       Number(budget.taxPct ?? 0),
+      discountConfig,
     )
 
+    // Net of discount — real billed revenue, matches the proposal/invoice/editor total.
     const billedCents      = (sheet as unknown as { revenueOverrideCents: number | null }).revenueOverrideCents
                               ?? totals.grandTotalCents
     const totalBudgetCents = totals.grandTotalCents

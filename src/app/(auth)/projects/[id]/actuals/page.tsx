@@ -5,7 +5,7 @@ import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { getActualSheet, syncActualSheetEntries } from '@/server/actions/actuals'
 import { ActualsEditor } from '@/components/projects/ActualsEditor'
-import { sumAccount, calcBudgetTotals, type AccountInput } from '@/lib/totals'
+import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -36,6 +36,7 @@ export default async function ActualsPage({
           name:      true,
           markupPct: true,
           taxPct:    true,
+          discountType: true, discountLabel: true, discountValueCents: true, discountValuePct: true,
           phases: {
             orderBy: { order: 'asc' },
             include: {
@@ -75,10 +76,17 @@ export default async function ActualsPage({
   if (phase) {
     const markupPct = budget ? Number(budget.markupPct ?? 0) : 0
     const taxPct    = budget ? Number(budget.taxPct    ?? 0) : 0
+    const discountConfig: BudgetDiscountConfig | null = budget?.discountType ? {
+      type:       budget.discountType as 'flat' | 'pct',
+      label:      budget.discountLabel,
+      valueCents: budget.discountValueCents,
+      valuePct:   budget.discountValuePct != null ? Number(budget.discountValuePct) : null,
+    } : null
     const totals = calcBudgetTotals(
       phase.accounts as unknown as AccountInput[],
       markupPct,
       taxPct,
+      discountConfig,
     )
     budgetTotalCents = totals.grandTotalCents
   }

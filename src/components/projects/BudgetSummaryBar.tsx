@@ -1,6 +1,7 @@
 'use client'
 
 import type { AccountWithItems } from '@/types'
+import type { BudgetDiscountConfig } from '@/lib/totals'
 
 // ─── Money helper ─────────────────────────────────────────────────────────────
 
@@ -26,7 +27,9 @@ interface Breakdown {
   lineTaxCents:      number   // Σ(qty × rateCents × taxRate) — per-line taxes (new field)
   productionCents:   number   // net + line markups + line taxes
   agencyFeeCents:    number   // productionCents × budgetMarkupPct
-  budgetTaxCents:    number   // (production + agency) × budgetTaxPct
+  discountCents:     number   // subtracted after agency fee, before tax
+  discountLabel:     string
+  budgetTaxCents:    number   // (production + agency - discount) × budgetTaxPct
   grandTotalCents:   number
 }
 
@@ -84,6 +87,7 @@ function computeBreakdown(
   accounts:        AccountWithItems[],
   budgetMarkupPct: number,
   budgetTaxPct:    number,
+  discount?:       BudgetDiscountConfig | null,
 ): Breakdown {
   const totals = accounts.reduce(
     (acc, a) => {
@@ -99,8 +103,19 @@ function computeBreakdown(
   const productionCents  = netSubtotalCents + lineMarkupCents + lineTaxCents
   const agencyFeeCents   = Math.round(productionCents * budgetMarkupPct)
   const preTax           = productionCents + agencyFeeCents
-  const budgetTaxCents   = Math.round(preTax * budgetTaxPct)
-  const grandTotalCents  = preTax + budgetTaxCents
+
+  let discountCents = 0
+  let discountLabel = ''
+  if (discount?.type) {
+    if (discount.type === 'flat' && discount.valueCents) discountCents = discount.valueCents
+    else if (discount.type === 'pct' && discount.valuePct) discountCents = Math.round(preTax * discount.valuePct)
+    discountCents = Math.max(0, Math.min(discountCents, preTax))
+    if (discountCents > 0) discountLabel = discount.label || 'Discount'
+  }
+
+  const afterDiscount   = preTax - discountCents
+  const budgetTaxCents  = Math.round(afterDiscount * budgetTaxPct)
+  const grandTotalCents = afterDiscount + budgetTaxCents
 
   return {
     netSubtotalCents,
@@ -108,6 +123,8 @@ function computeBreakdown(
     lineTaxCents,
     productionCents,
     agencyFeeCents,
+    discountCents,
+    discountLabel,
     budgetTaxCents,
     grandTotalCents,
   }
@@ -147,17 +164,20 @@ interface Props {
   accounts:        AccountWithItems[]
   budgetMarkupPct: number   // e.g. 0.1 = 10% agency fee on top of production
   budgetTaxPct:    number   // e.g. 0.0875 = 8.75% tax
+  /** null = no discount set for this budget. */
+  discountConfig?: BudgetDiscountConfig | null
   /** Collaborators are margin-blind: only Net Subtotal is shown. */
   canSeeFinancials?: boolean
 }
 
 /** Fixed sticky bar anchored to the bottom of the content area (sidebar-aware). */
-export function BudgetSummaryBar({ accounts, budgetMarkupPct, budgetTaxPct, canSeeFinancials = true }: Props) {
-  const b = computeBreakdown(accounts, budgetMarkupPct, budgetTaxPct)
+export function BudgetSummaryBar({ accounts, budgetMarkupPct, budgetTaxPct, discountConfig = null, canSeeFinancials = true }: Props) {
+  const b = computeBreakdown(accounts, budgetMarkupPct, budgetTaxPct, discountConfig)
 
   const markupsAndTaxCents = b.lineMarkupCents + b.lineTaxCents
   const hasAgencyFee       = budgetMarkupPct > 0
   const hasBudgetTax       = budgetTaxPct > 0
+  const hasDiscount        = b.discountCents > 0
 
   // Margin-blind view: a single Net Subtotal column, no fees/markups/grand total.
   if (!canSeeFinancials) {
@@ -223,9 +243,9 @@ export function BudgetSummaryBar({ accounts, budgetMarkupPct, budgetTaxPct, canS
           )}
         </div>
 
-        {/* Col 3 — Agency Fee + Budget Tax */}
+        {/* Col 3 — Agency Fee + Discount + Budget Tax */}
         <div className="flex flex-1 items-center px-6 border-r border-border/60">
-          {(hasAgencyFee || hasBudgetTax) ? (
+          {(hasAgencyFee || hasDiscount || hasBudgetTax) ? (
             <div className="flex flex-col gap-1">
               {hasAgencyFee && (
                 <div className="flex items-baseline gap-2">
@@ -233,6 +253,14 @@ export function BudgetSummaryBar({ accounts, budgetMarkupPct, budgetTaxPct, canS
                     Agency Fee <span className="normal-case text-[9px]">({pctLabel(budgetMarkupPct)})</span>
                   </p>
                   <p className="text-sm font-semibold tabular-nums text-foreground/70">{formatCents(b.agencyFeeCents)}</p>
+                </div>
+              )}
+              {hasDiscount && (
+                <div className="flex items-baseline gap-2">
+                  <p className="text-[10px] uppercase tracking-[0.06em] text-muted-foreground/60 font-medium w-24">
+                    {b.discountLabel || 'Discount'}
+                  </p>
+                  <p className="text-sm font-semibold tabular-nums text-red-600">-{formatCents(b.discountCents)}</p>
                 </div>
               )}
               {hasBudgetTax && (

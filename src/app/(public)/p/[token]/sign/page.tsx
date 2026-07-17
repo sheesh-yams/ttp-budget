@@ -5,7 +5,7 @@ import { checkRateLimit } from '@/lib/rate-limit'
 import { trustedClientIp } from '@/lib/client-ip'
 import { RateLimitedPage } from '@/components/public/RateLimitedPage'
 import { ProposalSignView } from '@/components/proposal/ProposalSignView'
-import { sumAccount, calcBudgetTotals, type AccountInput } from '@/lib/totals'
+import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 
 interface Props {
   params: Promise<{ token: string }>
@@ -126,17 +126,29 @@ export default async function ProposalSignPage({ params }: Props) {
     })
 
     const budgetForMarkup = proposal.budgetId
-      ? await db.budget.findUnique({ where: { id: proposal.budgetId }, select: { markupPct: true, taxPct: true } })
+      ? await db.budget.findUnique({
+          where: { id: proposal.budgetId },
+          select: {
+            markupPct: true, taxPct: true,
+            discountType: true, discountLabel: true, discountValueCents: true, discountValuePct: true,
+          },
+        })
       : null
     const markupPct = budgetForMarkup?.markupPct != null ? Number(budgetForMarkup.markupPct) : 0
     const taxPct    = budgetForMarkup?.taxPct    != null ? Number(budgetForMarkup.taxPct)    : 0
+    const discountConfig: BudgetDiscountConfig | null = budgetForMarkup?.discountType ? {
+      type:       budgetForMarkup.discountType as 'flat' | 'pct',
+      label:      budgetForMarkup.discountLabel,
+      valueCents: budgetForMarkup.discountValueCents,
+      valuePct:   budgetForMarkup.discountValuePct != null ? Number(budgetForMarkup.discountValuePct) : null,
+    } : null
 
     const accounts = (primaryPhase?.accounts ?? []).map(acc => ({
       ...acc,
       lineItems: acc.lineItems.map(i => ({ ...i, quantity: Number(i.quantity), markupPct: i.markupPct != null ? Number(i.markupPct) : null })),
       children:  acc.children.map(child => ({ ...child, lineItems: child.lineItems.map(i => ({ ...i, quantity: Number(i.quantity), markupPct: i.markupPct != null ? Number(i.markupPct) : null })) })),
     }))
-    const totals = calcBudgetTotals(accounts as unknown as AccountInput[], markupPct, taxPct)
+    const totals = calcBudgetTotals(accounts as unknown as AccountInput[], markupPct, taxPct, discountConfig)
     totalCents = totals.grandTotalCents
   }
 

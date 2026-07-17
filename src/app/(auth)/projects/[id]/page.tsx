@@ -14,7 +14,7 @@ import { AssignCollaborators } from '@/components/projects/AssignCollaborators'
 import { ProposalOverview } from '@/components/projects/ProposalOverview'
 import { Button } from '@/components/ui/button'
 import { formatMoney } from '@/lib/money'
-import { sumAccount, calcBudgetTotals, type AccountInput } from '@/lib/totals'
+import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 import { parseLocalDate } from '@/lib/time-format'
 
 const SHOOT_LABELS: Record<string, string> = {
@@ -175,11 +175,22 @@ export default async function ProjectDetailPage({
       )
       const markupPct = Number((budget as unknown as { markupPct?: number | null }).markupPct ?? 0)
       const taxPct    = Number((budget as unknown as { taxPct?: number | null }).taxPct ?? 0)
-      if (markupPct > 0 || taxPct > 0) {
+      const budgetDiscount = budget as unknown as {
+        discountType?: string | null; discountLabel?: string | null
+        discountValueCents?: number | null; discountValuePct?: number | null
+      }
+      const discountConfig: BudgetDiscountConfig | null = budgetDiscount.discountType ? {
+        type:       budgetDiscount.discountType as 'flat' | 'pct',
+        label:      budgetDiscount.discountLabel,
+        valueCents: budgetDiscount.discountValueCents,
+        valuePct:   budgetDiscount.discountValuePct != null ? Number(budgetDiscount.discountValuePct) : null,
+      } : null
+      if (markupPct > 0 || taxPct > 0 || discountConfig) {
         const totals = calcBudgetTotals(
           primaryPhase.accounts as unknown as AccountInput[],
           markupPct,
           taxPct,
+          discountConfig,
         )
         grandTotalCents = totals.grandTotalCents
         grossTotalCents = totals.grandTotalCents

@@ -22,7 +22,10 @@ export function canSeeFinancials(role: UserRole): boolean {
 type LineItemLike = Record<string, unknown> & { markupPct?: unknown; hasMarkup?: unknown }
 type AccountLike  = Record<string, unknown> & { lineItems?: LineItemLike[]; children?: AccountLike[] }
 type PhaseLike    = Record<string, unknown> & { accounts?: AccountLike[] }
-type BudgetLike   = Record<string, unknown> & { markupPct?: unknown; phases?: PhaseLike[] }
+type BudgetLike   = Record<string, unknown> & {
+  markupPct?: unknown; phases?: PhaseLike[]
+  discountType?: unknown; discountLabel?: unknown; discountValueCents?: unknown; discountValuePct?: unknown
+}
 
 function stripAccount<A extends AccountLike>(acc: A): A {
   return {
@@ -47,6 +50,12 @@ export function stripBudgetForRole<B extends BudgetLike>(budget: B, role: UserRo
   return {
     ...budget,
     markupPct: null, // agency fee — gone from the payload entirely
+    // Discount amount is margin-adjacent (reveals a negotiated concession) —
+    // strip it the same way, not just hide it client-side.
+    discountType: null,
+    discountLabel: null,
+    discountValueCents: null,
+    discountValuePct: null,
     ...(Array.isArray(budget.phases)
       ? { phases: budget.phases.map(ph => ({ ...ph, accounts: (ph.accounts ?? []).map(stripAccount) })) }
       : {}),

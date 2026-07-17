@@ -10,7 +10,7 @@
 import { notFound } from 'next/navigation'
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
-import { sumAccount, calcBudgetTotals, type AccountInput } from '@/lib/totals'
+import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 import { ProjectInvoicesPage } from '@/components/projects/ProjectInvoicesPage'
 
 interface Props {
@@ -44,6 +44,7 @@ export default async function InvoicesSubPage({ params }: Props) {
           name:      true,
           markupPct: true,
           taxPct:    true,
+          discountType: true, discountLabel: true, discountValueCents: true, discountValuePct: true,
           phases: {
             orderBy: { order: 'asc' },
             include: {
@@ -111,16 +112,24 @@ export default async function InvoicesSubPage({ params }: Props) {
   const budget  = project.budgets[0] ?? null
   const proposal = project.proposals[0] ?? null
 
-  // Compute budget grand total (for milestone amount calculations)
-  let budgetTotalCents = 0
+  // Compute budget grand total (for milestone amount calculations) — net of discount.
+  let budgetTotalCents    = 0
+  let budgetDiscountCents = 0
   if (budget) {
     const primaryPhase = budget.phases.find(p => (p as unknown as { isPrimary: boolean }).isPrimary) ?? budget.phases[0]
     if (primaryPhase) {
       const markupPct = Number(budget.markupPct ?? 0)
       const taxPct    = Number(budget.taxPct ?? 0)
-      if (markupPct > 0 || taxPct > 0) {
-        const totals = calcBudgetTotals(primaryPhase.accounts as unknown as AccountInput[], markupPct, taxPct)
-        budgetTotalCents = totals.grandTotalCents
+      const discountConfig: BudgetDiscountConfig | null = budget.discountType ? {
+        type:       budget.discountType as 'flat' | 'pct',
+        label:      budget.discountLabel,
+        valueCents: budget.discountValueCents,
+        valuePct:   budget.discountValuePct != null ? Number(budget.discountValuePct) : null,
+      } : null
+      if (markupPct > 0 || taxPct > 0 || discountConfig) {
+        const totals = calcBudgetTotals(primaryPhase.accounts as unknown as AccountInput[], markupPct, taxPct, discountConfig)
+        budgetTotalCents    = totals.grandTotalCents
+        budgetDiscountCents = totals.discountCents
       } else {
         budgetTotalCents = primaryPhase.accounts.reduce(
           (sum, acc) => sum + sumAccount(acc as unknown as AccountInput), 0
@@ -155,6 +164,7 @@ export default async function InvoicesSubPage({ params }: Props) {
         budgetId: budget?.id ?? '',
       } : null}
       budgetTotalCents={budgetTotalCents}
+      budgetDiscountCents={budgetDiscountCents}
       invoices={serializedInvoices}
       invoiceExpiryDays={workspaceDefaults?.invoiceExpiryDays ?? 30}
     />

@@ -19,7 +19,7 @@ import { BulkImportModal } from '@/components/budget/BulkImportModal'
 import {
   deleteLineItem, addAccount, upsertLineItem, deleteAccount,
   updateAccount, reorderAccounts, reorderLineItems, moveLineItem, moveLineItems,
-  updateBudgetRates, duplicatePhase, renamePhase, makePhasePrimary, deletePhase,
+  updateBudgetRates, updateBudgetDiscount, duplicatePhase, renamePhase, makePhasePrimary, deletePhase,
   duplicateLineItem,
 } from '@/server/actions/budgets'
 import {
@@ -27,7 +27,7 @@ import {
   reorderBudgetSections, moveAccountToSection, dismissSectionsNudge,
 } from '@/server/actions/sections'
 import { formatMoney, lineTotal, centsToRate, rateToCents, parseQtyFormula, fmtUnit } from '@/lib/money'
-import { sumAccount, type AccountInput } from '@/lib/totals'
+import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 import type { BudgetWithPhases, AccountWithItems, SectionSummary } from '@/types'
 import { useRouter } from 'next/navigation'
 import type { RateUnit } from '@prisma/client'
@@ -92,6 +92,51 @@ export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readO
   const [taxInput, setTaxInput] = useState(
     serverTaxPct > 0 ? String(+(serverTaxPct * 100).toFixed(2)) : ''
   )
+
+  // ── Discount state — single source of truth for proposals + invoices ────────
+  const budgetForDiscount = budget as unknown as {
+    discountType?: string | null; discountLabel?: string | null
+    discountValueCents?: number | null; discountValuePct?: number | null
+  }
+  type DiscountType = 'none' | 'flat' | 'pct'
+  const [discountType, setDiscountType] = useState<DiscountType>(
+    (budgetForDiscount.discountType as DiscountType) || 'none'
+  )
+  const [discountValueInput, setDiscountValueInput] = useState(() => {
+    if (budgetForDiscount.discountType === 'flat' && budgetForDiscount.discountValueCents) {
+      return String(budgetForDiscount.discountValueCents / 100)
+    }
+    if (budgetForDiscount.discountType === 'pct' && budgetForDiscount.discountValuePct) {
+      return String(+(Number(budgetForDiscount.discountValuePct) * 100).toFixed(2))
+    }
+    return ''
+  })
+  const [discountLabelInput, setDiscountLabelInput] = useState(budgetForDiscount.discountLabel || 'Discount')
+
+  function saveDiscount(nextType: DiscountType = discountType) {
+    const discountValueCents = nextType === 'flat' ? Math.round((parseFloat(discountValueInput) || 0) * 100) : null
+    const discountValuePct   = nextType === 'pct'  ? (parseFloat(discountValueInput) || 0) / 100 : null
+    startRatesTransition(async () => {
+      await updateBudgetDiscount(budget.id, {
+        discountType:  nextType === 'none' ? null : nextType,
+        discountLabel: discountLabelInput.trim() || null,
+        discountValueCents,
+        discountValuePct,
+      })
+    })
+  }
+
+  function handleDiscountTypeChange(next: DiscountType) {
+    setDiscountType(next)
+    saveDiscount(next) // type toggle saves immediately, unlike value/label which save on blur
+  }
+
+  const discountConfig: BudgetDiscountConfig | null = discountType !== 'none' ? {
+    type:       discountType,
+    label:      discountLabelInput,
+    valueCents: discountType === 'flat' ? Math.round((parseFloat(discountValueInput) || 0) * 100) : null,
+    valuePct:   discountType === 'pct'  ? (parseFloat(discountValueInput) || 0) / 100 : null,
+  } : null
 
   // Phase rename state
   const [editingPhaseId, setEditingPhaseId] = useState<string | null>(null)
@@ -301,6 +346,45 @@ export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readO
             />
             <span>%</span>
           </label>
+          <div className="flex items-center gap-1.5 text-muted-foreground">
+            <span>Discount</span>
+            <div className="flex rounded border border-border overflow-hidden">
+              {(['none', 'flat', 'pct'] as const).map(t => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => handleDiscountTypeChange(t)}
+                  className={`px-1.5 py-0.5 text-[11px] ${
+                    discountType === t ? 'bg-primary/15 text-primary font-medium' : 'hover:bg-muted/60'
+                  } ${t !== 'none' ? 'border-l border-border' : ''}`}
+                >
+                  {t === 'none' ? 'None' : t === 'flat' ? '$' : '%'}
+                </button>
+              ))}
+            </div>
+            {discountType !== 'none' && (
+              <>
+                <input
+                  type="number" min="0" step={discountType === 'flat' ? 1 : 0.5}
+                  value={discountValueInput}
+                  onChange={e => setDiscountValueInput(e.target.value)}
+                  onBlur={() => saveDiscount()}
+                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                  placeholder="0"
+                  className="w-16 rounded border border-border bg-background px-1.5 py-0.5 text-right text-[12px] tabular-nums outline-none focus:ring-1 focus:ring-primary/40"
+                />
+                <input
+                  type="text"
+                  value={discountLabelInput}
+                  onChange={e => setDiscountLabelInput(e.target.value)}
+                  onBlur={() => saveDiscount()}
+                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                  placeholder="Discount"
+                  className="w-28 rounded border border-border bg-background px-1.5 py-0.5 text-[12px] outline-none focus:ring-1 focus:ring-primary/40"
+                />
+              </>
+            )}
+          </div>
           <span className="ml-auto text-[10px] text-muted-foreground/40">Saves on blur · applied to gross total</span>
         </div>
         )}
@@ -313,6 +397,9 @@ export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readO
               projectId={projectId}
               onMutated={() => router.refresh()}
               readOnly={readOnly}
+              markupPct={localMarkupPct}
+              taxPct={localTaxPct}
+              discountConfig={canSeeFinancials ? discountConfig : null}
             />
           </TabsContent>
         ))}
@@ -322,6 +409,7 @@ export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readO
         accounts={currentAccounts}
         budgetMarkupPct={localMarkupPct}
         budgetTaxPct={localTaxPct}
+        discountConfig={discountConfig}
         canSeeFinancials={canSeeFinancials}
       />
     </div>
@@ -332,12 +420,18 @@ export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readO
 
 function PhaseView({
   phase, budgetId, projectId, onMutated, readOnly = false,
+  markupPct = 0, taxPct = 0, discountConfig = null,
 }: {
   phase: BudgetWithPhases['phases'][number]
   budgetId: string
   projectId: string
   onMutated: () => void
   readOnly?: boolean
+  /** Budget-level agency fee / tax — needed to compute the discount amount below. */
+  markupPct?: number
+  taxPct?: number
+  /** null = no discount set for this budget. */
+  discountConfig?: BudgetDiscountConfig | null
 }) {
   const [addingToAccount, setAddingToAccount] = useState<string | null>(null)
   const [showPackages, setShowPackages]         = useState(false)
@@ -383,6 +477,14 @@ function PhaseView({
   useEffect(() => {
     setLocalAccounts(phase.accounts as AccountWithItems[])
   }, [phase.accounts])
+
+  // Discount for THIS phase's own line items (each phase/version can have a
+  // different subtotal, so a % discount's dollar amount differs per phase).
+  const phaseDiscountTotals = calcBudgetTotals(
+    localAccounts as unknown as AccountInput[], markupPct, taxPct, discountConfig
+  )
+  const discountCents = phaseDiscountTotals.discountCents
+  const discountLabel = phaseDiscountTotals.discountLabel
 
   // ── Bulk selection ────────────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -874,6 +976,23 @@ function PhaseView({
                 </SectionRows>
               )
             })}
+
+            {/* ── Synthetic discount row — read-only, always last, driven by the
+                Budget rates row above. Not a real LineItem: no checkbox, drag
+                handle, or edit menu. ── */}
+            {discountCents > 0 && (
+              <tr className="border-t-2 border-border/60 bg-muted/10">
+                <td />
+                <td />
+                <td colSpan={4} className="px-4 py-2 text-sm italic text-muted-foreground">
+                  {discountLabel || 'Discount'}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums font-semibold text-red-600">
+                  -{formatMoney(discountCents)}
+                </td>
+                <td />
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

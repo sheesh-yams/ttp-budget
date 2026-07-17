@@ -749,6 +749,33 @@ export async function updateBudgetRates(
   }
 }
 
+// ─── Update budget discount ───────────────────────────────────────────────────
+// Single source of truth for proposals + invoices generated from this budget
+// (replaces the old per-proposal Proposal.content.discount).
+
+const discountSchema = z.object({
+  discountType:       z.enum(['flat', 'pct']).nullable(),
+  discountLabel:      z.string().max(120).nullable(),
+  discountValueCents: z.number().int().min(0).nullable(),
+  discountValuePct:   z.number().min(0).max(1).nullable(), // 0–1 fraction
+})
+
+export async function updateBudgetDiscount(
+  budgetId: string,
+  input: z.infer<typeof discountSchema>
+): Promise<ActionResult> {
+  try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
+    const data = discountSchema.parse(input)
+    const sdb = await getScopedDb()
+    await sdb.budget.update({ where: { id: budgetId }, data })
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to update budget discount' }
+  }
+}
+
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 // These use raw `db` for Phase/Account/LineItem creates.
 // workspaceId is passed explicitly from the calling action (which has already

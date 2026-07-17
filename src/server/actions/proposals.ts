@@ -5,8 +5,8 @@ import { db } from '@/lib/db'
 import { getScopedDb } from '@/lib/db-scoped'
 import type { ScopedDb } from '@/lib/db-scoped'
 import { getCurrentUser, requireRole } from '@/lib/auth'
-import { sumAccount, type AccountInput } from '@/lib/totals'
-import type { ActionResult, ProposalDiscount } from '@/types'
+import { calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
+import type { ActionResult } from '@/types'
 import { logAuditEvent } from '@/lib/audit'
 import { generatePublicToken } from '@/lib/secure-token'
 import { syncDeliverablesFromProposal } from './delivery'
@@ -43,14 +43,23 @@ async function resolveProposalEmailContext(sdb: ScopedDb, projectId: string) {
 // validated workspace ownership via getScopedDb(). Accepts sdb so all reads
 // remain scoped to the active workspace.
 
-async function captureBudgetSnapshot(sdb: ScopedDb, budgetId: string, discount?: ProposalDiscount) {
+async function captureBudgetSnapshot(sdb: ScopedDb, budgetId: string) {
   // sdb.budget.findFirst auto-scopes — safe even if budgetId comes from user input.
   const budget = await sdb.budget.findFirst({
     where: { id: budgetId },
-    select: { markupPct: true, taxPct: true },
+    select: {
+      markupPct: true, taxPct: true,
+      discountType: true, discountLabel: true, discountValueCents: true, discountValuePct: true,
+    },
   })
   const budgetMarkupPct = budget?.markupPct != null ? Number(budget.markupPct) : 0
   const budgetTaxPct    = budget?.taxPct    != null ? Number(budget.taxPct)    : 0
+  const discountConfig: BudgetDiscountConfig | null = budget?.discountType ? {
+    type:       budget.discountType as 'flat' | 'pct',
+    label:      budget.discountLabel,
+    valueCents: budget.discountValueCents,
+    valuePct:   budget.discountValuePct != null ? Number(budget.discountValuePct) : null,
+  } : null
 
   const phaseInclude = {
     sections: {
@@ -112,29 +121,11 @@ async function captureBudgetSnapshot(sdb: ScopedDb, budgetId: string, discount?:
     })),
   }))
 
-  const productionCents = accounts.reduce(
-    (sum, acc) => sum + sumAccount(acc as unknown as AccountInput),
-    0
-  )
-
-  const agencyFeeCents = Math.round(productionCents * budgetMarkupPct)
-  const preTax         = productionCents + agencyFeeCents
-
-  let discountCents = 0
-  let discountLabel = ''
-  if (discount) {
-    discountLabel = discount.label || 'Discount'
-    if (discount.type === 'flat' && discount.valueCents) {
-      discountCents = discount.valueCents
-    } else if (discount.type === 'pct' && discount.valuePct) {
-      discountCents = Math.round(preTax * (discount.valuePct / 100))
-    }
-    discountCents = Math.max(0, Math.min(discountCents, preTax))
-  }
-
-  const afterDiscount = preTax - discountCents
-  const taxCents      = Math.round(afterDiscount * budgetTaxPct)
-  const totalCents    = afterDiscount + taxCents
+  const totals = calcBudgetTotals(accounts as unknown as AccountInput[], budgetMarkupPct, budgetTaxPct, discountConfig)
+  // productionCents historically meant "subtotal + agency fee" (pre-discount, pre-tax) — preserved for callers.
+  const productionCents = totals.subtotalCents + totals.markupCents
+  const { discountCents, discountLabel } = totals
+  const totalCents = totals.grandTotalCents
 
   const pageBreakBetweenAccounts = (primaryPhase as unknown as { pageBreakBetweenAccounts?: boolean })?.pageBreakBetweenAccounts ?? false
 
@@ -234,8 +225,7 @@ export async function sendProposal(proposalId: string): Promise<ActionResult<{ p
     const toEmail = emailCtx.clientEmail
     const ccList  = buildCcList(toEmail, (existing as unknown as { recipientEmails?: string[] }).recipientEmails, user.email)
 
-    const discount = (existing.content as { discount?: ProposalDiscount }).discount
-    const snapshot = await captureBudgetSnapshot(sdb, existing.budgetId as string, discount)
+    const snapshot = await captureBudgetSnapshot(sdb, existing.budgetId as string)
     const mergedContent = { ...(existing.content as object), budgetSnapshot: snapshot }
 
     const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL}/p/${(existing as unknown as { publicToken: string }).publicToken}`
@@ -331,7 +321,6 @@ export async function createSentProposal(input: {
   milestones: { id: string; name: string; percentPct: number; trigger: string; customDate?: string }[]
   expiresAt: string
   totalCents: number
-  discount?: ProposalDiscount
   /** Extra addresses to email + allow to e-sign, beyond the client contact email. */
   recipientEmails?: string[]
   /** true = actually email the client (status only flips to SENT on success).
@@ -369,7 +358,7 @@ export async function createSentProposal(input: {
     const phaseDeliverables = (primaryPhase?.deliverables as { title: string; description: string; sectionIds?: string[] }[] | null) ?? []
 
     const content = buildContent({ ...input, overview: phaseOverview, about: phaseAbout, deliverables: phaseDeliverables })
-    const snapshot = await captureBudgetSnapshot(sdb, input.budgetId, input.discount)
+    const snapshot = await captureBudgetSnapshot(sdb, input.budgetId)
     const recipientEmails = normalizeRecipientEmails(input.recipientEmails)
 
     const maxVersion = await sdb.proposal.aggregate({
@@ -468,7 +457,6 @@ export async function createDraftProposal(input: {
   milestones: { id: string; name: string; percentPct: number; trigger: string; customDate?: string }[]
   expiresAt: string
   totalCents: number
-  discount?: ProposalDiscount
   recipientEmails?: string[]
 }): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
@@ -530,7 +518,6 @@ export async function updateDraftProposal(
     milestones: { id: string; name: string; percentPct: number; trigger: string; customDate?: string }[]
     expiresAt: string
     totalCents: number
-    discount?: ProposalDiscount
     recipientEmails?: string[]
   }
 ): Promise<ActionResult<{ id: string; publicToken: string }>> {
@@ -605,8 +592,7 @@ export async function sendDraftProposal(
       ccList  = buildCcList(toEmail, (existing as unknown as { recipientEmails?: string[] }).recipientEmails, user.email)
     }
 
-    const discount2 = (existing.content as { discount?: ProposalDiscount }).discount
-    const snapshot = await captureBudgetSnapshot(sdb, existing.budgetId as string, discount2)
+    const snapshot = await captureBudgetSnapshot(sdb, existing.budgetId as string)
     const mergedContent = { ...(existing.content as object), budgetSnapshot: snapshot }
 
     const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/p/${(existing as unknown as { publicToken: string }).publicToken}`
@@ -754,11 +740,9 @@ function buildContent(input: {
   deliverables: { title: string; description: string; sectionIds?: string[] }[]
   milestones: { id: string; name: string; percentPct: number; trigger: string; customDate?: string }[]
   totalCents: number
-  discount?: ProposalDiscount
 }) {
   return {
     totalCents: input.totalCents,
-    ...(input.discount ? { discount: input.discount } : {}),
     sections: [
       { type: 'about', title: 'The project', overview: input.overview, body: input.about },
       {
