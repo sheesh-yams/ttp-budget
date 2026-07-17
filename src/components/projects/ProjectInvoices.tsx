@@ -6,13 +6,12 @@ import Link from 'next/link'
 import { FileText, DollarSign, Send, Ban, Trash2, Receipt, Plus, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { formatMoney } from '@/lib/money'
-import { recordPayment, voidInvoice, deleteInvoice } from '@/server/actions/invoices'
+import { voidInvoice, deleteInvoice } from '@/server/actions/invoices'
 import { SendInvoiceModal } from '@/components/invoice/SendInvoiceModal'
 import { PreviewPanel } from '@/components/invoice/PreviewPanel'
 import { EditInvoiceModal } from '@/components/invoice/EditInvoiceModal'
+import { RecordPaymentModal } from '@/components/invoice/RecordPaymentModal'
 import type { InvoiceStatus, InvoiceLineItem } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -58,11 +57,6 @@ export function ProjectInvoices({ invoices, projectId }: Props) {
 
   // Payment dialog
   const [payDialog, setPayDialog] = useState<InvoiceRow | null>(null)
-  const [payAmount, setPayAmount] = useState('')
-  const [payMethod, setPayMethod] = useState('')
-  const [payRef, setPayRef]       = useState('')
-  const [paySubmitting, setPaySubmitting] = useState(false)
-  const [payError, setPayError]   = useState('')
 
   // Confirm dialog (void / delete)
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -71,37 +65,6 @@ export function ProjectInvoices({ invoices, projectId }: Props) {
   } | null>(null)
 
   function refresh() { router.refresh() }
-
-  function openPayDialog(inv: InvoiceRow) {
-    const remaining = inv.totalCents - inv.amountPaidCents
-    setPayAmount((remaining / 100).toFixed(2))
-    setPayMethod('')
-    setPayRef('')
-    setPayError('')
-    setPayDialog(inv)
-  }
-
-  async function handlePay() {
-    if (!payDialog) return
-    setPayError('')
-    const amountCents = Math.round(parseFloat(payAmount) * 100)
-    if (isNaN(amountCents) || amountCents <= 0) {
-      setPayError('Enter a valid amount')
-      return
-    }
-    setPaySubmitting(true)
-    try {
-      const result = await recordPayment(
-        payDialog.id, amountCents,
-        payMethod.trim() || undefined,
-        payRef.trim()   || undefined,
-      )
-      if (result.success) { setPayDialog(null); refresh() }
-      else setPayError((result as { success: false; error: string }).error)
-    } finally {
-      setPaySubmitting(false)
-    }
-  }
 
   function handleConfirm() {
     if (!confirmDialog) return
@@ -284,7 +247,7 @@ export function ProjectInvoices({ invoices, projectId }: Props) {
                       {canPay && (
                         <button
                           type="button"
-                          onClick={() => openPayDialog(inv)}
+                          onClick={() => setPayDialog(inv)}
                           className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground inline-flex"
                           title="Record payment"
                         >
@@ -340,45 +303,11 @@ export function ProjectInvoices({ invoices, projectId }: Props) {
       </div>
 
       {/* ── Payment dialog ─────────────────────────────────────────────── */}
-      <Dialog open={!!payDialog} onOpenChange={open => { if (!open) setPayDialog(null) }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Record Payment</DialogTitle>
-          </DialogHeader>
-          {payDialog && (
-            <div className="space-y-4 py-1">
-              <div className="rounded-lg bg-muted/40 px-4 py-3 flex justify-between text-sm">
-                <span className="text-muted-foreground">Outstanding balance</span>
-                <span className="font-semibold tabular-nums">
-                  {formatMoney(payDialog.totalCents - payDialog.amountPaidCents)}
-                </span>
-              </div>
-              <div>
-                <Label htmlFor="pay-amount">Amount received ($)</Label>
-                <Input id="pay-amount" type="number" min={0.01} step={0.01}
-                  value={payAmount} onChange={e => setPayAmount(e.target.value)} className="mt-1" />
-              </div>
-              <div>
-                <Label htmlFor="pay-method">Payment method (optional)</Label>
-                <Input id="pay-method" placeholder="Wire, ACH, Check…"
-                  value={payMethod} onChange={e => setPayMethod(e.target.value)} className="mt-1" />
-              </div>
-              <div>
-                <Label htmlFor="pay-ref">Reference # (optional)</Label>
-                <Input id="pay-ref" placeholder="Wire confirmation, check #…"
-                  value={payRef} onChange={e => setPayRef(e.target.value)} className="mt-1" />
-              </div>
-              {payError && <p className="text-sm text-red-600">{payError}</p>}
-              <div className="flex gap-3">
-                <Button variant="outline" className="flex-1" onClick={() => setPayDialog(null)}>Cancel</Button>
-                <Button onClick={handlePay} disabled={paySubmitting} className="flex-1">
-                  {paySubmitting ? 'Saving…' : 'Record Payment'}
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      <RecordPaymentModal
+        invoice={payDialog}
+        onClose={() => setPayDialog(null)}
+        onRecorded={refresh}
+      />
 
       {/* ── Void / Delete confirm dialog ───────────────────────────────── */}
       <Dialog open={!!confirmDialog} onOpenChange={open => { if (!open) setConfirmDialog(null) }}>

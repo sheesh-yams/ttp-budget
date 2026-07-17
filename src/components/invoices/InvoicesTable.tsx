@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { FileText, ExternalLink, Receipt, Send, Ban, Trash2, Pencil } from 'lucide-react'
+import { FileText, ExternalLink, Receipt, Send, Ban, Trash2, Pencil, DollarSign } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { formatMoney } from '@/lib/money'
@@ -11,6 +11,7 @@ import { voidInvoice, deleteInvoice } from '@/server/actions/invoices'
 import { SendInvoiceModal } from '@/components/invoice/SendInvoiceModal'
 import { PreviewPanel } from '@/components/invoice/PreviewPanel'
 import { EditInvoiceModal } from '@/components/invoice/EditInvoiceModal'
+import { RecordPaymentModal, type RecordPaymentInvoice } from '@/components/invoice/RecordPaymentModal'
 import type { InvoiceStatus, InvoiceLineItem } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -57,6 +58,9 @@ export function InvoicesTable({ invoices }: { invoices: InvoiceListRow[] }) {
   const [isPending, startTransition] = useTransition()
   const [actingId, setActingId]   = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+
+  // Payment dialog
+  const [payDialog, setPayDialog] = useState<RecordPaymentInvoice | null>(null)
 
   // Confirm dialog (void / delete)
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -116,6 +120,7 @@ export function InvoicesTable({ invoices }: { invoices: InvoiceListRow[] }) {
 
               const canEdit   = !['PAID', 'VOID'].includes(inv.status)
               const canSend   = inv.status === 'DRAFT' || inv.status === 'SENT'
+              const canPay    = !['DRAFT', 'PAID', 'VOID'].includes(inv.status)
               const canVoid   = ['DRAFT', 'SENT', 'VIEWED', 'OVERDUE'].includes(inv.status)
               const canDelete = inv.status === 'DRAFT'
               const isBusy    = actingId === inv.id && isPending
@@ -221,6 +226,18 @@ export function InvoicesTable({ invoices }: { invoices: InvoiceListRow[] }) {
                         />
                       )}
 
+                      {/* Record payment */}
+                      {canPay && (
+                        <button
+                          type="button"
+                          onClick={() => setPayDialog({ id: inv.id, totalCents: inv.totalCents, amountPaidCents: inv.amountPaidCents })}
+                          className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground inline-flex"
+                          title="Record payment"
+                        >
+                          <DollarSign className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+
                       {/* Go to project */}
                       <Link
                         href={`/projects/${inv.project.id}`}
@@ -287,6 +304,13 @@ export function InvoicesTable({ invoices }: { invoices: InvoiceListRow[] }) {
           </tbody>
         </table>
       </div>
+
+      {/* ── Payment dialog ─────────────────────────────────────────────── */}
+      <RecordPaymentModal
+        invoice={payDialog}
+        onClose={() => setPayDialog(null)}
+        onRecorded={refresh}
+      />
 
       {/* ── Void / Delete confirm dialog ───────────────────────────────── */}
       <Dialog open={!!confirmDialog} onOpenChange={open => { if (!open) setConfirmDialog(null) }}>
