@@ -14,13 +14,14 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Receipt, CheckCircle2, Clock, Send, Ban, Trash2, Eye, FileText, Pencil } from 'lucide-react'
+import { Plus, Receipt, CheckCircle2, Clock, Send, Ban, Trash2, Eye, FileText, Pencil, DollarSign } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { NewInvoiceModal } from '@/components/projects/NewInvoiceModal'
 import { SendInvoiceModal } from '@/components/invoice/SendInvoiceModal'
 import { PreviewPanel } from '@/components/invoice/PreviewPanel'
 import { EditInvoiceModal } from '@/components/invoice/EditInvoiceModal'
+import { RecordPaymentModal } from '@/components/invoice/RecordPaymentModal'
 import { formatMoney } from '@/lib/money'
 import { voidInvoice, deleteInvoice } from '@/server/actions/invoices'
 import { useTransition } from 'react'
@@ -133,6 +134,9 @@ export function ProjectInvoicesPage({
   // NewInvoiceModal state — can be opened from header or a milestone Generate button
   const [newInvOpen, setNewInvOpen]           = useState(false)
   const [newInvMilestoneIdx, setNewInvMilestoneIdx] = useState<number | undefined>(undefined)
+
+  // Payment dialog
+  const [payDialog, setPayDialog] = useState<InvoiceRow | null>(null)
 
   // Confirm dialog (void / delete)
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -350,6 +354,7 @@ export function ProjectInvoicesPage({
 
                   const canSend   = inv.status === 'DRAFT' || inv.status === 'SENT'
                   const canEdit   = !['PAID', 'VOID'].includes(inv.status)
+                  const canPay    = !['DRAFT', 'PAID', 'VOID'].includes(inv.status)
                   const canVoid   = ['DRAFT', 'SENT', 'VIEWED', 'OVERDUE'].includes(inv.status)
                   const canDelete = inv.status === 'DRAFT'
                   const isBusy    = actingId === inv.id && isPending
@@ -440,6 +445,17 @@ export function ProjectInvoicesPage({
                             </a>
                           )}
 
+                          {canPay && (
+                            <button
+                              type="button"
+                              onClick={() => setPayDialog(inv)}
+                              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground inline-flex"
+                              title="Record payment"
+                            >
+                              <DollarSign className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+
                           {canVoid && !canDelete && (
                             <button
                               type="button"
@@ -494,6 +510,13 @@ export function ProjectInvoicesPage({
           invoiceExpiryDays={invoiceExpiryDays}
         />
       )}
+
+      {/* ── Payment dialog ────────────────────────────────────────────── */}
+      <RecordPaymentModal
+        invoice={payDialog}
+        onClose={() => setPayDialog(null)}
+        onRecorded={refresh}
+      />
 
       {/* ── Void / Delete confirm dialog ─────────────────────────────── */}
       <Dialog open={!!confirmDialog} onOpenChange={open => { if (!open) setConfirmDialog(null) }}>
