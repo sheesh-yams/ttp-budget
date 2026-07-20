@@ -10,6 +10,7 @@ import {
 import { getPresignedUploadUrl } from '@/server/actions/upload'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import type { DeliverableItemType } from '@/types'
+import { DELIVERABLE_REVIEW_STATUSES, REVIEW_STATUS_LABELS, type DeliverableReviewStatus } from '@/lib/deliverable-status'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -30,15 +31,17 @@ interface Asset {
   description:    string | null
   type:           DeliverableItemType
   status:         'DRAFT' | 'SHARED'
+  reviewStatus:   DeliverableReviewStatus
   currentVersion: Version | null
   versions?:      Version[]
 }
 
 interface AssetUpdates {
-  title:       string
-  description: string | null
-  type:        DeliverableItemType
-  status:      'DRAFT' | 'SHARED'
+  title:        string
+  description:  string | null
+  type:         DeliverableItemType
+  status:       'DRAFT' | 'SHARED'
+  reviewStatus: DeliverableReviewStatus
 }
 
 interface Props {
@@ -83,6 +86,7 @@ export function AssetEditorModal({ asset, onClose }: Props) {
   const [description, setDescription] = useState(asset.description ?? '')
   const [type,        setType]        = useState<DeliverableItemType>(asset.type)
   const [status,      setStatus]      = useState<'DRAFT' | 'SHARED'>(asset.status)
+  const [reviewStatus, setReviewStatus] = useState<DeliverableReviewStatus>(asset.reviewStatus)
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
@@ -127,12 +131,13 @@ export function AssetEditorModal({ asset, onClose }: Props) {
               description={description} setDescription={setDescription}
               type={type}          setType={setType}
               status={status}      setStatus={setStatus}
+              reviewStatus={reviewStatus} setReviewStatus={setReviewStatus}
               onClose={onClose}
             />
           ) : tab === 'versions' ? (
             <VersionsTab
               asset={asset}
-              pendingDetails={{ title: title.trim(), description: description.trim() || null, type, status }}
+              pendingDetails={{ title: title.trim(), description: description.trim() || null, type, status, reviewStatus }}
             />
           ) : (
             <ThumbnailTab asset={asset} />
@@ -146,7 +151,8 @@ export function AssetEditorModal({ asset, onClose }: Props) {
 // ─── Details tab ──────────────────────────────────────────────────────────────
 
 function DetailsTab({
-  asset, title, setTitle, description, setDescription, type, setType, status, setStatus, onClose,
+  asset, title, setTitle, description, setDescription, type, setType, status, setStatus,
+  reviewStatus, setReviewStatus, onClose,
 }: {
   asset:          Asset
   title:          string
@@ -157,6 +163,8 @@ function DetailsTab({
   setType:        (v: DeliverableItemType) => void
   status:         'DRAFT' | 'SHARED'
   setStatus:      (v: 'DRAFT' | 'SHARED') => void
+  reviewStatus:   DeliverableReviewStatus
+  setReviewStatus: (v: DeliverableReviewStatus) => void
   onClose:        (updates?: AssetUpdates) => void
 }) {
   const [saving,    setSaving]    = useState(false)
@@ -170,13 +178,14 @@ function DetailsTab({
       description: description.trim() || null,
       type,
       status,
+      reviewStatus,
     })
     setSaving(false)
     if (!result.success) {
       setSaveError(('error' in result ? result.error : null) ?? 'Failed to save.')
       return
     }
-    onClose({ title: title.trim(), description: description.trim() || null, type, status })
+    onClose({ title: title.trim(), description: description.trim() || null, type, status, reviewStatus })
   }
 
   return (
@@ -200,6 +209,17 @@ function DetailsTab({
           placeholder="Shown on the client page…"
           className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
         />
+      </div>
+
+      <div className="space-y-1">
+        <label className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground">Status</label>
+        <select
+          value={reviewStatus}
+          onChange={e => setReviewStatus(e.target.value as DeliverableReviewStatus)}
+          className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          {DELIVERABLE_REVIEW_STATUSES.map(s => <option key={s} value={s}>{REVIEW_STATUS_LABELS[s]}</option>)}
+        </select>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -521,10 +541,11 @@ function VersionsTab({ asset, pendingDetails }: {
 
     // Auto-save unsaved details so the user doesn't lose title/description/etc.
     const detailsDirty =
-      pendingDetails.title       !== asset.title ||
-      pendingDetails.description !== (asset.description ?? null) ||
-      pendingDetails.type        !== asset.type ||
-      pendingDetails.status      !== asset.status
+      pendingDetails.title        !== asset.title ||
+      pendingDetails.description  !== (asset.description ?? null) ||
+      pendingDetails.type         !== asset.type ||
+      pendingDetails.status       !== asset.status ||
+      pendingDetails.reviewStatus !== asset.reviewStatus
     if (detailsDirty) {
       const saveResult = await updateAsset(asset.id, pendingDetails)
       if (!saveResult.success) {

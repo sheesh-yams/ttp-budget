@@ -58,13 +58,14 @@ export default async function DeliveryDeliverablesPage({ params }: Props) {
           deliverables: {
             orderBy: { orderIndex: 'asc' },
             select: {
-              id:          true,
-              title:       true,
-              description: true,
-              type:        true,
-              status:      true,
-              publicToken: true,
-              orderIndex:  true,
+              id:           true,
+              title:        true,
+              description:  true,
+              type:         true,
+              status:       true,
+              reviewStatus: true,
+              publicToken:  true,
+              orderIndex:   true,
               currentVersion: {
                 select: {
                   id:                true,

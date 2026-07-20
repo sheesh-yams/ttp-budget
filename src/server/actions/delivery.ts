@@ -7,6 +7,7 @@ import { db }             from '@/lib/db'
 import { detectEmbed }    from '@/lib/embed-detection'
 import type { ActionResult } from '@/types'
 import type { DeliverableItemType } from '@/types'
+import type { DeliverableReviewStatus } from '@/lib/deliverable-status'
 
 // ─── Vimeo URL resolution ─────────────────────────────────────────────────────
 
@@ -387,6 +388,7 @@ export async function updateAsset(
     description?: string | null
     type?:        DeliverableItemType
     status?:      'DRAFT' | 'SHARED'
+    reviewStatus?: DeliverableReviewStatus
   },
 ): Promise<ActionResult<void>> {
   try {
@@ -399,6 +401,7 @@ export async function updateAsset(
     if (patch.description !== undefined) data.description = patch.description
     if (patch.type        !== undefined) data.type        = patch.type
     if (patch.status      !== undefined) data.status      = patch.status
+    if (patch.reviewStatus !== undefined) data.reviewStatus = patch.reviewStatus
 
     await sdb.deliverableAsset.update({ where: { id: assetId }, data })
     const projectId = await getProjectIdFromAsset(sdb, assetId)

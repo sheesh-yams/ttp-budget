@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Globe, Copy, Check, Settings, Loader2, MoreHorizontal, GripVertical, Pencil, Trash2, ArrowRight } from 'lucide-react'
+import { Plus, Globe, Copy, Check, Settings, Loader2, MoreHorizontal, GripVertical, Pencil, Trash2, ArrowRight, ChevronDown } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { AssetEditorModal }  from './AssetEditorModal'
 import { ShadeThumbImg }    from './ShadeThumbImg'
@@ -16,9 +16,14 @@ import {
   publishDeliveryPage, unpublishDeliveryPage,
   createSection, renameSection, reorderSections, deleteSection,
   createAsset, deleteAsset, moveAssetToSection, reorderAssets,
+  updateAsset,
 } from '@/server/actions/delivery'
 import type { AssetStat } from '@/server/actions/delivery'
 import type { DeliverableItemType } from '@/types'
+import {
+  DELIVERABLE_REVIEW_STATUSES, REVIEW_STATUS_LABELS, REVIEW_STATUS_TW,
+  type DeliverableReviewStatus,
+} from '@/lib/deliverable-status'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -39,6 +44,7 @@ interface Asset {
   description:    string | null
   type:           DeliverableItemType
   status:         'DRAFT' | 'SHARED'
+  reviewStatus:   DeliverableReviewStatus
   publicToken:    string
   orderIndex:     number
   currentVersion: Version | null
@@ -264,6 +270,7 @@ export function DeliverablesManager({ project, deliveryPage: initialPage, hasApp
               description:    null,
               type:           'DELIVERABLE' as DeliverableItemType,
               status:         'DRAFT' as const,
+              reviewStatus:   'NEEDS_REVIEW' as const,
               publicToken:    '',
               orderIndex:     s.deliverables.length,
               currentVersion: null,
@@ -310,7 +317,7 @@ export function DeliverablesManager({ project, deliveryPage: initialPage, hasApp
 
   function handleAssetModalClose(
     assetId: string,
-    updates?: { title: string; description: string | null; type: DeliverableItemType; status: 'DRAFT' | 'SHARED' },
+    updates?: { title: string; description: string | null; type: DeliverableItemType; status: 'DRAFT' | 'SHARED'; reviewStatus: DeliverableReviewStatus },
   ) {
     if (updates) {
       setPage(prev => {
@@ -328,6 +335,27 @@ export function DeliverablesManager({ project, deliveryPage: initialPage, hasApp
     }
     setEditingAsset(null)
     router.refresh()
+  }
+
+  // ── Inline review-status change (from card pill) ───────────────────────────
+
+  function handleReviewStatusChange(assetId: string, status: DeliverableReviewStatus) {
+    setPage(prev => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        sections: prev.sections.map(s => ({
+          ...s,
+          deliverables: s.deliverables.map(a =>
+            a.id === assetId ? { ...a, reviewStatus: status } : a
+          ),
+        })),
+      }
+    })
+    startTransition(async () => {
+      const result = await updateAsset(assetId, { reviewStatus: status })
+      if (!result.success) router.refresh()
+    })
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -442,6 +470,7 @@ export function DeliverablesManager({ project, deliveryPage: initialPage, hasApp
               onAddAsset={() => handleAddAsset(section.id)}
               onEditAsset={asset => setEditingAsset(asset)}
               onDeleteAsset={(id, title) => handleDeleteAsset(id, title)}
+              onReviewStatusChange={handleReviewStatusChange}
               dragAssetId={dragAssetId}
               onAssetDragStart={(assetId) => { setDragAssetId(assetId); setDragAssetSection(section.id) }}
               onAssetDrop={(beforeId) => handleAssetDrop(section.id, beforeId)}
@@ -668,7 +697,7 @@ function SectionCard({
   isDragging, isDropTarget,
   onDragStart, onDragOver, onDrop, onDragEnd,
   onRename, onEditDescription, onDelete, addingAsset, onAddAsset,
-  onEditAsset, onDeleteAsset,
+  onEditAsset, onDeleteAsset, onReviewStatusChange,
   dragAssetId, onAssetDragStart, onAssetDrop,
   dropAssetSectionId, onAssetDragOver, onAssetDragEnd,
 }: {
@@ -687,6 +716,7 @@ function SectionCard({
   onAddAsset:  () => void
   onEditAsset: (a: Asset) => void
   onDeleteAsset: (id: string, title: string) => void
+  onReviewStatusChange: (assetId: string, status: DeliverableReviewStatus) => void
   dragAssetId: string | null
   onAssetDragStart: (id: string) => void
   onAssetDrop: (beforeId?: string) => void
@@ -779,6 +809,7 @@ function SectionCard({
                 onDragEnd={onAssetDragEnd}
                 onEdit={() => onEditAsset(asset)}
                 onDelete={() => onDeleteAsset(asset.id, asset.title)}
+                onReviewStatusChange={status => onReviewStatusChange(asset.id, status)}
                 allSections={allSections}
               />
             ))}
@@ -806,7 +837,7 @@ function SectionCard({
 // ─── Asset card ───────────────────────────────────────────────────────────────
 
 function AssetCard({
-  asset, isDragging, onDragStart, onDrop, onDragEnd, onEdit, onDelete, allSections,
+  asset, isDragging, onDragStart, onDrop, onDragEnd, onEdit, onDelete, onReviewStatusChange, allSections,
 }: {
   asset:       Asset
   isDragging:  boolean
@@ -816,12 +847,24 @@ function AssetCard({
   onDragEnd:   () => void
   onEdit:      () => void
   onDelete:    () => void
+  onReviewStatusChange: (status: DeliverableReviewStatus) => void
   allSections: Section[]
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false)
+  const statusMenuRef = useRef<HTMLDivElement>(null)
   const isUnseen = asset.currentVersion && !asset.currentVersion.firstClientViewAt && asset.status === 'SHARED'
   void allSections
+
+  useEffect(() => {
+    if (!statusMenuOpen) return
+    function handleClick(e: MouseEvent) {
+      if (statusMenuRef.current && !statusMenuRef.current.contains(e.target as Node)) setStatusMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [statusMenuOpen])
 
   return (
     <div
@@ -869,6 +912,30 @@ function AssetCard({
           <div className="min-w-0 flex-1">
             <p className="text-[12px] font-medium text-foreground truncate">{asset.title}</p>
             <div className="mt-1 flex flex-wrap items-center gap-1">
+              <div className="relative" ref={statusMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setStatusMenuOpen(v => !v)}
+                  className={`flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${REVIEW_STATUS_TW[asset.reviewStatus]}`}
+                >
+                  {REVIEW_STATUS_LABELS[asset.reviewStatus]}
+                  <ChevronDown className="h-2.5 w-2.5" />
+                </button>
+                {statusMenuOpen && (
+                  <div className="absolute left-0 top-full z-50 mt-1 min-w-[130px] rounded-lg border border-border bg-popover p-1 shadow-md text-[13px]">
+                    {DELIVERABLE_REVIEW_STATUSES.map(s => (
+                      <button
+                        key={s}
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left hover:bg-accent"
+                        onClick={() => { setStatusMenuOpen(false); onReviewStatusChange(s) }}
+                      >
+                        {REVIEW_STATUS_LABELS[s]}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
                 asset.status === 'SHARED'
                   ? 'bg-green-100 text-green-700'

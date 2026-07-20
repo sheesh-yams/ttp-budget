@@ -1230,6 +1230,13 @@ enum DeliverableType {
   OTHER
 }
 
+enum DeliverableReviewStatus {
+  NEEDS_REVIEW
+  DELIVERED
+  APPROVED
+  POSTED
+}
+
 enum AssetStatus {
   DRAFT
   SHARED
@@ -1308,6 +1315,7 @@ model DeliverableAsset {
   orderIndex          Int                 @default(0)
   type                DeliverableType
   status              AssetStatus         @default(DRAFT)
+  reviewStatus        DeliverableReviewStatus @default(NEEDS_REVIEW)
   publicToken         String              @unique @default(dbgenerated("gen_random_uuid()::text"))
   currentVersionId    String?             @unique
   currentVersion      DeliverableVersion? @relation("CurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)

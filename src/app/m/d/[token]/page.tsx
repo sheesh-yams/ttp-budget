@@ -8,6 +8,7 @@ import { safeHex, lighten, darken } from '@/lib/color'
 import { RateLimitedPage } from '@/components/public/RateLimitedPage'
 import { ShadeThumbImg }   from '@/components/delivery/ShadeThumbImg'
 import { renderSmartText } from '@/lib/smart-text'
+import { REVIEW_STATUS_LABELS, REVIEW_STATUS_HEX, type DeliverableReviewStatus } from '@/lib/deliverable-status'
 
 interface Props {
   params: Promise<{ token: string }>
@@ -76,6 +77,7 @@ export default async function MobileDeliveryPage({ params }: Props) {
               title:       true,
               description: true,
               type:        true,
+              reviewStatus: true,
               currentVersion: {
                 select: {
                   url:               true,
@@ -249,6 +251,7 @@ type MobileAssetCardProps = {
     title:       string
     description: string | null
     type:        string
+    reviewStatus: string
     currentVersion: {
       url:               string
       provider:          string
@@ -311,6 +314,15 @@ function MobileAssetCard({ asset, brandPrimary }: MobileAssetCardProps) {
             {asset.description}
           </p>
         )}
+        <span style={{
+          display: 'inline-block', marginTop: 6, marginBottom: 4,
+          padding: '2px 8px', borderRadius: 999, fontSize: 9, fontWeight: 700,
+          letterSpacing: '0.02em',
+          background: REVIEW_STATUS_HEX[(asset.reviewStatus ?? 'NEEDS_REVIEW') as DeliverableReviewStatus].bg,
+          color:      REVIEW_STATUS_HEX[(asset.reviewStatus ?? 'NEEDS_REVIEW') as DeliverableReviewStatus].fg,
+        }}>
+          {REVIEW_STATUS_LABELS[(asset.reviewStatus ?? 'NEEDS_REVIEW') as DeliverableReviewStatus]}
+        </span>
         <p style={{ fontSize: 11, color: brandPrimary, fontWeight: 600, margin: 0 }}>
           View →
         </p>
