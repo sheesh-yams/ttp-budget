@@ -300,10 +300,31 @@ export async function acceptInvitation(token: string): Promise<ActionResult<{ wo
 
     // Add user to the Clerk org — this fires organizationMembership.created webhook
     const clerk = await clerkClient()
-    await clerk.organizations.createOrganizationMembership({
-      organizationId: workspace.clerkOrgId,
-      userId:         clerkUserId,
-      role:           clerkRole,
+    try {
+      await clerk.organizations.createOrganizationMembership({
+        organizationId: workspace.clerkOrgId,
+        userId:         clerkUserId,
+        role:           clerkRole,
+      })
+    } catch (createErr) {
+      // Clerk throws if the user is already a member (e.g. someone added
+      // them directly via the Clerk Dashboard). Re-check actual membership
+      // state rather than pattern-matching the error message — Clerk's SDK
+      // puts the real reason in err.errors[], not necessarily err.message.
+      const memberships = await clerk.users.getOrganizationMembershipList({ userId: clerkUserId })
+      const alreadyMember = memberships.data.some(m => m.organization.id === workspace.clerkOrgId)
+      if (!alreadyMember) throw createErr
+    }
+
+    // Reconcile the DB User row directly rather than relying solely on the
+    // organizationMembership.created webhook. That webhook only fires once,
+    // at the moment Clerk membership is actually created — if the user was
+    // already a member going into this call (added via the Clerk Dashboard,
+    // or a previous webhook delivery failed) there's no second event to
+    // catch us up, and they'd be stuck on their throwaway personal workspace.
+    await db.user.update({
+      where: { clerkId: clerkUserId },
+      data:  { workspaceId: workspace.id, role: invitation.role, onboarded: true },
     })
 
     // Mark the invitation as accepted
