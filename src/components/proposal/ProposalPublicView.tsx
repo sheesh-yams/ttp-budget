@@ -338,9 +338,10 @@ export function ProposalPublicView({
         <section style={{ padding: 'clamp(48px,7vw,96px) clamp(24px,6vw,80px)' }}>
           <div style={{ maxWidth: 760, margin: '0 auto' }}>
             <SectionHeader label="The Project" />
-            <p style={{ fontSize: 17, lineHeight: 1.8, color: BODY, margin: 0, whiteSpace: 'pre-line' }}>
-              {aboutBody}
-            </p>
+            <div
+              style={{ fontSize: 17, lineHeight: 1.8, color: BODY, margin: 0 }}
+              dangerouslySetInnerHTML={{ __html: renderSmartText(aboutBody) }}
+            />
           </div>
         </section>
       )}

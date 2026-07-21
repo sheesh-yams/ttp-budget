@@ -3,6 +3,8 @@
 import { useState, useTransition, useRef, useEffect } from 'react'
 import { Plus, X, Check, Pencil, Link2, ChevronDown } from 'lucide-react'
 import { updatePhaseOverview } from '@/server/actions/budgets'
+import { SmartTextEditor } from '@/components/delivery/SmartTextEditor'
+import { renderSmartText } from '@/lib/smart-text'
 import type { DeliverableItemType } from '@/types'
 
 interface Deliverable {
@@ -164,16 +166,20 @@ export function ProposalOverview({ phase }: Props) {
             Description
           </p>
           {editing ? (
-            <textarea
+            <SmartTextEditor
               rows={5}
               placeholder="Full project description shown in 'The Project' section of the proposal…"
               value={description}
-              onChange={e => setDescription(e.target.value)}
-              className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
+              onChange={setDescription}
+            />
+          ) : description ? (
+            <div
+              className="text-sm leading-relaxed text-foreground"
+              dangerouslySetInnerHTML={{ __html: renderSmartText(description) }}
             />
           ) : (
-            <p className={`text-sm leading-relaxed whitespace-pre-line ${description ? 'text-foreground' : 'text-muted-foreground italic'}`}>
-              {description || 'No description yet — click Edit to add one.'}
+            <p className="text-sm text-muted-foreground italic">
+              No description yet — click Edit to add one.
             </p>
           )}
         </div>

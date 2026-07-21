@@ -1,6 +1,7 @@
 import {
   Document, Page, Text, View, StyleSheet, Link, Font, Image,
 } from '@react-pdf/renderer'
+import type { Style } from '@react-pdf/types'
 import { lineTotal, formatMoney, parseQtyFormula, fmtUnit } from '@/lib/money'
 import { sumAccount, type AccountInput } from '@/lib/totals'
 import { parseLocalDate } from '@/lib/time-format'
@@ -213,6 +214,35 @@ const s = StyleSheet.create({
   footerBold:{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: '#fff', marginBottom: 2 },
 })
 
+// ─── Smart-text lines → PDF nodes ──────────────────────────────────────────────
+// Shared by "The Project" body and contract sections — renders bullet/numbered
+// lines with a hanging marker, plain lines as a single Text node.
+
+function renderPdfLines(lines: PdfLine[], textStyle: Style) {
+  return lines.map((line, li) => {
+    if (!line.text && !line.bullet && !line.numbered) {
+      return <Text key={li} style={{ fontSize: 5 }}>{' '}</Text>
+    }
+    if (line.bullet) {
+      return (
+        <View key={li} style={s.contractBullet}>
+          <Text style={s.contractBulletDot}>•</Text>
+          <Text style={[textStyle, { flex: 1 }]}>{line.text}</Text>
+        </View>
+      )
+    }
+    if (line.numbered) {
+      return (
+        <View key={li} style={s.contractBullet}>
+          <Text style={[s.contractBulletDot, { width: 18 }]}>{line.numbered}</Text>
+          <Text style={[textStyle, { flex: 1 }]}>{line.text}</Text>
+        </View>
+      )
+    }
+    return <Text key={li} style={textStyle}>{line.text}</Text>
+  })
+}
+
 // ─── Section header ───────────────────────────────────────────────────────────
 
 function SectionLabel({ label }: { label: string }) {
@@ -331,7 +361,7 @@ export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0,
         {aboutBody ? (
           <View style={s.section}>
             <SectionLabel label="The Project" />
-            <Text style={s.bodyText}>{aboutBody}</Text>
+            {renderPdfLines(parsePdfLines(aboutBody), s.bodyText)}
           </View>
         ) : null}
 
@@ -531,7 +561,6 @@ export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0,
           <View style={s.section} break>
             <SectionLabel label="Terms" />
             {contractSections.map((cs, i) => {
-              const lines = parsePdfLines(cs.body)
               return (
                 <View key={cs.id} style={s.contractBlock}>
                   {contractSections.length > 1 ? (
@@ -539,28 +568,7 @@ export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0,
                   ) : (
                     <Text style={s.contractTitle}>{cs.title}</Text>
                   )}
-                  {lines.map((line, li) => {
-                    if (!line.text && !line.bullet && !line.numbered) {
-                      return <Text key={li} style={{ fontSize: 5 }}>{' '}</Text>
-                    }
-                    if (line.bullet) {
-                      return (
-                        <View key={li} style={s.contractBullet}>
-                          <Text style={s.contractBulletDot}>•</Text>
-                          <Text style={[s.contractBody, { flex: 1 }]}>{line.text}</Text>
-                        </View>
-                      )
-                    }
-                    if (line.numbered) {
-                      return (
-                        <View key={li} style={s.contractBullet}>
-                          <Text style={[s.contractBulletDot, { width: 18 }]}>{line.numbered}</Text>
-                          <Text style={[s.contractBody, { flex: 1 }]}>{line.text}</Text>
-                        </View>
-                      )
-                    }
-                    return <Text key={li} style={s.contractBody}>{line.text}</Text>
-                  })}
+                  {renderPdfLines(parsePdfLines(cs.body), s.contractBody)}
                   {i < contractSections.length - 1 && <View style={s.contractDivider} />}
                 </View>
               )
