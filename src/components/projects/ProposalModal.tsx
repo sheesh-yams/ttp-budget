@@ -156,6 +156,7 @@ export function ProposalModal({
   const [milestones, setMilestones] = useState<LocalMilestone[]>(defaultMilestones)
   const [error,      setError]      = useState('')
   const [successToken,   setSuccessToken]   = useState<string | null>(null)
+  const [successId,      setSuccessId]      = useState<string | null>(null)
   const [copied,         setCopied]         = useState(false)
   const [isDraft,        setIsDraft]        = useState(false)
   const [isSentManually, setIsSentManually] = useState(false)
@@ -183,6 +184,7 @@ export function ProposalModal({
     }
     setError('')
     setSuccessToken(null)
+    setSuccessId(null)
     setCopied(false)
     setIsDraft(false)
     setIsSentManually(false)
@@ -243,22 +245,23 @@ export function ProposalModal({
   function handleSaveDraft() {
     if (!validate()) return
     startTransition(async () => {
-      let result: { success: boolean; data?: { publicToken: string }; error?: string }
+      let result: { success: boolean; data?: { id: string; publicToken: string }; error?: string }
 
       if (mode === 'edit-draft' && existing) {
         const r = await updateDraftProposal(existing.id, baseInput())
         result = r.success
-          ? { success: true, data: { publicToken: existing.publicToken } }
+          ? { success: true, data: { id: existing.id, publicToken: existing.publicToken } }
           : { success: false, error: (r as { success: false; error: string }).error }
       } else {
         const r = await createDraftProposal(baseInput())
         result = r.success
-          ? { success: true, data: { publicToken: r.data.publicToken } }
+          ? { success: true, data: { id: r.data.id, publicToken: r.data.publicToken } }
           : { success: false, error: (r as { success: false; error: string }).error }
       }
 
       if (result.success && result.data) {
         setSuccessToken(result.data.publicToken)
+        setSuccessId(result.data.id)
         setIsDraft(true)
       } else {
         setError(result.error ?? 'Something went wrong')
@@ -273,13 +276,36 @@ export function ProposalModal({
         const updateResult = await updateDraftProposal(existing.id, baseInput())
         if (!updateResult.success) { setError((updateResult as { success: false; error: string }).error); return }
         const sendResult = await sendDraftProposal(existing.id, true)
-        if (sendResult.success) { setSuccessToken(existing.publicToken); setIsDraft(false) }
+        if (sendResult.success) { setSuccessToken(existing.publicToken); setSuccessId(existing.id); setIsDraft(false) }
         else { setError((sendResult as { success: false; error: string }).error) }
         return
       }
       const r = await createSentProposal({ ...baseInput(), sendEmail: true })
-      if (r.success) { setSuccessToken(r.data.publicToken); setIsDraft(false) }
+      if (r.success) { setSuccessToken(r.data.publicToken); setSuccessId(r.data.id); setIsDraft(false) }
       else { setError((r as { success: false; error: string }).error) }
+    })
+  }
+
+  // ── Send / mark-sent directly from the "Draft Saved" success screen ────────
+  // Lets you go straight from Save Draft → Send without closing and reopening
+  // the edit modal — the draft was just saved, so its content is already
+  // current; no need to run updateDraftProposal again first.
+
+  function handleSendFromSuccess() {
+    if (!successId) return
+    startTransition(async () => {
+      const r = await sendDraftProposal(successId, true)
+      if (r.success) setIsDraft(false)
+      else setError((r as { success: false; error: string }).error)
+    })
+  }
+
+  function handleMarkSentFromSuccess() {
+    if (!successId) return
+    startTransition(async () => {
+      const r = await sendDraftProposal(successId, false)
+      if (r.success) { setIsDraft(false); setIsSentManually(true) }
+      else setError((r as { success: false; error: string }).error)
     })
   }
 
@@ -374,6 +400,18 @@ export function ProposalModal({
                     Preview draft
                   </a>
                 </Button>
+                <Button size="sm" className="w-full" onClick={handleSendFromSuccess} disabled={pending}>
+                  {pending ? 'Sending…' : 'Send Proposal'}
+                </Button>
+                <button
+                  type="button"
+                  onClick={handleMarkSentFromSuccess}
+                  disabled={pending}
+                  className="w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-60"
+                >
+                  Mark as sent instead (no email)
+                </button>
+                {error && <p className="text-sm text-destructive">{error}</p>}
               </div>
             ) : (
               <>

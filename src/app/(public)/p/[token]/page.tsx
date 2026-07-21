@@ -184,20 +184,57 @@ export default async function PublicProposalPage({ params }: Props) {
     discountLabel = draftTotals.discountLabel || 'Discount'
     totalCents    = draftTotals.grandTotalCents
 
+    // Drafts always preview the LIVE description/deliverables from the budget's
+    // primary phase — not whatever was captured on the last "Save Draft" — so
+    // editing the Proposal Overview or budget doesn't require re-saving the
+    // draft (or deleting and recreating it) to see the change reflected. Sent
+    // proposals must stay frozen at what was actually sent, so this is gated
+    // on isDraft rather than just "no snapshot".
+    let sectionsPatch: unknown[] | undefined
+    if (isDraft) {
+      const livePhaseOverview = (primaryPhase as unknown as { overview?: string | null })?.overview ?? ''
+      const livePhaseAbout    = primaryPhase?.description ?? ''
+      const livePhaseDeliverables = (primaryPhase as unknown as {
+        deliverables?: { title: string; description: string; sectionIds?: string[] }[] | null
+      })?.deliverables ?? []
+
+      const existingSections = (content.sections as Array<Record<string, unknown>> | undefined) ?? []
+      sectionsPatch = existingSections.map(sec => {
+        if (sec.type === 'about') return { ...sec, overview: livePhaseOverview, body: livePhaseAbout }
+        if (sec.type === 'scope') {
+          return {
+            ...sec,
+            items: livePhaseDeliverables.map((d, i) => ({
+              number:      String(i + 1).padStart(2, '0'),
+              title:       d.title,
+              description: d.description,
+              ...(d.sectionIds?.length ? { sectionIds: d.sectionIds } : {}),
+            })),
+          }
+        }
+        return sec
+      })
+    }
+
     // Inject a synthetic budgetSnapshot so ProposalPublicView's breakdown
     // section shows the agency fee row correctly for draft previews.
-    if (draftMarkupPct > 0 || draftTaxPct > 0) {
+    const needsSnapshotPatch = draftMarkupPct > 0 || draftTaxPct > 0
+
+    if (needsSnapshotPatch || sectionsPatch) {
       proposal = {
         ...proposal,
         content: {
           ...content,
-          budgetSnapshot: {
-            ...(content.budgetSnapshot as object | undefined ?? {}),
-            productionCents: draftTotals.subtotalCents,
-            budgetMarkupPct: draftMarkupPct,
-            budgetTaxPct:    draftTaxPct,
-            totalCents:      totalCents,
-          },
+          ...(sectionsPatch ? { sections: sectionsPatch } : {}),
+          ...(needsSnapshotPatch ? {
+            budgetSnapshot: {
+              ...(content.budgetSnapshot as object | undefined ?? {}),
+              productionCents: draftTotals.subtotalCents,
+              budgetMarkupPct: draftMarkupPct,
+              budgetTaxPct:    draftTaxPct,
+              totalCents:      totalCents,
+            },
+          } : {}),
         },
       } as typeof proposal
     }
