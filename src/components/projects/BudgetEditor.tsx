@@ -177,11 +177,15 @@ export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readO
   }
 
   function handleAddPhase() {
-    const currentName = currentPhase?.name ?? 'v1 Estimate'
-    // Auto-suggest next version name
-    const match = currentName.match(/v(\d+)/i)
-    const nextNum = match ? parseInt(match[1]) + 1 : budget.phases.length + 1
-    const suggested = `v${nextNum} Estimate`
+    // Auto-suggest next version name — scan ALL existing phase names for the
+    // highest "vN" number, not just the currently active one, so the
+    // suggestion never collides with an already-taken name (Phase names are
+    // unique per budget; a collision used to fail silently).
+    const highestNum = budget.phases.reduce((max, p) => {
+      const match = p.name.match(/v(\d+)/i)
+      return match ? Math.max(max, parseInt(match[1])) : max
+    }, 0)
+    const suggested = `v${highestNum + 1} Estimate`
     const name = prompt('Name for new budget version:', suggested)
     if (!name?.trim()) return
     startPhaseTransition(async () => {
@@ -192,6 +196,8 @@ export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readO
       if (result.success) {
         router.refresh()
         setActivePhase(result.data.id)
+      } else {
+        alert((result as { success: false; error: string }).error)
       }
     })
   }

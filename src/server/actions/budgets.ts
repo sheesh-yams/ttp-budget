@@ -663,7 +663,11 @@ export async function duplicatePhase(phaseId: string, newName: string): Promise<
 
     revalidatePath('/')
     return { success: true, data: { id: newPhase.id } }
-  } catch {
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      return { success: false, error: `A version named "${newName}" already exists — choose a different name.` }
+    }
+    console.error('[duplicatePhase]', err)
     return { success: false, error: 'Failed to duplicate phase' }
   }
 }
