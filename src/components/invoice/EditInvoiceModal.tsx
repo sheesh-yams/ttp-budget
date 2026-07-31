@@ -49,6 +49,10 @@ interface EditInvoiceModalProps {
   invoiceNumber:  string
   existingItems:  InvoiceLineItem[]
   currentTaxPct:  number
+  /** Read-only here — set when the invoice was created, not editable via this modal. */
+  currentAgencyFeeCents?: number
+  /** Read-only here — set when the invoice was created, not editable via this modal. */
+  currentDiscountCents?:  number
   currentNotes?:  string | null
   currentTitle?:  string | null
   currentDueDate: string       // ISO string
@@ -117,6 +121,8 @@ export function EditInvoiceModal({
   invoiceNumber,
   existingItems,
   currentTaxPct,
+  currentAgencyFeeCents = 0,
+  currentDiscountCents = 0,
   currentNotes,
   currentTitle,
   currentDueDate,
@@ -159,8 +165,8 @@ export function EditInvoiceModal({
   }
 
   const subtotalCents = rows.reduce((s, r) => s + rowTotal(r), 0)
-  const taxCents      = Math.round(subtotalCents * taxPct / 100)
-  const totalCents    = subtotalCents + taxCents
+  const taxCents      = Math.round((subtotalCents + currentAgencyFeeCents - currentDiscountCents) * taxPct / 100)
+  const totalCents    = subtotalCents + currentAgencyFeeCents - currentDiscountCents + taxCents
 
   function handleSave() {
     // Validate
@@ -355,6 +361,18 @@ export function EditInvoiceModal({
                     <span>Subtotal</span>
                     <span className="tabular-nums">{formatMoney(subtotalCents)}</span>
                   </div>
+                  {currentAgencyFeeCents > 0 && (
+                    <div className="flex justify-between text-sm text-muted-foreground">
+                      <span>Agency Fee</span>
+                      <span className="tabular-nums">{formatMoney(currentAgencyFeeCents)}</span>
+                    </div>
+                  )}
+                  {currentDiscountCents > 0 && (
+                    <div className="flex justify-between text-sm text-green-600">
+                      <span>Discount</span>
+                      <span className="tabular-nums">-{formatMoney(currentDiscountCents)}</span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between text-sm text-muted-foreground">
                     <span className="flex items-center gap-2">
                       Tax

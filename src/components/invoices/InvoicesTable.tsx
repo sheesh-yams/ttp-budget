@@ -28,6 +28,8 @@ export interface InvoiceListRow {
   publicToken: string
   lineItems?: unknown
   taxPct?: number | null
+  agencyFeeCents?: number | null
+  discountCents?: number | null
   notes?: string | null
   project: {
     id: string
@@ -191,6 +193,8 @@ export function InvoicesTable({ invoices }: { invoices: InvoiceListRow[] }) {
                           invoiceNumber={inv.number}
                           existingItems={(inv.lineItems as InvoiceLineItem[] | null) ?? []}
                           currentTaxPct={Number(inv.taxPct ?? 0)}
+                          currentAgencyFeeCents={Number(inv.agencyFeeCents ?? 0)}
+                          currentDiscountCents={Number(inv.discountCents ?? 0)}
                           currentNotes={inv.notes}
                           currentTitle={inv.title}
                           currentDueDate={new Date(inv.dueDate).toISOString()}

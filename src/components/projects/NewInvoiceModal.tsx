@@ -108,14 +108,18 @@ interface Props {
   liveTotalCents: number
   /** Full, un-prorated discount amount already baked into liveTotalCents above. */
   budgetDiscountCents?: number
+  /** Raw line-item subtotal, pre-agency-fee, pre-tax, pre-discount — what the Budget itself calls "Subtotal"/"Phase total". */
+  budgetSubtotalCents: number
+  /** The agency-fee dollar amount baked into liveTotalCents. */
+  budgetAgencyFeeCents?: number
   /** Pre-select a specific milestone by index (0-based). */
   defaultMilestoneIdx?: number
   invoiceExpiryDays?: number
 }
 
 type InvoiceOption =
-  | { type: 'milestone'; milestone: PaymentMilestone; amountCents: number; preDiscountAmountCents: number }
-  | { type: 'full'; amountCents: number; preDiscountAmountCents: number }
+  | { type: 'milestone'; milestone: PaymentMilestone; amountCents: number; preDiscountAmountCents: number; subtotalCents: number; agencyFeeCents: number }
+  | { type: 'full'; amountCents: number; preDiscountAmountCents: number; subtotalCents: number; agencyFeeCents: number }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -142,6 +146,8 @@ export function NewInvoiceModal({
   proposal,
   liveTotalCents,
   budgetDiscountCents = 0,
+  budgetSubtotalCents,
+  budgetAgencyFeeCents = 0,
   defaultMilestoneIdx,
   invoiceExpiryDays = 30,
 }: Props) {
@@ -165,15 +171,26 @@ export function NewInvoiceModal({
 
   // Build options: one per milestone + "Full invoice". amountCents is the net
   // (already-discounted) amount shown to the user; preDiscountAmountCents is
-  // the same slice of the pre-discount total, used to build line-item rows.
+  // the same slice of the pre-discount total, used to derive the discount.
+  // subtotalCents/agencyFeeCents are the same slice split out of the raw
+  // phase-total and the agency fee separately, so "Subtotal" never absorbs
+  // the fee (the fee is always shown/totaled as its own line).
   const options: InvoiceOption[] = [
     ...milestones.map(m => ({
       type: 'milestone' as const,
       milestone: m,
       amountCents:            Math.round(totalCents * m.percentPct),
       preDiscountAmountCents: Math.round(preDiscountTotalCents * m.percentPct),
+      subtotalCents:          Math.round(budgetSubtotalCents * m.percentPct),
+      agencyFeeCents:         Math.round(budgetAgencyFeeCents * m.percentPct),
     })),
-    { type: 'full', amountCents: totalCents, preDiscountAmountCents: preDiscountTotalCents },
+    {
+      type: 'full',
+      amountCents:            totalCents,
+      preDiscountAmountCents: preDiscountTotalCents,
+      subtotalCents:          budgetSubtotalCents,
+      agencyFeeCents:         budgetAgencyFeeCents,
+    },
   ]
 
   // Build line items for a given option
@@ -206,10 +223,11 @@ export function NewInvoiceModal({
       }
       if (items.length > 0) return items
     }
-    // Milestone or fallback → single line item, pre-discount dollar value
-    // (the modal's own Discount row nets it back out — see subtotalCents/discountCents below)
+    // Milestone or fallback → single line item, phase-total (pre-fee,
+    // pre-discount) dollar value. The agency fee and discount are shown as
+    // their own separate rows in the totals preview, not folded in here.
     const label = opt.type === 'milestone' ? opt.milestone.name : projectName
-    const amountCents = opt.preDiscountAmountCents
+    const amountCents = opt.subtotalCents
     return [{
       id: crypto.randomUUID(),
       description: label,
@@ -280,13 +298,17 @@ export function NewInvoiceModal({
   // ── Derived totals (always from rows) ────────────────────────────────────────
 
   const subtotalCents = rows.reduce((s, r) => s + rowToCents(r), 0)
+  // Agency fee for the currently selected option — prorated for a milestone
+  // slice, or the full fee for "Full invoice". Always added as its own
+  // component, never folded into subtotalCents (see buildLineItemsForOption).
+  const agencyFeeCents = selected ? selected.agencyFeeCents : 0
   // Discount for the currently selected option — prorated for a milestone slice,
   // or the full budget discount for "Full invoice". Falls out of the pre-discount
   // vs. net amounts computed above; works the same for both branches of
   // buildLineItemsForOption (detailed snapshot items or a single summary row).
   const discountCents = selected ? Math.max(0, selected.preDiscountAmountCents - selected.amountCents) : 0
-  const taxCents       = Math.round((subtotalCents - discountCents) * taxPct / 100)
-  const totalWithTax   = subtotalCents - discountCents + taxCents
+  const taxCents       = Math.round((subtotalCents + agencyFeeCents - discountCents) * taxPct / 100)
+  const totalWithTax   = subtotalCents + agencyFeeCents - discountCents + taxCents
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -329,6 +351,7 @@ export function NewInvoiceModal({
         dueDate,
         lineItems,
         subtotalCents,
+        agencyFeeCents,
         taxPct,
         taxCents,
         discountCents,
@@ -560,6 +583,12 @@ export function NewInvoiceModal({
               <span>Subtotal</span>
               <span className="tabular-nums">{formatMoney(subtotalCents)}</span>
             </div>
+            {agencyFeeCents > 0 && (
+              <div className="flex items-center justify-between text-sm text-muted-foreground">
+                <span>Agency Fee</span>
+                <span className="tabular-nums">{formatMoney(agencyFeeCents)}</span>
+              </div>
+            )}
             {discountCents > 0 && (
               <div className="flex items-center justify-between text-sm text-green-600">
                 <span>Discount</span>

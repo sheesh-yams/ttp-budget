@@ -72,6 +72,7 @@ export async function GET(
       poNumber:       invoice.poNumber,
       lineItems:      invoice.lineItems as unknown as InvoiceLineItem[],
       subtotalCents:  invoice.subtotalCents,
+      agencyFeeCents: invoice.agencyFeeCents,
       taxPct:         Number(invoice.taxPct),
       taxCents:       invoice.taxCents,
       discountCents:  invoice.discountCents,

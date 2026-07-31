@@ -706,11 +706,12 @@ model Invoice {
   // [{ description, quantity, unit, rateCents, lineTotalCents, notes }]
   lineItems     Json     @default("[]")
 
-  subtotalCents Int      @default(0)
-  taxPct        Decimal  @default(0) @db.Decimal(6, 4)
-  taxCents      Int      @default(0)
-  discountCents Int      @default(0)
-  totalCents    Int      @default(0)
+  subtotalCents  Int      @default(0)
+  agencyFeeCents Int      @default(0) // prorated agency fee, shown as its own row below Subtotal
+  taxPct         Decimal  @default(0) @db.Decimal(6, 4)
+  taxCents       Int      @default(0)
+  discountCents  Int      @default(0)
+  totalCents     Int      @default(0)
   amountPaidCents Int    @default(0)
 
   // Notes / terms shown to client

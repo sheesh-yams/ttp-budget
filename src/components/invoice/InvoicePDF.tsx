@@ -60,6 +60,7 @@ export interface InvoicePDFData {
   poNumber:     string | null
   lineItems:    InvoiceLineItem[]
   subtotalCents: number
+  agencyFeeCents: number
   taxPct: number
   taxCents: number
   discountCents: number
@@ -314,6 +315,12 @@ export function InvoicePDF({ invoice }: { invoice: InvoicePDFData }) {
                 <Text style={s.totalLbl}>Subtotal</Text>
                 <Text style={s.totalVal}>{formatMoney(invoice.subtotalCents)}</Text>
               </View>
+              {invoice.agencyFeeCents > 0 && (
+                <View style={s.totalRow}>
+                  <Text style={s.totalLbl}>Agency Fee</Text>
+                  <Text style={s.totalVal}>{formatMoney(invoice.agencyFeeCents)}</Text>
+                </View>
+              )}
               {taxPct > 0 && (
                 <View style={s.totalRow}>
                   <Text style={s.totalLbl}>Tax ({(taxPct * 100).toFixed(1)}%)</Text>

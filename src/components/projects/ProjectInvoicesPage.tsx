@@ -49,6 +49,8 @@ interface InvoiceRow {
   sentAt: string | null
   lineItems: unknown
   taxPct: number | string
+  agencyFeeCents?: number
+  discountCents?: number
   notes: string | null
 }
 
@@ -68,6 +70,10 @@ interface Props {
   budgetTotalCents: number
   /** Full, un-prorated discount amount baked into budgetTotalCents above. */
   budgetDiscountCents?: number
+  /** Raw line-item subtotal, pre-agency-fee, pre-tax, pre-discount — the Budget's own "Subtotal"/"Phase total". */
+  budgetSubtotalCents: number
+  /** The agency-fee dollar amount baked into budgetTotalCents. */
+  budgetAgencyFeeCents?: number
   invoices: InvoiceRow[]
   invoiceExpiryDays?: number
 }
@@ -124,6 +130,8 @@ export function ProjectInvoicesPage({
   proposal,
   budgetTotalCents,
   budgetDiscountCents = 0,
+  budgetSubtotalCents,
+  budgetAgencyFeeCents = 0,
   invoices,
   invoiceExpiryDays = 30,
 }: Props) {
@@ -399,6 +407,8 @@ export function ProjectInvoicesPage({
                               invoiceNumber={inv.number}
                               existingItems={(inv.lineItems as InvoiceLineItem[]) ?? []}
                               currentTaxPct={Number(inv.taxPct ?? 0)}
+                              currentAgencyFeeCents={Number(inv.agencyFeeCents ?? 0)}
+                              currentDiscountCents={Number(inv.discountCents ?? 0)}
                               currentNotes={inv.notes}
                               currentTitle={inv.title}
                               currentDueDate={inv.dueDate}
@@ -506,6 +516,8 @@ export function ProjectInvoicesPage({
           }}
           liveTotalCents={budgetTotalCents}
           budgetDiscountCents={budgetDiscountCents}
+          budgetSubtotalCents={budgetSubtotalCents}
+          budgetAgencyFeeCents={budgetAgencyFeeCents}
           defaultMilestoneIdx={newInvMilestoneIdx}
           invoiceExpiryDays={invoiceExpiryDays}
         />

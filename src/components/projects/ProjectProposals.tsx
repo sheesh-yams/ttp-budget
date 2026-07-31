@@ -32,6 +32,12 @@ interface Props {
   clientId: string
   budgetId: string | null
   totalCents: number
+  /** Full, un-prorated discount amount baked into totalCents above. */
+  budgetDiscountCents?: number
+  /** Raw line-item subtotal, pre-agency-fee, pre-tax, pre-discount — the Budget's own "Subtotal"/"Phase total". */
+  budgetSubtotalCents?: number
+  /** The agency-fee dollar amount baked into totalCents. */
+  budgetAgencyFeeCents?: number
   proposalExpiryDays?: number
   invoiceExpiryDays?: number
 }
@@ -73,7 +79,11 @@ function extractFromContent(content: unknown): {
   }
 }
 
-export function ProjectProposals({ proposals, projectId, projectName, clientId, budgetId, totalCents, proposalExpiryDays = 30, invoiceExpiryDays = 30 }: Props) {
+export function ProjectProposals({
+  proposals, projectId, projectName, clientId, budgetId, totalCents,
+  budgetDiscountCents = 0, budgetSubtotalCents = 0, budgetAgencyFeeCents = 0,
+  proposalExpiryDays = 30, invoiceExpiryDays = 30,
+}: Props) {
   const router = useRouter()
 
   // Proposal modal state
@@ -343,6 +353,9 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
             content: invoiceProposal.content,
           }}
           liveTotalCents={totalCents}
+          budgetDiscountCents={budgetDiscountCents}
+          budgetSubtotalCents={budgetSubtotalCents}
+          budgetAgencyFeeCents={budgetAgencyFeeCents}
           invoiceExpiryDays={invoiceExpiryDays}
         />
       )}
