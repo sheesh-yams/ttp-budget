@@ -29,8 +29,6 @@ export interface InvoiceRow {
   sentAt: Date | string | null
   lineItems: unknown          // JSON array — cast as InvoiceLineItem[] when used
   taxPct: number | string     // Decimal from Prisma
-  agencyFeeCents?: number
-  discountCents?: number
   notes: string | null
 }
 
@@ -210,8 +208,6 @@ export function ProjectInvoices({ invoices, projectId }: Props) {
                           invoiceNumber={inv.number}
                           existingItems={(inv.lineItems as InvoiceLineItem[]) ?? []}
                           currentTaxPct={Number(inv.taxPct ?? 0)}
-                          currentAgencyFeeCents={Number(inv.agencyFeeCents ?? 0)}
-                          currentDiscountCents={Number(inv.discountCents ?? 0)}
                           currentNotes={inv.notes}
                           currentTitle={inv.title}
                           currentDueDate={new Date(inv.dueDate).toISOString()}

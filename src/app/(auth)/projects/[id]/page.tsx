@@ -120,8 +120,6 @@ export default async function ProjectDetailPage({
           sentAt:          true,
           lineItems:       true,
           taxPct:          true,
-          agencyFeeCents:  true,
-          discountCents:   true,
           notes:           true,
         },
       },
@@ -167,11 +165,8 @@ export default async function ProjectDetailPage({
   })
 
   // Gross total from primary phase (includes budget-level markup + agency fee)
-  let grandTotalCents     = 0   // kept for back-compat with proposal components
-  let grossTotalCents     = 0
-  let budgetDiscountCents = 0
-  let budgetSubtotalCents  = 0
-  let budgetAgencyFeeCents = 0
+  let grandTotalCents = 0   // kept for back-compat with proposal components
+  let grossTotalCents = 0
   if (budget) {
     const primaryPhase = budget.phases.find(p => p.isPrimary) ?? budget.phases[0]
     if (primaryPhase) {
@@ -197,15 +192,11 @@ export default async function ProjectDetailPage({
           taxPct,
           discountConfig,
         )
-        grandTotalCents     = totals.grandTotalCents
-        grossTotalCents     = totals.grandTotalCents
-        budgetDiscountCents = totals.discountCents
-        budgetSubtotalCents  = totals.subtotalCents
-        budgetAgencyFeeCents = totals.markupCents
+        grandTotalCents = totals.grandTotalCents
+        grossTotalCents = totals.grandTotalCents
       } else {
         grandTotalCents = netCents
         grossTotalCents = netCents
-        budgetSubtotalCents = netCents
       }
     }
   }
@@ -412,9 +403,6 @@ export default async function ProjectDetailPage({
           clientId={project.clientId}
           budgetId={budget?.id ?? null}
           totalCents={grandTotalCents}
-          budgetDiscountCents={budgetDiscountCents}
-          budgetSubtotalCents={budgetSubtotalCents}
-          budgetAgencyFeeCents={budgetAgencyFeeCents}
           proposalExpiryDays={workspaceDefaults?.proposalExpiryDays ?? 30}
           invoiceExpiryDays={workspaceDefaults?.invoiceExpiryDays ?? 30}
         />

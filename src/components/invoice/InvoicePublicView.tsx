@@ -347,12 +347,6 @@ export function InvoicePublicView({
                 <span style={{ fontSize: 13, color: MUTED }}>Subtotal</span>
                 <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', color: BODY }}>{formatMoney(invoice.subtotalCents)}</span>
               </div>
-              {invoice.agencyFeeCents > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '13px 20px', background: '#fff', borderBottom: `0.5px solid ${BORDER}` }}>
-                  <span style={{ fontSize: 13, color: MUTED }}>Agency Fee</span>
-                  <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', color: BODY }}>{formatMoney(invoice.agencyFeeCents)}</span>
-                </div>
-              )}
               {taxPct > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '13px 20px', background: '#fff', borderBottom: `0.5px solid ${BORDER}` }}>
                   <span style={{ fontSize: 13, color: MUTED }}>Tax ({(taxPct * 100).toFixed(1)}%)</span>

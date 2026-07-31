@@ -28,7 +28,6 @@ const createSchema = z.object({
     notes: z.string().optional(),
   })),
   subtotalCents: z.number().int(),
-  agencyFeeCents: z.number().int().optional(),
   taxPct: z.number(),
   taxCents: z.number().int(),
   discountCents: z.number().int().optional(),
@@ -70,7 +69,6 @@ export async function createInvoice(
         dueDate: new Date(data.dueDate),
         lineItems: data.lineItems as object[],
         subtotalCents: data.subtotalCents,
-        agencyFeeCents: data.agencyFeeCents ?? 0,
         taxPct: data.taxPct,
         taxCents: data.taxCents,
         discountCents: data.discountCents ?? 0,
@@ -491,22 +489,16 @@ export async function updateInvoiceLineItems(
 
     const invoice = await scopedDb.invoice.findFirst({
       where: { id: invoiceId },
-      select: { status: true, projectId: true, workspaceId: true, agencyFeeCents: true, discountCents: true },
+      select: { status: true, projectId: true, workspaceId: true },
     })
     if (!invoice) return { success: false, error: 'Invoice not found' }
     if ((invoice.status as string) === 'PAID') return { success: false, error: 'Cannot edit a paid invoice' }
     if ((invoice.status as string) === 'VOID') return { success: false, error: 'Cannot edit a voided invoice' }
 
-    // Editing line items must not silently drop the agency fee / discount the
-    // invoice was created with — both are preserved from the existing row and
-    // folded back into the total (previously totalCents dropped both).
-    const agencyFeeCents = (invoice as unknown as { agencyFeeCents: number }).agencyFeeCents ?? 0
-    const discountCents  = invoice.discountCents ?? 0
-
     const validated = z.array(lineItemSchema).parse(lineItems)
     const subtotalCents = validated.reduce((s, li) => s + li.lineTotalCents, 0)
-    const taxCents      = Math.round((subtotalCents + agencyFeeCents - discountCents) * taxPct / 100)
-    const totalCents    = subtotalCents + agencyFeeCents - discountCents + taxCents
+    const taxCents      = Math.round(subtotalCents * taxPct / 100)
+    const totalCents    = subtotalCents + taxCents
 
     await scopedDb.invoice.update({
       where: { id: invoiceId },

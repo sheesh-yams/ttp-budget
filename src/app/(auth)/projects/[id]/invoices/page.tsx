@@ -96,8 +96,6 @@ export default async function InvoicesSubPage({ params }: Props) {
           sentAt:          true,
           lineItems:       true,
           taxPct:          true,
-          agencyFeeCents:  true,
-          discountCents:   true,
           notes:           true,
         },
       },
@@ -115,10 +113,8 @@ export default async function InvoicesSubPage({ params }: Props) {
   const proposal = project.proposals[0] ?? null
 
   // Compute budget grand total (for milestone amount calculations) — net of discount.
-  let budgetTotalCents     = 0
-  let budgetDiscountCents  = 0
-  let budgetSubtotalCents  = 0
-  let budgetAgencyFeeCents = 0
+  let budgetTotalCents    = 0
+  let budgetDiscountCents = 0
   if (budget) {
     const primaryPhase = budget.phases.find(p => (p as unknown as { isPrimary: boolean }).isPrimary) ?? budget.phases[0]
     if (primaryPhase) {
@@ -132,15 +128,12 @@ export default async function InvoicesSubPage({ params }: Props) {
       } : null
       if (markupPct > 0 || taxPct > 0 || discountConfig) {
         const totals = calcBudgetTotals(primaryPhase.accounts as unknown as AccountInput[], markupPct, taxPct, discountConfig)
-        budgetTotalCents     = totals.grandTotalCents
-        budgetDiscountCents  = totals.discountCents
-        budgetSubtotalCents  = totals.subtotalCents
-        budgetAgencyFeeCents = totals.markupCents
+        budgetTotalCents    = totals.grandTotalCents
+        budgetDiscountCents = totals.discountCents
       } else {
         budgetTotalCents = primaryPhase.accounts.reduce(
           (sum, acc) => sum + sumAccount(acc as unknown as AccountInput), 0
         )
-        budgetSubtotalCents = budgetTotalCents
       }
     }
   }
@@ -172,8 +165,6 @@ export default async function InvoicesSubPage({ params }: Props) {
       } : null}
       budgetTotalCents={budgetTotalCents}
       budgetDiscountCents={budgetDiscountCents}
-      budgetSubtotalCents={budgetSubtotalCents}
-      budgetAgencyFeeCents={budgetAgencyFeeCents}
       invoices={serializedInvoices}
       invoiceExpiryDays={workspaceDefaults?.invoiceExpiryDays ?? 30}
     />
