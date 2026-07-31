@@ -122,8 +122,13 @@ async function captureBudgetSnapshot(sdb: ScopedDb, budgetId: string) {
   }))
 
   const totals = calcBudgetTotals(accounts as unknown as AccountInput[], budgetMarkupPct, budgetTaxPct, discountConfig)
-  // productionCents historically meant "subtotal + agency fee" (pre-discount, pre-tax) — preserved for callers.
-  const productionCents = totals.subtotalCents + totals.markupCents
+  // Pure line-item subtotal, pre-agency-fee — every consumer (BudgetReadOnly,
+  // ProposalPDF, ProposalPublicView, BudgetSummaryBar) independently computes
+  // agencyFeeCents = productionCents * budgetMarkupPct, so this must NOT
+  // already include the fee or it gets double-counted in the displayed
+  // breakdown (the actual grand total was always separately correct via
+  // totalCents below — only the Subtotal/Agency Fee rows were wrong).
+  const productionCents = totals.subtotalCents
   const { discountCents, discountLabel } = totals
   const totalCents = totals.grandTotalCents
 
