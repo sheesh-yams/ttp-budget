@@ -3,12 +3,12 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { FileText, DollarSign, Send, Ban, Trash2, Receipt, Plus, Pencil } from 'lucide-react'
+import { FileText, DollarSign, Ban, Trash2, Receipt, Plus, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { formatMoney } from '@/lib/money'
 import { voidInvoice, deleteInvoice } from '@/server/actions/invoices'
-import { SendInvoiceModal } from '@/components/invoice/SendInvoiceModal'
+import { SendInvoiceSplitButton } from '@/components/invoice/SendInvoiceSplitButton'
 import { PreviewPanel } from '@/components/invoice/PreviewPanel'
 import { EditInvoiceModal } from '@/components/invoice/EditInvoiceModal'
 import { RecordPaymentModal } from '@/components/invoice/RecordPaymentModal'
@@ -227,19 +227,10 @@ export function ProjectInvoices({ invoices, projectId }: Props) {
 
                       {/* Send */}
                       {canSend && (
-                        <SendInvoiceModal
+                        <SendInvoiceSplitButton
                           invoiceId={inv.id}
+                          status={inv.status}
                           onSent={refresh}
-                          trigger={open => (
-                            <button
-                              type="button"
-                              onClick={open}
-                              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground inline-flex"
-                              title={inv.status === 'SENT' ? 'Resend invoice' : 'Send invoice'}
-                            >
-                              <Send className="h-3.5 w-3.5" />
-                            </button>
-                          )}
                         />
                       )}
 

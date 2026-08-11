@@ -283,6 +283,57 @@ export async function sendInvoice(
   }
 }
 
+// ─── Mark an invoice as sent without emailing it ───────────────────────────
+// For invoices actually sent through another tool (QuickBooks, Stripe
+// Invoicing, a wire) — flips DRAFT → SENT so it's tracked here too, without
+// attempting delivery. Mirrors sendDraftProposal's sendEmail=false branch.
+
+export async function markInvoiceAsSent(
+  invoiceId: string
+): Promise<ActionResult<{ status: 'SENT' }>> {
+  try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
+    const [scopedDb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+
+    const invoice = await scopedDb.invoice.findFirst({
+      where: { id: invoiceId },
+      select: { workspaceId: true, status: true, projectId: true },
+    })
+    if (!invoice) return { success: false, error: 'Invoice not found' }
+    if (invoice.status !== 'DRAFT') {
+      return { success: false, error: `Cannot mark an invoice with status ${invoice.status} as sent — only drafts can be marked sent without emailing.` }
+    }
+
+    await scopedDb.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        status: 'SENT',
+        sentAt: new Date(),
+        publicTokenExpiresAt: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
+      } as unknown as Parameters<typeof scopedDb.invoice.update>[0]['data'],
+    })
+
+    await logAuditEvent({
+      workspaceId: invoice.workspaceId as string,
+      actorId:     user.id,
+      action:      'invoice.marked_sent',
+      entityType:  'Invoice',
+      entityId:    invoiceId,
+    })
+
+    revalidatePath(`/projects/${invoice.projectId}`)
+    revalidatePath('/invoices')
+    revalidatePath('/dashboard')
+
+    return { success: true, data: { status: 'SENT' } }
+  } catch (err) {
+    console.error('[markInvoiceAsSent]', err)
+    return { success: false, error: 'Failed to mark invoice as sent' }
+  }
+}
+
 export async function voidInvoice(invoiceId: string): Promise<ActionResult> {
   console.log('[voidInvoice] called', { invoiceId })
   try {
