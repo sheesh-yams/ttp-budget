@@ -11,6 +11,19 @@ import { logAuditEvent } from '@/lib/audit'
 import { generatePublicToken } from '@/lib/secure-token'
 import { normalizeRecipientEmails, buildCcList } from '@/lib/email'
 
+// ─── Payment terms label ────────────────────────────────────────────────────
+// Derived from the actual gap between issue date and due date, rather than a
+// fixed workspace default — a workspace-wide "Net 30" default is wrong for
+// any invoice whose due date was picked custom instead of using that default.
+const COMMON_TERM_DAYS = [15, 30, 45, 60, 90]
+
+function deriveInvoicePaymentTerms(issueDate: Date, dueDate: Date): string | null {
+  const days = Math.round((dueDate.getTime() - issueDate.getTime()) / (24 * 60 * 60 * 1000))
+  if (days <= 0) return 'Due on Receipt'
+  if (COMMON_TERM_DAYS.includes(days)) return `Net ${days}`
+  return null
+}
+
 const createSchema = z.object({
   projectId: z.string(),
   clientId: z.string(),
@@ -54,8 +67,11 @@ export async function createInvoice(
     const number = await generateInvoiceNumber(workspaceId)
     const workspace = await db.workspace.findUnique({
       where: { id: workspaceId },
-      select: { defaultInvoiceTerms: true, defaultPaymentTermsDays: true },
+      select: { defaultInvoiceTerms: true },
     })
+
+    const issueDate = new Date()
+    const dueDate   = new Date(data.dueDate)
 
     const invoice = await scopedDb.invoice.create({
       data: {
@@ -66,7 +82,8 @@ export async function createInvoice(
         publicToken: generatePublicToken(),
         kind: data.kind,
         title: data.title,
-        dueDate: new Date(data.dueDate),
+        issueDate,
+        dueDate,
         lineItems: data.lineItems as object[],
         subtotalCents: data.subtotalCents,
         taxPct: data.taxPct,
@@ -75,7 +92,7 @@ export async function createInvoice(
         totalCents: data.totalCents,
         notes:         data.notes ?? null,
         terms:         data.terms ?? workspace?.defaultInvoiceTerms ?? null,
-        paymentTerms:  data.paymentTerms ?? (workspace?.defaultPaymentTermsDays ? `Net ${workspace.defaultPaymentTermsDays}` : null),
+        paymentTerms:  data.paymentTerms ?? deriveInvoicePaymentTerms(issueDate, dueDate),
         poNumber:      data.poNumber ?? null,
         createdById: user.id,
       } as unknown as Parameters<typeof scopedDb.invoice.create>[0]['data'],
@@ -540,7 +557,7 @@ export async function updateInvoiceLineItems(
 
     const invoice = await scopedDb.invoice.findFirst({
       where: { id: invoiceId },
-      select: { status: true, projectId: true, workspaceId: true },
+      select: { status: true, projectId: true, workspaceId: true, issueDate: true },
     })
     if (!invoice) return { success: false, error: 'Invoice not found' }
     if ((invoice.status as string) === 'PAID') return { success: false, error: 'Cannot edit a paid invoice' }
@@ -550,6 +567,10 @@ export async function updateInvoiceLineItems(
     const subtotalCents = validated.reduce((s, li) => s + li.lineTotalCents, 0)
     const taxCents      = Math.round(subtotalCents * taxPct / 100)
     const totalCents    = subtotalCents + taxCents
+
+    // Re-derive the Terms label whenever the due date changes — otherwise it
+    // stays stuck at whatever was shown when the invoice was first created.
+    const newDueDate = dueDate !== undefined ? new Date(dueDate) : null
 
     await scopedDb.invoice.update({
       where: { id: invoiceId },
@@ -561,7 +582,7 @@ export async function updateInvoiceLineItems(
         totalCents,
         ...(notes    !== undefined ? { notes }              : {}),
         ...(title    !== undefined ? { title }              : {}),
-        ...(dueDate  !== undefined ? { dueDate: new Date(dueDate) } : {}),
+        ...(newDueDate ? { dueDate: newDueDate, paymentTerms: deriveInvoicePaymentTerms(invoice.issueDate, newDueDate) } : {}),
       },
     })
 
