@@ -6,7 +6,9 @@ import { getScopedDb } from '@/lib/db-scoped'
 import { getCurrentUser, getWorkspaceId, requireRole } from '@/lib/auth'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
-import { Prisma, type RateUnit, type RateCategory } from '@prisma/client'
+import { Prisma, type RateUnit, type RateCategory, type ProposalStatus } from '@prisma/client'
+import { calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
+import { logAuditEvent } from '@/lib/audit'
 
 // ─── Section helper ───────────────────────────────────────────────────────────
 
@@ -84,6 +86,624 @@ export async function createBudget(projectId: string, templateId?: string): Prom
   } catch (err) {
     console.error(err)
     return { success: false, error: 'Failed to create budget' }
+  }
+}
+
+// =============================================================
+// CLONE FROM EXISTING BUDGET
+// =============================================================
+
+// ─── Shared tree-reconstruction helper ─────────────────────────────────────
+// Accounts are fetched flat (depth-agnostic — no fixed-depth `include`, which
+// is what left duplicatePhase's fetch capped at 2 levels) and rebuilt into a
+// nested tree here, keyed by parentId. Reused by listCloneableBudgets (for
+// calcBudgetTotals), getBudgetClonePreview (for the section/depth summary),
+// and cloneBudget (for the actual copy).
+
+interface FlatCloneAccount {
+  id:         string
+  phaseId:    string
+  sectionId:  string
+  parentId:   string | null
+  name:       string
+  order:      number
+  lineItems: {
+    description: string
+    rateCardId:  string | null
+    quantity:    Prisma.Decimal
+    rateCents:   number
+    markupPct:   Prisma.Decimal | null
+  }[]
+}
+
+type WithChildren<T> = T & { children: WithChildren<T>[] }
+type AccountTreeNode = WithChildren<FlatCloneAccount>
+
+/**
+ * Roots (parentId null) first, each with `.children` nested — siblings
+ * sorted by `order`. Generic so cloneBudget can reuse it with the richer
+ * field set it needs (code, notes, full line item shape) rather than just
+ * the totals-only FlatCloneAccount shape used by the list/preview actions.
+ */
+function buildAccountTree<T extends { id: string; parentId: string | null; order: number }>(
+  flat: T[]
+): WithChildren<T>[] {
+  const byId = new Map<string, WithChildren<T>>(flat.map(a => [a.id, { ...a, children: [] }]))
+  const roots: WithChildren<T>[] = []
+  for (const node of byId.values()) {
+    if (node.parentId && byId.has(node.parentId)) {
+      byId.get(node.parentId)!.children.push(node)
+    } else {
+      roots.push(node)
+    }
+  }
+  const byOrder = (a: WithChildren<T>, b: WithChildren<T>) => a.order - b.order
+  for (const node of byId.values()) node.children.sort(byOrder)
+  roots.sort(byOrder)
+  return roots
+}
+
+function toAccountInput(nodes: AccountTreeNode[]): AccountInput[] {
+  return nodes.map(n => ({
+    lineItems: n.lineItems.map(li => ({
+      quantity:  li.quantity,
+      rateCents: li.rateCents,
+      markupPct: li.markupPct,
+    })),
+    children: toAccountInput(n.children),
+  }))
+}
+
+function budgetDiscountConfig(b: {
+  discountType: string | null
+  discountLabel: string | null
+  discountValueCents: number | null
+  discountValuePct: Prisma.Decimal | null
+}): BudgetDiscountConfig | null {
+  if (!b.discountType) return null
+  return {
+    type:       b.discountType as 'flat' | 'pct',
+    label:      b.discountLabel,
+    valueCents: b.discountValueCents,
+    valuePct:   b.discountValuePct != null ? Number(b.discountValuePct) : null,
+  }
+}
+
+/** Primary phase if set, else the most recently ordered one. */
+function pickRepresentativePhase<T extends { id: string; isPrimary: boolean; order: number }>(
+  phases: T[]
+): T | undefined {
+  return phases.find(p => p.isPrimary) ?? [...phases].sort((a, b) => b.order - a.order)[0]
+}
+
+// ─── List cloneable budgets (picker source list) ───────────────────────────
+
+export type CloneableBudget = {
+  budgetId:        string
+  budgetName:      string
+  projectId:       string
+  projectName:     string
+  projectType:     string | null
+  clientName:      string
+  createdAt:       Date
+  proposalStatus:  ProposalStatus | null
+  grandTotalCents: number
+  lineItemCount:   number
+  sectionCount:    number
+  phaseCount:      number
+}
+
+export async function listCloneableBudgets(): Promise<ActionResult<CloneableBudget[]>> {
+  try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
+    const sdb = await getScopedDb()
+
+    const budgets = await sdb.budget.findMany({
+      select: {
+        id: true, name: true, createdAt: true,
+        markupPct: true, taxPct: true,
+        discountType: true, discountLabel: true, discountValueCents: true, discountValuePct: true,
+        project: {
+          select: {
+            id: true, name: true, shootType: true,
+            client: { select: { name: true } },
+          },
+        },
+        proposals: { select: { status: true }, orderBy: { createdAt: 'desc' }, take: 1 },
+        phases: { select: { id: true, isPrimary: true, order: true } },
+        _count: { select: { phases: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (budgets.length === 0) return { success: true, data: [] }
+
+    // Representative phase per budget (primary, else most recent) — totals and
+    // structure counts are computed from this one phase, not every version.
+    const phaseIdByBudget = new Map<string, string>()
+    for (const b of budgets) {
+      const chosen = pickRepresentativePhase(b.phases)
+      if (chosen) phaseIdByBudget.set(b.id, chosen.id)
+    }
+    const phaseIds = [...phaseIdByBudget.values()]
+
+    // Two flat queries across every chosen phase at once — avoids N+1 and
+    // avoids a fixed-depth `include` (accounts nest arbitrarily deep).
+    const [sections, accounts] = await Promise.all([
+      sdb.budgetSection.findMany({ where: { phaseId: { in: phaseIds } }, select: { phaseId: true } }),
+      sdb.account.findMany({
+        where: { phaseId: { in: phaseIds } },
+        select: {
+          id: true, phaseId: true, sectionId: true, parentId: true, name: true, order: true,
+          lineItems: { select: { description: true, rateCardId: true, quantity: true, rateCents: true, markupPct: true } },
+        },
+      }),
+    ])
+
+    const sectionCountByPhase = new Map<string, number>()
+    for (const s of sections) sectionCountByPhase.set(s.phaseId, (sectionCountByPhase.get(s.phaseId) ?? 0) + 1)
+
+    const accountsByPhase = new Map<string, FlatCloneAccount[]>()
+    for (const a of accounts) {
+      const list = accountsByPhase.get(a.phaseId) ?? []
+      list.push(a as FlatCloneAccount)
+      accountsByPhase.set(a.phaseId, list)
+    }
+
+    return {
+      success: true,
+      data: budgets.map(b => {
+        const phaseId = phaseIdByBudget.get(b.id)
+        const flat = phaseId ? (accountsByPhase.get(phaseId) ?? []) : []
+        const tree = toAccountInput(buildAccountTree(flat))
+        const totals = calcBudgetTotals(
+          tree,
+          Number(b.markupPct ?? 0),
+          Number(b.taxPct ?? 0),
+          budgetDiscountConfig(b),
+        )
+        return {
+          budgetId:        b.id,
+          budgetName:      b.name,
+          projectId:       b.project.id,
+          projectName:     b.project.name,
+          projectType:     b.project.shootType ?? null,
+          clientName:      b.project.client.name,
+          createdAt:       b.createdAt,
+          proposalStatus:  b.proposals[0]?.status ?? null,
+          grandTotalCents: totals.grandTotalCents,
+          lineItemCount:   flat.reduce((sum, a) => sum + a.lineItems.length, 0),
+          sectionCount:    phaseId ? (sectionCountByPhase.get(phaseId) ?? 0) : 0,
+          phaseCount:      b._count.phases,
+        }
+      }),
+    }
+  } catch (err) {
+    console.error('[listCloneableBudgets]', err)
+    return { success: false, error: 'Failed to load budgets' }
+  }
+}
+
+// ─── Clone preview (structure + rate diff) ─────────────────────────────────
+
+export type ClonePreview = {
+  phaseId:  string
+  phaseName: string
+  sections: { title: string; accounts: { name: string; depth: number; lineItemCount: number }[] }[]
+  totals: { subtotalCents: number; grandTotalCents: number }
+  rateChanges: {
+    lineItemDescription: string
+    rateCardName:        string
+    oldRateCents:         number
+    newRateCents:         number
+  }[]
+  /** Rate cards referenced by a line item but since archived — original rate kept, link dropped. */
+  orphanedRateCards: string[]
+}
+
+export async function getBudgetClonePreview(
+  sourceBudgetId: string,
+  sourcePhaseId?: string,
+): Promise<ActionResult<ClonePreview>> {
+  try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
+    const sdb = await getScopedDb()
+
+    const budget = await sdb.budget.findFirst({
+      where: { id: sourceBudgetId },
+      select: {
+        markupPct: true, taxPct: true,
+        discountType: true, discountLabel: true, discountValueCents: true, discountValuePct: true,
+        phases: { select: { id: true, name: true, isPrimary: true, order: true } },
+      },
+    })
+    if (!budget) return { success: false, error: 'SOURCE_NOT_FOUND' }
+
+    const phase = sourcePhaseId
+      ? budget.phases.find(p => p.id === sourcePhaseId)
+      : pickRepresentativePhase(budget.phases)
+    if (!phase) return { success: false, error: 'SOURCE_NOT_FOUND' }
+
+    const [sections, accounts] = await Promise.all([
+      sdb.budgetSection.findMany({ where: { phaseId: phase.id }, orderBy: { orderIndex: 'asc' }, select: { id: true, title: true } }),
+      sdb.account.findMany({
+        where: { phaseId: phase.id },
+        select: {
+          id: true, phaseId: true, sectionId: true, parentId: true, name: true, order: true,
+          lineItems: { select: { description: true, rateCardId: true, quantity: true, rateCents: true, markupPct: true } },
+        },
+      }),
+    ])
+    const flat = accounts as FlatCloneAccount[]
+
+    const totals = calcBudgetTotals(
+      toAccountInput(buildAccountTree(flat)),
+      Number(budget.markupPct ?? 0),
+      Number(budget.taxPct ?? 0),
+      budgetDiscountConfig(budget),
+    )
+
+    // Section → depth-annotated account list, in tree (document) order.
+    const sectionSummaries = sections.map(section => {
+      const sectionTree = buildAccountTree(flat.filter(a => a.sectionId === section.id))
+      const rows: { name: string; depth: number; lineItemCount: number }[] = []
+      function walk(nodes: AccountTreeNode[], depth: number) {
+        for (const n of nodes) {
+          rows.push({ name: n.name, depth, lineItemCount: n.lineItems.length })
+          walk(n.children, depth + 1)
+        }
+      }
+      walk(sectionTree, 0)
+      return { title: section.title, accounts: rows }
+    })
+
+    // Rate diff: only for line items whose rate card is still active. An
+    // archived rate card is reported as "orphaned" — original rate is kept,
+    // never diffed, since there's no live rate to compare against.
+    const rateCardIds = [...new Set(flat.flatMap(a => a.lineItems.map(li => li.rateCardId).filter((id): id is string => !!id)))]
+    const rateCards = rateCardIds.length
+      ? await sdb.rateCard.findMany({ where: { id: { in: rateCardIds } }, select: { id: true, role: true, defaultRateCents: true, archivedAt: true } })
+      : []
+    const rateCardById = new Map(rateCards.map(rc => [rc.id, rc]))
+
+    const rateChanges: ClonePreview['rateChanges'] = []
+    const orphanedRateCards = new Set<string>()
+    for (const account of flat) {
+      for (const li of account.lineItems) {
+        if (!li.rateCardId) continue
+        const rc = rateCardById.get(li.rateCardId)
+        if (!rc || rc.archivedAt) {
+          orphanedRateCards.add(rc?.role ?? 'Unknown rate card')
+          continue
+        }
+        if (rc.defaultRateCents !== li.rateCents) {
+          rateChanges.push({
+            lineItemDescription: li.description,
+            rateCardName:        rc.role,
+            oldRateCents:         li.rateCents,
+            newRateCents:         rc.defaultRateCents,
+          })
+        }
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        phaseId:   phase.id,
+        phaseName: phase.name,
+        sections:  sectionSummaries,
+        totals:    { subtotalCents: totals.subtotalCents, grandTotalCents: totals.grandTotalCents },
+        rateChanges,
+        orphanedRateCards: [...orphanedRateCards],
+      },
+    }
+  } catch (err) {
+    console.error('[getBudgetClonePreview]', err)
+    return { success: false, error: 'Failed to load clone preview' }
+  }
+}
+
+// ─── Clone budget (the actual copy) ────────────────────────────────────────
+
+export type CloneBudgetInput = {
+  sourceBudgetId: string
+  sourcePhaseId?: string
+  target:
+    | { mode: 'NEW_BUDGET'; projectId: string; budgetName: string }
+    | { mode: 'NEW_PHASE'; budgetId: string; phaseName: string }
+  rateMode: 'REFRESH' | 'PRESERVE'
+}
+
+export type CloneBudgetResult = {
+  budgetId: string
+  phaseId: string
+  counts: { sections: number; accounts: number; lineItems: number }
+  rateChangeCount: number
+}
+
+// Full field set needed to actually recreate a row — richer than
+// FlatCloneAccount/its lineItems shape above, which only carries what
+// calcBudgetTotals needs for the list/preview actions.
+interface CloneSourceAccount {
+  id:        string
+  sectionId: string
+  parentId:  string | null
+  name:      string
+  code:      string | null
+  order:     number
+  notes:     string | null
+  lineItems: {
+    id:               string
+    description:      string
+    rateCardId:       string | null
+    quantity:         Prisma.Decimal
+    unit:             RateUnit
+    rateCents:        number
+    markupPct:        Prisma.Decimal | null
+    hasMarkup:         boolean
+    taxRate:           Prisma.Decimal | null
+    notes:             string | null
+    quantityFormula:   string | null
+    lineItemCategory:  string | null
+    tags:              string[]
+    order:              number
+  }[]
+}
+
+export async function cloneBudget(input: CloneBudgetInput): Promise<ActionResult<CloneBudgetResult>> {
+  try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
+    const [sdb, user, workspaceId] = await Promise.all([getScopedDb(), getCurrentUser(), getWorkspaceId()])
+
+    // ── Step 1: fetch the source through the scoped client — this is what
+    // enforces cross-workspace isolation. A sourceBudgetId from another
+    // workspace simply doesn't come back here; there is nothing to bypass.
+    const sourceBudget = await sdb.budget.findFirst({
+      where: { id: input.sourceBudgetId },
+      select: {
+        markupPct: true, taxPct: true,
+        discountType: true, discountLabel: true, discountValueCents: true, discountValuePct: true,
+        phases: {
+          select: {
+            id: true, name: true, isPrimary: true, order: true,
+            overview: true, description: true, deliverables: true, pageBreakBetweenAccounts: true,
+          },
+        },
+      },
+    })
+    if (!sourceBudget) return { success: false, error: 'SOURCE_NOT_FOUND' }
+
+    const sourcePhase = input.sourcePhaseId
+      ? sourceBudget.phases.find(p => p.id === input.sourcePhaseId)
+      : pickRepresentativePhase(sourceBudget.phases)
+    if (!sourcePhase) return { success: false, error: 'SOURCE_NOT_FOUND' }
+
+    const [sections, sourceAccounts] = await Promise.all([
+      sdb.budgetSection.findMany({
+        where: { phaseId: sourcePhase.id },
+        orderBy: { orderIndex: 'asc' },
+        select: { id: true, title: true, description: true, orderIndex: true },
+      }),
+      sdb.account.findMany({
+        where: { phaseId: sourcePhase.id },
+        select: {
+          id: true, sectionId: true, parentId: true, name: true, code: true, order: true, notes: true,
+          lineItems: {
+            select: {
+              id: true, description: true, rateCardId: true,
+              quantity: true, unit: true, rateCents: true, markupPct: true, hasMarkup: true, taxRate: true,
+              notes: true, quantityFormula: true, lineItemCategory: true, tags: true, order: true,
+            },
+          },
+        },
+      }),
+    ]) as [
+      Array<{ id: string; title: string; description: string | null; orderIndex: number }>,
+      CloneSourceAccount[],
+    ]
+
+    // ── Step 2: resolve rate-card state BEFORE the transaction (keep it short).
+    // Fetched regardless of rateMode — PRESERVE still needs to know which
+    // rateCardId refs are archived, so it can drop the (now-dead) link even
+    // while keeping the original rate.
+    const referencedRateCardIds = [...new Set(
+      sourceAccounts.flatMap(a => a.lineItems.map(li => li.rateCardId).filter((id): id is string => !!id))
+    )]
+    const rateCards = referencedRateCardIds.length
+      ? await sdb.rateCard.findMany({
+          where: { id: { in: referencedRateCardIds } },
+          select: { id: true, defaultRateCents: true, archivedAt: true },
+        })
+      : []
+    const rateCardById = new Map(rateCards.map(rc => [rc.id, rc]))
+
+    // ── Step 3: validate the target through the scoped client too.
+    if (input.target.mode === 'NEW_PHASE') {
+      const targetBudget = await sdb.budget.findFirst({ where: { id: input.target.budgetId }, select: { id: true } })
+      if (!targetBudget) return { success: false, error: 'TARGET_NOT_FOUND' }
+    } else {
+      const targetProject = await sdb.project.findFirst({ where: { id: input.target.projectId }, select: { id: true } })
+      if (!targetProject) return { success: false, error: 'TARGET_NOT_FOUND' }
+    }
+
+    const accountTree = buildAccountTree(sourceAccounts)
+
+    // ── Step 4: the transaction. Nothing partial ever persists.
+    let rateChangeCount = 0
+
+    const cloneResult = await sdb.$transaction(async (tx) => {
+      // 4a — target Budget
+      let newBudgetId: string
+      if (input.target.mode === 'NEW_BUDGET') {
+        const newBudget = await tx.budget.create({
+          data: {
+            projectId:          input.target.projectId,
+            name:               input.target.budgetName,
+            createdById:        user.id,
+            markupPct:          sourceBudget.markupPct,
+            taxPct:             sourceBudget.taxPct,
+            discountType:       sourceBudget.discountType,
+            discountLabel:      sourceBudget.discountLabel,
+            discountValueCents: sourceBudget.discountValueCents,
+            discountValuePct:   sourceBudget.discountValuePct,
+            clonedFromBudgetId: input.sourceBudgetId,
+          } as unknown as Prisma.BudgetUncheckedCreateInput,
+        })
+        newBudgetId = newBudget.id
+      } else {
+        newBudgetId = input.target.budgetId
+      }
+
+      // 4b — new Phase. Budget-level settings (markup/tax/discount) are NOT
+      // duplicated here in NEW_PHASE mode — they live on Budget, shared by
+      // every phase in it, and silently overwriting them would change the
+      // fee/tax for every other phase already in the target budget. Only
+      // structural/content fields copy: pageBreakBetweenAccounts, overview,
+      // description, deliverables.
+      let phaseOrder = 0
+      let isPrimary  = true
+      if (input.target.mode === 'NEW_PHASE') {
+        const maxOrder = await tx.phase.aggregate({ where: { budgetId: newBudgetId }, _max: { order: true } })
+        phaseOrder = (maxOrder._max.order ?? 0) + 1
+        isPrimary  = false // never steal primary from an existing budget's phases
+      }
+
+      const newPhase = await tx.phase.create({
+        data: {
+          budgetId:     newBudgetId,
+          workspaceId,
+          name:         input.target.mode === 'NEW_PHASE' ? input.target.phaseName : 'v1 Estimate',
+          order:        phaseOrder,
+          isPrimary,
+          overview:                 sourcePhase.overview,
+          description:              sourcePhase.description,
+          deliverables:             sourcePhase.deliverables ?? undefined,
+          pageBreakBetweenAccounts: sourcePhase.pageBreakBetweenAccounts,
+        },
+      })
+
+      // 4c — sections, no nesting
+      const sectionIdMap = new Map<string, string>()
+      for (const section of sections) {
+        const created = await tx.budgetSection.create({
+          data: { workspaceId, phaseId: newPhase.id, title: section.title, description: section.description, orderIndex: section.orderIndex },
+        })
+        sectionIdMap.set(section.id, created.id)
+      }
+
+      // 4d — accounts. Must stay sequential: each parent's real new id has to
+      // exist before its children are created. Pre-order walk of the tree
+      // already fetched depth-agnostically in Step 1 guarantees this.
+      const accountIdMap = new Map<string, string>()
+      async function cloneAccountLevel(nodes: WithChildren<CloneSourceAccount>[], parentId: string | null) {
+        for (const node of nodes) {
+          const created = await tx.account.create({
+            data: {
+              workspaceId,
+              phaseId:   newPhase.id,
+              sectionId: sectionIdMap.get(node.sectionId)!,
+              parentId,
+              name:  node.name,
+              code:  node.code,
+              order: node.order,
+              notes: node.notes,
+            },
+          })
+          accountIdMap.set(node.id, created.id)
+          if (node.children.length) await cloneAccountLevel(node.children, created.id)
+        }
+      }
+      await cloneAccountLevel(accountTree, null)
+
+      // 4e — line items. No children, no sequential requirement — one batched
+      // createMany across every account at once. Rate mode applied per row:
+      // REFRESH pulls the live rate card value (when it isn't archived);
+      // PRESERVE always keeps the original snapshot. Either way, a reference
+      // to an archived rate card is dropped (rateCardId → null) since it's
+      // dead going forward — the rate itself is still kept as-is.
+      const lineItemRows: Prisma.LineItemUncheckedCreateInput[] = []
+      for (const account of sourceAccounts) {
+        const newAccountId = accountIdMap.get(account.id)!
+        for (const li of account.lineItems) {
+          const rc = li.rateCardId ? rateCardById.get(li.rateCardId) : undefined
+          const isOrphaned = !!li.rateCardId && (!rc || rc.archivedAt !== null)
+
+          let newRateCents = li.rateCents
+          if (input.rateMode === 'REFRESH' && !isOrphaned && rc) {
+            newRateCents = rc.defaultRateCents
+            if (newRateCents !== li.rateCents) rateChangeCount++
+          }
+
+          lineItemRows.push({
+            workspaceId,
+            accountId:        newAccountId,
+            description:      li.description,
+            rateCardId:       isOrphaned ? null : li.rateCardId,
+            quantity:         li.quantity,
+            unit:             li.unit,
+            rateCents:        newRateCents,
+            markupPct:        li.markupPct,
+            hasMarkup:        li.hasMarkup,
+            taxRate:          li.taxRate,
+            notes:            li.notes,
+            quantityFormula:  li.quantityFormula,
+            lineItemCategory: li.lineItemCategory as never,
+            tags:             li.tags,
+            order:            li.order,
+            // contactId intentionally NOT copied — crew/vendor assignment is
+            // execution-stage state (drives auto-upsert of a ProjectMember on
+            // the Teams page); a clone is a planning-stage starting point and
+            // shouldn't auto-assign real people to a project they may have
+            // nothing to do with yet.
+          })
+        }
+      }
+      if (lineItemRows.length) {
+        await tx.lineItem.createMany({ data: lineItemRows })
+      }
+
+      await logAuditEvent({
+        workspaceId,
+        actorId:    user.id,
+        action:     'budget.cloned',
+        entityType: 'Budget',
+        entityId:   newBudgetId,
+        metadata: {
+          sourceBudgetId: input.sourceBudgetId,
+          sourcePhaseId:  sourcePhase.id,
+          targetBudgetId: newBudgetId,
+          targetPhaseId:  newPhase.id,
+          mode:           input.target.mode,
+          rateMode:       input.rateMode,
+          counts: { sections: sections.length, accounts: accountIdMap.size, lineItems: lineItemRows.length },
+          rateChangeCount,
+        },
+      })
+
+      return {
+        budgetId: newBudgetId,
+        phaseId:  newPhase.id,
+        counts:   { sections: sections.length, accounts: accountIdMap.size, lineItems: lineItemRows.length },
+        rateChangeCount,
+      }
+    })
+
+    if (input.target.mode === 'NEW_BUDGET') {
+      revalidatePath(`/projects/${input.target.projectId}`)
+    } else {
+      revalidatePath('/')
+    }
+
+    return { success: true, data: cloneResult }
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      return { success: false, error: 'A phase with that name already exists in the target budget — choose a different name.' }
+    }
+    console.error('[cloneBudget]', err)
+    return { success: false, error: 'Failed to clone budget' }
   }
 }
 

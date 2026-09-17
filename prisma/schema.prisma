@@ -419,6 +419,10 @@ model Budget {
   discountValueCents Int?     // used when discountType === 'flat'
   discountValuePct   Decimal? @db.Decimal(6, 4) // used when discountType === 'pct'
 
+  // Provenance only — no relation, no cascade. Set when this budget was
+  // created via "clone from existing budget" (NEW_BUDGET mode).
+  clonedFromBudgetId String?
+
   createdById   String?
   createdBy     User?    @relation("BudgetCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt     DateTime @default(now())
