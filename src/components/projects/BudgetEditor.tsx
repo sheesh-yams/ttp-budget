@@ -14,6 +14,7 @@ import {
 import { LineItemModal } from './LineItemModal'
 import type { EditableLineItem } from './LineItemModal'
 import { InsertPackageModal } from './InsertPackageModal'
+import { BudgetSourcePickerModal } from './BudgetSourcePickerModal'
 import { BudgetSummaryBar } from './BudgetSummaryBar'
 import { BulkImportModal } from '@/components/budget/BulkImportModal'
 import {
@@ -73,6 +74,13 @@ export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readO
   const [activePhase, setActivePhase] = useState(
     budget.phases.find(p => p.isPrimary)?.id ?? budget.phases[0]?.id
   )
+  const [showClonePicker, setShowClonePicker] = useState(false)
+
+  function handleClonedPhase(_clonedBudgetId: string, phaseId?: string) {
+    setShowClonePicker(false)
+    router.refresh()
+    if (phaseId) setActivePhase(phaseId)
+  }
 
   const currentPhase    = budget.phases.find(p => p.id === activePhase)
   const currentAccounts = (currentPhase?.accounts ?? []) as AccountWithItems[]
@@ -314,6 +322,19 @@ export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readO
               <Copy className="h-3 w-3" />
               New version
             </button>
+
+            {/* Add phase from another project's budget — OWNER/PRODUCER only */}
+            {!readOnly && (
+              <button
+                type="button"
+                title="Clone another project's budget in as a new version here"
+                onClick={() => setShowClonePicker(true)}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-[12px] text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+              >
+                <Layers className="h-3 w-3" />
+                Add phase from another project
+              </button>
+            )}
           </div>
 
           <div className="ml-auto text-right shrink-0">
@@ -418,6 +439,15 @@ export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readO
         discountConfig={discountConfig}
         canSeeFinancials={canSeeFinancials}
       />
+
+      {!readOnly && (
+        <BudgetSourcePickerModal
+          open={showClonePicker}
+          onOpenChange={setShowClonePicker}
+          target={{ mode: 'NEW_PHASE', budgetId: budget.id, sourceExcludeBudgetId: budget.id }}
+          onDone={handleClonedPhase}
+        />
+      )}
     </div>
   )
 }

@@ -1,11 +1,9 @@
 import { notFound } from 'next/navigation'
-import Link from 'next/link'
 import { db } from '@/lib/db'
 import { getWorkspaceId, getCurrentUser } from '@/lib/auth'
 import { canSeeFinancials, stripBudgetForRole } from '@/lib/budget-visibility'
 import { BudgetEditor } from '@/components/projects/BudgetEditor'
-import { createBudget } from '@/server/actions/budgets'
-import { Button } from '@/components/ui/button'
+import { BudgetEmptyState } from '@/components/projects/BudgetEmptyState'
 import { BudgetPageClient } from '@/components/projects/BudgetPageClient'
 
 const phaseInclude = {
@@ -62,7 +60,19 @@ export default async function BudgetPage({
   })
 
   if (rawBudgets.length === 0) {
-    return <NoBudget projectId={projectId} />
+    const templates = await db.budgetTemplate.findMany({
+      where: { workspaceId },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, shootType: true, description: true },
+    })
+    return (
+      <div>
+        <div className="mb-5">
+          <h1 className="text-xl font-semibold text-foreground">Budget</h1>
+        </div>
+        <BudgetEmptyState projectId={projectId} templates={templates} canManage={canSeeFin} />
+      </div>
+    )
   }
 
   // Strip margin data for Collaborators
@@ -127,37 +137,6 @@ export default async function BudgetPage({
         budgetStatusMap={budgetStatusMap}
         canSeeFin={canSeeFin}
       />
-    </div>
-  )
-}
-
-// ─── Empty state ──────────────────────────────────────────────────────────────
-
-function NoBudget({ projectId }: { projectId: string }) {
-  async function handleCreate() {
-    'use server'
-    await createBudget(projectId)
-  }
-
-  return (
-    <div>
-      <div className="mb-5">
-        <h1 className="text-xl font-semibold text-foreground">Budget</h1>
-      </div>
-      <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-16 text-center">
-        <p className="font-medium text-foreground">No budget yet</p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Create a proposal to generate a budget, or start a blank budget manually.
-        </p>
-        <div className="mt-4 flex items-center gap-3">
-          <form action={handleCreate}>
-            <Button type="submit" variant="outline">Create blank budget</Button>
-          </form>
-          <Link href={`/projects/${projectId}`}>
-            <Button>Go to Overview →</Button>
-          </Link>
-        </div>
-      </div>
     </div>
   )
 }
