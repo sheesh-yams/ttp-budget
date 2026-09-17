@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button'
 import { formatMoney } from '@/lib/money'
 import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 import { parseLocalDate } from '@/lib/time-format'
+import { captureSinglePhaseSnapshot, type SnapshotPhase } from '@/lib/proposal-snapshot'
 
 const SHOOT_LABELS: Record<string, string> = {
   MUSIC_VIDEO:    'Music Video',
@@ -127,7 +128,11 @@ export default async function ProjectDetailPage({
   }),
   db.workspace.findUnique({
     where: { id: workspaceId },
-    select: { proposalExpiryDays: true, invoiceExpiryDays: true },
+    select: {
+      proposalExpiryDays: true, invoiceExpiryDays: true,
+      name: true, legalName: true, contactEmail: true, website: true, invoiceNumberPrefix: true,
+      logoUrl: true, logoDarkUrl: true, primaryColor: true, accentColor: true,
+    },
   }),
   ])
 
@@ -417,18 +422,54 @@ export default async function ProjectDetailPage({
       </section>
 
       {/* ── Deliverables / Proposal Overview ─────────────────────────────────── */}
-      {budget && (() => {
-        const primaryPhase = budget.phases.find(p => p.isPrimary) ?? budget.phases[0]
-        if (!primaryPhase) return null
+      {budget && budget.phases.length > 0 && (() => {
+        const pMarkupPct = Number((budget as unknown as { markupPct?: number | null }).markupPct ?? 0)
+        const pTaxPct    = Number((budget as unknown as { taxPct?: number | null }).taxPct ?? 0)
+        const pDiscount  = budget as unknown as {
+          discountType?: string | null; discountLabel?: string | null
+          discountValueCents?: number | null; discountValuePct?: number | null
+        }
+        const pDiscountConfig: BudgetDiscountConfig | null = pDiscount.discountType ? {
+          type:       pDiscount.discountType as 'flat' | 'pct',
+          label:      pDiscount.discountLabel,
+          valueCents: pDiscount.discountValueCents,
+          valuePct:   pDiscount.discountValuePct != null ? Number(pDiscount.discountValuePct) : null,
+        } : null
+
+        const phaseOptions = budget.phases.map(phase => ({
+          id:                   phase.id,
+          name:                 phase.name,
+          isPrimary:            phase.isPrimary,
+          showAsProposalOption: (phase as unknown as { showAsProposalOption?: boolean }).showAsProposalOption ?? false,
+          overview:             (phase as { overview?: string | null }).overview ?? null,
+          description:          (phase as { description?: string | null }).description ?? null,
+          deliverables:         (phase as { deliverables?: unknown }).deliverables as ({ id?: string; title: string; description: string; sectionIds?: string[] }[]) | null,
+          sections:             (phase.sections ?? []) as { id: string; title: string }[],
+          preview: captureSinglePhaseSnapshot(
+            phase as unknown as SnapshotPhase, pMarkupPct, pTaxPct, pDiscountConfig,
+          ),
+        }))
+
         return (
           <ProposalOverview
-            phase={{
-              id:           primaryPhase.id,
-              name:         primaryPhase.name,
-              overview:     (primaryPhase as { overview?: string | null }).overview ?? null,
-              description:  (primaryPhase as { description?: string | null }).description ?? null,
-              deliverables: (primaryPhase as { deliverables?: unknown }).deliverables as ({ id?: string; title: string; description: string; sectionIds?: string[] }[]) | null,
-              sections:     (primaryPhase.sections ?? []) as { id: string; title: string }[],
+            phases={phaseOptions}
+            project={{
+              name:           project.name,
+              shootType:      project.shootType,
+              shootStartDate: project.shootStartDate?.toISOString() ?? null,
+              shootEndDate:   project.shootEndDate?.toISOString()   ?? null,
+              clientName:     project.client.name,
+            }}
+            workspace={{
+              name:                workspaceDefaults?.name ?? '',
+              legalName:           workspaceDefaults?.legalName ?? null,
+              contactEmail:        workspaceDefaults?.contactEmail ?? null,
+              website:             workspaceDefaults?.website ?? null,
+              invoiceNumberPrefix: workspaceDefaults?.invoiceNumberPrefix ?? 'TTP',
+              logoUrl:             workspaceDefaults?.logoUrl ?? null,
+              logoDarkUrl:         workspaceDefaults?.logoDarkUrl ?? null,
+              primaryColor:        workspaceDefaults?.primaryColor ?? null,
+              accentColor:         workspaceDefaults?.accentColor ?? null,
             }}
           />
         )

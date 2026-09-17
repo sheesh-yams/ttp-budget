@@ -1,11 +1,14 @@
 'use client'
 
 import { useState, useTransition, useRef, useEffect } from 'react'
-import { Plus, X, Check, Pencil, Link2, ChevronDown } from 'lucide-react'
-import { updatePhaseOverview } from '@/server/actions/budgets'
+import { useRouter } from 'next/navigation'
+import { Plus, X, Check, Pencil, Link2, ChevronDown, Star, Eye } from 'lucide-react'
+import { updatePhaseOverview, makePhasePrimary } from '@/server/actions/budgets'
 import { SmartTextEditor } from '@/components/delivery/SmartTextEditor'
 import { renderSmartText } from '@/lib/smart-text'
 import type { DeliverableItemType } from '@/types'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { ProposalPublicView } from '@/components/proposal/ProposalPublicView'
 
 interface Deliverable {
   id?:          string
@@ -22,17 +25,56 @@ interface SectionOption {
   title: string
 }
 
+// Precomputed server-side (captureSinglePhaseSnapshot) — the budget figures
+// for this phase, independent of whatever overview/deliverables edits are
+// in progress in this component.
+interface PhasePreview {
+  accounts: unknown[]
+  sections: { id: string; title: string }[]
+  productionCents: number
+  budgetMarkupPct: number
+  budgetTaxPct: number
+  discountCents: number
+  discountLabel: string
+  totalCents: number
+}
+
 interface Phase {
-  id:           string
-  name:         string
+  id:                   string
+  name:                 string
+  isPrimary:            boolean
+  showAsProposalOption: boolean
   overview:     string | null
   description:  string | null
   deliverables: Deliverable[] | null
   sections?:    SectionOption[]
+  preview:      PhasePreview
+}
+
+interface ProjectMeta {
+  name:           string
+  shootType:      string
+  shootStartDate: string | null
+  shootEndDate:   string | null
+  clientName:     string
+}
+
+interface WorkspaceMeta {
+  name:                string
+  legalName:           string | null
+  contactEmail:        string | null
+  website:             string | null
+  invoiceNumberPrefix: string
+  logoUrl:             string | null
+  logoDarkUrl:         string | null
+  primaryColor:        string | null
+  accentColor:         string | null
 }
 
 interface Props {
-  phase: Phase
+  phases:    Phase[]
+  project:   ProjectMeta
+  workspace: WorkspaceMeta
 }
 
 const TYPE_OPTIONS: { value: DeliverableItemType; label: string }[] = [
@@ -53,8 +95,17 @@ function blankDeliverable(): Deliverable {
   return { id: crypto.randomUUID(), title: '', description: '', type: 'DELIVERABLE', quantity: 1 }
 }
 
-export function ProposalOverview({ phase }: Props) {
-  const [, startTransition] = useTransition()
+export function ProposalOverview({ phases, project, workspace }: Props) {
+  const router = useRouter()
+  const [, startTransition]        = useTransition()
+  const [, startPrimaryTransition] = useTransition()
+
+  // Which budget version this card is currently showing/editing — defaults
+  // to whichever phase is primary today.
+  const [selectedPhaseId, setSelectedPhaseId] = useState(
+    phases.find(p => p.isPrimary)?.id ?? phases[0]?.id
+  )
+  const phase = phases.find(p => p.id === selectedPhaseId) ?? phases[0]
 
   const multiSection = (phase.sections?.length ?? 0) > 1
 
@@ -67,6 +118,30 @@ export function ProposalOverview({ phase }: Props) {
       : [blankDeliverable()]
   )
   const [saved, setSaved] = useState(false)
+  const [showPreview, setShowPreview] = useState(false)
+
+  // Switching versions loads that phase's own saved copy — never leaves
+  // edits from a different version half-applied to the form.
+  useEffect(() => {
+    setOverview(phase.overview ?? '')
+    setDescription(phase.description ?? '')
+    setDeliverables(
+      phase.deliverables && phase.deliverables.length > 0
+        ? phase.deliverables
+        : [blankDeliverable()]
+    )
+    setEditing(false)
+    // Only re-seed when the selected version itself changes, not on every
+    // parent re-render (which would otherwise clobber in-progress edits).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPhaseId])
+
+  function handleMakePrimary() {
+    startPrimaryTransition(async () => {
+      await makePhasePrimary(phase.id)
+      router.refresh()
+    })
+  }
 
   function addDeliverable() {
     setDeliverables(prev => [...prev, blankDeliverable()])
@@ -109,34 +184,74 @@ export function ProposalOverview({ phase }: Props) {
 
   return (
     <section className="mb-8">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-base font-semibold text-foreground">Proposal Overview</h2>
-        {!editing && (
+      <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          <h2 className="text-base font-semibold text-foreground">Proposal Overview</h2>
+          {phases.length > 1 && (
+            <div className="relative">
+              <select
+                value={selectedPhaseId}
+                onChange={e => setSelectedPhaseId(e.target.value)}
+                title="Which budget version's overview you're editing"
+                className="appearance-none rounded-md border border-input bg-transparent pl-2.5 pr-7 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-foreground"
+              >
+                {phases.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}{p.isPrimary ? ' (Primary)' : ''}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+            </div>
+          )}
+          {!phase.isPrimary && (
+            <button
+              type="button"
+              onClick={handleMakePrimary}
+              title="Use this version for new proposals and invoices"
+              className="flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 hover:bg-amber-100 transition-colors"
+            >
+              <Star className="h-2.5 w-2.5" />
+              Make primary
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
           <button
-            onClick={() => setEditing(true)}
+            type="button"
+            onClick={() => setShowPreview(true)}
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
-            <Pencil className="h-3 w-3" />
-            Edit
+            <Eye className="h-3 w-3" />
+            Preview
           </button>
-        )}
-        {editing && (
-          <div className="flex items-center gap-2">
+          {!editing && (
             <button
-              onClick={handleCancel}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => setEditing(true)}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
-              Cancel
+              <Pencil className="h-3 w-3" />
+              Edit
             </button>
-            <button
-              onClick={handleSave}
-              className="flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-            >
-              <Check className="h-3 w-3" />
-              Save
-            </button>
-          </div>
-        )}
+          )}
+          {editing && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleCancel}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                className="flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+              >
+                <Check className="h-3 w-3" />
+                Save
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="rounded-xl border bg-card p-5 space-y-5">
@@ -333,8 +448,89 @@ export function ProposalOverview({ phase }: Props) {
           </p>
         )}
       </div>
+
+      {/* Full-screen "what the client would see" preview — always live,
+          budget figures from this phase's precomputed snapshot, overview/
+          deliverables from whatever's currently in the form (unsaved
+          edits included), so you can check before hitting Save. */}
+      <Dialog open={showPreview} onOpenChange={setShowPreview}>
+        <DialogContent
+          className="max-w-none w-screen h-[100dvh] top-0 left-0 translate-x-0 translate-y-0 rounded-none sm:rounded-none gap-0 p-0 overflow-y-auto [&>button]:hidden"
+        >
+          {/* Custom close button — the default one assumes a light modal
+              background; this preview's cover section is dark, so it needs
+              its own high-contrast affordance that stays visible over both. */}
+          <button
+            type="button"
+            onClick={() => setShowPreview(false)}
+            aria-label="Close preview"
+            className="fixed right-4 top-4 z-[1300] flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/60 transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+          <ProposalPublicView
+            proposal={buildPreviewProposal(phase, project, workspace, overview, description, deliverables) as never}
+            accounts={phase.preview.accounts as never}
+            totalCents={phase.preview.totalCents}
+            discountCents={phase.preview.discountCents}
+            discountLabel={phase.preview.discountLabel}
+            budgetSections={phase.preview.sections}
+            isDraft
+          />
+        </DialogContent>
+      </Dialog>
     </section>
   )
+}
+
+// ─── Synthesize a preview-only "proposal" object ──────────────────────────────
+// Not a saved Proposal row — just enough shape for ProposalPublicView to
+// render this phase's copy exactly as a client would see it. isDraft={true}
+// on the caller side already suppresses every sign/contract/PDF affordance,
+// so there's nothing here that could be accidentally sent or approved.
+
+function buildPreviewProposal(
+  phase: Phase,
+  project: ProjectMeta,
+  workspace: WorkspaceMeta,
+  overview: string,
+  description: string,
+  deliverables: Deliverable[],
+) {
+  const filled = deliverables.filter(d => d.title.trim())
+  return {
+    id:            phase.id,
+    title:         `${project.name} — ${phase.name}`,
+    publicToken:   '',
+    version:       1,
+    status:        'DRAFT',
+    content: {
+      sections: [
+        { type: 'about', title: 'About', overview, body: description },
+        {
+          type: 'scope', title: 'Deliverables',
+          items: filled.map((d, i) => ({
+            number:      String(i + 1).padStart(2, '0'),
+            title:       d.title,
+            description: d.description,
+            ...(d.sectionIds?.length ? { sectionIds: d.sectionIds } : {}),
+          })),
+        },
+      ],
+    },
+    createdAt:     new Date().toISOString(),
+    expiresAt:     null,
+    approvedAt:    null,
+    signatureName: null,
+    project: {
+      name:           project.name,
+      shootType:      project.shootType,
+      shootStartDate: project.shootStartDate,
+      shootEndDate:   project.shootEndDate,
+      client: { name: project.clientName },
+    },
+    workspace,
+  }
 }
 
 // ─── Section multi-select dropdown ────────────────────────────────────────────
