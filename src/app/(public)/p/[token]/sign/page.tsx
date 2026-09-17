@@ -9,6 +9,7 @@ import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountCon
 
 interface Props {
   params: Promise<{ token: string }>
+  searchParams: Promise<{ option?: string }>
 }
 
 export async function generateMetadata({ params }: Props) {
@@ -24,8 +25,9 @@ export async function generateMetadata({ params }: Props) {
   }
 }
 
-export default async function ProposalSignPage({ params }: Props) {
+export default async function ProposalSignPage({ params, searchParams }: Props) {
   const { token } = await params
+  const { option: optionParam } = await searchParams
 
   const reqHeaders = await headers()
   const ip = trustedClientIp(name => reqHeaders.get(name))
@@ -85,12 +87,21 @@ export default async function ProposalSignPage({ params }: Props) {
   // No sections → fall back to main page (inline sign-off)
   if (contractSections.length === 0) redirect(`/p/${token}`)
 
-  // Resolve the proposal total for merge tags
+  // Resolve the proposal total for merge tags — the client's chosen option
+  // (carried from the main page as ?option=<phaseId>) takes precedence over
+  // the primary total, so the contract text shows the price they'll sign.
   const content  = proposal.content as Record<string, unknown>
   const snapshot = content?.budgetSnapshot as { totalCents?: number } | undefined
-  let totalCents = snapshot?.totalCents ?? 0
+  const proposalOptionsList = Array.isArray(content.proposalOptions)
+    ? (content.proposalOptions as { phaseId: string; budgetSnapshot?: { totalCents?: number } }[])
+    : []
+  const chosenOption = optionParam ? proposalOptionsList.find(o => o.phaseId === optionParam) : undefined
+  // Only thread the id through when it actually matched a real option on
+  // this proposal — an unrecognized/stale value in the URL is ignored.
+  const optionPhaseId = chosenOption?.phaseId
+  let totalCents = chosenOption?.budgetSnapshot?.totalCents ?? snapshot?.totalCents ?? 0
 
-  if (!snapshot?.totalCents) {
+  if (!snapshot?.totalCents && !chosenOption) {
     // Legacy: compute from live budget
     const primaryPhase = await db.phase.findFirst({
       where: { budgetId: proposal.budgetId, isPrimary: true },
@@ -183,6 +194,7 @@ export default async function ProposalSignPage({ params }: Props) {
     <ProposalSignView
       proposal={serialisedProposal}
       contractSections={contractSections}
+      optionPhaseId={optionPhaseId}
     />
   )
 }

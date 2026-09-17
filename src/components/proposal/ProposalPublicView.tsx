@@ -5,7 +5,7 @@ import { Check } from 'lucide-react'
 import { formatMoney } from '@/lib/money'
 import { lighten, darken, safeHex } from '@/lib/color'
 import { parseLocalDate } from '@/lib/time-format'
-import type { ProposalContent, PaymentMilestone } from '@/types'
+import type { ProposalContent, PaymentMilestone, ScopeItem } from '@/types'
 import { BudgetReadOnly } from '@/components/budget/BudgetReadOnly'
 import type { SerialAccount, SerialBudgetSection } from '@/components/budget/BudgetReadOnly'
 import { renderSmartText } from '@/lib/smart-text'
@@ -101,6 +101,29 @@ interface ContractSection {
   resolvedHtml?: string
 }
 
+// Client-facing package option ("high-end" vs "low-end") — one per phase
+// flagged showAsProposalOption, always with the primary phase first. Only
+// meaningful when the array has more than one entry; a single-option
+// proposal renders exactly as it always has, from the flat props below.
+interface ProposalOptionData {
+  phaseId: string
+  phaseName: string
+  isPrimary: boolean
+  overview: string
+  about: string
+  deliverables: ScopeItem[]
+  budgetSnapshot: {
+    accounts: SerialAccount[]
+    sections?: SerialBudgetSection[]
+    totalCents: number
+    discountCents?: number
+    discountLabel?: string
+    productionCents: number
+    budgetMarkupPct: number
+    budgetTaxPct: number
+  }
+}
+
 interface Props {
   proposal: SerialProposal
   accounts: SerialAccount[]
@@ -112,6 +135,7 @@ interface Props {
   contractSections?: ContractSection[]
   contractEnabled?: boolean
   deliverableLinkMode?: 'scroll' | 'filter'
+  proposalOptions?: ProposalOptionData[]
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -119,20 +143,38 @@ interface Props {
 export function ProposalPublicView({
   proposal, accounts, totalCents, discountCents = 0, discountLabel = 'Discount',
   isDraft = false, budgetSections = [], contractSections = [], contractEnabled = false,
-  deliverableLinkMode = 'scroll',
+  deliverableLinkMode = 'scroll', proposalOptions,
 }: Props) {
   const content     = proposal.content as ProposalContent
   const sections    = content?.sections ?? []
+
+  const hasOptions = !!proposalOptions && proposalOptions.length > 1
+  // Primary is always the first entry (server/page guarantee) — that's also
+  // the right default tab so a client sees the primary package first.
+  const [activeOptionIndex, setActiveOptionIndex] = useState(0)
+  const activeOption = hasOptions ? proposalOptions![activeOptionIndex] ?? proposalOptions![0] : undefined
 
   const aboutSection = sections.find(s => s.type === 'about')
   const scopeSection = sections.find(s => s.type === 'scope')
   const termsSection = sections.find(s => s.type === 'terms')
 
-  const coverOverview = aboutSection?.type === 'about' ? (aboutSection.overview ?? '') : ''
-  const aboutBody     = aboutSection?.type === 'about' ? aboutSection.body : ''
-  const deliverables = scopeSection?.type === 'scope'  ? scopeSection.items : []
+  // Overview/about/deliverables/budget come from the active tab when this
+  // proposal has multiple options; otherwise from the flat (primary-only)
+  // content exactly as before — a single-option proposal is byte-for-byte
+  // the same render path it always was.
+  const coverOverview = activeOption ? activeOption.overview : (aboutSection?.type === 'about' ? (aboutSection.overview ?? '') : '')
+  const aboutBody     = activeOption ? activeOption.about    : (aboutSection?.type === 'about' ? aboutSection.body : '')
+  const deliverables: ScopeItem[] = activeOption ? activeOption.deliverables : (scopeSection?.type === 'scope' ? scopeSection.items : [])
   const milestones: PaymentMilestone[] =
     termsSection?.type === 'terms' ? termsSection.milestones : []
+
+  // Budget figures likewise switch to the active tab's own snapshot.
+  const activeSnapshot   = activeOption?.budgetSnapshot
+  const displayAccounts       = activeSnapshot ? (activeSnapshot.accounts as unknown as SerialAccount[]) : accounts
+  const displayTotalCents     = activeSnapshot ? activeSnapshot.totalCents : totalCents
+  const displayDiscountCents  = activeSnapshot ? (activeSnapshot.discountCents ?? 0) : discountCents
+  const displayDiscountLabel  = activeSnapshot ? (activeSnapshot.discountLabel || 'Discount') : discountLabel
+  const displayBudgetSections = activeSnapshot ? (activeSnapshot.sections ?? []) : budgetSections
 
   const project   = proposal.project
   const workspace = proposal.workspace
@@ -187,14 +229,16 @@ export function ProposalPublicView({
     setTimeout(() => setHighlightedSections(new Set()), 1800)
   }
 
-  const multiSection = budgetSections.length > 1
+  const multiSection = displayBudgetSections.length > 1
 
-  // Budget-level agency fee — read from frozen snapshot stored in content
+  // Budget-level agency fee — from the active option's snapshot when this is
+  // a multi-option proposal, otherwise the frozen/live snapshot on content
+  // exactly as before.
   type BudgetSnapshot = { productionCents: number; budgetMarkupPct: number; budgetTaxPct: number }
   const snap            = (proposal.content as { budgetSnapshot?: BudgetSnapshot }).budgetSnapshot
-  const productionCents = snap?.productionCents ?? totalCents
-  const budgetMarkupPct = snap?.budgetMarkupPct ?? 0
-  const budgetTaxPct    = snap?.budgetTaxPct    ?? 0
+  const productionCents = activeSnapshot?.productionCents ?? snap?.productionCents ?? displayTotalCents
+  const budgetMarkupPct = activeSnapshot?.budgetMarkupPct ?? snap?.budgetMarkupPct ?? 0
+  const budgetTaxPct    = activeSnapshot?.budgetTaxPct    ?? snap?.budgetTaxPct    ?? 0
 
   // Merge-tag context for contract section bodies
   const mergeCtx: MergeTagContext = {
@@ -205,7 +249,7 @@ export function ProposalPublicView({
     client:   { name: clientName },
     project:  { name: project.name },
     proposal: {
-      total:        totalCents > 0 ? formatMoney(totalCents) : undefined,
+      total:        displayTotalCents > 0 ? formatMoney(displayTotalCents) : undefined,
       validThrough: validThrough ?? undefined,
     },
     deliverables: deliverables.map(d => ({ title: d.title, quantity: d.quantity })),
@@ -233,7 +277,10 @@ export function ProposalPublicView({
         headers: { 'Content-Type': 'application/json' },
         // The inline sign-off's approve button sits under the "By signing below,
         // you confirm your agreement…" text — clicking it is the affirmative act.
-        body: JSON.stringify({ signatureName: name, signatureEmail: email, proposalToken: proposal.publicToken, agreedToTerms: true }),
+        body: JSON.stringify({
+          signatureName: name, signatureEmail: email, proposalToken: proposal.publicToken, agreedToTerms: true,
+          ...(activeOption ? { optionPhaseId: activeOption.phaseId } : {}),
+        }),
       })
       if (res.ok) {
         setSigState('done')
@@ -321,17 +368,56 @@ export function ProposalPublicView({
             </div>
 
             {/* Total — right-aligned in metadata strip */}
-            {totalCents > 0 && (
+            {displayTotalCents > 0 && (
               <div style={{ textAlign: 'right', flexShrink: 0 }}>
                 <p style={{ color: 'rgba(255,255,255,0.42)', fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 4px' }}>Total</p>
                 <p style={{ color: '#ffffff', fontSize: 'clamp(26px,3vw,38px)', fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1, letterSpacing: '-0.02em', margin: 0 }}>
-                  {formatMoney(totalCents)}
+                  {formatMoney(displayTotalCents)}
                 </p>
               </div>
             )}
           </div>
         </div>
       </section>
+
+      {/* ════════════════════ OPTION TABS ════════════════════ */}
+      {hasOptions && (
+        <section style={{ padding: '0 clamp(24px,6vw,80px)', background: CANVAS, borderBottom: `1px solid ${BORDER}` }}>
+          <div style={{ maxWidth: 960, margin: '0 auto', display: 'flex', gap: 4, overflowX: 'auto' }}>
+            {proposalOptions!.map((opt, i) => {
+              const isActive = i === activeOptionIndex
+              return (
+                <button
+                  key={opt.phaseId}
+                  type="button"
+                  onClick={() => setActiveOptionIndex(i)}
+                  style={{
+                    padding: '14px 20px 12px',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    letterSpacing: '0.01em',
+                    background: 'transparent',
+                    border: 'none',
+                    borderBottom: isActive ? `2.5px solid ${V}` : '2.5px solid transparent',
+                    color: isActive ? V : MUTED,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    fontFamily: 'inherit',
+                    transition: 'color 0.15s',
+                  }}
+                >
+                  {opt.phaseName}
+                  {opt.budgetSnapshot.totalCents > 0 && (
+                    <span style={{ marginLeft: 8, fontWeight: 500, opacity: 0.75 }}>
+                      {formatMoney(opt.budgetSnapshot.totalCents)}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        </section>
+      )}
 
       {/* ════════════════════ THE PROJECT ════════════════════ */}
       {aboutBody && (
@@ -400,14 +486,14 @@ export function ProposalPublicView({
 
       {/* ════════════════════ BUDGET SUMMARY + PAYMENT TERMS ════════════════════ */}
       <BudgetReadOnly
-        accounts={accounts as never}
-        totalCents={totalCents}
+        accounts={displayAccounts as never}
+        totalCents={displayTotalCents}
         productionCents={productionCents}
         budgetMarkupPct={budgetMarkupPct}
         budgetTaxPct={budgetTaxPct}
-        discountCents={discountCents}
-        discountLabel={discountLabel}
-        budgetSections={budgetSections}
+        discountCents={displayDiscountCents}
+        discountLabel={displayDiscountLabel}
+        budgetSections={displayBudgetSections}
         milestones={milestones}
         shootStartDate={project.shootStartDate}
         highlightedSectionIds={highlightedSections}
@@ -466,7 +552,7 @@ export function ProposalPublicView({
                 You&apos;ll have a chance to read the full terms before signing.
               </p>
               <a
-                href={`/p/${proposal.publicToken}/sign`}
+                href={`/p/${proposal.publicToken}/sign${activeOption ? `?option=${activeOption.phaseId}` : ''}`}
                 style={{
                   display: 'block', width: '100%', padding: '14px', boxSizing: 'border-box',
                   background: MINT, color: MINT_DK,

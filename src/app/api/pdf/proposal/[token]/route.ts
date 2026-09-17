@@ -171,8 +171,20 @@ export async function GET(
   }
 
   // Signature block data — rendered on the PDF once the proposal is signed.
+  // approvedTotalCents (recorded at approval) takes precedence over the
+  // frozen primary total — a client who approved a non-primary option needs
+  // the signed PDF to show what they actually agreed to pay.
   const signature = proposal.status === 'APPROVED' && proposal.signatureName && proposal.approvedAt
-    ? { name: proposal.signatureName, dateISO: proposal.approvedAt.toISOString() }
+    ? {
+        name: proposal.signatureName,
+        dateISO: proposal.approvedAt.toISOString(),
+        approvedTotalCents: proposal.approvedTotalCents ?? undefined,
+      }
+    : undefined
+
+  // Client-facing option tabs — frozen at send time, same rule as the public page.
+  const proposalOptions = Array.isArray(proposalContent.proposalOptions)
+    ? (proposalContent.proposalOptions as unknown[])
     : undefined
 
   let logoSrc: string | undefined
@@ -218,6 +230,7 @@ export async function GET(
         contractSections,
         signature,
         pageBreakBetweenAccounts,
+        proposalOptions,
       }) as Parameters<typeof renderToBuffer>[0]
     )
 

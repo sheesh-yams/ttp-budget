@@ -451,6 +451,11 @@ model Phase {
   isLocked      Boolean  @default(false) // approved phases get locked
   isPrimary     Boolean  @default(false) // the one used by default for proposals/invoices
 
+  // Visible as a client-facing tab option on proposals built from this budget
+  // (alongside the primary phase, which is always included). Off by default —
+  // an extra phase never appears to the client until explicitly flagged.
+  showAsProposalOption Boolean @default(false)
+
   // Proposal overview — editable per budget version
   overview      String?  @db.Text  // short tagline shown on cover
   description   String?  @db.Text  // full description shown in "The Project" body

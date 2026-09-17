@@ -4,7 +4,7 @@ import { useState, useTransition, useEffect, useMemo, useRef } from 'react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import {
   Plus, Trash2, ChevronRight, ChevronDown, ChevronUp, Package,
-  Upload, GripVertical, Pencil, Star, Copy, Check, MoreHorizontal, Layers,
+  Upload, GripVertical, Pencil, Star, Copy, Check, MoreHorizontal, Layers, Eye,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -21,7 +21,7 @@ import {
   deleteLineItem, addAccount, upsertLineItem, deleteAccount,
   updateAccount, reorderAccounts, reorderLineItems, moveLineItem, moveLineItems,
   updateBudgetRates, updateBudgetDiscount, duplicatePhase, renamePhase, makePhasePrimary, deletePhase,
-  duplicateLineItem,
+  duplicateLineItem, setPhaseProposalVisibility,
 } from '@/server/actions/budgets'
 import {
   createBudgetSection, renameBudgetSection, deleteBudgetSection,
@@ -75,6 +75,11 @@ export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readO
     budget.phases.find(p => p.isPrimary)?.id ?? budget.phases[0]?.id
   )
   const [showClonePicker, setShowClonePicker] = useState(false)
+  // Master toggle: when on, non-primary phase tabs show a "Show as option"
+  // checkbox wired to setPhaseProposalVisibility. Off by default — purely a
+  // local UI affordance, doesn't affect what's actually visible to clients
+  // (that's the persisted showAsProposalOption flag itself).
+  const [showOptionsMode, setShowOptionsMode] = useState(false)
 
   function handleClonedPhase(_clonedBudgetId: string, phaseId?: string) {
     setShowClonePicker(false)
@@ -184,6 +189,13 @@ export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readO
     })
   }
 
+  function handleToggleProposalVisibility(phaseId: string, visible: boolean) {
+    startPhaseTransition(async () => {
+      await setPhaseProposalVisibility(phaseId, visible)
+      router.refresh()
+    })
+  }
+
   function handleAddPhase() {
     // Auto-suggest next version name — scan ALL existing phase names for the
     // highest "vN" number, not just the currently active one, so the
@@ -275,6 +287,27 @@ export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readO
                     </span>
                   )}
 
+                  {/* Show-as-option checkbox — only surfaced while the master
+                      toggle is on. Primary phase is always included as the
+                      first option, so its checkbox is implicitly-on/disabled;
+                      only extra phases need an explicit opt-in. */}
+                  {showOptionsMode && (
+                    <label
+                      className="ml-0.5 flex items-center gap-1 text-[11px] text-muted-foreground"
+                      onClick={e => e.stopPropagation()}
+                      title={phase.isPrimary ? 'The primary phase is always shown to clients' : 'Show this version as a client-facing option'}
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-3 w-3 accent-primary"
+                        checked={phase.isPrimary || !!(phase as unknown as { showAsProposalOption?: boolean }).showAsProposalOption}
+                        disabled={phase.isPrimary}
+                        onChange={e => handleToggleProposalVisibility(phase.id, e.target.checked)}
+                      />
+                      option
+                    </label>
+                  )}
+
                   {/* Per-tab actions (visible on hover when active) */}
                   {isActive && !isEditing && (
                     <span className="ml-0.5 hidden items-center gap-0.5 group-hover/tab:flex" onClick={e => e.stopPropagation()}>
@@ -333,6 +366,24 @@ export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readO
               >
                 <Layers className="h-3 w-3" />
                 Add phase from another project
+              </button>
+            )}
+
+            {/* Show multiple options to client — reveals per-phase checkboxes above */}
+            {!readOnly && budget.phases.length > 1 && (
+              <button
+                type="button"
+                title="Let clients compare multiple versions of this budget as tabs on one proposal"
+                onClick={() => setShowOptionsMode(v => !v)}
+                className={[
+                  'flex items-center gap-1 rounded-md px-2 py-1 text-[12px] transition-colors',
+                  showOptionsMode
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/60',
+                ].join(' ')}
+              >
+                <Eye className="h-3 w-3" />
+                {showOptionsMode ? 'Done' : 'Show multiple options to client'}
               </button>
             )}
           </div>

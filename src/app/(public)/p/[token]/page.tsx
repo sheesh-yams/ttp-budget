@@ -8,6 +8,18 @@ import { checkRateLimit } from '@/lib/rate-limit'
 import { trustedClientIp } from '@/lib/client-ip'
 import { ExpiredLinkPage } from '@/components/public/ExpiredLinkPage'
 import { RateLimitedPage } from '@/components/public/RateLimitedPage'
+import { PHASE_TREE_INCLUDE, captureSinglePhaseSnapshot, type SnapshotPhase } from '@/lib/proposal-snapshot'
+import type { ScopeItem } from '@/types'
+
+type ProposalOption = {
+  phaseId: string
+  phaseName: string
+  isPrimary: boolean
+  overview: string
+  about: string
+  deliverables: ScopeItem[]
+  budgetSnapshot: ReturnType<typeof captureSinglePhaseSnapshot>
+}
 
 interface Props {
   params: Promise<{ token: string }>
@@ -96,6 +108,11 @@ export default async function PublicProposalPage({ params }: Props) {
   let discountCents = 0
   let discountLabel = 'Discount'
   let budgetSections: { id: string; title: string }[] = []
+  // Client-facing option tabs — undefined/single-entry means "no tabs,
+  // render exactly like today." Sent proposals read this frozen from
+  // content.proposalOptions; drafts recompute it live below, same as every
+  // other draft field.
+  let proposalOptions: ProposalOption[] | undefined
 
   if (snapshot?.accounts) {
     // Proposal was sent with a frozen snapshot — use it
@@ -104,32 +121,18 @@ export default async function PublicProposalPage({ params }: Props) {
     discountCents = snapshot.discountCents ?? 0
     discountLabel = snapshot.discountLabel || 'Discount'
     budgetSections = (snapshot as unknown as { sections?: { id: string; title: string }[] }).sections ?? []
+    proposalOptions = Array.isArray(content.proposalOptions)
+      ? (content.proposalOptions as ProposalOption[])
+      : undefined
   } else {
     // Legacy / draft: fall back to live budget query
-    const phaseInclude = {
-      sections: {
-        orderBy: { orderIndex: 'asc' as const },
-        select:  { id: true, title: true },
-      },
-      accounts: {
-        where: { parentId: null as null },
-        orderBy: { order: 'asc' as const },
-        include: {
-          lineItems: { orderBy: { order: 'asc' as const } },
-          children: {
-            orderBy: { order: 'asc' as const },
-            include: { lineItems: { orderBy: { order: 'asc' as const } } },
-          },
-        },
-      },
-    }
     const primaryPhase = await db.phase.findFirst({
       where: { budgetId: proposal.budgetId, isPrimary: true },
-      include: phaseInclude,
+      include: PHASE_TREE_INCLUDE,
     }) ?? await db.phase.findFirst({
       where: { budgetId: proposal.budgetId },
       orderBy: { order: 'asc' as const },
-      include: phaseInclude,
+      include: PHASE_TREE_INCLUDE,
     })
 
     budgetSections = (primaryPhase?.sections ?? []).map(s => ({ id: s.id, title: s.title }))
@@ -183,6 +186,40 @@ export default async function PublicProposalPage({ params }: Props) {
     discountCents = draftTotals.discountCents
     discountLabel = draftTotals.discountLabel || 'Discount'
     totalCents    = draftTotals.grandTotalCents
+
+    // Unsent draft with phases flagged as client-facing options — live-build
+    // the same proposalOptions shape a real send would freeze, so a draft
+    // preview already shows tabs before it's ever sent (consistent with how
+    // every other draft field here is recomputed live rather than frozen).
+    if (isDraft && primaryPhase) {
+      const extraPhases = await db.phase.findMany({
+        where: {
+          budgetId: proposal.budgetId,
+          showAsProposalOption: true,
+          id: { not: primaryPhase.id },
+        },
+        orderBy: { order: 'asc' as const },
+        include: PHASE_TREE_INCLUDE,
+      })
+
+      if (extraPhases.length > 0) {
+        const toOption = (phase: SnapshotPhase, isPrimary: boolean): ProposalOption => ({
+          phaseId:      phase.id,
+          phaseName:    (phase as unknown as { name: string }).name,
+          isPrimary,
+          overview:     (phase as unknown as { overview?: string | null }).overview ?? '',
+          about:        phase.description ?? '',
+          deliverables: ((phase as unknown as {
+            deliverables?: { title: string; description: string; sectionIds?: string[] }[] | null
+          }).deliverables ?? []) as unknown as ScopeItem[],
+          budgetSnapshot: captureSinglePhaseSnapshot(phase, draftMarkupPct, draftTaxPct, draftDiscountConfig),
+        })
+        proposalOptions = [
+          toOption(primaryPhase as unknown as SnapshotPhase, true),
+          ...(extraPhases as unknown as SnapshotPhase[]).map(p => toOption(p, false)),
+        ]
+      }
+    }
 
     // Drafts always preview the LIVE description/deliverables from the budget's
     // primary phase — not whatever was captured on the last "Save Draft" — so
@@ -283,6 +320,7 @@ export default async function PublicProposalPage({ params }: Props) {
       budgetSections={budgetSections}
       contractEnabled={effectiveContractEnabled}
       contractSections={effectiveContractEnabled ? [] : contractSections}
+      proposalOptions={proposalOptions && proposalOptions.length > 1 ? proposalOptions : undefined}
     />
   )
 }

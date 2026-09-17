@@ -1616,6 +1616,31 @@ export async function makePhasePrimary(phaseId: string): Promise<ActionResult> {
   }
 }
 
+// ─── Toggle a phase's visibility as a client-facing proposal option ────────
+// The primary phase is always included as the first tab implicitly — this
+// only controls whether an ADDITIONAL phase also appears, off by default.
+
+export async function setPhaseProposalVisibility(
+  phaseId: string,
+  visible: boolean,
+): Promise<ActionResult> {
+  try {
+    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!roleGate.ok) return roleGate.error
+    const sdb = await getScopedDb()
+    // Scoped update — WHERE id = ? AND workspaceId = ?
+    const result = await sdb.phase.updateMany({
+      where: { id: phaseId },
+      data: { showAsProposalOption: visible } as unknown as Prisma.PhaseUncheckedUpdateManyInput,
+    })
+    if (result.count === 0) return { success: false, error: 'Phase not found' }
+    revalidatePath('/')
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to update visibility' }
+  }
+}
+
 export async function deletePhase(phaseId: string): Promise<ActionResult> {
   try {
     const roleGate = await requireRole(['OWNER', 'PRODUCER'])

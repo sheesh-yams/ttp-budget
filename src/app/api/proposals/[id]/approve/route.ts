@@ -19,6 +19,10 @@ const schema = z.object({
   // Explicit assent must be asserted by the caller, not assumed — the client
   // checkbox alone is not evidence; this field is stored in the audit trail.
   agreedToTerms: z.literal(true),
+  // Which option (Phase.id) was active when they signed — omitted on a
+  // single-option proposal. Determines which content.proposalOptions entry's
+  // total gets recorded, and whether that phase needs to become primary.
+  optionPhaseId: z.string().optional(),
 })
 
 /** Lowercase + trim for case-insensitive email comparison. */
@@ -38,7 +42,7 @@ export async function POST(
     return NextResponse.json({ error: 'Invalid input' }, { status: 422 })
   }
 
-  const { signatureName, signatureEmail, proposalToken } = parsed.data
+  const { signatureName, signatureEmail, proposalToken, optionPhaseId } = parsed.data
 
   const proposal = await db.proposal.findUnique({
     where: { id, publicToken: proposalToken },
@@ -103,7 +107,16 @@ export async function POST(
   // Compute the total from the budget phase linked to this proposal
   // For now we use the value stored in content; Phase 2 will compute from live line items
   const content = proposal.content as Record<string, unknown>
-  const approvedTotal = typeof content.totalCents === 'number' ? content.totalCents : null
+
+  // Multi-option proposals: use the chosen tab's own total, not the top-level
+  // (primary) one — a client approving a non-primary option must have that
+  // option's price recorded, not whatever the first tab happened to show.
+  type ProposalOption = { phaseId: string; budgetSnapshot?: { totalCents?: number } }
+  const proposalOptions = Array.isArray(content.proposalOptions) ? (content.proposalOptions as ProposalOption[]) : []
+  const chosenOption = optionPhaseId ? proposalOptions.find(o => o.phaseId === optionPhaseId) : undefined
+
+  const approvedTotal = chosenOption?.budgetSnapshot?.totalCents
+    ?? (typeof content.totalCents === 'number' ? content.totalCents : null)
 
   // ── Contract snapshot ──────────────────────────────────────────────────────
   // Freeze the contract exactly as the client sees it at signing. Sections stay
@@ -169,6 +182,26 @@ export async function POST(
   })
   if (res.count === 0) {
     return NextResponse.json({ error: 'Already approved' }, { status: 409 })
+  }
+
+  // If the client approved a non-primary option, promote that phase to
+  // primary — every downstream reader of Phase.isPrimary (invoicing,
+  // actuals, budget breakdown) then reflects what was actually chosen,
+  // with no code changes needed anywhere else. optionPhaseId only matches
+  // chosenOption when it's one of the phases already baked into this
+  // proposal's own frozen snapshot at send time, but the budgetId check
+  // below is a cheap extra guard since this is an unauthenticated endpoint.
+  if (chosenOption) {
+    const chosenPhase = await db.phase.findUnique({
+      where: { id: chosenOption.phaseId },
+      select: { isPrimary: true, budgetId: true },
+    })
+    if (chosenPhase && chosenPhase.budgetId === proposal.budgetId && !chosenPhase.isPrimary) {
+      await db.$transaction([
+        db.phase.updateMany({ where: { budgetId: proposal.budgetId }, data: { isPrimary: false } }),
+        db.phase.update({ where: { id: chosenOption.phaseId }, data: { isPrimary: true } }),
+      ])
+    }
   }
 
   // Fire notification email to workspace owner

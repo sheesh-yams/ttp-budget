@@ -61,9 +61,14 @@ interface SerialProposal {
 interface Props {
   proposal:         SerialProposal
   contractSections: ContractSection[]
+  /** Which option (Phase.id) the client had active on the main proposal page
+   *  before continuing here — carried as a query param since this route
+   *  doesn't share React state with ProposalPublicView. Omitted on a
+   *  single-option proposal. */
+  optionPhaseId?: string
 }
 
-export function ProposalSignView({ proposal, contractSections }: Props) {
+export function ProposalSignView({ proposal, contractSections, optionPhaseId }: Props) {
   const workspace  = proposal.workspace
   const clientName = proposal.project.client.name
 
@@ -113,7 +118,10 @@ export function ProposalSignView({ proposal, contractSections }: Props) {
       const res = await fetch(`/api/proposals/${proposal.id}/approve`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ signatureName: name, signatureEmail: email, proposalToken: proposal.publicToken, agreedToTerms: true }),
+        body:    JSON.stringify({
+          signatureName: name, signatureEmail: email, proposalToken: proposal.publicToken, agreedToTerms: true,
+          ...(optionPhaseId ? { optionPhaseId } : {}),
+        }),
       })
       if (res.ok) {
         const d = await res.json().catch(() => ({}))

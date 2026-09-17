@@ -1,3 +1,4 @@
+import React from 'react'
 import {
   Document, Page, Text, View, StyleSheet, Link, Font, Image,
 } from '@react-pdf/renderer'
@@ -5,7 +6,7 @@ import type { Style } from '@react-pdf/types'
 import { lineTotal, formatMoney, parseQtyFormula, fmtUnit } from '@/lib/money'
 import { sumAccount, type AccountInput } from '@/lib/totals'
 import { parseLocalDate } from '@/lib/time-format'
-import type { ProposalContent, PaymentMilestone } from '@/types'
+import type { ProposalContent, PaymentMilestone, ScopeItem } from '@/types'
 
 // ─── Brand colours ────────────────────────────────────────────────────────────
 const V    = '#5D00A4'
@@ -58,6 +59,29 @@ interface ContractSection {
   body:  string
 }
 
+// Client-facing package option ("high-end" vs "low-end") — one per phase
+// flagged showAsProposalOption, primary first. PDFs can't have interactive
+// tabs, so each option renders as its own full section in sequence.
+interface ProposalOptionData {
+  phaseId: string
+  phaseName: string
+  isPrimary: boolean
+  overview: string
+  about: string
+  deliverables: ScopeItem[]
+  budgetSnapshot: {
+    accounts: Account[]
+    sections?: BudgetSection[]
+    pageBreakBetweenAccounts?: boolean
+    totalCents: number
+    discountCents?: number
+    discountLabel?: string
+    productionCents: number
+    budgetMarkupPct: number
+    budgetTaxPct: number
+  }
+}
+
 interface Props {
   proposal: ProposalData
   accounts: Account[]
@@ -67,8 +91,9 @@ interface Props {
   budgetSections?: BudgetSection[]
   contractSections?: ContractSection[]
   /** Present once the proposal is signed — renders the signature block. */
-  signature?: { name: string; dateISO: string }
+  signature?: { name: string; dateISO: string; approvedTotalCents?: number }
   pageBreakBetweenAccounts?: boolean
+  proposalOptions?: ProposalOptionData[]
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -256,7 +281,11 @@ function SectionLabel({ label }: { label: string }) {
 
 // ─── Main PDF component ───────────────────────────────────────────────────────
 
-export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0, discountLabel = 'Discount', budgetSections = [], contractSections = [], signature, pageBreakBetweenAccounts = false }: Props) {
+export function ProposalPDF({
+  proposal, accounts, totalCents, discountCents = 0, discountLabel = 'Discount',
+  budgetSections = [], contractSections = [], signature, pageBreakBetweenAccounts = false,
+  proposalOptions,
+}: Props) {
   const content  = proposal.content as ProposalContent
   const sections = content?.sections ?? []
 
@@ -293,11 +322,269 @@ export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0,
   const productionCents = snap?.productionCents ?? totalCents
   const budgetMarkupPct = snap?.budgetMarkupPct ?? 0
   const budgetTaxPct    = snap?.budgetTaxPct    ?? 0
-  const agencyFeeCents  = budgetMarkupPct > 0 ? Math.round(productionCents * budgetMarkupPct) : 0
-  const preTaxCents     = productionCents + agencyFeeCents
-  // Tax applies after discount
-  const afterDiscountCents = Math.max(0, preTaxCents - discountCents)
-  const taxCents           = budgetTaxPct > 0 ? Math.round(afterDiscountCents * budgetTaxPct) : 0
+
+  // ── Package blocks ──────────────────────────────────────────────────────
+  // A single-option proposal (the common case) renders one block from the
+  // flat top-level fields, byte-for-byte what this page always rendered.
+  // A multi-option proposal renders each flagged phase as its own full
+  // section in sequence — same layout, looped — with a page break between.
+  const hasOptions = !!proposalOptions && proposalOptions.length > 1
+  interface PackageBlock {
+    key: string
+    heading?: string
+    breakBefore: boolean
+    aboutBody: string
+    deliverables: ScopeItem[]
+    accounts: Account[]
+    budgetSections: BudgetSection[]
+    pageBreakBetweenAccounts: boolean
+    totalCents: number
+    discountCents: number
+    discountLabel: string
+    productionCents: number
+    budgetMarkupPct: number
+    budgetTaxPct: number
+  }
+  const packages: PackageBlock[] = hasOptions
+    ? proposalOptions!.map((opt, i) => ({
+        key:            opt.phaseId,
+        heading:        `Option ${i + 1}: ${opt.phaseName}`,
+        breakBefore:    i > 0,
+        aboutBody:      opt.about,
+        deliverables:   opt.deliverables,
+        accounts:       opt.budgetSnapshot.accounts,
+        budgetSections: opt.budgetSnapshot.sections ?? [],
+        pageBreakBetweenAccounts: opt.budgetSnapshot.pageBreakBetweenAccounts ?? false,
+        totalCents:      opt.budgetSnapshot.totalCents,
+        discountCents:   opt.budgetSnapshot.discountCents ?? 0,
+        discountLabel:   opt.budgetSnapshot.discountLabel || 'Discount',
+        productionCents: opt.budgetSnapshot.productionCents,
+        budgetMarkupPct: opt.budgetSnapshot.budgetMarkupPct,
+        budgetTaxPct:    opt.budgetSnapshot.budgetTaxPct,
+      }))
+    : [{
+        key: 'primary', breakBefore: false,
+        aboutBody, deliverables, accounts, budgetSections, pageBreakBetweenAccounts,
+        totalCents, discountCents, discountLabel, productionCents, budgetMarkupPct, budgetTaxPct,
+      }]
+
+  function renderPackageBlock(pkg: PackageBlock) {
+    const agencyFeeCents = pkg.budgetMarkupPct > 0 ? Math.round(pkg.productionCents * pkg.budgetMarkupPct) : 0
+    const preTaxCents    = pkg.productionCents + agencyFeeCents
+    // Tax applies after discount
+    const afterDiscountCents = Math.max(0, preTaxCents - pkg.discountCents)
+    const taxCents           = pkg.budgetTaxPct > 0 ? Math.round(afterDiscountCents * pkg.budgetTaxPct) : 0
+    const multiSection       = pkg.budgetSections.length > 1
+
+    function renderAccount(acc: Account, isLast: boolean, forceBreak: boolean) {
+      const accTotal = sumAccount(acc as unknown as AccountInput)
+      return (
+        <View key={acc.id} break={forceBreak || undefined}>
+          <View style={[s.budgetRow, { backgroundColor: '#F9F7FC' }, isLast && !acc.lineItems.length ? s.budgetLast : {}]}>
+            <View style={[s.col1, { flexDirection: 'row', alignItems: 'center' }]}>
+              {acc.code && <Text style={s.acctCode}>{acc.code}</Text>}
+              <Text style={s.acctName}>{acc.name}</Text>
+            </View>
+            <Text style={[s.colSm, s.headText]} />
+            <Text style={[s.colUnit, s.headText]} />
+            <Text style={[s.acctAmt, s.colR]}>{formatMoney(accTotal)}</Text>
+          </View>
+          {acc.lineItems.map((item, ii) => {
+            const tot  = lineTotal(item.quantity, item.rateCents, item.markupPct)
+            const last = ii === acc.lineItems.length - 1 && (!acc.children || acc.children.length === 0)
+            return (
+              <View key={item.id} style={[s.budgetRow, last && isLast ? s.budgetLast : {}]}>
+                <Text style={[s.col1, s.lineDesc]}>{item.description}</Text>
+                {(() => { const [hc, days] = parseQtyFormula(Number(item.quantity), item.quantityFormula); return (<><Text style={[s.colSm, s.lineVal, { opacity: hc === 1 ? 0.35 : 1 }]}>{hc}</Text><Text style={[s.colUnit, s.lineVal]}>{fmtUnit(days, item.unit)}</Text></>); })()}
+                <Text style={[s.colR, s.lineAmt]}>{formatMoney(tot)}</Text>
+              </View>
+            )
+          })}
+          {acc.children?.flatMap(child =>
+            child.lineItems.map(item => {
+              const tot = lineTotal(item.quantity, item.rateCents, item.markupPct)
+              return (
+                <View key={item.id} style={s.budgetRow}>
+                  <View style={[s.col1, { flexDirection: 'row' }]}>
+                    <Text style={[s.lineDesc, { color: MUT, fontSize: 8.5, marginRight: 4 }]}>{child.name} · </Text>
+                    <Text style={s.lineDesc}>{item.description}</Text>
+                  </View>
+                  {(() => { const [hc, days] = parseQtyFormula(Number(item.quantity), item.quantityFormula); return (<><Text style={[s.colSm, s.lineVal, { opacity: hc === 1 ? 0.35 : 1 }]}>{hc}</Text><Text style={[s.colUnit, s.lineVal]}>{fmtUnit(days, item.unit)}</Text></>); })()}
+                  <Text style={[s.colR, s.lineAmt]}>{formatMoney(tot)}</Text>
+                </View>
+              )
+            })
+          )}
+        </View>
+      )
+    }
+
+    const tableHeader = (
+      <View style={s.budgetHead}>
+        <Text style={[s.col1, s.headText]}>Description</Text>
+        <Text style={[s.colSm, s.headText]}>Qty</Text>
+        <Text style={[s.colUnit, s.headText]}>Unit</Text>
+        <Text style={[s.colR, s.headText]}>Total</Text>
+      </View>
+    )
+
+    return (
+      <React.Fragment key={pkg.key}>
+        {pkg.heading && (
+          <View style={s.section} break={pkg.breakBefore}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <View style={{ width: 3, height: 16, backgroundColor: MINT, borderRadius: 2 }} />
+              <Text style={{ fontSize: 13, fontFamily: 'Helvetica-Bold', color: INK }}>{pkg.heading}</Text>
+            </View>
+          </View>
+        )}
+
+        {/* ══ THE PROJECT ══ */}
+        {pkg.aboutBody ? (
+          <View style={pkg.heading ? { padding: '0 48 32' } : s.section} break={!pkg.heading && pkg.breakBefore}>
+            <SectionLabel label="The Project" />
+            {renderPdfLines(parsePdfLines(pkg.aboutBody), s.bodyText)}
+          </View>
+        ) : null}
+
+        {/* ══ DELIVERABLES ══ */}
+        {pkg.deliverables.length > 0 && (
+          <View style={s.sectionAlt} wrap={false}>
+            <SectionLabel label="Deliverables" />
+            <View style={s.delGrid}>
+              {pkg.deliverables.map((d, i) => {
+                const linked = (d as typeof d & { sectionIds?: string[] }).sectionIds
+                const sectionTitles = linked?.length
+                  ? linked.map(sid => pkg.budgetSections.find(sec => sec.id === sid)?.title).filter((t): t is string => !!t)
+                  : []
+                return (
+                  <View key={i} style={s.delCard}>
+                    <Text style={s.delNum}>{d.number ?? String(i + 1).padStart(2, '0')}</Text>
+                    <Text style={s.delTitle}>{d.title}</Text>
+                    <Text style={s.delDesc}>{d.description}</Text>
+                    {sectionTitles.length > 0 && (
+                      <Text style={s.delSeeRef}>See: {sectionTitles.map(t => `§${t}`).join(', ')}</Text>
+                    )}
+                  </View>
+                )
+              })}
+            </View>
+          </View>
+        )}
+
+        {/* ══ BUDGET SUMMARY ══ */}
+        {pkg.accounts.length > 0 && (() => {
+          return (
+          <View style={s.section} break>
+            <SectionLabel label="Budget Summary" />
+
+            {!multiSection ? (
+              // ── Single-section: flat render (today's behaviour) ─────────────
+              <View style={s.budgetCard}>
+                {tableHeader}
+                {pkg.accounts.map((acc, ai) => renderAccount(acc, ai === pkg.accounts.length - 1, pkg.pageBreakBetweenAccounts && ai > 0))}
+              </View>
+            ) : (
+              // ── Multi-section: section page breaks + per-section headings ──
+              (() => {
+                const bySection: Record<string, Account[]> = {}
+                for (const sec of pkg.budgetSections) bySection[sec.id] = []
+                for (const acc of pkg.accounts) {
+                  const sid = acc.sectionId ?? pkg.budgetSections[0]?.id
+                  if (sid && bySection[sid]) bySection[sid].push(acc)
+                }
+                return pkg.budgetSections.map((sec, si) => {
+                  const sectionAccounts = bySection[sec.id] ?? []
+                  const sectionTotal    = sectionAccounts.reduce((sum, acc) => sum + sumAccount(acc as unknown as AccountInput), 0)
+                  return (
+                    <View key={sec.id} break={si > 0}>
+                      {/* Section heading */}
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <View style={{ width: 3, height: 14, backgroundColor: V, borderRadius: 2 }} />
+                          <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: V, letterSpacing: 1.4, textTransform: 'uppercase' }}>{sec.title}</Text>
+                        </View>
+                        {sectionAccounts.length > 0 && (
+                          <Text style={{ fontSize: 9, color: MUT }}>{formatMoney(sectionTotal)}</Text>
+                        )}
+                      </View>
+                      <View style={s.budgetCard}>
+                        {tableHeader}
+                        {sectionAccounts.length === 0 ? (
+                          <View style={s.budgetRow}>
+                            <Text style={[s.col1, s.lineDesc, { color: MUT, fontStyle: 'italic' }]}>No accounts in this section.</Text>
+                          </View>
+                        ) : (
+                          sectionAccounts.map((acc, ai) => renderAccount(acc, ai === sectionAccounts.length - 1, pkg.pageBreakBetweenAccounts && ai > 0))
+                        )}
+                      </View>
+                    </View>
+                  )
+                })
+              })()
+            )}
+
+            {/* Totals — kept together with wrap={false} */}
+            <View
+              wrap={false}
+              style={{ borderWidth: 0.5, borderTopWidth: 0, borderColor: BDR, borderBottomLeftRadius: 8, borderBottomRightRadius: 8, overflow: 'hidden', marginTop: -0.5 }}
+            >
+              <View style={s.subtotalRow}>
+                <Text style={s.subtotalLbl}>Subtotal</Text>
+                <Text style={s.subtotalVal}>{formatMoney(pkg.productionCents)}</Text>
+              </View>
+              {agencyFeeCents > 0 && (
+                <View style={s.subtotalRow}>
+                  <Text style={s.subtotalLbl}>{`Agency Fee (${Math.round(pkg.budgetMarkupPct * 100)}%)`}</Text>
+                  <Text style={s.subtotalVal}>{formatMoney(agencyFeeCents)}</Text>
+                </View>
+              )}
+              {pkg.discountCents > 0 && (
+                <View style={s.subtotalRow}>
+                  <Text style={s.subtotalLbl}>{pkg.discountLabel}</Text>
+                  <Text style={[s.subtotalVal, { color: '#dc2626' }]}>{`-${formatMoney(pkg.discountCents)}`}</Text>
+                </View>
+              )}
+              {taxCents > 0 && (
+                <View style={s.subtotalRow}>
+                  <Text style={s.subtotalLbl}>{`Tax (${Math.round(pkg.budgetTaxPct * 100)}%)`}</Text>
+                  <Text style={s.subtotalVal}>{formatMoney(taxCents)}</Text>
+                </View>
+              )}
+              <View style={s.totalBar}>
+                <View>
+                  <Text style={s.totalBarLbl}>Total Investment</Text>
+                  <Text style={[s.totalBarLbl, { fontSize: 7, color: '#2A2A28', letterSpacing: 0.5, marginTop: 2 }]}>All-in, USD</Text>
+                </View>
+                <Text style={s.totalBarVal}>{formatMoney(pkg.totalCents)}</Text>
+              </View>
+            </View>
+          </View>
+          )
+        })()}
+
+        {/* ══ PAYMENT TERMS ══ */}
+        {milestones.length > 0 && (
+          <View style={s.sectionAlt} wrap={false}>
+            <SectionLabel label="Payment Terms" />
+            <View style={s.milestoneGrid}>
+              {milestones.map((m, i) => (
+                <View key={m.id} style={s.milestoneCard}>
+                  <Text style={s.milestoneNum}>Payment {String(i + 1).padStart(2, '0')}</Text>
+                  <Text style={s.milestonePct}>{Math.round(m.percentPct * 100)}%</Text>
+                  <Text style={s.milestoneName}>{m.name}</Text>
+                  <Text style={s.milestoneTrig}>{milestoneLabelPdf(m, proposal.project.shootStartDate)}</Text>
+                  {pkg.totalCents > 0 && (
+                    <Text style={s.milestoneAmt}>{formatMoney(Math.round(pkg.totalCents * m.percentPct))}</Text>
+                  )}
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+      </React.Fragment>
+    )
+  }
 
   return (
     <Document>
@@ -357,204 +644,7 @@ export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0,
           </View>
         </View>
 
-        {/* ══ THE PROJECT ══ */}
-        {aboutBody ? (
-          <View style={s.section}>
-            <SectionLabel label="The Project" />
-            {renderPdfLines(parsePdfLines(aboutBody), s.bodyText)}
-          </View>
-        ) : null}
-
-        {/* ══ DELIVERABLES ══ */}
-        {deliverables.length > 0 && (
-          <View style={s.sectionAlt} wrap={false}>
-            <SectionLabel label="Deliverables" />
-            <View style={s.delGrid}>
-              {deliverables.map((d, i) => {
-                const linked = (d as typeof d & { sectionIds?: string[] }).sectionIds
-                const sectionTitles = linked?.length
-                  ? linked.map(sid => budgetSections.find(s => s.id === sid)?.title).filter((t): t is string => !!t)
-                  : []
-                return (
-                  <View key={i} style={s.delCard}>
-                    <Text style={s.delNum}>{d.number ?? String(i + 1).padStart(2, '0')}</Text>
-                    <Text style={s.delTitle}>{d.title}</Text>
-                    <Text style={s.delDesc}>{d.description}</Text>
-                    {sectionTitles.length > 0 && (
-                      <Text style={s.delSeeRef}>See: {sectionTitles.map(t => `§${t}`).join(', ')}</Text>
-                    )}
-                  </View>
-                )
-              })}
-            </View>
-          </View>
-        )}
-
-        {/* ══ BUDGET SUMMARY ══ */}
-        {accounts.length > 0 && (() => {
-          const multiSection = budgetSections.length > 1
-
-          // ── shared account renderer ──────────────────────────────────────────
-          function renderAccount(acc: Account, isLast: boolean, forceBreak: boolean) {
-            const accTotal = sumAccount(acc as unknown as AccountInput)
-            return (
-              <View key={acc.id} break={forceBreak || undefined}>
-                <View style={[s.budgetRow, { backgroundColor: '#F9F7FC' }, isLast && !acc.lineItems.length ? s.budgetLast : {}]}>
-                  <View style={[s.col1, { flexDirection: 'row', alignItems: 'center' }]}>
-                    {acc.code && <Text style={s.acctCode}>{acc.code}</Text>}
-                    <Text style={s.acctName}>{acc.name}</Text>
-                  </View>
-                  <Text style={[s.colSm, s.headText]} />
-                  <Text style={[s.colUnit, s.headText]} />
-                  <Text style={[s.acctAmt, s.colR]}>{formatMoney(accTotal)}</Text>
-                </View>
-                {acc.lineItems.map((item, ii) => {
-                  const tot  = lineTotal(item.quantity, item.rateCents, item.markupPct)
-                  const last = ii === acc.lineItems.length - 1 && (!acc.children || acc.children.length === 0)
-                  return (
-                    <View key={item.id} style={[s.budgetRow, last && isLast ? s.budgetLast : {}]}>
-                      <Text style={[s.col1, s.lineDesc]}>{item.description}</Text>
-                      {(() => { const [hc, days] = parseQtyFormula(Number(item.quantity), item.quantityFormula); return (<><Text style={[s.colSm, s.lineVal, { opacity: hc === 1 ? 0.35 : 1 }]}>{hc}</Text><Text style={[s.colUnit, s.lineVal]}>{fmtUnit(days, item.unit)}</Text></>); })()}
-                      <Text style={[s.colR, s.lineAmt]}>{formatMoney(tot)}</Text>
-                    </View>
-                  )
-                })}
-                {acc.children?.flatMap(child =>
-                  child.lineItems.map(item => {
-                    const tot = lineTotal(item.quantity, item.rateCents, item.markupPct)
-                    return (
-                      <View key={item.id} style={s.budgetRow}>
-                        <View style={[s.col1, { flexDirection: 'row' }]}>
-                          <Text style={[s.lineDesc, { color: MUT, fontSize: 8.5, marginRight: 4 }]}>{child.name} · </Text>
-                          <Text style={s.lineDesc}>{item.description}</Text>
-                        </View>
-                        {(() => { const [hc, days] = parseQtyFormula(Number(item.quantity), item.quantityFormula); return (<><Text style={[s.colSm, s.lineVal, { opacity: hc === 1 ? 0.35 : 1 }]}>{hc}</Text><Text style={[s.colUnit, s.lineVal]}>{fmtUnit(days, item.unit)}</Text></>); })()}
-                        <Text style={[s.colR, s.lineAmt]}>{formatMoney(tot)}</Text>
-                      </View>
-                    )
-                  })
-                )}
-              </View>
-            )
-          }
-
-          const tableHeader = (
-            <View style={s.budgetHead}>
-              <Text style={[s.col1, s.headText]}>Description</Text>
-              <Text style={[s.colSm, s.headText]}>Qty</Text>
-              <Text style={[s.colUnit, s.headText]}>Unit</Text>
-              <Text style={[s.colR, s.headText]}>Total</Text>
-            </View>
-          )
-
-          return (
-          <View style={s.section} break>
-            <SectionLabel label="Budget Summary" />
-
-            {!multiSection ? (
-              // ── Single-section: flat render (today's behaviour) ─────────────
-              <View style={s.budgetCard}>
-                {tableHeader}
-                {accounts.map((acc, ai) => renderAccount(acc, ai === accounts.length - 1, pageBreakBetweenAccounts && ai > 0))}
-              </View>
-            ) : (
-              // ── Multi-section: section page breaks + per-section headings ──
-              (() => {
-                const bySection: Record<string, Account[]> = {}
-                for (const sec of budgetSections) bySection[sec.id] = []
-                for (const acc of accounts) {
-                  const sid = acc.sectionId ?? budgetSections[0]?.id
-                  if (sid && bySection[sid]) bySection[sid].push(acc)
-                }
-                return budgetSections.map((sec, si) => {
-                  const sectionAccounts = bySection[sec.id] ?? []
-                  const sectionTotal    = sectionAccounts.reduce((sum, acc) => sum + sumAccount(acc as unknown as AccountInput), 0)
-                  return (
-                    <View key={sec.id} break={si > 0}>
-                      {/* Section heading */}
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                          <View style={{ width: 3, height: 14, backgroundColor: V, borderRadius: 2 }} />
-                          <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: V, letterSpacing: 1.4, textTransform: 'uppercase' }}>{sec.title}</Text>
-                        </View>
-                        {sectionAccounts.length > 0 && (
-                          <Text style={{ fontSize: 9, color: MUT }}>{formatMoney(sectionTotal)}</Text>
-                        )}
-                      </View>
-                      <View style={s.budgetCard}>
-                        {tableHeader}
-                        {sectionAccounts.length === 0 ? (
-                          <View style={s.budgetRow}>
-                            <Text style={[s.col1, s.lineDesc, { color: MUT, fontStyle: 'italic' }]}>No accounts in this section.</Text>
-                          </View>
-                        ) : (
-                          sectionAccounts.map((acc, ai) => renderAccount(acc, ai === sectionAccounts.length - 1, pageBreakBetweenAccounts && ai > 0))
-                        )}
-                      </View>
-                    </View>
-                  )
-                })
-              })()
-            )}
-
-            {/* Totals — kept together with wrap={false} */}
-            <View
-              wrap={false}
-              style={{ borderWidth: 0.5, borderTopWidth: 0, borderColor: BDR, borderBottomLeftRadius: 8, borderBottomRightRadius: 8, overflow: 'hidden', marginTop: -0.5 }}
-            >
-              <View style={s.subtotalRow}>
-                <Text style={s.subtotalLbl}>Subtotal</Text>
-                <Text style={s.subtotalVal}>{formatMoney(productionCents)}</Text>
-              </View>
-              {agencyFeeCents > 0 && (
-                <View style={s.subtotalRow}>
-                  <Text style={s.subtotalLbl}>{`Agency Fee (${Math.round(budgetMarkupPct * 100)}%)`}</Text>
-                  <Text style={s.subtotalVal}>{formatMoney(agencyFeeCents)}</Text>
-                </View>
-              )}
-              {discountCents > 0 && (
-                <View style={s.subtotalRow}>
-                  <Text style={s.subtotalLbl}>{discountLabel}</Text>
-                  <Text style={[s.subtotalVal, { color: '#dc2626' }]}>{`-${formatMoney(discountCents)}`}</Text>
-                </View>
-              )}
-              {taxCents > 0 && (
-                <View style={s.subtotalRow}>
-                  <Text style={s.subtotalLbl}>{`Tax (${Math.round(budgetTaxPct * 100)}%)`}</Text>
-                  <Text style={s.subtotalVal}>{formatMoney(taxCents)}</Text>
-                </View>
-              )}
-              <View style={s.totalBar}>
-                <View>
-                  <Text style={s.totalBarLbl}>Total Investment</Text>
-                  <Text style={[s.totalBarLbl, { fontSize: 7, color: '#2A2A28', letterSpacing: 0.5, marginTop: 2 }]}>All-in, USD</Text>
-                </View>
-                <Text style={s.totalBarVal}>{formatMoney(totalCents)}</Text>
-              </View>
-            </View>
-          </View>
-          )
-        })()}
-
-        {/* ══ PAYMENT TERMS ══ */}
-        {milestones.length > 0 && (
-          <View style={s.sectionAlt} wrap={false}>
-            <SectionLabel label="Payment Terms" />
-            <View style={s.milestoneGrid}>
-              {milestones.map((m, i) => (
-                <View key={m.id} style={s.milestoneCard}>
-                  <Text style={s.milestoneNum}>Payment {String(i + 1).padStart(2, '0')}</Text>
-                  <Text style={s.milestonePct}>{Math.round(m.percentPct * 100)}%</Text>
-                  <Text style={s.milestoneName}>{m.name}</Text>
-                  <Text style={s.milestoneTrig}>{milestoneLabelPdf(m, proposal.project.shootStartDate)}</Text>
-                  {totalCents > 0 && (
-                    <Text style={s.milestoneAmt}>{formatMoney(Math.round(totalCents * m.percentPct))}</Text>
-                  )}
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
+        {packages.map(pkg => renderPackageBlock(pkg))}
 
         {/* ══ CONTRACT TERMS ══ */}
         {contractSections.length > 0 && (
@@ -586,8 +676,11 @@ export function ProposalPDF({ proposal, accounts, totalCents, discountCents = 0,
               Signed electronically by {signature.name} on{' '}
               {new Date(signature.dateISO).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
             </Text>
-            {totalCents > 0 && (
-              <Text style={s.sigMeta}>Approved total: {formatMoney(totalCents)}</Text>
+            {/* Actually-approved total — matters for a multi-option proposal
+                signed on a non-primary tab, where the frozen top-level total
+                still reflects whichever phase was primary at send time. */}
+            {(signature.approvedTotalCents ?? totalCents) > 0 && (
+              <Text style={s.sigMeta}>Approved total: {formatMoney(signature.approvedTotalCents ?? totalCents)}</Text>
             )}
           </View>
         )}
