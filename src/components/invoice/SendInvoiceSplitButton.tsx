@@ -34,7 +34,7 @@ export function SendInvoiceSplitButton({ invoiceId, status, onSent }: Props) {
   async function handleMarkAsSent() {
     const ok = await confirm(
       'This will flip the invoice status to SENT without sending an email. Use this if you\'ve invoiced through another tool and want to track the status here.',
-      { title: 'Mark as sent?', key: 'invoice-mark-sent' }
+      { title: 'Mark as sent?', key: 'invoice-mark-sent', confirmLabel: 'Confirm' }
     )
     if (!ok) return
 
