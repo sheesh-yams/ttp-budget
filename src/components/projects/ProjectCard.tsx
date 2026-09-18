@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation'
 import {
   MoreHorizontal, Calendar, FileText, Receipt,
   Archive, ArchiveRestore, ExternalLink,
-  ClipboardList,
+  ClipboardList, CheckCircle2,
 } from 'lucide-react'
 import { formatMoney } from '@/lib/money'
 import { parseLocalDate } from '@/lib/time-format'
@@ -118,12 +118,6 @@ export function ProjectCard({ project, view = 'grid', canEditTeam = false }: Pro
   }
 
   // ── Derived data ─────────────────────────────────────────────────────────────
-  const approvedProposal   = project.proposals.find(p => p.status === 'APPROVED')
-  // Prefer live gross total (budgetTotalCents) over the approvedTotalCents snapshot,
-  // which may have been stored as a net value at the time the proposal was approved.
-  const approvedCents      = approvedProposal
-    ? (project.budgetTotalCents > 0 ? project.budgetTotalCents : (approvedProposal.approvedTotalCents ?? 0))
-    : null
   const latestSentProposal = project.proposals
     .filter(p => ['SENT', 'VIEWED'].includes(p.status))
     .sort((a, b) => {
@@ -135,9 +129,7 @@ export function ProjectCard({ project, view = 'grid', canEditTeam = false }: Pro
   const paidTotal          = project.invoices
     .filter(i => i.status === 'PAID')
     .reduce((s, i) => s + i.totalCents, 0)
-  const totalInvoicedCents = project.invoices
-    .filter(i => !['DRAFT', 'VOID'].includes(i.status))
-    .reduce((s, i) => s + i.totalCents, 0)
+  const isPaidInFull       = project.budgetTotalCents > 0 && paidTotal >= project.budgetTotalCents
   const callSheetCount     = project.callSheets.length
   const hasSentCallSheet   = project.callSheets.some(cs => cs.status === 'SENT' || cs.status === 'FINAL')
   const shootDate          = parseLocalDate(project.shootStartDate)
@@ -193,14 +185,17 @@ export function ProjectCard({ project, view = 'grid', canEditTeam = false }: Pro
           {isActive ? (
             <div className="text-xs leading-snug">
               <div>
-                <span className="text-gray-400">Appr </span>
-                <span className="font-semibold text-gray-900">{approvedCents !== null ? formatMoney(approvedCents) : '—'}</span>
-              </div>
-              <div>
-                <span className="text-gray-400">Inv </span>
-                <span className={`font-semibold ${totalInvoicedCents > 0 ? 'text-amber-600' : 'text-amber-400'}`}>
-                  {formatMoney(totalInvoicedCents)}
+                <span className="text-gray-400">Budget </span>
+                <span className="font-semibold text-gray-900">
+                  {project.budgetTotalCents > 0 ? formatMoney(project.budgetTotalCents) : '—'}
                 </span>
+              </div>
+              <div className="flex items-center justify-end gap-1">
+                <span className="text-gray-400">Paid </span>
+                <span className={`font-semibold ${paidTotal > 0 ? 'text-emerald-600' : 'text-gray-400'}`}>
+                  {formatMoney(paidTotal)}
+                </span>
+                {isPaidInFull && <CheckCircle2 className="w-3 h-3 text-emerald-500 flex-shrink-0" />}
               </div>
             </div>
           ) : paidTotal > 0 ? (
@@ -328,16 +323,17 @@ export function ProjectCard({ project, view = 'grid', canEditTeam = false }: Pro
           {isActive ? (
             <>
               <div>
-                <span className="text-gray-400">Approved </span>
-                <span className="font-semibold text-gray-900">{approvedCents !== null ? formatMoney(approvedCents) : '—'}</span>
+                <span className="text-gray-400">Budget </span>
+                <span className="font-semibold text-gray-900">
+                  {project.budgetTotalCents > 0 ? formatMoney(project.budgetTotalCents) : '—'}
+                </span>
               </div>
-              <div>
-                <span className="text-gray-400">Invoiced </span>
-                {totalInvoicedCents > 0 ? (
-                  <span className="font-semibold text-amber-600">{formatMoney(totalInvoicedCents)}</span>
-                ) : (
-                  <span className="font-semibold text-amber-400">$0</span>
-                )}
+              <div className="flex items-center gap-1">
+                <span className="text-gray-400">Paid </span>
+                <span className={`font-semibold ${paidTotal > 0 ? 'text-emerald-600' : 'text-gray-400'}`}>
+                  {formatMoney(paidTotal)}
+                </span>
+                {isPaidInFull && <CheckCircle2 className="w-3 h-3 text-emerald-500 flex-shrink-0" />}
               </div>
             </>
           ) : paidTotal > 0 ? (
