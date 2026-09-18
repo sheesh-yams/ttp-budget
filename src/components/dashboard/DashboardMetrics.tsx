@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import type { Project, Proposal } from '@prisma/client'
 import { formatMoney } from '@/lib/money'
 
@@ -61,6 +62,7 @@ export function DashboardMetrics({ projects, invoices, proposals }: Props) {
         ? 'None out right now'
         : `${proposalsSent} awaiting approval`,
       subColor:   proposalsSent > 0 ? '#7C3AED' : '#888780',
+      href:       '/proposals',
     },
     {
       label:      'Active projects',
@@ -72,6 +74,7 @@ export function DashboardMetrics({ projects, invoices, proposals }: Props) {
         ? `${pipelineProjects.length} in pipeline`
         : 'No active projects',
       subColor: '#888780',
+      href:     undefined,
     },
     {
       label:      'Outstanding invoices',
@@ -79,6 +82,7 @@ export function DashboardMetrics({ projects, invoices, proposals }: Props) {
       valueColor: '#2C2C2A',
       sub:        overdueCount > 0 ? `${overdueCount} overdue` : 'All on track',
       subColor:   overdueCount > 0 ? '#dc2626' : '#888780',
+      href:       '/invoices',
     },
     {
       label:      'Collected this month',
@@ -86,31 +90,61 @@ export function DashboardMetrics({ projects, invoices, proposals }: Props) {
       valueColor: collectedThisMonth > 0 ? '#059669' : '#2C2C2A',
       sub:        'Cash received',
       subColor:   '#888780',
+      href:       undefined,
     },
   ]
 
   return (
     <div className="grid grid-cols-4 gap-3">
       {metrics.map((m) => (
-        <div
-          key={m.label}
-          className="rounded-[10px] bg-white px-4 py-4"
-          style={{ border: '0.5px solid #E8E0F0' }}
-        >
-          <p className="text-[10.5px] font-medium uppercase tracking-[0.07em]" style={{ color: '#888780' }}>
-            {m.label}
-          </p>
-          <p
-            className="mt-2 text-[26px] font-semibold leading-none tabular-nums"
-            style={{ color: m.valueColor }}
-          >
-            {m.value}
-          </p>
-          <p className="mt-1.5 text-[11px]" style={{ color: m.subColor }}>
-            {m.sub}
-          </p>
-        </div>
+        <MetricTile key={m.label} {...m} />
       ))}
+    </div>
+  )
+}
+
+function MetricTile({
+  label, value, valueColor, sub, subColor, href,
+}: {
+  label: string
+  value: string
+  valueColor: string
+  sub: string
+  subColor: string
+  href?: string
+}) {
+  const content = (
+    <>
+      <p className="text-[10.5px] font-medium uppercase tracking-[0.07em]" style={{ color: '#888780' }}>
+        {label}
+      </p>
+      <p
+        className="mt-2 text-[26px] font-semibold leading-none tabular-nums"
+        style={{ color: valueColor }}
+      >
+        {value}
+      </p>
+      <p className="mt-1.5 text-[11px]" style={{ color: subColor }}>
+        {sub}
+      </p>
+    </>
+  )
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        className="block rounded-[10px] bg-white px-4 py-4 transition-colors hover:bg-muted/40"
+        style={{ border: '0.5px solid #E8E0F0' }}
+      >
+        {content}
+      </Link>
+    )
+  }
+
+  return (
+    <div className="rounded-[10px] bg-white px-4 py-4" style={{ border: '0.5px solid #E8E0F0' }}>
+      {content}
     </div>
   )
 }

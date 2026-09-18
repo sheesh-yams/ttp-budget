@@ -16,7 +16,7 @@ const shootTypeLabels: Record<string, string> = {
 }
 
 interface Props {
-  projects: ProjectWithClient[]
+  projects: (ProjectWithClient & { budgetTotalCents: number })[]
 }
 
 export function RecentProjects({ projects }: Props) {
@@ -60,7 +60,9 @@ export function RecentProjects({ projects }: Props) {
                 {project.status.charAt(0) + project.status.slice(1).toLowerCase()}
               </Badge>
             </span>
-            <span className="text-right font-medium tabular text-foreground">—</span>
+            <span className="text-right font-medium tabular text-foreground">
+              {project.budgetTotalCents > 0 ? formatMoney(project.budgetTotalCents) : '—'}
+            </span>
           </Link>
         ))}
         {projects.length === 0 && (
