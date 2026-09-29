@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { searchRateCards, upsertLineItem } from '@/server/actions/budgets'
 import { searchContacts, type ContactSearchResult } from '@/server/actions/rolodex'
-import { centsToRate, rateToCents, parseQtyFormula } from '@/lib/money'
+import { centsToRate, rateToCents, parseQtyFormula, formatMoney } from '@/lib/money'
 import type { RateCardOption } from '@/types'
 import type { RateUnit } from '@prisma/client'
 
@@ -310,7 +310,7 @@ export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved
                     <span className="flex-1 font-medium">{card.role}</span>
                     <span className="text-xs text-muted-foreground">{card.defaultUnit}</span>
                     <span className="text-xs font-mono text-muted-foreground">
-                      ${(card.defaultRateCents / 100).toLocaleString()}
+                      {formatMoney(card.defaultRateCents)}
                     </span>
                   </button>
                 ))}
@@ -457,7 +457,7 @@ export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved
                   <span className="text-muted-foreground">· {selectedContact.primaryRole}</span>
                   {selectedContact.hasKit && selectedContact.kitRateCents && (
                     <span className="text-amber-600 font-medium">
-                      · Kit ${(selectedContact.kitRateCents / 100).toLocaleString()}/day will be auto-added
+                      · Kit {formatMoney(selectedContact.kitRateCents)}/day will be auto-added
                     </span>
                   )}
                   <button type="button" className="text-destructive hover:underline ml-auto" onClick={handleUnlinkContact}>
@@ -496,7 +496,7 @@ export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved
                           )}
                           {c.defaultRateCents != null && (
                             <span className="text-xs font-mono text-muted-foreground">
-                              ${(c.defaultRateCents / 100).toLocaleString()}
+                              {formatMoney(c.defaultRateCents)}
                             </span>
                           )}
                         </button>

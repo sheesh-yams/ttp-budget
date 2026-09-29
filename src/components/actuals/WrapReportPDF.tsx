@@ -2,6 +2,7 @@ import {
   Document, Page, Text, View, StyleSheet, Font,
 } from '@react-pdf/renderer'
 import type { WrapReportData } from '@/server/actions/actuals'
+import { formatMoney } from '@/lib/money'
 
 // ─── No mid-word hyphenation ──────────────────────────────────────────────────
 Font.registerHyphenationCallback((w) => [w])
@@ -98,12 +99,7 @@ const s = StyleSheet.create({
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmt(cents: number): string {
-  const abs = Math.abs(cents)
-  const str = (abs / 100).toLocaleString('en-US', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  })
-  return `$${str}`
+  return formatMoney(Math.abs(cents))
 }
 
 function pct(n: number): string {

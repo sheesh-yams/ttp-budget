@@ -24,6 +24,7 @@ import {
 import { ContactModal } from '@/components/rolodex/ContactModal'
 import { AddMemberModal } from './AddMemberModal'
 import { formatTime, type TimeFormat } from '@/lib/time-format'
+import { formatMoney } from '@/lib/money'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -71,7 +72,7 @@ function groupByDepartment(members: ProjectMemberRow[]): { dept: string | null; 
 }
 
 function formatRate(rateCents: number, rateUnit: string) {
-  return `${(rateCents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}${UNIT_SHORT[rateUnit] ?? ''}`
+  return `${formatMoney(rateCents)}${UNIT_SHORT[rateUnit] ?? ''}`
 }
 
 function Initials({ name }: { name: string }) {
@@ -617,7 +618,7 @@ function EditCard({
               </div>
               {c.defaultRateCents != null && (
                 <span className="text-[10px] text-muted-foreground shrink-0">
-                  ${(c.defaultRateCents / 100).toLocaleString()}/{c.defaultRateUnit.toLowerCase()}
+                  {formatMoney(c.defaultRateCents)}/{c.defaultRateUnit.toLowerCase()}
                 </span>
               )}
             </button>

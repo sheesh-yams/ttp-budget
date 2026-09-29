@@ -2,17 +2,7 @@
 
 import type { AccountWithItems } from '@/types'
 import type { BudgetDiscountConfig } from '@/lib/totals'
-
-// ─── Money helper ─────────────────────────────────────────────────────────────
-
-function formatCents(cents: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(cents / 100)
-}
+import { formatMoney as formatCents } from '@/lib/money'
 
 function pctLabel(pct: number): string {
   const rounded = Math.round(pct * 1000) / 10  // e.g. 0.05 → 5.0 → "5%"

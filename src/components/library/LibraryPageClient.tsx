@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { Check, Plus, BookOpen, List } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { formatMoney } from '@/lib/money'
 import { copyGlobalRateCardToWorkspace, copyGlobalTemplateToWorkspace } from '@/server/actions/library'
 
 // ---------------------------------------------------------------------------
@@ -64,7 +65,7 @@ const SHOOT_TYPE_LABELS: Record<string, string> = {
 
 function formatCents(cents: number): string {
   if (cents === 0) return '—'
-  return `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+  return formatMoney(cents)
 }
 
 function formatUnit(unit: string): string {

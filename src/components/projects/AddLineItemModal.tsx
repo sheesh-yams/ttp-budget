@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { searchRateCards, upsertLineItem } from '@/server/actions/budgets'
-import { centsToRate, rateToCents } from '@/lib/money'
+import { centsToRate, rateToCents, formatMoney } from '@/lib/money'
 import type { RateCardOption } from '@/types'
 import type { RateUnit } from '@prisma/client'
 
@@ -150,7 +150,7 @@ export function AddLineItemModal({ open, onOpenChange, accountId, onAdded }: Pro
                     <span className="flex-1 font-medium">{card.role}</span>
                     <span className="text-xs text-muted-foreground">{card.defaultUnit}</span>
                     <span className="text-xs font-mono text-muted-foreground">
-                      ${(card.defaultRateCents / 100).toLocaleString()}
+                      {formatMoney(card.defaultRateCents)}
                     </span>
                   </button>
                 ))}

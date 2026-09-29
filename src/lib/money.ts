@@ -3,13 +3,18 @@
  * All math happens in cents. Convert at the edges.
  */
 
-/** Format cents as a display string: 6126000 → "$61,260" */
+/**
+ * Format cents as a display string. Whole-dollar amounts drop the cents,
+ * anything else shows exactly two decimals so a $0.76 rate never reads as $1:
+ * 6126000 → "$61,260", 6126050 → "$61,260.50", 76 → "$0.76"
+ */
 export function formatMoney(cents: number, currency = 'USD'): string {
+  const fractionDigits = Math.round(cents) % 100 === 0 ? 0 : 2
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency,
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
   }).format(cents / 100)
 }
 

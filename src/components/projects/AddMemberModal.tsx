@@ -4,6 +4,7 @@ import { useState, useTransition, useEffect, useRef } from 'react'
 import { X, Search, UserPlus, Users } from 'lucide-react'
 import { searchContacts, type ContactSearchResult } from '@/server/actions/rolodex'
 import { addProjectMember, type MemberFormData } from '@/server/actions/project-members'
+import { formatMoney } from '@/lib/money'
 
 const RATE_UNITS = [
   { value: 'HOUR',     label: 'per hour' },
@@ -174,7 +175,7 @@ function SearchPane({
             </div>
             {contact.defaultRateCents != null && (
               <span className="text-xs text-muted-foreground flex-shrink-0">
-                ${(contact.defaultRateCents / 100).toLocaleString()}/{contact.defaultRateUnit.toLowerCase().replace('_', '-')}
+                {formatMoney(contact.defaultRateCents)}/{contact.defaultRateUnit.toLowerCase().replace('_', '-')}
               </span>
             )}
           </button>
