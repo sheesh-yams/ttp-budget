@@ -193,25 +193,33 @@ export async function POST(
   // chosenOption when it's one of the phases already baked into this
   // proposal's own frozen snapshot at send time, but the budgetId check
   // below is a cheap extra guard since this is an unauthenticated endpoint.
-  if (chosenOption) {
-    const chosenPhase = await db.phase.findUnique({
-      where: { id: chosenOption.phaseId },
-      select: { isPrimary: true, budgetId: true },
-    })
-    if (chosenPhase && chosenPhase.budgetId === proposal.budgetId && !chosenPhase.isPrimary) {
-      await db.$transaction([
-        db.phase.updateMany({ where: { budgetId: proposal.budgetId }, data: { isPrimary: false } }),
-        db.phase.update({ where: { id: chosenOption.phaseId }, data: { isPrimary: true } }),
-      ])
+  //
+  // The approval is already committed above, so nothing from here on may
+  // throw past this block: the signature audit event and owner email below
+  // are the legal record of the signing and must always be written.
+  try {
+    if (chosenOption) {
+      const chosenPhase = await db.phase.findUnique({
+        where: { id: chosenOption.phaseId },
+        select: { isPrimary: true, budgetId: true },
+      })
+      if (chosenPhase && chosenPhase.budgetId === proposal.budgetId && !chosenPhase.isPrimary) {
+        await db.$transaction([
+          db.phase.updateMany({ where: { budgetId: proposal.budgetId }, data: { isPrimary: false } }),
+          db.phase.update({ where: { id: chosenOption.phaseId }, data: { isPrimary: true } }),
+        ])
+      }
     }
-  }
 
-  // Same won-proposal side effects as manually marking it Won (project
-  // Lead → Active, team reconciliation). Scoped to the workspace this
-  // proposal belongs to — already proven by the publicToken lookup above.
-  // Runs after the primary-phase promotion so the team is reconciled
-  // against the option the client actually chose.
-  await applyProposalWonEffects(scopedDbFor(proposal.workspaceId), proposal.id, proposal.projectId)
+    // Same won-proposal side effects as manually marking it Won (project
+    // Lead → Active, team reconciliation). Scoped to the workspace this
+    // proposal belongs to — already proven by the publicToken lookup above.
+    // Runs after the primary-phase promotion so the team is reconciled
+    // against the option the client actually chose.
+    await applyProposalWonEffects(scopedDbFor(proposal.workspaceId), proposal.id, proposal.projectId)
+  } catch (err) {
+    console.error('Post-approval side effects failed (approval itself succeeded):', proposal.id, err)
+  }
 
   // Fire notification email to workspace owner
   if (proposal.workspace.contactEmail) {

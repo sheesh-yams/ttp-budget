@@ -18,6 +18,15 @@ Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
   `updateMany`, then a second `updateMany` on `status notIn [SENT, OVERDUE]`
   matches the same row and increments again. Fix the same way
   `recordProposalView` was fixed in fe6d9e2.
+- **View recorders are public RPC endpoints.** `recordProposalView` and
+  `recordInvoiceView` are exported from `'use server'` files and take a raw id
+  with no token check, so anyone can inflate view counts or move SENT → VIEWED.
+  Move them to `src/lib` and call them only from the token pages. (Low —
+  found by pitfall-reviewer.)
+- **Concurrent won-effects can duplicate team placeholders.** A client
+  e-signing while a producer marks Won manually runs two reconciles that both
+  read the team before either writes. `updateProposalStatus` also re-runs the
+  effects when a proposal is already APPROVED. (Low — found by pitfall-reviewer.)
 - **"Sheeshyams Project Testing" is LEAD with an APPROVED proposal.** Same
   e-signature gap fixed in fe6d9e2. Test project — ask before changing.
 - **Hulu Summer Sizzle proposal:** `approvedAt` set but status VIEWED. Ambiguous
@@ -53,6 +62,13 @@ Run each through `/feature`. Check the overlap first:
 ---
 
 ## Shipped
+
+### 2026-09-30 — Agent protocol + signing audit-trail hardening
+- `CLAUDE.md`, `/feature`, `/health-check`, `pitfall-reviewer`, this log, and
+  `scripts/health-data-checks.ts` (6fdd465).
+- First pitfall-reviewer run (on fe6d9e2) found that a failure in the new
+  post-approval side effects could skip the signature AuditEvent and owner
+  email after the approval had committed. Those effects are now non-fatal.
 
 ### 2026-09-30 · fe6d9e2 — Signed proposals no longer revert on re-open
 - Root cause: `recordProposalView` set `status: 'VIEWED'` on every public view,
