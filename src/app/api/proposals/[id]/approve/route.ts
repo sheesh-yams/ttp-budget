@@ -9,6 +9,8 @@ import { trustedClientIp } from '@/lib/client-ip'
 import { toJsonSafe } from '@/lib/json-safe'
 import { renderSmartText } from '@/lib/smart-text'
 import { resolveMergeTags, resolveMergeTagsPlain, type MergeTagContext } from '@/lib/merge-tags'
+import { scopedDbFor } from '@/lib/db-scoped'
+import { applyProposalWonEffects } from '@/lib/proposal-won'
 
 const schema = z.object({
   signatureName: z.string().min(2).max(120),
@@ -203,6 +205,13 @@ export async function POST(
       ])
     }
   }
+
+  // Same won-proposal side effects as manually marking it Won (project
+  // Lead → Active, team reconciliation). Scoped to the workspace this
+  // proposal belongs to — already proven by the publicToken lookup above.
+  // Runs after the primary-phase promotion so the team is reconciled
+  // against the option the client actually chose.
+  await applyProposalWonEffects(scopedDbFor(proposal.workspaceId), proposal.id, proposal.projectId)
 
   // Fire notification email to workspace owner
   if (proposal.workspace.contactEmail) {

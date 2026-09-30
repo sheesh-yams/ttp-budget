@@ -102,8 +102,16 @@ const MUTATE_OPS = new Set(['update', 'updateMany', 'delete', 'deleteMany'])
  * createMany: workspaceId is injected into every item in the data array.
  */
 export async function getScopedDb() {
-  const workspaceId = await getWorkspaceId()
+  return scopedDbFor(await getWorkspaceId())
+}
 
+/**
+ * Same scoping for an explicitly known workspace — for unauthenticated
+ * public routes (e.g. client e-signature) that have already proven which
+ * workspace they're acting in via a verified public token, but have no
+ * Clerk session for getWorkspaceId(). Never pass a user-supplied id here.
+ */
+export function scopedDbFor(workspaceId: string) {
   return db.$extends({
     query: {
       $allModels: {
@@ -164,4 +172,4 @@ export async function getScopedDb() {
 }
 
 // Type alias for convenience in server actions
-export type ScopedDb = Awaited<ReturnType<typeof getScopedDb>>
+export type ScopedDb = ReturnType<typeof scopedDbFor>
