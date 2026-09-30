@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Search, UserPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -26,6 +26,10 @@ export function AddBidDialog({ projectId, open, onClose, lineItemId, roleLabel }
   const [isPending, startTransition] = useTransition()
   const [query, setQuery]       = useState('')
   const [results, setResults]   = useState<ContactSearchResult[]>([])
+  // The query the current results belong to — so the inline "add them" form
+  // only appears once the search for exactly what was typed has come back.
+  const [searchedQuery, setSearchedQuery] = useState<string | null>(null)
+  const emailRef = useRef<HTMLInputElement>(null)
   const [roleName, setRoleName] = useState(roleLabel)
   const [newMode, setNewMode]   = useState(false)
   const [newName, setNewName]   = useState('')
@@ -35,14 +39,19 @@ export function AddBidDialog({ projectId, open, onClose, lineItemId, roleLabel }
   useEffect(() => {
     if (!open) return
     const t = setTimeout(() => {
-      searchContacts(query).then(setResults).catch(() => setResults([]))
+      searchContacts(query)
+        .then(r => { setResults(r); setSearchedQuery(query) })
+        .catch(() => { setResults([]); setSearchedQuery(query) })
     }, 200)
     return () => clearTimeout(t)
   }, [query, open])
 
   function reset() {
     setQuery(''); setNewMode(false); setNewName(''); setNewEmail(''); setError(null); setRoleName(roleLabel)
+    setSearchedQuery(null)
   }
+
+  const noMatch = query.trim() !== '' && searchedQuery === query && results.length === 0
 
   function openMemo(contactId: string) {
     setError(null)
@@ -57,14 +66,14 @@ export function AddBidDialog({ projectId, open, onClose, lineItemId, roleLabel }
     })
   }
 
-  function addNewPerson() {
+  function addNewPerson(name: string) {
     const role = (lineItemId ? roleLabel : roleName).trim()
-    if (!newName.trim()) { setError('Enter their name.'); return }
+    if (!name.trim()) { setError('Enter their name.'); return }
     if (!role) { setError('Give the role a name.'); return }
     setError(null)
     startTransition(async () => {
       const created = await createContact({
-        name: newName.trim(), primaryRole: role, email: newEmail.trim() || null,
+        name: name.trim(), primaryRole: role, email: newEmail.trim() || null,
         secondaryRoles: [], defaultRateUnit: 'DAY', hasKit: false,
       })
       if (!created.success) { setError((created as { success: false; error: string }).error); return }
@@ -96,11 +105,36 @@ export function AddBidDialog({ projectId, open, onClose, lineItemId, roleLabel }
                 placeholder="Search your rolodex by name, role or email"
                 value={query}
                 onChange={e => setQuery(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && noMatch) { e.preventDefault(); emailRef.current?.focus() } }}
               />
             </div>
             <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
-              {results.length === 0 ? (
-                <p className="px-3 py-6 text-center text-sm text-muted-foreground">No matches.</p>
+              {noMatch ? (
+                // Nobody by that name — finish adding them right here; the
+                // search text is their name.
+                <form
+                  className="space-y-3 p-4"
+                  onSubmit={e => { e.preventDefault(); addNewPerson(query) }}
+                >
+                  <p className="text-sm text-muted-foreground">
+                    <span className="font-medium text-foreground">{query.trim()}</span> isn’t in your rolodex yet. Add them and start the bid:
+                  </p>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="bid-inline-email">Email (optional)</Label>
+                    <Input
+                      id="bid-inline-email" ref={emailRef} type="email" value={newEmail}
+                      placeholder="name@example.com" onChange={e => setNewEmail(e.target.value)}
+                    />
+                  </div>
+                  <Button type="submit" className="w-full" disabled={isPending}>
+                    <UserPlus className="mr-1.5 h-3.5 w-3.5" />
+                    {isPending ? 'Adding…' : `Add ${query.trim()} and start bid`}
+                  </Button>
+                </form>
+              ) : results.length === 0 ? (
+                <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+                  {query.trim() ? 'Searching…' : 'No people in your rolodex yet — type a name to add someone.'}
+                </p>
               ) : results.map(c => (
                 <button
                   key={c.id}
@@ -121,13 +155,16 @@ export function AddBidDialog({ projectId, open, onClose, lineItemId, roleLabel }
                 </button>
               ))}
             </div>
-            <button
-              type="button"
-              onClick={() => { setNewMode(true); setNewName(query) }}
-              className="flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
-            >
-              <UserPlus className="h-3.5 w-3.5" /> Add a new person to the rolodex
-            </button>
+            {/* When there ARE matches but none is the right person */}
+            {!noMatch && results.length > 0 && (
+              <button
+                type="button"
+                onClick={() => { setNewMode(true); setNewName(query) }}
+                className="flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+              >
+                <UserPlus className="h-3.5 w-3.5" /> Not listed? Add a new person
+              </button>
+            )}
           </>
         ) : (
           <div className="space-y-3">
@@ -141,7 +178,7 @@ export function AddBidDialog({ projectId, open, onClose, lineItemId, roleLabel }
             </div>
             <div className="flex justify-between">
               <Button variant="ghost" onClick={() => setNewMode(false)} disabled={isPending}>Back to search</Button>
-              <Button onClick={addNewPerson} disabled={isPending}>{isPending ? 'Adding…' : 'Add and start bid'}</Button>
+              <Button onClick={() => addNewPerson(newName)} disabled={isPending}>{isPending ? 'Adding…' : 'Add and start bid'}</Button>
             </div>
           </div>
         )}
