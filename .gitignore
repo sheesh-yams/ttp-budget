@@ -33,3 +33,6 @@ yarn-error.log*
 # Prisma
 prisma/generated/
 .env*
+
+# Claude Code — personal settings (project agents/skills are committed)
+.claude/settings.local.json
