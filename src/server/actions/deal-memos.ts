@@ -1,14 +1,74 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { z } from 'zod'
+import type { DealMemoStatus } from '@prisma/client'
 import { db } from '@/lib/db'
-import { getWorkspaceId, requireRole } from '@/lib/auth'
+import { getScopedDb, type ScopedDb } from '@/lib/db-scoped'
+import { getCurrentUser, getWorkspaceId, requireRole } from '@/lib/auth'
+import { logAuditEvent } from '@/lib/audit'
 import type { ActionResult } from '@/types'
 import {
+  FEE_KINDS,
+  FEE_UNITS,
   dealMemoDefaultsSchema,
   resolveDealMemoDefaults,
   type DealMemoDefaults,
 } from '@/lib/deal-memo-defaults'
+import {
+  DELETABLE_STATUSES,
+  allowedFromStatuses,
+  applyAutoOvertime,
+  buildDealMemoPrefill,
+  dayRateForOvertime,
+  lineHeadcountAndDays,
+} from '@/lib/deal-memo-core'
+import { applyDealMemoAwardEffects } from '@/lib/deal-memo-effects'
+
+// ─── Shared guards (not exported — 'use server' exports are public RPC) ──────
+
+function revalidateMemo(projectId: string, memoId?: string) {
+  revalidatePath(`/projects/${projectId}/deal-memos`)
+  if (memoId) revalidatePath(`/projects/${projectId}/deal-memos/${memoId}`)
+  revalidatePath(`/projects/${projectId}/crew`)
+}
+
+/** A budget line may only be referenced if it belongs to this project. */
+async function lineBelongsToProject(sdb: ScopedDb, lineItemId: string, projectId: string) {
+  const line = await sdb.lineItem.findFirst({
+    where:  { id: lineItemId, account: { phase: { budget: { projectId } } } },
+    select: { id: true, description: true, quantity: true, quantityFormula: true },
+  })
+  return line
+}
+
+/** Loads a memo that may still be edited (anything but CANCELLED). */
+async function loadEditableMemo(sdb: ScopedDb, memoId: string) {
+  const memo = await sdb.dealMemo.findFirst({
+    where:  { id: memoId },
+    select: { id: true, projectId: true, status: true, workDayHours: true, otMultiplier: true },
+  })
+  if (!memo) return { error: 'Deal memo not found.' as const }
+  if (memo.status === 'CANCELLED') return { error: 'This deal memo is cancelled. Reopen it as a bid to edit.' as const }
+  return { memo }
+}
+
+/** Keeps every auto-rate overtime fee in step with the memo's day rate. */
+async function syncAutoOvertime(sdb: ScopedDb, memoId: string) {
+  const memo = await sdb.dealMemo.findFirst({
+    where:  { id: memoId },
+    select: {
+      workDayHours: true, otMultiplier: true,
+      fees: { select: { id: true, kind: true, unit: true, rateCents: true, isAutoRate: true } },
+    },
+  })
+  if (!memo) return
+  const dayRate = dayRateForOvertime(memo.fees)
+  const next = applyAutoOvertime(memo.fees, dayRate, memo.workDayHours, Number(memo.otMultiplier))
+  await Promise.all(next
+    .filter((f, i) => f.rateCents !== memo.fees[i].rateCents)
+    .map(f => sdb.dealMemoFee.update({ where: { id: f.id }, data: { rateCents: f.rateCents } })))
+}
 
 // ─── Workspace defaults (Settings → Contracts → Crew & Vendor) ───────────────
 
@@ -45,5 +105,427 @@ export async function updateDealMemoDefaults(input: DealMemoDefaults): Promise<A
     return { success: true, data: parsed.data }
   } catch {
     return { success: false, error: 'Failed to save deal memo defaults.' }
+  }
+}
+
+// ─── Create a bid ─────────────────────────────────────────────────────────────
+
+const createSchema = z.object({
+  projectId:  z.string().min(1),
+  lineItemId: z.string().min(1).nullable().optional(),
+  contactId:  z.string().min(1),
+  roleLabel:  z.string().trim().max(200).optional(),
+})
+
+export async function createDealMemo(input: z.infer<typeof createSchema>): Promise<ActionResult<{ id: string }>> {
+  try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+    const parsed = createSchema.safeParse(input)
+    if (!parsed.success) return { success: false, error: 'Missing project or person.' }
+    const { projectId, lineItemId, contactId, roleLabel } = parsed.data
+
+    const [sdb, user, workspaceId] = await Promise.all([getScopedDb(), getCurrentUser(), getWorkspaceId()])
+    const [project, contact, workspace] = await Promise.all([
+      sdb.project.findFirst({ where: { id: projectId }, select: { id: true, shootStartDate: true, shootEndDate: true } }),
+      sdb.contact.findFirst({
+        where:  { id: contactId, archivedAt: null },
+        select: { id: true, primaryRole: true, defaultRateCents: true, defaultRateUnit: true, hasKit: true, kitRateCents: true },
+      }),
+      db.workspace.findUnique({ where: { id: workspaceId }, select: { dealMemoDefaults: true } }),
+    ])
+    if (!project) return { success: false, error: 'Project not found.' }
+    if (!contact) return { success: false, error: 'That person isn’t in your rolodex.' }
+
+    const line = lineItemId ? await lineBelongsToProject(sdb, lineItemId, projectId) : null
+    if (lineItemId && !line) return { success: false, error: 'That budget line isn’t on this project.' }
+    if (!line && !roleLabel?.trim()) return { success: false, error: 'Give the role a name.' }
+
+    const prefill = buildDealMemoPrefill({
+      defaults: resolveDealMemoDefaults(workspace?.dealMemoDefaults),
+      line, contact, roleLabel, project,
+    })
+    const defaultBlocks = await sdb.contractBlock.findMany({
+      where:   { audience: 'VENDOR', isActive: true, isDefault: true },
+      orderBy: { orderIndex: 'asc' },
+      select:  { id: true, title: true, body: true },
+    })
+
+    const { fees, ...memoFields } = prefill
+    const memo = await sdb.$transaction(async tx => {
+      const created = await tx.dealMemo.create({
+        data: {
+          ...memoFields, workspaceId, projectId,
+          lineItemId: line?.id ?? null, contactId: contact.id, createdById: user.id,
+        },
+        select: { id: true },
+      })
+      await tx.dealMemoFee.createMany({ data: fees.map(f => ({ ...f, workspaceId, dealMemoId: created.id })) })
+      if (defaultBlocks.length) {
+        await tx.dealMemoSection.createMany({
+          data: defaultBlocks.map((b, i) => ({
+            workspaceId, dealMemoId: created.id, sourceBlockId: b.id,
+            title: b.title, body: b.body, orderIndex: i,
+          })),
+        })
+      }
+      return created
+    })
+
+    revalidateMemo(projectId)
+    return { success: true, data: { id: memo.id } }
+  } catch (err) {
+    console.error('[createDealMemo]', err)
+    return { success: false, error: 'Failed to create the bid.' }
+  }
+}
+
+// ─── Update memo fields ───────────────────────────────────────────────────────
+
+const updateSchema = z.object({
+  position:             z.string().trim().min(1).max(200).optional(),
+  startDate:            z.string().nullable().optional(),
+  endDate:              z.string().nullable().optional(),
+  days:                 z.number().min(0).max(1000).optional(),
+  workDayHours:         z.union([z.literal(10), z.literal(12)]).optional(),
+  otMultiplier:         z.number().min(1).max(5).optional(),
+  doubleTimeAfterHours: z.number().int().min(1).max(24).optional(),
+  doubleTimeMultiplier: z.number().min(1).max(5).optional(),
+  productionZoneMiles:  z.number().int().min(0).max(1000).optional(),
+  internalNotes:        z.string().max(10000).nullable().optional(),
+})
+
+export async function updateDealMemo(memoId: string, patch: z.infer<typeof updateSchema>): Promise<ActionResult> {
+  try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+    const parsed = updateSchema.safeParse(patch)
+    if (!parsed.success) return { success: false, error: 'Some fields are invalid.' }
+
+    const sdb = await getScopedDb()
+    const loaded = await loadEditableMemo(sdb, memoId)
+    if ('error' in loaded) return { success: false, error: loaded.error as string }
+
+    const { startDate, endDate, ...rest } = parsed.data
+    await sdb.dealMemo.update({
+      where: { id: memoId },
+      data:  {
+        ...rest,
+        ...(startDate !== undefined ? { startDate: startDate ? new Date(startDate) : null } : {}),
+        ...(endDate   !== undefined ? { endDate:   endDate   ? new Date(endDate)   : null } : {}),
+      },
+    })
+    if (rest.workDayHours !== undefined || rest.otMultiplier !== undefined) await syncAutoOvertime(sdb, memoId)
+
+    revalidateMemo(loaded.memo.projectId, memoId)
+    return { success: true, data: undefined }
+  } catch (err) {
+    console.error('[updateDealMemo]', err)
+    return { success: false, error: 'Failed to save.' }
+  }
+}
+
+// ─── Fees ─────────────────────────────────────────────────────────────────────
+
+const feeSchema = z.object({
+  id:               z.string().optional(),
+  kind:             z.enum(FEE_KINDS),
+  label:            z.string().trim().min(1).max(120),
+  rateCents:        z.number().int().min(0),
+  unit:             z.enum(FEE_UNITS),
+  quantity:         z.number().min(0).max(100000),
+  termsText:        z.string().max(2000).nullable().optional(),
+  budgetLineItemId: z.string().min(1).nullable().optional(),
+  isAutoRate:       z.boolean().optional(),
+})
+
+export async function upsertDealMemoFee(memoId: string, input: z.infer<typeof feeSchema>): Promise<ActionResult<{ id: string }>> {
+  try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+    const parsed = feeSchema.safeParse(input)
+    if (!parsed.success) return { success: false, error: 'Check the fee’s name, rate and quantity.' }
+
+    const sdb = await getScopedDb()
+    const loaded = await loadEditableMemo(sdb, memoId)
+    if ('error' in loaded) return { success: false, error: loaded.error as string }
+
+    const { id, budgetLineItemId, ...fee } = parsed.data
+    if (budgetLineItemId && !(await lineBelongsToProject(sdb, budgetLineItemId, loaded.memo.projectId))) {
+      return { success: false, error: 'That budget line isn’t on this project.' }
+    }
+    const data = {
+      kind:             fee.kind,
+      label:            fee.label,
+      rateCents:        fee.rateCents,
+      unit:             fee.unit,
+      // A "total" fee is one amount — a leftover per-day quantity would
+      // multiply it (e.g. $4,000 total × 5 = $20,000).
+      quantity:         fee.unit === 'FLAT' ? 1 : fee.quantity,
+      termsText:        fee.termsText ?? null,
+      budgetLineItemId: budgetLineItemId ?? null,
+      isAutoRate:       fee.kind === 'OVERTIME' && !!fee.isAutoRate,
+    }
+
+    let feeId: string
+    if (id) {
+      const res = await sdb.dealMemoFee.updateMany({ where: { id, dealMemoId: memoId }, data })
+      if (res.count === 0) return { success: false, error: 'Fee not found.' }
+      feeId = id
+    } else {
+      const max = await sdb.dealMemoFee.aggregate({ where: { dealMemoId: memoId }, _max: { order: true } })
+      const workspaceId = await getWorkspaceId()
+      const created = await sdb.dealMemoFee.create({
+        data:   { ...data, workspaceId, dealMemoId: memoId, order: (max._max.order ?? -1) + 1 },
+        select: { id: true },
+      })
+      feeId = created.id
+    }
+    await syncAutoOvertime(sdb, memoId)
+
+    revalidateMemo(loaded.memo.projectId, memoId)
+    return { success: true, data: { id: feeId } }
+  } catch (err) {
+    console.error('[upsertDealMemoFee]', err)
+    return { success: false, error: 'Failed to save the fee.' }
+  }
+}
+
+export async function deleteDealMemoFee(memoId: string, feeId: string): Promise<ActionResult> {
+  try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+    const sdb = await getScopedDb()
+    const loaded = await loadEditableMemo(sdb, memoId)
+    if ('error' in loaded) return { success: false, error: loaded.error as string }
+    await sdb.dealMemoFee.deleteMany({ where: { id: feeId, dealMemoId: memoId } })
+    revalidateMemo(loaded.memo.projectId, memoId)
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to remove the fee.' }
+  }
+}
+
+// ─── Terms sections ───────────────────────────────────────────────────────────
+
+async function nextSectionIndex(sdb: ScopedDb, memoId: string) {
+  const max = await sdb.dealMemoSection.aggregate({ where: { dealMemoId: memoId }, _max: { orderIndex: true } })
+  return (max._max.orderIndex ?? -1) + 1
+}
+
+export async function addDealMemoSection(
+  memoId: string,
+  from: { blockId: string } | { adHoc: true },
+): Promise<ActionResult<{ id: string }>> {
+  try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+    const sdb = await getScopedDb()
+    const loaded = await loadEditableMemo(sdb, memoId)
+    if ('error' in loaded) return { success: false, error: loaded.error as string }
+
+    let title = 'New section'
+    let body = ''
+    let sourceBlockId: string | null = null
+    if ('blockId' in from) {
+      // Vendor terms only — a client proposal block never lands on a deal memo.
+      const block = await sdb.contractBlock.findFirst({
+        where:  { id: from.blockId, audience: 'VENDOR' },
+        select: { id: true, title: true, body: true },
+      })
+      if (!block) return { success: false, error: 'That terms block isn’t in your crew & vendor library.' }
+      ;({ title, body } = block)
+      sourceBlockId = block.id
+    }
+    const workspaceId = await getWorkspaceId()
+    const created = await sdb.dealMemoSection.create({
+      data:   { workspaceId, dealMemoId: memoId, sourceBlockId, title, body, orderIndex: await nextSectionIndex(sdb, memoId) },
+      select: { id: true },
+    })
+    revalidateMemo(loaded.memo.projectId, memoId)
+    return { success: true, data: { id: created.id } }
+  } catch {
+    return { success: false, error: 'Failed to add the section.' }
+  }
+}
+
+export async function updateDealMemoSection(
+  memoId: string, sectionId: string, input: { title: string; body: string },
+): Promise<ActionResult> {
+  try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+    const title = input.title.trim()
+    if (!title) return { success: false, error: 'Sections need a title.' }
+    const sdb = await getScopedDb()
+    const loaded = await loadEditableMemo(sdb, memoId)
+    if ('error' in loaded) return { success: false, error: loaded.error as string }
+    const existing = await sdb.dealMemoSection.findFirst({ where: { id: sectionId, dealMemoId: memoId }, select: { sourceBlockId: true } })
+    if (!existing) return { success: false, error: 'Section not found.' }
+    await sdb.dealMemoSection.update({
+      where: { id: sectionId },
+      data:  { title, body: input.body, editedFromSource: !!existing.sourceBlockId },
+    })
+    revalidateMemo(loaded.memo.projectId, memoId)
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to save the section.' }
+  }
+}
+
+export async function resetDealMemoSection(memoId: string, sectionId: string): Promise<ActionResult> {
+  try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+    const sdb = await getScopedDb()
+    const loaded = await loadEditableMemo(sdb, memoId)
+    if ('error' in loaded) return { success: false, error: loaded.error as string }
+    const existing = await sdb.dealMemoSection.findFirst({ where: { id: sectionId, dealMemoId: memoId }, select: { sourceBlockId: true } })
+    if (!existing?.sourceBlockId) return { success: false, error: 'No library version to reset to.' }
+    const block = await sdb.contractBlock.findFirst({
+      where:  { id: existing.sourceBlockId, audience: 'VENDOR' },
+      select: { title: true, body: true },
+    })
+    if (!block) return { success: false, error: 'The library version no longer exists.' }
+    await sdb.dealMemoSection.update({ where: { id: sectionId }, data: { title: block.title, body: block.body, editedFromSource: false } })
+    revalidateMemo(loaded.memo.projectId, memoId)
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to reset the section.' }
+  }
+}
+
+export async function removeDealMemoSection(memoId: string, sectionId: string): Promise<ActionResult> {
+  try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+    const sdb = await getScopedDb()
+    const loaded = await loadEditableMemo(sdb, memoId)
+    if ('error' in loaded) return { success: false, error: loaded.error as string }
+    await sdb.dealMemoSection.deleteMany({ where: { id: sectionId, dealMemoId: memoId } })
+    revalidateMemo(loaded.memo.projectId, memoId)
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to remove the section.' }
+  }
+}
+
+// ─── Status: award, not selected, cancel, reopen, delete ─────────────────────
+
+export async function awardDealMemo(memoId: string): Promise<ActionResult<{ crewUpdated: boolean; closedOthers: number }>> {
+  try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+    const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+
+    const memo = await sdb.dealMemo.findFirst({
+      where:  { id: memoId },
+      select: { id: true, projectId: true, lineItemId: true, workspaceId: true, contactId: true, roleLabel: true },
+    })
+    if (!memo) return { success: false, error: 'Deal memo not found.' }
+
+    // Headcount comes from the budget line ("2x3" = 2 people). Unbudgeted
+    // memos have no line and no cap.
+    const line = memo.lineItemId ? await lineBelongsToProject(sdb, memo.lineItemId, memo.projectId) : null
+    const headcount = line ? lineHeadcountAndDays(line).headcount : null
+    const confirmedOnLine = () => memo.lineItemId
+      ? sdb.dealMemo.count({ where: { projectId: memo.projectId, lineItemId: memo.lineItemId, status: 'CONFIRMED' } })
+      : Promise.resolve(0)
+
+    if (headcount !== null && (await confirmedOnLine()) >= headcount) {
+      return { success: false, error: `${memo.roleLabel} already has ${headcount} of ${headcount} confirmed. Cancel one first.` }
+    }
+
+    // Compare-and-set: only a BID can be awarded; a double click or a second
+    // tab loses the race here instead of awarding twice.
+    const res = await sdb.dealMemo.updateMany({
+      where: { id: memoId, status: { in: allowedFromStatuses('CONFIRMED') } },
+      data:  { status: 'CONFIRMED', awardedAt: new Date() },
+    })
+    if (res.count === 0) return { success: false, error: 'Only a bid can be awarded.' }
+
+    // Two different bids awarded at the same moment can both pass the check
+    // above; re-count and back this one out if the line went over.
+    let closedOthers = 0
+    if (headcount !== null) {
+      const confirmed = await confirmedOnLine()
+      if (confirmed > headcount) {
+        await sdb.dealMemo.updateMany({ where: { id: memoId, status: 'CONFIRMED' }, data: { status: 'BID', awardedAt: null } })
+        return { success: false, error: `${memo.roleLabel} was just filled by another award. Refresh to see it.` }
+      }
+      // Line is now full — the remaining bids for it lose.
+      if (confirmed === headcount) {
+        const closed = await sdb.dealMemo.updateMany({
+          where: { projectId: memo.projectId, lineItemId: memo.lineItemId, status: 'BID', id: { not: memoId } },
+          data:  { status: 'NOT_SELECTED' },
+        })
+        closedOthers = closed.count
+      }
+    }
+
+    // The award is committed; a crew-roster hiccup must not undo it.
+    let crewUpdated = false
+    try {
+      crewUpdated = (await applyDealMemoAwardEffects(sdb, memoId)) !== null
+    } catch (err) {
+      console.error('[awardDealMemo] crew roster update failed (award succeeded):', memoId, err)
+    }
+
+    await logAuditEvent({
+      workspaceId: memo.workspaceId, actorId: user.id, action: 'dealMemo.awarded',
+      entityType: 'DealMemo', entityId: memoId,
+      metadata: { lineItemId: memo.lineItemId, contactId: memo.contactId, crewUpdated, closedOthers },
+    })
+    revalidateMemo(memo.projectId, memoId)
+    return { success: true, data: { crewUpdated, closedOthers } }
+  } catch (err) {
+    console.error('[awardDealMemo]', err)
+    return { success: false, error: 'Failed to award the bid.' }
+  }
+}
+
+const SETTABLE: DealMemoStatus[] = ['NOT_SELECTED', 'BID', 'CANCELLED']
+
+export async function setDealMemoStatus(memoId: string, to: DealMemoStatus): Promise<ActionResult> {
+  try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+    if (!SETTABLE.includes(to)) return { success: false, error: 'Use Award to confirm a bid.' }
+    const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+    const memo = await sdb.dealMemo.findFirst({ where: { id: memoId }, select: { projectId: true, workspaceId: true } })
+    if (!memo) return { success: false, error: 'Deal memo not found.' }
+
+    const res = await sdb.dealMemo.updateMany({
+      where: { id: memoId, status: { in: allowedFromStatuses(to) } },
+      data:  { status: to, ...(to === 'BID' ? { awardedAt: null } : {}) },
+    })
+    if (res.count === 0) return { success: false, error: 'That status change isn’t allowed from here.' }
+
+    if (to === 'CANCELLED') {
+      await logAuditEvent({
+        workspaceId: memo.workspaceId, actorId: user.id, action: 'dealMemo.cancelled',
+        entityType: 'DealMemo', entityId: memoId,
+      })
+    }
+    revalidateMemo(memo.projectId, memoId)
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to update the status.' }
+  }
+}
+
+export async function deleteDealMemo(memoId: string): Promise<ActionResult> {
+  try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+    const sdb = await getScopedDb()
+    const memo = await sdb.dealMemo.findFirst({ where: { id: memoId }, select: { projectId: true } })
+    if (!memo) return { success: false, error: 'Deal memo not found.' }
+    const res = await sdb.dealMemo.deleteMany({ where: { id: memoId, status: { in: DELETABLE_STATUSES } } })
+    if (res.count === 0) return { success: false, error: 'Confirmed deal memos can’t be deleted — cancel it instead.' }
+    revalidateMemo(memo.projectId)
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to delete.' }
   }
 }

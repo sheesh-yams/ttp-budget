@@ -44,6 +44,12 @@ Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
   shared Sonner/Radix toast would standardise it.
 - **Dead code:** `sendProposal` / `createProposal` in `proposals.ts` are
   unreferenced — delete.
+- **Deal memo Phase 1 unclicked in a browser:** board, bid dialog, memo
+  editor, vendor preview, Settings → Contracts vendor tab + defaults panel,
+  crew pills, rolodex history, Actuals "Deal memo" tags + Unbudgeted group.
+- **Budget lines without a formula count quantity as headcount** (`2` = 2
+  people × 1 day), the same as the team reconcile and the PDF. A 2-day solo
+  line should be entered as `1x2` for deal memo days to prefill correctly.
 - **Never clicked through in a browser** (agent sessions have no login):
   proposal option tabs + PDF sequential options, option-visibility switch,
   proposal overview version dropdown + full-screen preview, dashboard KPI links.
@@ -62,6 +68,38 @@ Run each through `/feature`. Check the overlap first:
 ---
 
 ## Shipped
+
+### 2026-09-30 — Deal memos, Phase 1 (bids → confirmed memos → crew + actuals)
+- Migrations `20260930000001_deal_memos` and `20260930000002_actual_entry_ownership`.
+- **Model:** a bid *is* a draft deal memo. Several BIDs per budget crew line
+  are compared on `/projects/[id]/deal-memos`. Awarding flips one to CONFIRMED
+  (compare-and-set, headcount-capped, other bids closed when the line fills)
+  and fills the crew slot: same person + role → else the "Unassigned"
+  placeholder → else a new member (`src/lib/deal-memo-effects.ts`).
+- **Internal vs external:** vendors only ever see `toVendorDealMemo`
+  (`src/lib/deal-memo-vendor-view.ts`), a whitelisted DTO. Role label, budget
+  links, internal notes and client rates can't leak by construction.
+  Owner/Producer only.
+- **Terms:** Settings → Contracts has Client / Crew & vendor tabs
+  (`ContractBlock.audience`). Every proposal-side read filters CLIENT. Memo
+  defaults (10/12-hour day, OT rules, zone, per diem, mileage, the 5 standard
+  fee rows) live in `Workspace.dealMemoDefaults`.
+- **Actuals:** the pure planner `src/lib/deal-memo-actuals.ts` runs on sheet
+  create and on every Actuals load. Day rate/OT land on the role line, kit on
+  the person's kit line, and anything else — or any fee — on a budget line
+  chosen per fee (e.g. stylist kit → Wardrobe). Unmapped fees become
+  unbudgeted rows under the role's account. Amounts the user typed or
+  receipts set (`amountUserOwned`) are never overwritten, including a $0.
+- **Prefill rule:** bid rates come from the person's rolodex rates, never the
+  budget line (that's the client rate).
+- **Also fixed:** `updateActualEntry` / `deleteAdHocEntry` wrote by entry id with
+  no workspace check; the Actuals editor silently hid unbudgeted rows with no
+  account (now an "Unbudgeted" group).
+- pitfall-reviewer found 7 issues pre-ship (user $0 overwritten, receipts
+  overwritten, FLAT quantity inflation, stale-line writes, duplicate race,
+  cross-role crew clobber, over-award) — all fixed and DB-verified.
+- **Phase 2 (not built):** vendor e-signature via a public `/dm/[token]`
+  page, the approve-route pattern, a PDF and email.
 
 ### 2026-09-30 — Agent protocol + signing audit-trail hardening
 - `CLAUDE.md`, `/feature`, `/health-check`, `pitfall-reviewer`, this log, and

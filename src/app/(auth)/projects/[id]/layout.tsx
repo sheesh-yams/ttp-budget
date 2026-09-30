@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import { db } from '@/lib/db'
-import { getWorkspaceId } from '@/lib/auth'
+import { getCurrentRole, getWorkspaceId } from '@/lib/auth'
 import { ProjectSubNav } from '@/components/projects/ProjectSubNav'
 
 export default async function ProjectLayout({
@@ -11,7 +11,7 @@ export default async function ProjectLayout({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const workspaceId = await getWorkspaceId()
+  const [workspaceId, role] = await Promise.all([getWorkspaceId(), getCurrentRole()])
 
   // Lightweight fetch — just what the sidebar needs
   const project = await db.project.findFirst({
@@ -38,6 +38,7 @@ export default async function ProjectLayout({
           projectId={project.id}
           projectName={project.name}
           clientName={project.client.name}
+          canSeeDealMemos={role !== 'COLLABORATOR'}
         />
       </aside>
 

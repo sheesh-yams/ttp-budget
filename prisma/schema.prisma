@@ -945,6 +945,9 @@ model ActualEntry {
   // dealMemoFeeId identifies the source fee line for unbudgeted memo entries.
   dealMemoSourced Boolean      @default(false)
   dealMemoFeeId   String?                      // soft ref to DealMemoFee.id
+  // The amount is the user's own — typed by hand or totalled from receipts —
+  // so deal memo prefill never touches it again, including a deliberate $0.
+  amountUserOwned Boolean      @default(false)
 
   receipts  Receipt[]
 
@@ -952,6 +955,9 @@ model ActualEntry {
   updatedAt DateTime @updatedAt
 
   @@index([actualSheetId])
+  // One unbudgeted prefill entry per deal memo fee per sheet; NULLs (every
+  // non-memo entry) never collide.
+  @@unique([actualSheetId, dealMemoFeeId])
 }
 
 // =============================================================

@@ -7,6 +7,16 @@ import { getScopedDb } from '@/lib/db-scoped'
 import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 import { lineTotal } from '@/lib/money'
 import type { ActionResult } from '@/types'
+import { applyDealMemosToActualSheet } from '@/lib/deal-memo-actuals'
+
+/** An actual entry only if its sheet is in the caller's workspace. */
+async function entryInActiveWorkspace(entryId: string) {
+  const workspaceId = await getWorkspaceId()
+  return db.actualEntry.findFirst({
+    where:  { id: entryId, actualSheet: { workspaceId } },
+    select: { id: true, actualCents: true, dealMemoFeeId: true },
+  })
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -36,6 +46,9 @@ type ActualEntryDb   = {
   date: Date | null
   vendorContactId: string | null
   status: 'PENDING' | 'APPROVED'
+  dealMemoSourced: boolean
+  dealMemoFeeId: string | null
+  amountUserOwned: boolean
   createdAt: Date
   updatedAt: Date
 }
@@ -145,6 +158,11 @@ export async function createActualSheet(
       select: { id: true },
     })
 
+    // Prefill from confirmed deal memos. Non-fatal: the sheet exists either way
+    // and the next page load (syncActualSheetEntries) retries.
+    await applyDealMemosToActualSheet(sdb, sheet.id).catch(err =>
+      console.error('[createActualSheet] deal memo prefill failed:', err))
+
     revalidate(projectId)
     return { success: true, data: { id: sheet.id } }
   } catch (err) {
@@ -172,10 +190,19 @@ export async function updateActualEntry(
     const gate = await requireRole(['OWNER', 'PRODUCER'])
     if (!gate.ok) return gate.error
 
+    // ActualEntry has no workspaceId — verify ownership through its sheet
+    // before writing, or any signed-in producer could edit another workspace's
+    // actuals by id.
+    const existing = await entryInActiveWorkspace(entryId)
+    if (!existing) return { success: false, error: 'Entry not found' }
+
     await db.actualEntry.update({
       where: { id: entryId },
       data: {
         actualCents,
+        // A hand-entered amount is final — deal memo prefill never touches it
+        // again, including a deliberate $0 ("per diem not incurred").
+        ...(actualCents !== existing.actualCents ? { dealMemoSourced: false, amountUserOwned: true } : {}),
         ...(opts?.notes !== undefined ? { notes: opts.notes } : {}),
         ...(opts?.date !== undefined  ? { date: opts.date }   : {}),
         ...(opts?.status !== undefined ? { status: opts.status } : {}),
@@ -262,6 +289,19 @@ export async function deleteAdHocEntry(
   try {
     const gate = await requireRole(['OWNER', 'PRODUCER'])
     if (!gate.ok) return gate.error
+
+    const existing = await entryInActiveWorkspace(entryId)
+    if (!existing) return { success: false, error: 'Entry not found' }
+
+    // A row a confirmed deal memo still fills would just be recreated on the
+    // next load. Setting it to $0 is how to mark it not incurred.
+    if (existing.dealMemoFeeId) {
+      const fee = await db.dealMemoFee.findFirst({
+        where:  { id: existing.dealMemoFeeId, dealMemo: { status: 'CONFIRMED' } },
+        select: { id: true },
+      })
+      if (fee) return { success: false, error: 'This line comes from a confirmed deal memo — set it to $0 to mark it not incurred, or change the memo.' }
+    }
 
     await db.actualEntry.delete({
       where: { id: entryId, isAdHoc: true },
@@ -371,20 +411,24 @@ export async function syncActualSheetEntries(
       seen.add(li.lineItemId)
       return true
     })
-    if (missing.length === 0) return sheet as unknown as ActualSheetFull
+    if (missing.length > 0) {
+      const maxOrder = sheet.entries.reduce((m, e) => Math.max(m, e.order), -1)
+      await db.actualEntry.createMany({
+        data: missing.map((li, i) => ({
+          actualSheetId: sheetId,
+          lineItemId:    li.lineItemId,
+          accountId:     li.accountId,
+          description:   li.description,
+          actualCents:   0,
+          isAdHoc:       false,
+          order:         maxOrder + 1 + i,
+        })),
+      })
+    }
 
-    const maxOrder = sheet.entries.reduce((m, e) => Math.max(m, e.order), -1)
-    await db.actualEntry.createMany({
-      data: missing.map((li, i) => ({
-        actualSheetId: sheetId,
-        lineItemId:    li.lineItemId,
-        accountId:     li.accountId,
-        description:   li.description,
-        actualCents:   0,
-        isAdHoc:       false,
-        order:         maxOrder + 1 + i,
-      })),
-    })
+    // Keep deal-memo-sourced amounts current (runs on every Actuals page load).
+    await applyDealMemosToActualSheet(sdb, sheetId).catch(err =>
+      console.error('[syncActualSheetEntries] deal memo prefill failed:', err))
 
     const refreshed = await sdb.actualSheet.findFirst({
       where:   { id: sheetId },

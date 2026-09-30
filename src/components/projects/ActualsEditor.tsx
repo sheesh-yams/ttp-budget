@@ -75,6 +75,9 @@ export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents 
   const [adHocEntries, setAdHocEntries] = useState<ActualEntryDb[]>(() =>
     sheet ? sheet.entries.filter(e => e.isAdHoc) : []
   )
+  // Entries the user has typed over this session — their "Deal memo" tag goes
+  // immediately (the server clears dealMemoSourced on the same edit).
+  const [userEdited, setUserEdited] = useState<Set<string>>(new Set())
   // Which account is showing the "add unplanned" form
   const [addingToAccount, setAddingToAccount] = useState<string | null>(null)
   // Sidebar state
@@ -155,6 +158,8 @@ export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents 
     // Normalise display
     setInputValues(prev => ({ ...prev, [entryId]: displayDollar(cents) }))
     setActuals(prev => ({ ...prev, [entryId]: cents }))
+    const serverCents = sheet?.entries.find(e => e.id === entryId)?.actualCents
+    if (serverCents !== undefined && cents !== serverCents) setUserEdited(prev => new Set(prev).add(entryId))
     // Save
     setSaving(prev => new Set(prev).add(entryId))
     updateActualEntry(entryId, cents).then(() => {
@@ -185,15 +190,30 @@ export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents 
   }
 
   function handleDeleteAdHoc(entryId: string) {
+    const removed = adHocEntries.find(e => e.id === entryId)
+    const prevActual = actuals[entryId]
+    const prevInput  = inputValues[entryId]
     setAdHocEntries(prev => prev.filter(e => e.id !== entryId))
     setActuals(prev => { const n = { ...prev }; delete n[entryId]; return n })
     setInputValues(prev => { const n = { ...prev }; delete n[entryId]; return n })
-    deleteAdHocEntry(entryId, project.id)
+    deleteAdHocEntry(entryId, project.id).then(res => {
+      if (res.success || !removed) return
+      // Refused (e.g. a confirmed deal memo still fills this row) — put it back.
+      setAdHocEntries(prev => [...prev, removed])
+      setActuals(prev => ({ ...prev, [entryId]: prevActual ?? removed.actualCents }))
+      setInputValues(prev => ({ ...prev, [entryId]: prevInput ?? displayDollar(removed.actualCents) }))
+      alert((res as { success: false; error: string }).error)
+    })
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
 
   const marginColor = marginPct >= 20 ? 'text-green-600' : marginPct >= 10 ? 'text-yellow-600' : marginPct >= 0 ? 'text-orange-500' : 'text-red-600'
+
+  // Ad-hoc entries that no account section will render (no account, or its
+  // account was deleted) — shown in their own group so every counted dollar is visible.
+  const phaseAccountIds = collectAccountIds(phase.accounts as unknown as AccountWithItems[])
+  const orphanEntries = adHocEntries.filter(e => !e.accountId || !phaseAccountIds.has(e.accountId))
 
   // All entries map for sidebar lookup
   const entryMap = new Map<string, ActualEntryDb>(
@@ -259,6 +279,7 @@ export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents 
           actuals={actuals}
           inputValues={inputValues}
           saving={saving}
+          userEditedIds={userEdited}
           addingToAccount={addingToAccount}
           adHocForm={adHocForm}
           adHocSaving={adHocSaving}
@@ -271,8 +292,45 @@ export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents 
           onRowClick={entry => setSidebarEntry(entryMap.get(entry.id) ?? entry)}
         />
       ))}
+
+      {/* ── Unbudgeted: entries with no (or a since-deleted) account ────────── */}
+      {orphanEntries.length > 0 && (
+        <div className="overflow-hidden rounded-xl border bg-card">
+          <div className="border-b bg-muted/30 px-4 py-2.5">
+            <p className="text-sm font-medium text-foreground">Unbudgeted</p>
+            <p className="text-[11px] text-muted-foreground">Costs with no budget line — including deal memo fees like per diem and mileage.</p>
+          </div>
+          {orphanEntries.map(entry => (
+            <LineRow
+              key={entry.id}
+              description={entry.description}
+              budgetedCents={null}
+              entryId={entry.id}
+              inputValue={inputValues[entry.id] ?? '0.00'}
+              actualCents={actuals[entry.id] ?? 0}
+              isSaving={saving.has(entry.id)}
+              isAdHoc
+              entryDate={entry.date}
+              entryStatus={entry.status}
+              fromDealMemo={entry.dealMemoSourced && !userEdited.has(entry.id)}
+              onInputChange={v => handleInputChange(entry.id, v)}
+              onInputBlur={() => handleInputBlur(entry.id)}
+              onDelete={() => handleDeleteAdHoc(entry.id)}
+              onRowClick={() => setSidebarEntry(entryMap.get(entry.id) ?? entry)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
+}
+
+function collectAccountIds(accounts: AccountWithItems[], into = new Set<string>()): Set<string> {
+  for (const a of accounts) {
+    into.add(a.id)
+    if (a.children?.length) collectAccountIds(a.children as AccountWithItems[], into)
+  }
+  return into
 }
 
 // ─── Summary card ─────────────────────────────────────────────────────────────
@@ -301,6 +359,7 @@ interface AccountSectionProps {
   actuals:            Record<string, number>
   inputValues:        Record<string, string>
   saving:             Set<string>
+  userEditedIds:      Set<string>
   addingToAccount:    string | null
   adHocForm:          { description: string; actual: string; date: string; status: 'PENDING' | 'APPROVED' }
   adHocSaving:        boolean
@@ -316,7 +375,7 @@ interface AccountSectionProps {
 function AccountSection({
   account, depth,
   entryByLineItem, adHocByAccount,
-  actuals, inputValues, saving,
+  actuals, inputValues, saving, userEditedIds,
   addingToAccount, adHocForm, adHocSaving,
   onInputChange, onInputBlur,
   onSetAddingToAccount, onAdHocFormChange, onAddAdHoc, onDeleteAdHoc, onRowClick,
@@ -388,6 +447,7 @@ function AccountSection({
                 actualCents={actualValue}
                 isSaving={!!entryId && saving.has(entryId)}
                 isAdHoc={false}
+                fromDealMemo={!!entry?.dealMemoSourced && !userEditedIds.has(entry.id)}
                 onInputChange={entryId ? (v => onInputChange(entryId, v)) : undefined}
                 onInputBlur={entryId  ? (() => onInputBlur(entryId))    : undefined}
                 onDelete={undefined}
@@ -409,6 +469,7 @@ function AccountSection({
               isAdHoc
               entryDate={entry.date}
               entryStatus={entry.status}
+              fromDealMemo={entry.dealMemoSourced && !userEditedIds.has(entry.id)}
               onInputChange={v => onInputChange(entry.id, v)}
               onInputBlur={() => onInputBlur(entry.id)}
               onDelete={() => onDeleteAdHoc(entry.id)}
@@ -497,6 +558,7 @@ function AccountSection({
                     actuals={actuals}
                     inputValues={inputValues}
                     saving={saving}
+                    userEditedIds={userEditedIds}
                     addingToAccount={addingToAccount}
                     adHocForm={adHocForm}
                     adHocSaving={adHocSaving}
@@ -530,6 +592,8 @@ interface LineRowProps {
   isAdHoc:        boolean
   entryDate?:     Date | null
   entryStatus?:   'PENDING' | 'APPROVED'
+  /** Amount was prefilled from a confirmed deal memo (and not edited since). */
+  fromDealMemo?:  boolean
   onInputChange?: (val: string) => void
   onInputBlur?:   () => void
   onDelete?:      () => void
@@ -539,7 +603,7 @@ interface LineRowProps {
 function LineRow({
   description, budgetedCents, entryId,
   inputValue, actualCents, isSaving,
-  isAdHoc, entryDate, entryStatus,
+  isAdHoc, entryDate, entryStatus, fromDealMemo,
   onInputChange, onInputBlur, onDelete, onRowClick,
 }: LineRowProps) {
   const [focused, setFocused] = useState(false)
@@ -559,6 +623,14 @@ function LineRow({
             <span className="flex-shrink-0 flex items-center gap-0.5 rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-medium text-green-700">
               <CheckCircle2 className="h-2.5 w-2.5" />
               Approved
+            </span>
+          )}
+          {fromDealMemo && (
+            <span
+              className="flex-shrink-0 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700"
+              title="Prefilled from a confirmed deal memo. Type your own amount and it stays yours."
+            >
+              Deal memo
             </span>
           )}
           <span className="truncate text-sm text-foreground">{description}</span>

@@ -53,8 +53,13 @@ async function syncEntryActualCents(entryId: string, sdb: Awaited<ReturnType<typ
   })
   if (linked.length === 0) return
   const total = linked.reduce((sum, r) => sum + (r.amountCents ?? 0), 0)
-  // ActualEntry has no workspaceId column — raw db is correct here
-  await db.actualEntry.update({ where: { id: entryId }, data: { actualCents: total } })
+  // ActualEntry has no workspaceId column — raw db is correct here.
+  // Receipts are real spend: the amount becomes the user's, so deal memo
+  // prefill never writes over it.
+  await db.actualEntry.update({
+    where: { id: entryId },
+    data:  { actualCents: total, dealMemoSourced: false, amountUserOwned: true },
+  })
 }
 
 // ─── Upload URL ───────────────────────────────────────────────────────────────

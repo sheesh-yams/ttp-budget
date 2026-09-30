@@ -3,7 +3,7 @@
 import type { ElementType } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { ChevronLeft, LayoutDashboard, DollarSign, FileText, Users, Receipt, ScanLine, Globe, Package, FileSpreadsheet, Clapperboard, ScrollText } from 'lucide-react'
+import { ChevronLeft, LayoutDashboard, DollarSign, FileText, Users, Receipt, ScanLine, Globe, Package, FileSpreadsheet, Clapperboard, ScrollText, Handshake } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface NavItem {
@@ -23,9 +23,11 @@ interface Props {
   projectId: string
   projectName: string
   clientName: string
+  /** Deal memos expose vendor rates vs client rates — hidden from Collaborators. */
+  canSeeDealMemos?: boolean
 }
 
-export function ProjectSubNav({ projectId, projectName, clientName }: Props) {
+export function ProjectSubNav({ projectId, projectName, clientName, canSeeDealMemos = false }: Props) {
   const pathname = usePathname()
 
   const sections: NavSection[] = [
@@ -73,6 +75,9 @@ export function ProjectSubNav({ projectId, projectName, clientName }: Props) {
           href: `/projects/${projectId}/crew`,
           icon: Users,
         },
+        ...(canSeeDealMemos
+          ? [{ label: 'Deal Memos', href: `/projects/${projectId}/deal-memos`, icon: Handshake }]
+          : []),
         {
           label: 'Schedule',
           href: `/projects/${projectId}/schedule`,

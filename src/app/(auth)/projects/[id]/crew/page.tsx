@@ -1,8 +1,8 @@
 import { notFound } from 'next/navigation'
 import { db } from '@/lib/db'
-import { getWorkspaceId } from '@/lib/auth'
+import { getCurrentRole, getWorkspaceId } from '@/lib/auth'
 import { getProjectMembers, seedTeamFromBudget } from '@/server/actions/project-members'
-import { ProjectTeam } from '@/components/projects/ProjectTeam'
+import { ProjectTeam, type CrewDealMemoRef } from '@/components/projects/ProjectTeam'
 import type { TimeFormat } from '@/lib/time-format'
 
 export async function generateMetadata({
@@ -35,11 +35,29 @@ export default async function ProjectTeamPage({
   if (!project) notFound()
 
   // Auto-seed team from proposal crew if team is empty (no-op if already seeded)
-  const [seedResult, members, workspace] = await Promise.all([
+  const [seedResult, members, workspace, role] = await Promise.all([
     seedTeamFromBudget(id),
     getProjectMembers(id),
     db.workspace.findUnique({ where: { id: workspaceId }, select: { callTimeFormat: true } }),
+    getCurrentRole(),
   ])
+
+  // Deal memo pill per crew member (Owner/Producer only — memos reveal vendor
+  // rates). A confirmed memo wins; otherwise an open bid for the same person.
+  let dealMemos: Record<string, CrewDealMemoRef> | undefined
+  if (role !== 'COLLABORATOR') {
+    const memos = await db.dealMemo.findMany({
+      where:   { projectId: id, workspaceId, status: { in: ['CONFIRMED', 'BID'] } },
+      orderBy: { updatedAt: 'desc' },
+      select:  { id: true, status: true, projectMemberId: true, contactId: true },
+    })
+    dealMemos = {}
+    for (const m of members) {
+      const mine = memos.filter(x => x.projectMemberId === m.id || (m.contactId && x.contactId === m.contactId))
+      const pick = mine.find(x => x.status === 'CONFIRMED') ?? mine[0]
+      if (pick) dealMemos[m.id] = { memoId: pick.id, status: pick.status }
+    }
+  }
 
   const proposalTitle =
     seedResult.success && seedResult.data.count > 0
@@ -57,7 +75,7 @@ export default async function ProjectTeamPage({
         </p>
       </div>
 
-      <ProjectTeam projectId={id} members={members} seedProposalTitle={proposalTitle} timeFormat={timeFormat} />
+      <ProjectTeam projectId={id} members={members} seedProposalTitle={proposalTitle} timeFormat={timeFormat} dealMemos={dealMemos} />
     </div>
   )
 }

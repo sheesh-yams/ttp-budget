@@ -25,6 +25,8 @@ import { ContactModal } from '@/components/rolodex/ContactModal'
 import { AddMemberModal } from './AddMemberModal'
 import { formatTime, type TimeFormat } from '@/lib/time-format'
 import { formatMoney } from '@/lib/money'
+import type { DealMemoStatus } from '@prisma/client'
+import { STATUS_META as DEAL_MEMO_STATUS_META } from '@/components/deal-memos/labels'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -89,14 +91,18 @@ function Initials({ name }: { name: string }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+export type CrewDealMemoRef = { memoId: string; status: DealMemoStatus }
+
 interface Props {
   projectId:          string
   members:            ProjectMemberRow[]
   seedProposalTitle?: string | null
   timeFormat?:        TimeFormat
+  /** Deal memo per crew member id — only passed for Owner/Producer. */
+  dealMemos?:         Record<string, CrewDealMemoRef>
 }
 
-export function ProjectTeam({ projectId, members: initial, seedProposalTitle, timeFormat = '12H' }: Props) {
+export function ProjectTeam({ projectId, members: initial, seedProposalTitle, timeFormat = '12H', dealMemos }: Props) {
   const [members,   setMembers]   = useState(initial)
   const [adding,    setAdding]    = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -207,6 +213,7 @@ export function ProjectTeam({ projectId, members: initial, seedProposalTitle, ti
                       member={member}
                       projectId={projectId}
                       timeFormat={timeFormat}
+                      dealMemo={dealMemos?.[member.id]}
                       onEdit={() => setEditingId(member.id)}
                       onRemoved={() => handleRemoved(member.id)}
                       onMismatchDismissed={handleMismatchDismissed}
@@ -314,6 +321,7 @@ function MemberCard({
   member,
   projectId,
   timeFormat = '12H',
+  dealMemo,
   onEdit,
   onRemoved,
   onMismatchDismissed,
@@ -321,6 +329,7 @@ function MemberCard({
   member:               ProjectMemberRow
   projectId:            string
   timeFormat?:          TimeFormat
+  dealMemo?:            CrewDealMemoRef
   onEdit:               () => void
   onRemoved:            () => void
   onMismatchDismissed?: (id: string) => void
@@ -435,6 +444,14 @@ function MemberCard({
         <p className="mt-0.5 text-xs font-medium text-primary truncate">
           {member.role}
         </p>
+        {dealMemo && (
+          <Link
+            href={`/projects/${projectId}/deal-memos/${dealMemo.memoId}`}
+            className={`mt-1.5 inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${DEAL_MEMO_STATUS_META[dealMemo.status].className}`}
+          >
+            Deal memo · {DEAL_MEMO_STATUS_META[dealMemo.status].label}
+          </Link>
+        )}
 
         {/* Contact + meta */}
         <div className="mt-3 space-y-1.5">

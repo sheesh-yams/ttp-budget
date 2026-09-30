@@ -4,6 +4,9 @@ import { ChevronLeft, Mail, Phone, Instagram, Globe, DollarSign, Calendar, Clipb
 import { getContactById, getContactCallSheets, getCrewRoles } from '@/server/actions/rolodex'
 import { ContactDetailClient } from '@/components/rolodex/ContactDetailClient'
 import { formatMoney } from '@/lib/money'
+import { getCurrentRole } from '@/lib/auth'
+import { getScopedDb } from '@/lib/db-scoped'
+import { STATUS_META as DEAL_MEMO_STATUS, UNIT_SUFFIX } from '@/components/deal-memos/labels'
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -37,13 +40,26 @@ const PROJECT_STATUS_LABEL: Record<string, string> = {
 export default async function ContactDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
 
-  const [contact, callSheets, crewRoles] = await Promise.all([
+  const [contact, callSheets, crewRoles, role] = await Promise.all([
     getContactById(id),
     getContactCallSheets(id),
     getCrewRoles(),
+    getCurrentRole(),
   ])
 
   if (!contact) notFound()
+
+  // Deal memo history — rate history for bidding. Owner/Producer only.
+  const dealMemos = role === 'COLLABORATOR' ? [] : await (await getScopedDb()).dealMemo.findMany({
+    where:   { contactId: id },
+    orderBy: { updatedAt: 'desc' },
+    take:    25,
+    select:  {
+      id: true, position: true, status: true, updatedAt: true,
+      project: { select: { id: true, name: true } },
+      fees:    { where: { kind: 'DAY_RATE' }, take: 1, select: { rateCents: true, unit: true } },
+    },
+  })
 
   const secondaryRoles = Array.isArray(contact.secondaryRoles) ? contact.secondaryRoles as string[] : []
 
@@ -103,6 +119,37 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Notes</p>
           <p className="text-sm text-foreground whitespace-pre-wrap">{contact.notes}</p>
         </div>
+      )}
+
+      {/* Deal memos */}
+      {dealMemos.length > 0 && (
+        <section>
+          <h2 className="text-sm font-semibold text-foreground mb-3">Deal memos ({dealMemos.length})</h2>
+          <div className="divide-y rounded-lg border border-border/60 overflow-hidden">
+            {dealMemos.map(m => (
+              <Link
+                key={m.id}
+                href={`/projects/${m.project.id}/deal-memos/${m.id}`}
+                className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-muted/30 transition-colors"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">{m.project.name}</p>
+                  <p className="text-xs text-muted-foreground truncate">{m.position}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  {m.fees[0]?.rateCents ? (
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {formatMoney(m.fees[0].rateCents)}{UNIT_SUFFIX[m.fees[0].unit]}
+                    </span>
+                  ) : null}
+                  <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${DEAL_MEMO_STATUS[m.status].className}`}>
+                    {DEAL_MEMO_STATUS[m.status].label}
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
       )}
 
       {/* Projects */}
