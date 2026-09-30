@@ -21,7 +21,7 @@ import {
 import { SmartTextEditor } from '@/components/delivery/SmartTextEditor'
 import { createContractBlock, updateContractBlock } from '@/server/actions/contract-blocks'
 import type { ContractBlockRow, TriggerInput } from '@/server/actions/contract-blocks'
-import type { ContractBlockCategory, TriggerKind } from '@prisma/client'
+import type { ContractAudience, ContractBlockCategory, TriggerKind } from '@prisma/client'
 
 const CATEGORIES: { value: ContractBlockCategory; label: string }[] = [
   { value: 'SOW',        label: 'Scope of Work' },
@@ -42,9 +42,13 @@ type Props = {
   open:    boolean
   onClose: () => void
   editing?: ContractBlockRow
+  /** For new blocks; an existing block keeps its own audience. */
+  audience?: ContractAudience
 }
 
-export function ContractBlockDialog({ open, onClose, editing }: Props) {
+export function ContractBlockDialog({ open, onClose, editing, audience: audienceProp }: Props) {
+  const audience: ContractAudience = editing?.audience ?? audienceProp ?? 'CLIENT'
+  const isVendor = audience === 'VENDOR'
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
 
@@ -81,7 +85,8 @@ export function ContractBlockDialog({ open, onClose, editing }: Props) {
     setError(null)
 
     startTransition(async () => {
-      const input = { title, category, body, isDefault, triggers }
+      // Triggers match proposal deliverables — meaningless for vendor terms.
+      const input = { audience, title, category, body, isDefault, triggers: isVendor ? [] : triggers }
       const result = editing
         ? await updateContractBlock(editing.id, input)
         : await createContractBlock(input)
@@ -98,7 +103,9 @@ export function ContractBlockDialog({ open, onClose, editing }: Props) {
     <Dialog open={open} onOpenChange={open => { if (!open) handleClose() }}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{editing ? 'Edit contract block' : 'New contract block'}</DialogTitle>
+          <DialogTitle>
+            {editing ? 'Edit' : 'New'} {isVendor ? 'crew & vendor terms block' : 'contract block'}
+          </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-5 py-2">
@@ -109,7 +116,7 @@ export function ContractBlockDialog({ open, onClose, editing }: Props) {
               id="cb-title"
               value={title}
               onChange={e => setTitle(e.target.value)}
-              placeholder="e.g. Video Production — Scope of Work"
+              placeholder={isVendor ? 'e.g. Independent Contractor Status' : 'e.g. Video Production — Scope of Work'}
             />
           </div>
 
@@ -138,7 +145,7 @@ export function ContractBlockDialog({ open, onClose, editing }: Props) {
                 className="h-4 w-4 rounded border-border accent-primary"
               />
               <Label htmlFor="cb-default" className="cursor-pointer">
-                Attach to every proposal by default
+                {isVendor ? 'Attach to every deal memo by default' : 'Attach to every proposal by default'}
               </Label>
             </div>
           </div>
@@ -153,16 +160,27 @@ export function ContractBlockDialog({ open, onClose, editing }: Props) {
               placeholder="Enter contract text…"
               showMergeTags
             />
-            <p className="text-xs text-muted-foreground">
-              Merge tags: <code className="text-xs">{'{{client.name}}'}</code>{' '}
-              <code className="text-xs">{'{{workspace.name}}'}</code>{' '}
-              <code className="text-xs">{'{{project.name}}'}</code>{' '}
-              <code className="text-xs">{'{{proposal.total}}'}</code>
-            </p>
+            {isVendor ? (
+              <p className="text-xs text-muted-foreground">
+                Merge tags: <code className="text-xs">{'{{vendor.name}}'}</code>{' '}
+                <code className="text-xs">{'{{dealMemo.position}}'}</code>{' '}
+                <code className="text-xs">{'{{workspace.name}}'}</code>{' '}
+                <code className="text-xs">{'{{project.name}}'}</code>{' '}
+                <code className="text-xs">{'{{dealMemo.workDayHours}}'}</code>{' '}
+                <code className="text-xs">{'{{dealMemo.startDate}}'}</code>
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Merge tags: <code className="text-xs">{'{{client.name}}'}</code>{' '}
+                <code className="text-xs">{'{{workspace.name}}'}</code>{' '}
+                <code className="text-xs">{'{{project.name}}'}</code>{' '}
+                <code className="text-xs">{'{{proposal.total}}'}</code>
+              </p>
+            )}
           </div>
 
-          {/* Triggers */}
-          <div className="space-y-2">
+          {/* Triggers — proposals only */}
+          {!isVendor && <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label>Auto-attach triggers</Label>
               <Button type="button" variant="outline" size="sm" onClick={addTrigger}>
@@ -214,7 +232,7 @@ export function ContractBlockDialog({ open, onClose, editing }: Props) {
                 ))}
               </div>
             )}
-          </div>
+          </div>}
 
           {error && (
             <p className="text-sm text-destructive">{error}</p>

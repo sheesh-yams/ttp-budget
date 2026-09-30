@@ -14,6 +14,38 @@ export interface MergeTagContext {
   project?:      { name?: string }
   proposal?:     { total?: string; validThrough?: string }
   deliverables?: { title: string; quantity?: number }[]
+  // Deal memos — vendor-facing values only (position, work-day terms, dates).
+  dealMemo?: {
+    position?:             string
+    workDayHours?:         number
+    otMultiplier?:         number
+    doubleTimeAfterHours?: number
+    doubleTimeMultiplier?: number
+    productionZoneMiles?:  number
+    startDate?:            string
+    endDate?:              string
+  }
+  vendor?:       { name?: string }
+}
+
+/** Formats a number without a trailing ".0" (1.5 → "1.5", 2 → "2"). */
+function num(n: number | undefined): string | undefined {
+  return n === undefined || Number.isNaN(n) ? undefined : String(Number(n.toFixed(2)))
+}
+
+function dealMemoReplacements(ctx: MergeTagContext): Record<string, string | undefined> {
+  const dm = ctx.dealMemo
+  return {
+    'dealMemo.position':             dm?.position,
+    'dealMemo.workDayHours':         num(dm?.workDayHours),
+    'dealMemo.otMultiplier':         num(dm?.otMultiplier),
+    'dealMemo.doubleTimeAfterHours': num(dm?.doubleTimeAfterHours),
+    'dealMemo.doubleTimeMultiplier': num(dm?.doubleTimeMultiplier),
+    'dealMemo.productionZoneMiles':  num(dm?.productionZoneMiles),
+    'dealMemo.startDate':            dm?.startDate,
+    'dealMemo.endDate':              dm?.endDate,
+    'vendor.name':                   ctx.vendor?.name,
+  }
 }
 
 const SENTINEL = '\x00'
@@ -64,6 +96,7 @@ export function resolveMergeTags(body: string, ctx: MergeTagContext, opts?: Reso
     'proposal.validThrough': ctx.proposal?.validThrough,
     'deliverables.list':  deliverablesList,
     'payment.schedule':   undefined,  // rendered separately in Phase 3
+    ...dealMemoReplacements(ctx),
   }
 
   // Values that are already trusted HTML we constructed above — never escaped.
@@ -114,6 +147,7 @@ export function resolveMergeTagsPlain(body: string, ctx: MergeTagContext): strin
     'proposal.validThrough': ctx.proposal?.validThrough,
     'deliverables.list':  deliverablesList,
     'payment.schedule':   undefined,
+    ...dealMemoReplacements(ctx),
   }
 
   return body.replace(/\{\{([^}]+)\}\}/g, (match, tag: string) => {

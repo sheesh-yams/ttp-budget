@@ -238,7 +238,7 @@ export async function evaluateProposalContractTriggers(
 
     const [proposal, blocks, attached] = await Promise.all([
       sdbAny.proposal.findFirst({ where: { id: proposalId }, select: { content: true } }),
-      sdbAny.contractBlock.findMany({ where: { isActive: true }, include: { triggers: true }, orderBy: { orderIndex: 'asc' } }),
+      sdbAny.contractBlock.findMany({ where: { isActive: true, audience: 'CLIENT' }, include: { triggers: true }, orderBy: { orderIndex: 'asc' } }),
       sdbAny.proposalContractSection.findMany({ where: { proposalId }, select: { id: true, sourceBlockId: true, attachedBy: true } }),
     ])
 
@@ -300,7 +300,7 @@ export async function attachDefaultBlocks(
     if (existing) return { success: true, data: undefined }
 
     const defaults = await sdbAny.contractBlock.findMany({
-      where: { isDefault: true, isActive: true }, orderBy: { orderIndex: 'asc' },
+      where: { isDefault: true, isActive: true, audience: 'CLIENT' }, orderBy: { orderIndex: 'asc' },
     })
     if (defaults.length === 0) return { success: true, data: undefined }
 
@@ -352,7 +352,7 @@ export async function attachContractBlock(
     if (locked === null) return { success: false, error: 'Proposal not found.' }
     if (locked) return { success: false, error: CONTRACT_LOCKED_ERROR }
 
-    const block = await sdbAny.contractBlock.findFirst({ where: { id: blockId } })
+    const block = await sdbAny.contractBlock.findFirst({ where: { id: blockId, audience: 'CLIENT' } })
     if (!block) return { success: false, error: 'Block not found.' }
 
     const maxOrder = await sdbAny.proposalContractSection.aggregate({
@@ -509,7 +509,7 @@ export async function resetContractSection(sectionId: string): Promise<ActionRes
     })
     if (!existing?.sourceBlockId) return { success: false, error: 'No source block to reset to.' }
 
-    const block = await sdbAny.contractBlock.findFirst({ where: { id: existing.sourceBlockId } })
+    const block = await sdbAny.contractBlock.findFirst({ where: { id: existing.sourceBlockId, audience: 'CLIENT' } })
     if (!block) return { success: false, error: 'Source block no longer exists.' }
 
     await sdbAny.proposalContractSection.update({
@@ -600,7 +600,7 @@ export async function listLibraryBlocksForPicker(): Promise<ActionResult<Library
     const blocks = await (sdb as unknown as {
       contractBlock: { findMany: (a: object) => Promise<LibraryBlockOption[]> }
     }).contractBlock.findMany({
-      where:   { isActive: true },
+      where:   { isActive: true, audience: 'CLIENT' },
       orderBy: [{ orderIndex: 'asc' }, { title: 'asc' }],
       select:  { id: true, title: true, category: true, isDefault: true },
     })

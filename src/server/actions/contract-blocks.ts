@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { getScopedDb } from '@/lib/db-scoped'
 import { getWorkspaceId, requireRole } from '@/lib/auth'
 import type { ActionResult } from '@/types'
-import type { ContractBlockCategory, TriggerKind } from '@prisma/client'
+import type { ContractAudience, ContractBlockCategory, TriggerKind } from '@prisma/client'
 
 export type TriggerInput = {
   kind: TriggerKind
@@ -12,6 +12,8 @@ export type TriggerInput = {
 }
 
 export type ContractBlockInput = {
+  // Only read on create — a block's audience never changes afterwards.
+  audience?: ContractAudience
   title:     string
   category:  ContractBlockCategory
   body:      string
@@ -21,6 +23,7 @@ export type ContractBlockInput = {
 
 export type ContractBlockRow = {
   id:         string
+  audience:   ContractAudience
   title:      string
   category:   ContractBlockCategory
   body:       string
@@ -40,10 +43,13 @@ export type ContractBlockRow = {
 // List all blocks for the active workspace
 // ---------------------------------------------------------------------------
 
-export async function listContractBlocks(): Promise<ActionResult<ContractBlockRow[]>> {
+export async function listContractBlocks(
+  audience: ContractAudience = 'CLIENT',
+): Promise<ActionResult<ContractBlockRow[]>> {
   try {
     const sdb = await getScopedDb()
     const blocks = await sdb.contractBlock.findMany({
+      where:   { audience },
       orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
       include: { triggers: { orderBy: { kind: 'asc' } } },
     })
@@ -72,6 +78,7 @@ export async function createContractBlock(
 
     const block = await sdb.contractBlock.create({
       data: {
+        audience:   input.audience ?? 'CLIENT',
         title:      input.title.trim(),
         category:   input.category,
         body:       input.body,

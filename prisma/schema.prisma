@@ -70,6 +70,12 @@ model Workspace {
   // Production preferences
   callTimeFormat    String   @default("12H")  // "12H" → "7:00 AM" | "24H" → "07:00"
 
+  // Deal memo defaults (Settings → Contracts): work-day/OT settings, zone
+  // miles, default per diem + mileage rates, and the default fee rows with
+  // their terms text. Shape validated by zod in src/lib/deal-memo-defaults.ts;
+  // {} means "use built-in defaults".
+  dealMemoDefaults  Json     @default("{}")
+
   // Clerk organization that owns this workspace (set after org creation webhook)
   clerkOrgId        String?  @unique
 
@@ -94,6 +100,7 @@ model Workspace {
   paymentConfig            WorkspacePaymentConfig?
   receipts                 Receipt[]
   contractBlocks           ContractBlock[]
+  dealMemos                DealMemo[]
   autoAttachContractBlocks Boolean @default(false)
 }
 
@@ -215,6 +222,7 @@ model Project {
   shootDays      ShootDay[]
   scenes         Scene[]
   schedules      Schedule[]
+  dealMemos      DealMemo[]
 
   @@index([workspaceId])
   @@index([clientId])
@@ -931,6 +939,13 @@ model ActualEntry {
   vendorContactId String?                      // soft ref to Contact.id (no FK — contacts are soft-deleted)
   status          ActualStatus @default(PENDING)
 
+  // Deal memo prefill (src/lib/deal-memo-actuals.ts). dealMemoSourced = the
+  // current actualCents came from confirmed deal memos, so re-syncs may keep
+  // it current; any manual edit clears it and the number becomes the user's.
+  // dealMemoFeeId identifies the source fee line for unbudgeted memo entries.
+  dealMemoSourced Boolean      @default(false)
+  dealMemoFeeId   String?                      // soft ref to DealMemoFee.id
+
   receipts  Receipt[]
 
   createdAt DateTime @default(now())
@@ -979,6 +994,7 @@ model Contact {
 
   projectMembers ProjectMember[]
   lineItems      LineItem[]
+  dealMemos      DealMemo[]
 
   @@index([workspaceId])
   @@index([workspaceId, archivedAt])
@@ -1024,6 +1040,8 @@ model ProjectMember {
   order       Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  dealMemos   DealMemo[]
 
   @@index([projectId])
   @@index([contactId])
@@ -1549,10 +1567,19 @@ enum TriggerKind {
   BUDGET_ACCOUNT
 }
 
+// Who a contract block is written for. CLIENT blocks attach to proposals;
+// VENDOR blocks attach to crew/vendor deal memos. Proposal-side reads must
+// always filter audience: 'CLIENT' so vendor terms never reach a client.
+enum ContractAudience {
+  CLIENT
+  VENDOR
+}
+
 model ContractBlock {
   id          String                 @id @default(cuid())
   workspaceId String
   workspace   Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  audience    ContractAudience       @default(CLIENT)
   title       String
   category    ContractBlockCategory  @default(CUSTOM)
   body        String                 @db.Text
@@ -1580,6 +1607,7 @@ model ContractBlockTrigger {
 
 model GlobalContractBlock {
   id         String                       @id @default(cuid())
+  audience   ContractAudience             @default(CLIENT)
   title      String
   category   ContractBlockCategory        @default(CUSTOM)
   body       String                       @db.Text
@@ -1626,5 +1654,129 @@ model ProposalContractSection {
   updatedAt        DateTime     @updatedAt
 
   @@index([proposalId, orderIndex])
+  @@index([workspaceId])
+}
+
+// =============================================================
+// DEAL MEMOS — crew/talent bids and confirmed terms
+// =============================================================
+// A bid IS a draft deal memo: several BIDs per budget line are compared, and
+// awarding one flips that same row to CONFIRMED (nothing is copied). Phase 2
+// adds SENT/SIGNED for vendor e-signature.
+//
+// Internal vs external: roleLabel, lineItemId, internalNotes and each fee's
+// budgetLineItemId are internal only. Vendor-facing surfaces render the
+// whitelisted DTO from src/lib/deal-memo-vendor-view.ts — never these rows.
+
+enum DealMemoStatus {
+  BID // vendor's proposed terms, not yet awarded
+  NOT_SELECTED // another bid won this slot (revivable to BID)
+  CONFIRMED // awarded — this is the deal memo
+  CANCELLED // confirmed memo called off
+}
+
+enum DealMemoFeeKind {
+  DAY_RATE
+  OVERTIME
+  KIT
+  PER_DIEM
+  MILEAGE
+  CUSTOM
+}
+
+model DealMemo {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId   String
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // Soft ref — same convention as ActualEntry.lineItemId: line items are
+  // hard-deleted and phases can be removed; the memo survives, it just loses
+  // its budget comparison. Null = hired outside the budget.
+  lineItemId String?
+  // Internal snapshot of the budget line's description ("Videographer").
+  roleLabel  String
+
+  contactId       String?
+  contact         Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  // Crew roster slot, set when the bid is awarded.
+  projectMemberId String?
+  projectMember   ProjectMember? @relation(fields: [projectMemberId], references: [id], onDelete: SetNull)
+
+  status    DealMemoStatus @default(BID)
+  awardedAt DateTime?
+
+  // Vendor-facing
+  position  String // title shown to the vendor; defaults from roleLabel
+  startDate DateTime?
+  endDate   DateTime?
+  days      Decimal   @default(1) @db.Decimal(8, 2)
+
+  // Work-day terms — prefilled from Workspace.dealMemoDefaults, editable per memo
+  workDayHours         Int     @default(10)
+  otMultiplier         Decimal @default(1.5) @db.Decimal(4, 2)
+  doubleTimeAfterHours Int     @default(14)
+  doubleTimeMultiplier Decimal @default(2.0) @db.Decimal(4, 2)
+  productionZoneMiles  Int     @default(30)
+
+  internalNotes String? @db.Text
+  createdById   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  fees     DealMemoFee[]
+  sections DealMemoSection[]
+
+  @@index([projectId])
+  @@index([workspaceId])
+  @@index([contactId])
+  @@index([lineItemId])
+}
+
+model DealMemoFee {
+  id          String   @id @default(cuid())
+  workspaceId String // denormalized for getScopedDb()
+  dealMemoId  String
+  dealMemo    DealMemo @relation(fields: [dealMemoId], references: [id], onDelete: Cascade)
+
+  kind      DealMemoFeeKind @default(CUSTOM)
+  label     String // vendor-facing, e.g. "Day Rate / Service Fee"
+  rateCents Int             @default(0)
+  unit      RateUnit        @default(DAY)
+  quantity  Decimal         @default(0) @db.Decimal(10, 2) // expected days / hours / miles
+  termsText String?         @db.Text // vendor-facing "Details & Terms"; supports merge tags
+
+  // Internal only: which budget line this fee's actuals land on. Null = the
+  // default mapping rule (see src/lib/deal-memo-actuals.ts). Soft ref.
+  budgetLineItemId String?
+  // Overtime rate follows day rate ÷ work-day hours × OT multiplier until edited.
+  isAutoRate       Boolean @default(false)
+  order            Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([dealMemoId, order])
+  @@index([workspaceId])
+}
+
+// Mirrors ProposalContractSection: per-memo editable copies of VENDOR
+// contract blocks from the Settings → Contracts library.
+model DealMemoSection {
+  id               String   @id @default(cuid())
+  workspaceId      String
+  dealMemoId       String
+  dealMemo         DealMemo @relation(fields: [dealMemoId], references: [id], onDelete: Cascade)
+  sourceBlockId    String? // null = ad-hoc; back-ref to ContractBlock
+  title            String
+  body             String   @db.Text
+  orderIndex       Int      @default(0)
+  editedFromSource Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([dealMemoId, orderIndex])
   @@index([workspaceId])
 }

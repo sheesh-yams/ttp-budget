@@ -75,6 +75,7 @@ export async function seedWorkspaceFromGlobals(workspaceId: string): Promise<voi
       await tx.contractBlock.create({
         data: {
           workspaceId,
+          audience:   g.audience,
           title:      g.title,
           category:   g.category as ContractBlockCategory,
           body:       g.body,
@@ -162,6 +163,7 @@ export async function reseedWorkspaceFromGlobals(workspaceId: string): Promise<{
       await tx.contractBlock.create({
         data: {
           workspaceId,
+          audience:   g.audience,
           title:      g.title,
           category:   g.category as ContractBlockCategory,
           body:       g.body,

@@ -5,12 +5,15 @@ import { Button } from '@/components/ui/button'
 import { ContractBlockCard } from './ContractBlockCard'
 import { ContractBlockDialog } from './ContractBlockDialog'
 import type { ContractBlockRow } from '@/server/actions/contract-blocks'
+import type { ContractAudience } from '@prisma/client'
 
 type Props = {
-  blocks: ContractBlockRow[]
+  blocks:    ContractBlockRow[]
+  audience?: ContractAudience
 }
 
-export function ContractBlocksManager({ blocks }: Props) {
+export function ContractBlocksManager({ blocks, audience = 'CLIENT' }: Props) {
+  const isVendor = audience === 'VENDOR'
   const [createOpen, setCreateOpen] = useState(false)
 
   const defaultBlocks    = blocks.filter(b => b.isDefault)
@@ -22,8 +25,9 @@ export function ContractBlocksManager({ blocks }: Props) {
       <div className="flex items-center justify-between mb-6">
         <div>
           <p className="text-sm text-muted-foreground">
-            Reusable contract clauses. Default blocks attach to every proposal; triggered blocks
-            are suggested automatically based on deliverables.
+            {isVendor
+              ? 'Terms for crew and talent deal memos. Default blocks attach to every new deal memo, and you can edit them per memo.'
+              : 'Reusable contract clauses. Default blocks attach to every proposal; triggered blocks are suggested automatically based on deliverables.'}
           </p>
         </div>
         <Button onClick={() => setCreateOpen(true)}>New block</Button>
@@ -31,9 +35,13 @@ export function ContractBlocksManager({ blocks }: Props) {
 
       {blocks.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border p-10 text-center">
-          <p className="text-sm font-medium text-foreground">No contract blocks yet</p>
+          <p className="text-sm font-medium text-foreground">
+            {isVendor ? 'No crew & vendor terms yet' : 'No contract blocks yet'}
+          </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Create your first block or seed the global library.
+            {isVendor
+              ? 'Add terms like contractor status, cancellation, or work-for-hire. Mark them default to attach them to every deal memo.'
+              : 'Create your first block or seed the global library.'}
           </p>
           <Button className="mt-4" onClick={() => setCreateOpen(true)}>
             New block
@@ -77,6 +85,7 @@ export function ContractBlocksManager({ blocks }: Props) {
       )}
 
       <ContractBlockDialog
+        audience={audience}
         open={createOpen}
         onClose={() => setCreateOpen(false)}
       />
