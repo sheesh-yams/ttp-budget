@@ -124,6 +124,7 @@ describe('presets', () => {
     expect(c.projectBaseline['budget.costs']).toBe('NONE')
     expect(c.projectBaseline['budget.margin']).toBe('NONE')
     expect(c.projectBaseline.dealMemos).toBe('NONE')
+    expect(c.projectBaseline.callSheets).toBe('EDIT')
     expect(c.projectBaseline.actuals).toBe('NONE')
   })
 

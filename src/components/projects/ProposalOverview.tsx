@@ -48,7 +48,8 @@ interface Phase {
   description:  string | null
   deliverables: Deliverable[] | null
   sections?:    SectionOption[]
-  preview:      PhasePreview
+  /** Client-facing priced preview; null when the viewer can't see proposals. */
+  preview:      PhasePreview | null
 }
 
 interface ProjectMeta {
@@ -75,6 +76,10 @@ interface Props {
   phases:    Phase[]
   project:   ProjectMeta
   workspace: WorkspaceMeta
+  /** overview EDIT — edit overview, description, deliverables */
+  canEdit?:        boolean
+  /** proposals EDIT — choose the primary version */
+  canMakePrimary?: boolean
 }
 
 const TYPE_OPTIONS: { value: DeliverableItemType; label: string }[] = [
@@ -95,7 +100,7 @@ function blankDeliverable(): Deliverable {
   return { id: crypto.randomUUID(), title: '', description: '', type: 'DELIVERABLE', quantity: 1 }
 }
 
-export function ProposalOverview({ phases, project, workspace }: Props) {
+export function ProposalOverview({ phases, project, workspace, canEdit = true, canMakePrimary = true }: Props) {
   const router = useRouter()
   const [, startTransition]        = useTransition()
   const [, startPrimaryTransition] = useTransition()
@@ -204,7 +209,7 @@ export function ProposalOverview({ phases, project, workspace }: Props) {
               <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
             </div>
           )}
-          {!phase.isPrimary && (
+          {!phase.isPrimary && canMakePrimary && (
             <button
               type="button"
               onClick={handleMakePrimary}
@@ -217,15 +222,17 @@ export function ProposalOverview({ phases, project, workspace }: Props) {
           )}
         </div>
         <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setShowPreview(true)}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <Eye className="h-3 w-3" />
-            Preview
-          </button>
-          {!editing && (
+          {phase.preview && (
+            <button
+              type="button"
+              onClick={() => setShowPreview(true)}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Eye className="h-3 w-3" />
+              Preview
+            </button>
+          )}
+          {!editing && canEdit && (
             <button
               onClick={() => setEditing(true)}
               className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -453,7 +460,7 @@ export function ProposalOverview({ phases, project, workspace }: Props) {
           budget figures from this phase's precomputed snapshot, overview/
           deliverables from whatever's currently in the form (unsaved
           edits included), so you can check before hitting Save. */}
-      <Dialog open={showPreview} onOpenChange={setShowPreview}>
+      {phase.preview && <Dialog open={showPreview} onOpenChange={setShowPreview}>
         <DialogContent
           className="max-w-none w-screen h-[100dvh] top-0 left-0 translate-x-0 translate-y-0 rounded-none sm:rounded-none gap-0 p-0 overflow-y-auto [&>button]:hidden"
         >
@@ -478,7 +485,7 @@ export function ProposalOverview({ phases, project, workspace }: Props) {
             isDraft
           />
         </DialogContent>
-      </Dialog>
+      </Dialog>}
     </section>
   )
 }

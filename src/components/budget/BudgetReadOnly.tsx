@@ -78,6 +78,8 @@ export interface BudgetReadOnlyProps {
   highlightedSectionIds?: Set<string>
   /** 'proposal' = full-width section paddings; 'overview' = no outer padding */
   variant?: 'proposal' | 'overview'
+  /** Lines, quantities and units only — no amounts or totals (no budget.costs access). */
+  hideMoney?: boolean
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -120,6 +122,7 @@ export function BudgetReadOnly({
   showPaymentSchedule = true,
   highlightedSectionIds,
   variant = 'proposal',
+  hideMoney = false,
 }: BudgetReadOnlyProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
@@ -173,16 +176,18 @@ export function BudgetReadOnly({
           <span style={{ background: V_TINT, color: V, fontSize: 11, fontWeight: 600, borderRadius: 999, padding: '2px 9px', marginRight: 14, whiteSpace: 'nowrap' }}>
             {itemCount} {itemCount === 1 ? 'item' : 'items'}
           </span>
-          <span style={{ fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: BODY, minWidth: 90, textAlign: 'right', whiteSpace: 'nowrap' }}>
-            {formatMoney(accTotal)}
-          </span>
+          {!hideMoney && (
+            <span style={{ fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: BODY, minWidth: 90, textAlign: 'right', whiteSpace: 'nowrap' }}>
+              {formatMoney(accTotal)}
+            </span>
+          )}
         </button>
         {isOpen && (
           <div style={{ background: CANVAS, borderBottom: `0.5px solid ${BORDER}` }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: `0.5px solid ${BORDER}` }}>
-                  {(['Description', 'Qty', 'Unit', 'Total'] as const).map((h, hi) => (
+                  {(hideMoney ? (['Description', 'Qty', 'Unit'] as const) : (['Description', 'Qty', 'Unit', 'Total'] as const)).map((h, hi) => (
                     <th key={h} style={{ padding: hi === 0 ? '9px 16px 9px 44px' : '9px 16px', textAlign: hi === 0 ? 'left' : 'right', fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED, width: hi === 0 ? 'auto' : hi === 3 ? 100 : hi === 1 ? 90 : 60, whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
@@ -194,7 +199,7 @@ export function BudgetReadOnly({
                     <tr key={item.id} style={{ borderBottom: `0.5px solid ${BORDER}` }}>
                       <td style={{ padding: '10px 16px 10px 44px', fontSize: 13, color: BODY }}>{item.description}</td>
                       {(() => { const [hc, days] = parseQtyFormula(Number(item.quantity), item.quantityFormula); return (<><td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 13, color: MUTED, fontVariantNumeric: 'tabular-nums', opacity: hc === 1 ? 0.35 : 1 }}>{hc}</td><td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 13, color: MUTED, whiteSpace: 'nowrap' }}>{fmtUnit(days, item.unit)}</td></>); })()}
-                      <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 13, fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: BODY }}>{formatMoney(tot)}</td>
+                      {!hideMoney && <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 13, fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: BODY }}>{formatMoney(tot)}</td>}
                     </tr>
                   )
                 })}
@@ -208,7 +213,7 @@ export function BudgetReadOnly({
                           {item.description}
                         </td>
                         {(() => { const [hc, days] = parseQtyFormula(Number(item.quantity), item.quantityFormula); return (<><td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 13, color: MUTED, fontVariantNumeric: 'tabular-nums', opacity: hc === 1 ? 0.35 : 1 }}>{hc}</td><td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 13, color: MUTED, whiteSpace: 'nowrap' }}>{fmtUnit(days, item.unit)}</td></>); })()}
-                        <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 13, fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: BODY }}>{formatMoney(tot)}</td>
+                        {!hideMoney && <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: 13, fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: BODY }}>{formatMoney(tot)}</td>}
                       </tr>
                     )
                   })
@@ -274,7 +279,7 @@ export function BudgetReadOnly({
                     ) : (
                       sectionAccounts.map((account, idx) => renderAccountRow(account, idx, false))
                     )}
-                    {sectionAccounts.length > 0 && (
+                    {sectionAccounts.length > 0 && !hideMoney && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 20px', background: CANVAS, borderTop: `0.5px solid ${BORDER}` }}>
                         <span style={{ fontSize: 12, color: MUTED, fontWeight: 500 }}>{section.title} subtotal</span>
                         <span style={{ fontSize: 14, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: BODY }}>
@@ -291,6 +296,7 @@ export function BudgetReadOnly({
       })()}
 
       {/* Totals rows */}
+      {!hideMoney && <>
       <div style={{ borderLeft: `0.5px solid ${BORDER}`, borderRight: `0.5px solid ${BORDER}` }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '13px 20px', background: '#fff', borderBottom: `0.5px solid ${BORDER}` }}>
           <span style={{ fontSize: 13, color: MUTED }}>Subtotal</span>
@@ -332,10 +338,11 @@ export function BudgetReadOnly({
           {formatMoney(totalCents)}
         </span>
       </div>
+      </>}
     </>
   )
 
-  const paymentBlock = showPaymentSchedule && milestones.length > 0 ? (
+  const paymentBlock = showPaymentSchedule && milestones.length > 0 && !hideMoney ? (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 20, marginTop: variant === 'overview' ? 32 : 0 }}>
       {milestones.map((m, i) => (
         <div key={m.id} style={{ background: '#fff', border: `0.5px solid ${BORDER}`, borderRadius: 10, padding: '28px 28px 32px' }}>

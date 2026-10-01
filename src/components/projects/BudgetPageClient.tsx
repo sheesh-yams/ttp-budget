@@ -26,7 +26,15 @@ interface Props {
   budgets: BudgetWithPhases[]
   activeBudgetId: string
   budgetStatusMap: Record<string, string | null>
+  /** budget.margin VIEW */
   canSeeFin: boolean
+  /** budget.costs VIEW */
+  showCosts: boolean
+  /** budget.margin EDIT */
+  canEditMargin: boolean
+  /** !budget.lines EDIT */
+  readOnly: boolean
+  capabilities: { canEditProposals: boolean; canClone: boolean; canInsertPackage: boolean; canImport: boolean }
 }
 
 export function BudgetPageClient({
@@ -35,6 +43,10 @@ export function BudgetPageClient({
   activeBudgetId,
   budgetStatusMap,
   canSeeFin,
+  showCosts,
+  canEditMargin,
+  readOnly,
+  capabilities,
 }: Props) {
   const router = useRouter()
   const [selectedId, setSelectedId] = useState(activeBudgetId)
@@ -81,7 +93,10 @@ export function BudgetPageClient({
         budget={activeBudget}
         projectId={projectId}
         canSeeFinancials={canSeeFin}
-        readOnly={!canSeeFin}
+        showCosts={showCosts}
+        canEditMargin={canEditMargin}
+        readOnly={readOnly}
+        {...capabilities}
       />
     </div>
   )

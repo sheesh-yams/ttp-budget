@@ -20,11 +20,13 @@ import type { BudgetTemplate } from '@prisma/client'
 interface Props {
   projectId: string
   templates: Pick<BudgetTemplate, 'id' | 'name' | 'shootType' | 'description'>[]
-  /** OWNER/PRODUCER only — Collaborators can't create or clone budgets. */
+  /** budget.lines EDIT — create a blank budget. */
   canManage: boolean
+  /** Start from a template or another project's budget (brings rates). */
+  canStartFromExisting?: boolean
 }
 
-export function BudgetEmptyState({ projectId, templates, canManage }: Props) {
+export function BudgetEmptyState({ projectId, templates, canManage, canStartFromExisting = canManage }: Props) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [showPicker, setShowPicker] = useState(false)
@@ -48,9 +50,11 @@ export function BudgetEmptyState({ projectId, templates, canManage }: Props) {
             <Button variant="outline" onClick={handleCreateBlank} disabled={pending}>
               {pending ? 'Creating…' : 'Create blank budget'}
             </Button>
-            <Button onClick={() => setShowPicker(true)} disabled={pending}>
-              Start from an existing budget
-            </Button>
+            {canStartFromExisting && (
+              <Button onClick={() => setShowPicker(true)} disabled={pending}>
+                Start from an existing budget
+              </Button>
+            )}
           </>
         )}
         <Link href={`/projects/${projectId}`}>
@@ -58,7 +62,7 @@ export function BudgetEmptyState({ projectId, templates, canManage }: Props) {
         </Link>
       </div>
 
-      {canManage && (
+      {canStartFromExisting && (
         <BudgetSourcePickerModal
           open={showPicker}
           onOpenChange={setShowPicker}

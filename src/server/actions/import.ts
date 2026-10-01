@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { requireRole } from '@/lib/auth'
+import { requireBudgetPermission } from '@/lib/budget-access'
 import { z }              from 'zod'
 import { db }             from '@/lib/db'
 import { getScopedDb }    from '@/lib/db-scoped'
@@ -47,7 +48,8 @@ export async function importToBudget(
   rawData:  unknown
 ): Promise<ActionResult<ImportResult>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    // An import brings rates, so it needs costs on this budget's project.
+    const gate = await requireBudgetPermission({ budgetId }, 'budget.costs', 'EDIT')
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()

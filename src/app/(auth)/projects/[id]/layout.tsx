@@ -2,7 +2,8 @@ import { notFound } from 'next/navigation'
 import { requireProjectAccess } from '@/lib/project-access'
 import { db } from '@/lib/db'
 import { getCurrentRole, getWorkspaceId } from '@/lib/auth'
-import { ProjectSubNav } from '@/components/projects/ProjectSubNav'
+import { getProjectAccess } from '@/lib/access'
+import { ProjectSubNav, type ProjectTabKey } from '@/components/projects/ProjectSubNav'
 
 export default async function ProjectLayout({
   children,
@@ -15,7 +16,26 @@ export default async function ProjectLayout({
   // Every page under here also calls requireProjectAccess itself — layouts
   // don't re-run on sibling navigation, so this is belt-and-braces only.
   await requireProjectAccess(id)
-  const [workspaceId, role] = await Promise.all([getWorkspaceId(), getCurrentRole()])
+  const [workspaceId, role, projectAccess] = await Promise.all([getWorkspaceId(), getCurrentRole(), getProjectAccess(id)])
+  if (!projectAccess) notFound()
+
+  // Roles Phase 2 is converting area by area. A converted area's tab follows
+  // the new permission alone; a not-yet-converted one also needs the legacy
+  // role its page still checks, so a tab never links to a page that 404s.
+  const legacyMoney = role !== 'COLLABORATOR'
+  const can = (area: Parameters<typeof projectAccess.can>[0]) => projectAccess.can(area)
+  const tabs: Record<ProjectTabKey, boolean> = {
+    budget:     can('budget.lines'),
+    contract:   legacyMoney && can('contract'),
+    actuals:    legacyMoney && can('actuals'),
+    receipts:   legacyMoney && can('actuals'),
+    invoices:   legacyMoney && can('invoices'),
+    crew:       can('crew'),
+    dealMemos:  legacyMoney && can('dealMemos'),
+    schedule:   can('schedule'),
+    callSheets: can('callSheets'),
+    delivery:   legacyMoney && can('delivery'),
+  }
 
   // Lightweight fetch — just what the sidebar needs
   const project = await db.project.findFirst({
@@ -42,7 +62,7 @@ export default async function ProjectLayout({
           projectId={project.id}
           projectName={project.name}
           clientName={project.client.name}
-          canSeeMoney={role !== 'COLLABORATOR'}
+          tabs={tabs}
         />
       </aside>
 

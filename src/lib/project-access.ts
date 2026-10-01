@@ -11,6 +11,8 @@ import { notFound } from 'next/navigation'
 import { db } from '@/lib/db'
 import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
 import type { UserRole } from '@prisma/client'
+import { getProjectAccess } from '@/lib/access'
+import type { ProjectArea } from '@/lib/permissions'
 
 /**
  * The access decision itself, for a known user: the project must be in the
@@ -63,3 +65,14 @@ export async function requireProducerPageAccess() {
   if (user.role === 'COLLABORATOR') notFound()
   return user
 }
+
+/**
+ * Roles Phase 2: a project tab that's on the new permissions — 404 unless the
+ * viewer has at least VIEW on its area here (baseline + project roles).
+ */
+export async function requireProjectArea(projectId: string, area: ProjectArea) {
+  const access = await getProjectAccess(projectId)
+  if (!access || !access.can(area)) notFound()
+  return access
+}
+

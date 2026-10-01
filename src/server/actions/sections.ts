@@ -3,7 +3,7 @@
 import { revalidatePath }  from 'next/cache'
 import { db }              from '@/lib/db'
 import { getScopedDb }     from '@/lib/db-scoped'
-import { requireRole }     from '@/lib/auth'
+import { requireBudgetPermission } from '@/lib/budget-access'
 import { toJsonSafe }      from '@/lib/json-safe'
 import type { ActionResult } from '@/types'
 
@@ -24,7 +24,7 @@ export async function createBudgetSection(
   orderIndex?: number,
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireBudgetPermission({ phaseId }, 'budget.lines', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
@@ -55,7 +55,7 @@ export async function renameBudgetSection(
   description?: string | null,
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireBudgetPermission({ sectionId }, 'budget.lines', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
@@ -84,7 +84,7 @@ export async function reorderBudgetSections(
   orderedSectionIds: string[],
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireBudgetPermission({ phaseId }, 'budget.lines', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
@@ -120,7 +120,7 @@ export async function deleteBudgetSection(
   moveAccountsToSectionId?: string,
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireBudgetPermission({ sectionId }, 'budget.lines', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
@@ -187,8 +187,11 @@ export async function moveAccountToSection(
   orderIndex:  number,
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireBudgetPermission({ accountId }, 'budget.lines', 'EDIT')
     if (!gate.ok) return gate.error!
+    const toGate = await requireBudgetPermission({ sectionId: toSectionId }, 'budget.lines', 'EDIT')
+    if (!toGate.ok) return toGate.error!
+    if (toGate.projectId !== gate.projectId) return { success: false, error: 'Not found' }
     const sdb = await getScopedDb()
 
     const [account, toSection] = await Promise.all([
@@ -229,7 +232,7 @@ export async function setDeliverableSectionLinks(
   sectionIds:    string[],
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireBudgetPermission({ phaseId }, 'budget.lines', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
@@ -274,7 +277,7 @@ export async function togglePageBreakBetweenAccounts(
   value:   boolean,
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireBudgetPermission({ phaseId }, 'budget.lines', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
@@ -294,7 +297,7 @@ export async function togglePageBreakBetweenAccounts(
 
 export async function dismissSectionsNudge(phaseId: string): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireBudgetPermission({ phaseId }, 'budget.lines', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 

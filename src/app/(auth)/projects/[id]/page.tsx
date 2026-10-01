@@ -5,7 +5,8 @@ import { Calendar, User, TrendingUp, AlertCircle, CheckCircle2 } from 'lucide-re
 import { db } from '@/lib/db'
 import { getWorkspaceId, getCurrentUser } from '@/lib/auth'
 import { getScopedDb } from '@/lib/db-scoped'
-import { canSeeFinancials, stripBudgetForRole } from '@/lib/budget-visibility'
+import { stripBudgetForAccess } from '@/lib/budget-visibility'
+import { getAccess, getProjectAccess } from '@/lib/access'
 import { BudgetBreakdown } from '@/components/projects/BudgetBreakdown'
 import { ProjectProposals } from '@/components/projects/ProjectProposals'
 import { ProjectInvoices } from '@/components/projects/ProjectInvoices'
@@ -50,8 +51,27 @@ export default async function ProjectDetailPage({
 }) {
   const { id } = await params
   await requireProjectAccess(id)
-  const [workspaceId, currentUser] = await Promise.all([getWorkspaceId(), getCurrentUser()])
-  const canSeeFin = canSeeFinancials(currentUser.role)
+  const [workspaceId, currentUser, access, projectAccess] = await Promise.all([
+    getWorkspaceId(), getCurrentUser(), getAccess(), getProjectAccess(id),
+  ])
+  if (!projectAccess) notFound()
+  // What this person may see here (workspace role baseline + project roles).
+  // Proposals, invoices and actuals aren't on the new permissions yet (their
+  // actions and pages still check the legacy role), so they need both.
+  const legacyMoney = currentUser.role !== 'COLLABORATOR'
+  const can = {
+    proposals:  legacyMoney && projectAccess.can('proposals'),
+    invoices:   legacyMoney && projectAccess.can('invoices'),
+    // Profit / margin are only meaningful against the real (with-fee) total.
+    actuals:    legacyMoney && projectAccess.can('actuals') && projectAccess.can('budget.margin'),
+    lines:      projectAccess.can('budget.lines'),
+    linesEdit:  projectAccess.can('budget.lines', 'EDIT'),
+    costs:      projectAccess.can('budget.costs'),
+    margin:     projectAccess.can('budget.margin'),
+    overview:   projectAccess.can('overview', 'EDIT'),
+    makePrimary: projectAccess.can('proposals', 'EDIT'),
+    clientInfo: access.can('clients'),
+  }
 
   const [project, workspaceDefaults] = await Promise.all([
   db.project.findFirst({
@@ -93,7 +113,7 @@ export default async function ProjectDetailPage({
       // amounts — none of it is fetched for roles without financial access.
       proposals: {
         orderBy: { createdAt: 'desc' },
-        take:    canSeeFin ? undefined : 0,
+        take:    can.proposals ? undefined : 0,
         select: {
           id:              true,
           title:           true,
@@ -112,7 +132,7 @@ export default async function ProjectDetailPage({
       },
       invoices: {
         orderBy: { createdAt: 'desc' },
-        take:    canSeeFin ? undefined : 0,
+        take:    can.invoices ? undefined : 0,
         select: {
           id:              true,
           number:          true,
@@ -154,7 +174,7 @@ export default async function ProjectDetailPage({
 
   // ── "Blind" budget: strip margin/markup/agency-fee data for Collaborators
   // BEFORE any total is computed or serialised, so it never reaches the client.
-  const allBudgets = project.budgets.map(b => stripBudgetForRole(b, currentUser.role))
+  const allBudgets = project.budgets.map(b => stripBudgetForAccess(b, { costs: can.costs, margin: can.margin }))
   const budget     = allBudgets[0] ?? null
 
   // Primary budget for KPI strip + breakdown default:
@@ -228,7 +248,7 @@ export default async function ProjectDetailPage({
   } | null = null
 
   // Actuals expose profit + margin — financial data hidden from Collaborators.
-  if (budget && canSeeFin) {
+  if (budget && can.actuals) {
     const sdb = await getScopedDb()
     const sheet = await sdb.actualSheet.findFirst({
       where: { budgetId: budget.id },
@@ -302,7 +322,7 @@ export default async function ProjectDetailPage({
         </div>
 
         <div className="flex items-start gap-3">
-          {canSeeFin && project.status === 'ACTIVE' && budget && !actualsSummary && (
+          {can.invoices && project.status === 'ACTIVE' && budget && !actualsSummary && (
             <div className="rounded-xl border bg-card shadow-sm overflow-hidden text-right">
               <ActiveFinancialStat
                 label="Approved Amount"
@@ -319,7 +339,7 @@ export default async function ProjectDetailPage({
               />
             </div>
           )}
-          {project.status !== 'ACTIVE' && budget && grandTotalCents > 0 && !actualsSummary && (
+          {can.costs && project.status !== 'ACTIVE' && budget && grandTotalCents > 0 && !actualsSummary && (
             <div className="rounded-xl border bg-card px-5 py-3 text-right shadow-sm">
               <p className="text-xs text-muted-foreground">Budget total</p>
               <p className="text-2xl font-semibold tabular text-foreground">{formatMoney(grandTotalCents)}</p>
@@ -330,7 +350,7 @@ export default async function ProjectDetailPage({
             isEditor={currentUser.role === 'OWNER' || currentUser.role === 'PRODUCER'}
             // Client contact details are CRM data — name and logo only for
             // roles without financial access.
-            client={canSeeFin ? {
+            client={can.clientInfo ? {
               id:             project.client.id,
               name:           project.client.name,
               logoUrl:        project.client.logoUrl ?? null,
@@ -410,7 +430,7 @@ export default async function ProjectDetailPage({
       )}
 
       {/* ── Proposals + Invoices (Owner/Producer only) ───────────────────────── */}
-      {canSeeFin && <section className="mb-8">
+      {can.proposals && <section className="mb-8">
         <ProjectProposals
           proposals={project.proposals as never}
           projectId={project.id}
@@ -423,7 +443,7 @@ export default async function ProjectDetailPage({
         />
       </section>}
 
-      {canSeeFin && <section className="mb-8">
+      {can.invoices && <section className="mb-8">
         <ProjectInvoices
           invoices={project.invoices as never}
           projectId={project.id}
@@ -454,14 +474,17 @@ export default async function ProjectDetailPage({
           description:          (phase as { description?: string | null }).description ?? null,
           deliverables:         (phase as { deliverables?: unknown }).deliverables as ({ id?: string; title: string; description: string; sectionIds?: string[] }[]) | null,
           sections:             (phase.sections ?? []) as { id: string; title: string }[],
-          preview: captureSinglePhaseSnapshot(
-            phase as unknown as SnapshotPhase, pMarkupPct, pTaxPct, pDiscountConfig,
-          ),
+          // The client-facing priced preview is proposal content.
+          preview: can.proposals
+            ? captureSinglePhaseSnapshot(phase as unknown as SnapshotPhase, pMarkupPct, pTaxPct, pDiscountConfig)
+            : null,
         }))
 
         return (
           <ProposalOverview
             phases={phaseOptions}
+            canEdit={can.overview}
+            canMakePrimary={can.makePrimary}
             project={{
               name:           project.name,
               shootType:      project.shootType,
@@ -485,17 +508,17 @@ export default async function ProjectDetailPage({
       })()}
 
       {/* ── Budget Breakdown ─────────────────────────────────────────────────── */}
-      {allBudgets.length === 0 ? (
+      {!can.lines ? null : allBudgets.length === 0 ? (
         <section className="mb-8">
           <h2 className="text-base font-semibold text-foreground mb-3">Budget Breakdown</h2>
           <div className="rounded-xl border border-dashed py-10 text-center">
             <p className="text-sm text-muted-foreground">No budget yet for this project.</p>
-            <Link
+            {can.linesEdit && <Link
               href={`/projects/${project.id}/budget`}
               className="mt-2 inline-block text-sm text-primary hover:underline underline-offset-2"
             >
               Create a budget →
-            </Link>
+            </Link>}
           </div>
         </section>
       ) : (
@@ -504,6 +527,7 @@ export default async function ProjectDetailPage({
           budgets={allBudgets as never}
           primaryBudgetId={primaryBudgetId!}
           budgetMeta={budgetMeta}
+          showMoney={can.costs}
         />
       )}
     </div>

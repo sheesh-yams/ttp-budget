@@ -162,7 +162,7 @@ const ALL_WORKSPACE_NONE = fill(WORKSPACE_AREA_KEYS, 'NONE')
 /**
  * The seeded workspace roles. Owner and Producer reproduce today's behaviour;
  * Collaborator is today's minus budget costs (user decision 2026-10-01: line
- * items without money by default).
+ * items without money by default; call sheets stay editable, as today).
  */
 export const WORKSPACE_ROLE_PRESETS: readonly WorkspaceRolePreset[] = [
   {
@@ -183,7 +183,7 @@ export const WORKSPACE_ROLE_PRESETS: readonly WorkspaceRolePreset[] = [
       overview:       'VIEW',
       'budget.lines': 'VIEW',
       crew:           'VIEW',
-      callSheets:     'VIEW',
+      callSheets:     'EDIT',
       schedule:       'VIEW',
     },
   },

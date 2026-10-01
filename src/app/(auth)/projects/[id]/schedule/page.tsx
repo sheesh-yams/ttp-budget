@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { requireProjectAccess } from '@/lib/project-access'
+import { requireProjectAccess, requireProjectArea } from '@/lib/project-access'
 import { db } from '@/lib/db'
 import { getWorkspaceId, requireRole } from '@/lib/auth'
 import { ScheduleEditorClient } from '@/components/projects/schedule/ScheduleEditorClient'
@@ -13,6 +13,7 @@ export default async function SchedulePage({
 }) {
   const { id: projectId } = await params
   await requireProjectAccess(projectId)
+  await requireProjectArea(projectId, 'schedule')
   const { scheduleId: requestedScheduleId } = await searchParams
   const workspaceId = await getWorkspaceId()
   const gate = await requireRole(['OWNER', 'PRODUCER', 'COLLABORATOR'])

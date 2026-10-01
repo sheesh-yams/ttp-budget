@@ -16,6 +16,7 @@ import type { EditableLineItem } from './LineItemModal'
 import { InsertPackageModal } from './InsertPackageModal'
 import { BudgetSourcePickerModal } from './BudgetSourcePickerModal'
 import { BudgetSummaryBar } from './BudgetSummaryBar'
+import { BudgetVisibilityContext, useBudgetVisibility } from './budget-visibility-context'
 import { BulkImportModal } from '@/components/budget/BulkImportModal'
 import {
   deleteLineItem, addAccount, upsertLineItem, deleteAccount,
@@ -62,11 +63,24 @@ interface Props {
   projectId: string
   /** OWNER/PRODUCER see margin, agency fee and grand totals; Collaborators don't. */
   canSeeFinancials?: boolean
+  /** budget.costs VIEW — rates, line totals, phase total. */
+  showCosts?: boolean
+  /** budget.margin EDIT — agency fee, tax, discount inputs. */
+  canEditMargin?: boolean
+  /** proposals EDIT — client option tabs */
+  canEditProposals?: boolean
+  /** Clone another project's budget in (Producer-level browse) */
+  canClone?: boolean
+  canInsertPackage?: boolean
+  canImport?: boolean
   /** Collaborators may read but not mutate budgets — hides all edit affordances. */
   readOnly?: boolean
 }
 
-export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readOnly = false }: Props) {
+export function BudgetEditor({
+  budget, projectId, canSeeFinancials = true, showCosts = true, canEditMargin = true,
+  canEditProposals = true, canClone = true, canInsertPackage = true, canImport = true, readOnly = false,
+}: Props) {
   const router = useRouter()
   const [, startRatesTransition] = useTransition()
   const [, startPhaseTransition] = useTransition()
@@ -317,7 +331,7 @@ export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readO
                       toggle is on. Primary phase is always included as the
                       first option, so its checkbox is implicitly-on/disabled;
                       only extra phases need an explicit opt-in. */}
-                  {showOptionsMode && (
+                  {showOptionsMode && canEditProposals && !readOnly && (
                     <label
                       className="ml-0.5 flex items-center gap-1 text-[11px] text-muted-foreground"
                       onClick={e => e.stopPropagation()}
@@ -335,7 +349,7 @@ export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readO
                   )}
 
                   {/* Per-tab actions (visible on hover when active) */}
-                  {isActive && !isEditing && (
+                  {isActive && !isEditing && !readOnly && (
                     <span className="ml-0.5 hidden items-center gap-0.5 group-hover/tab:flex" onClick={e => e.stopPropagation()}>
                       <button
                         type="button"
@@ -345,7 +359,7 @@ export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readO
                       >
                         <Pencil className="h-2.5 w-2.5" />
                       </button>
-                      {!phase.isPrimary && (
+                      {!phase.isPrimary && canEditProposals && (
                         <button
                           type="button"
                           title="Make primary (this phase will be used for new proposals)"
@@ -372,7 +386,7 @@ export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readO
             })}
 
             {/* Add new version */}
-            <button
+            {!readOnly && <button
               type="button"
               title="Save a copy of this budget as a new version"
               onClick={handleAddPhase}
@@ -380,10 +394,10 @@ export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readO
             >
               <Copy className="h-3 w-3" />
               New version
-            </button>
+            </button>}
 
             {/* Add phase from another project's budget — OWNER/PRODUCER only */}
-            {!readOnly && (
+            {!readOnly && canClone && (
               <button
                 type="button"
                 title="Clone another project's budget in as a new version here"
@@ -398,7 +412,7 @@ export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readO
             {/* Show multiple options to client — a real on/off switch, always
                 reflecting the persisted per-phase flags (not just a reveal
                 for the checkboxes below). */}
-            {!readOnly && budget.phases.length > 1 && (
+            {!readOnly && canEditProposals && budget.phases.length > 1 && (
               <div className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px]">
                 <button
                   type="button"
@@ -429,15 +443,18 @@ export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readO
             )}
           </div>
 
-          <div className="ml-auto text-right shrink-0">
-            <p className="text-xs text-muted-foreground">Phase total</p>
-            <p className="text-lg font-semibold tabular">{formatMoney(phaseTotalCents)}</p>
-          </div>
+          {showCosts && (
+            <div className="ml-auto text-right shrink-0">
+              <p className="text-xs text-muted-foreground">Phase total</p>
+              <p className="text-lg font-semibold tabular">{formatMoney(phaseTotalCents)}</p>
+            </div>
+          )}
         </div>
 
         {/* ── Budget rates row ── (markup/agency-fee — hidden from Collaborators) */}
-        {canSeeFinancials && (
-        <div className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-border bg-muted/30 px-4 py-2 text-[12px]">
+        {canSeeFinancials && showCosts && (
+        // VIEW-only margin: shown, not editable (the server refuses the save).
+        <fieldset disabled={!canEditMargin} className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-border bg-muted/30 px-4 py-2 text-[12px]">
           <span className="font-medium text-foreground/70">Budget rates</span>
           <label className="flex items-center gap-1.5 text-muted-foreground">
             Agency fee
@@ -504,10 +521,11 @@ export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readO
               </>
             )}
           </div>
-          <span className="ml-auto text-[10px] text-muted-foreground/40">Saves on blur · applied to gross total</span>
-        </div>
+          <span className="ml-auto text-[10px] text-muted-foreground/40">{canEditMargin ? 'Saves on blur · applied to gross total' : 'View only'}</span>
+        </fieldset>
         )}
 
+        <BudgetVisibilityContext.Provider value={{ showCosts, showMargin: canSeeFinancials && showCosts, canInsertPackage, canImport }}>
         {budget.phases.map(phase => (
           <TabsContent key={phase.id} value={phase.id}>
             <PhaseView
@@ -522,17 +540,20 @@ export function BudgetEditor({ budget, projectId, canSeeFinancials = true, readO
             />
           </TabsContent>
         ))}
+        </BudgetVisibilityContext.Provider>
       </Tabs>
 
-      <BudgetSummaryBar
-        accounts={currentAccounts}
-        budgetMarkupPct={localMarkupPct}
-        budgetTaxPct={localTaxPct}
-        discountConfig={discountConfig}
-        canSeeFinancials={canSeeFinancials}
-      />
+      {showCosts && (
+        <BudgetSummaryBar
+          accounts={currentAccounts}
+          budgetMarkupPct={localMarkupPct}
+          budgetTaxPct={localTaxPct}
+          discountConfig={discountConfig}
+          canSeeFinancials={canSeeFinancials}
+        />
+      )}
 
-      {!readOnly && (
+      {!readOnly && canClone && (
         <BudgetSourcePickerModal
           open={showClonePicker}
           onOpenChange={setShowClonePicker}
@@ -561,6 +582,7 @@ function PhaseView({
   /** null = no discount set for this budget. */
   discountConfig?: BudgetDiscountConfig | null
 }) {
+  const { showCosts, canInsertPackage, canImport } = useBudgetVisibility()
   const [addingToAccount, setAddingToAccount] = useState<string | null>(null)
   const [showPackages, setShowPackages]         = useState(false)
   const [showImport, setShowImport]             = useState(false)
@@ -994,12 +1016,16 @@ function PhaseView({
             <Button size="sm" onClick={handleAddAccount}>
               <Plus className="mr-1.5 h-3.5 w-3.5" />Add account
             </Button>
-            <Button size="sm" variant="outline" onClick={() => setShowPackages(true)}>
-              <Package className="mr-1.5 h-3.5 w-3.5" />Insert package
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setShowImport(true)}>
-              <Upload className="mr-1.5 h-3.5 w-3.5" />Import file
-            </Button>
+            {canInsertPackage && (
+              <Button size="sm" variant="outline" onClick={() => setShowPackages(true)}>
+                <Package className="mr-1.5 h-3.5 w-3.5" />Insert package
+              </Button>
+            )}
+            {canImport && (
+              <Button size="sm" variant="outline" onClick={() => setShowImport(true)}>
+                <Upload className="mr-1.5 h-3.5 w-3.5" />Import file
+              </Button>
+            )}
           </div>
         )}
         {showPackages && (
@@ -1063,8 +1089,8 @@ function PhaseView({
               <th className="px-4 py-2.5 text-left">Description</th>
               <th className="px-3 py-2.5 text-right w-14" title="Headcount — how many people of this role">Qty</th>
               <th className="px-3 py-2.5 text-right w-32" title="Billing unit — days, weeks, or flat">Unit</th>
-              <th className="px-3 py-2.5 text-right w-28">Rate</th>
-              <th className="px-3 py-2.5 text-right w-28">Total</th>
+              <th className="px-3 py-2.5 text-right w-28">{showCosts ? 'Rate' : ''}</th>
+              <th className="px-3 py-2.5 text-right w-28">{showCosts ? 'Total' : ''}</th>
               <th className="w-16" />
             </tr>
           </thead>
@@ -1163,12 +1189,16 @@ function PhaseView({
           <Button variant="outline" size="sm" onClick={handleAddAccount}>
             <Plus className="mr-1.5 h-3.5 w-3.5" />Add account
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setShowPackages(true)}>
-            <Package className="mr-1.5 h-3.5 w-3.5" />Insert package
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setShowImport(true)}>
-            <Upload className="mr-1.5 h-3.5 w-3.5" />Import
-          </Button>
+          {canInsertPackage && (
+            <Button variant="outline" size="sm" onClick={() => setShowPackages(true)}>
+              <Package className="mr-1.5 h-3.5 w-3.5" />Insert package
+            </Button>
+          )}
+          {canImport && (
+            <Button variant="outline" size="sm" onClick={() => setShowImport(true)}>
+              <Upload className="mr-1.5 h-3.5 w-3.5" />Import
+            </Button>
+          )}
           <Button
             variant="outline" size="sm"
             className={multiSection ? 'border-primary/30 text-primary' : ''}
@@ -1618,6 +1648,7 @@ function AccountRows({
   flashItemIds: Set<string>
   readOnly?: boolean
 }) {
+  const { showCosts } = useBudgetVisibility()
   const [collapsed, setCollapsed]           = useState(false)
   const [, startTransition]                 = useTransition()
   const [editingName, setEditingName]       = useState(false)
@@ -1814,7 +1845,7 @@ function AccountRows({
         <td /><td /><td />
 
         <td className="px-3 py-2 text-right tabular font-semibold">
-          {formatMoney(totalCents)}
+          {showCosts && formatMoney(totalCents)}
         </td>
 
         {/* Add item + Delete section */}
@@ -1953,12 +1984,12 @@ function AccountRows({
 
             {/* Rate */}
             <td className="px-3 py-1.5 text-right">
-              <span className="tabular text-foreground/70">{formatMoney(item.rateCents)}</span>
+              {showCosts && <span className="tabular text-foreground/70">{formatMoney(item.rateCents)}</span>}
             </td>
 
             {/* Total */}
             <td className="px-3 py-1.5 text-right tabular font-medium">
-              {formatMoney(lineTotal(Number(item.quantity), item.rateCents, Number(item.markupPct) || null))}
+              {showCosts && formatMoney(lineTotal(Number(item.quantity), item.rateCents, Number(item.markupPct) || null))}
             </td>
 
             {/* Actions */}

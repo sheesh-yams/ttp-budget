@@ -17,6 +17,7 @@ import {
   bulkDuplicateLineItems,
 } from '@/server/actions/budgets'
 import { rateToCents } from '@/lib/money'
+import { useBudgetVisibility } from './budget-visibility-context'
 import type { RateUnit } from '@prisma/client'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -46,6 +47,9 @@ export function FloatingBulkActionBar({ selectedIds, phaseId, onClear, onMutated
   const count = selectedIds.length
   const [, startTransition] = useTransition()
   const { confirm, ConfirmDialog } = useConfirm()
+
+  // Bulk rate edits need costs access (the server refuses them otherwise).
+  const { showCosts } = useBudgetVisibility()
 
   // Dialog open states
   const [groupOpen, setGroupOpen] = useState(false)
@@ -180,7 +184,7 @@ export function FloatingBulkActionBar({ selectedIds, phaseId, onClear, onMutated
                 ))}
               </SelectContent>
             </Select>
-            <input
+            {showCosts && <input
               type="number" min="0" step="0.01"
               value={editRate}
               onChange={e => setEditRate(e.target.value)}
@@ -188,7 +192,7 @@ export function FloatingBulkActionBar({ selectedIds, phaseId, onClear, onMutated
               placeholder="Rate"
               title="Rate ($/unit) — blank leaves each item unchanged"
               className="w-16 rounded-md border border-white/20 bg-white/10 px-2 py-1 text-xs text-violet-50 placeholder:text-violet-300 outline-none focus:bg-white/15 focus:border-white/40 tabular-nums"
-            />
+            />}
             <button
               type="button"
               title="Apply"

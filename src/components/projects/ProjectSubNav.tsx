@@ -19,22 +19,32 @@ interface NavSection {
   items: NavItem[]
 }
 
+/** Which tabs the viewer may open — computed by the layout from their
+ *  project permissions; the pages refuse the same people. */
+export type ProjectTabKey =
+  | 'budget' | 'contract' | 'actuals' | 'receipts' | 'invoices'
+  | 'crew' | 'dealMemos' | 'schedule' | 'callSheets' | 'delivery'
+
 interface Props {
   projectId: string
   projectName: string
   clientName: string
-  /** Money tabs (contract, actuals, receipts, invoices, deal memos) — hidden
-   *  from Collaborators; the pages themselves 404 for them too. */
-  canSeeMoney?: boolean
+  tabs: Record<ProjectTabKey, boolean>
 }
 
-// Owner/Producer-only tabs: project money, plus the client delivery pages
-// (those pages refuse other roles too).
-const MONEY_TABS = new Set(['contract', 'actuals', 'receipts', 'invoices'])
-const isOwnerProducerTab = (href: string) =>
-  MONEY_TABS.has(href.split('/').pop() ?? '') || href.includes('/delivery/')
+function tabKey(projectId: string, href: string): ProjectTabKey | null {
+  const rest = href.slice(`/projects/${projectId}`.length).replace(/^\//, '')
+  if (!rest) return null // Overview — always shown
+  if (rest.startsWith('delivery/')) return 'delivery'
+  const map: Record<string, ProjectTabKey> = {
+    budget: 'budget', contract: 'contract', actuals: 'actuals', receipts: 'receipts',
+    invoices: 'invoices', crew: 'crew', 'deal-memos': 'dealMemos', schedule: 'schedule',
+    'call-sheets': 'callSheets',
+  }
+  return map[rest] ?? null
+}
 
-export function ProjectSubNav({ projectId, projectName, clientName, canSeeMoney = false }: Props) {
+export function ProjectSubNav({ projectId, projectName, clientName, tabs }: Props) {
   const pathname = usePathname()
 
   const sections: NavSection[] = [
@@ -82,7 +92,7 @@ export function ProjectSubNav({ projectId, projectName, clientName, canSeeMoney 
           href: `/projects/${projectId}/crew`,
           icon: Users,
         },
-        ...(canSeeMoney
+        ...(tabs.dealMemos
           ? [{ label: 'Deal Memos', href: `/projects/${projectId}/deal-memos`, icon: Handshake }]
           : []),
         {
@@ -117,7 +127,10 @@ export function ProjectSubNav({ projectId, projectName, clientName, canSeeMoney 
   const visibleSections = sections
     .map(sec => ({
       ...sec,
-      items: sec.items.filter(item => canSeeMoney || !isOwnerProducerTab(item.href)),
+      items: sec.items.filter(item => {
+        const key = tabKey(projectId, item.href)
+        return key === null || tabs[key]
+      }),
     }))
     .filter(sec => sec.items.length > 0)
 

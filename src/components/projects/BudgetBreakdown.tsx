@@ -37,6 +37,8 @@ interface Props {
   budgets: BudgetWithPhases[]
   primaryBudgetId: string
   budgetMeta: BudgetMeta[]
+  /** budget.costs VIEW — without it, lines show with no amounts. */
+  showMoney?: boolean
 }
 
 function serializeAccounts(budget: BudgetWithPhases): { accounts: SerialAccount[]; sections: SerialBudgetSection[]; productionCents: number; markupPct: number; taxPct: number; totalCents: number; discountCents: number; discountLabel: string } {
@@ -108,7 +110,7 @@ function serializeAccounts(budget: BudgetWithPhases): { accounts: SerialAccount[
   return { accounts, sections, productionCents, markupPct, taxPct, totalCents, discountCents, discountLabel }
 }
 
-export function BudgetBreakdown({ projectId, budgets, primaryBudgetId, budgetMeta }: Props) {
+export function BudgetBreakdown({ projectId, budgets, primaryBudgetId, budgetMeta, showMoney = true }: Props) {
   const [selectedId, setSelectedId] = useState(primaryBudgetId)
 
   const activeBudget = budgets.find(b => b.id === selectedId) ?? budgets[0]
@@ -148,7 +150,7 @@ export function BudgetBreakdown({ projectId, budgets, primaryBudgetId, budgetMet
             href={`/projects/${projectId}/budget?budgetId=${activeBudget.id}`}
             className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
           >
-            Edit in Budget →
+            {showMoney ? 'Edit in Budget →' : 'Open budget →'}
           </Link>
         </div>
       </div>
@@ -182,6 +184,7 @@ export function BudgetBreakdown({ projectId, budgets, primaryBudgetId, budgetMet
           discountLabel={discountLabel}
           showPaymentSchedule={false}
           variant="overview"
+          hideMoney={!showMoney}
         />
       )}
     </section>

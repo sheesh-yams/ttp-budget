@@ -1,8 +1,10 @@
 import { notFound } from 'next/navigation'
 import { requireProjectAccess } from '@/lib/project-access'
 import { db } from '@/lib/db'
-import { getWorkspaceId, getCurrentUser } from '@/lib/auth'
-import { canSeeFinancials, stripBudgetForRole } from '@/lib/budget-visibility'
+import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
+import { getAccess, getProjectAccess } from '@/lib/access'
+import { canBrowseAllBudgets } from '@/lib/budget-access'
+import { stripBudgetForAccess } from '@/lib/budget-visibility'
 import { BudgetEditor } from '@/components/projects/BudgetEditor'
 import { BudgetEmptyState } from '@/components/projects/BudgetEmptyState'
 import { BudgetPageClient } from '@/components/projects/BudgetPageClient'
@@ -42,16 +44,25 @@ export default async function BudgetPage({
   await requireProjectAccess(projectId)
   const { budgetId: qBudgetId } = await searchParams
 
-  const [workspaceId, currentUser] = await Promise.all([getWorkspaceId(), getCurrentUser()])
-  const canSeeFin = canSeeFinancials(currentUser.role)
-
-  // ── RBAC: Collaborators must be assigned to this project ────────────────────
-  if (currentUser.role === 'COLLABORATOR') {
-    const assignment = await db.projectAssignment.findUnique({
-      where: { projectId_userId: { projectId, userId: currentUser.id } },
-      select: { id: true },
-    })
-    if (!assignment) notFound()
+  const [workspaceId, projectAccess, access, currentUser] = await Promise.all([
+    getWorkspaceId(), getProjectAccess(projectId), getAccess(), getCurrentUser(),
+  ])
+  // budget.lines VIEW to open the budget at all; costs / margin decide what's in it.
+  if (!projectAccess || !projectAccess.can('budget.lines')) notFound()
+  const can = {
+    linesEdit:  projectAccess.can('budget.lines', 'EDIT'),
+    costs:      projectAccess.can('budget.costs'),
+    costsEdit:  projectAccess.can('budget.costs', 'EDIT'),
+    margin:     projectAccess.can('budget.margin'),
+    marginEdit: projectAccess.can('budget.margin', 'EDIT'),
+  }
+  // Buttons whose actions need more than budget lines. The package list is
+  // still on the legacy role (templates.ts), so packages need both.
+  const capabilities = {
+    canEditProposals: projectAccess.can('proposals', 'EDIT'),
+    canClone:         canBrowseAllBudgets(access),
+    canInsertPackage: can.costsEdit && currentUser.role !== 'COLLABORATOR',
+    canImport:        can.costsEdit,
   }
 
   // ── Fetch all budgets for this project (full tree for editor) ───────────────
@@ -72,13 +83,18 @@ export default async function BudgetPage({
         <div className="mb-5">
           <h1 className="text-xl font-semibold text-foreground">Budget</h1>
         </div>
-        <BudgetEmptyState projectId={projectId} templates={templates} canManage={canSeeFin} />
+        <BudgetEmptyState
+          projectId={projectId}
+          templates={templates}
+          canManage={can.linesEdit}
+          canStartFromExisting={can.costsEdit && canBrowseAllBudgets(access)}
+        />
       </div>
     )
   }
 
-  // Strip margin data for Collaborators
-  const budgets = rawBudgets.map(b => stripBudgetForRole(b, currentUser.role))
+  // Strip costs / margin the viewer can't see — server-side, before serialising.
+  const budgets = rawBudgets.map(b => stripBudgetForAccess(b, { costs: can.costs, margin: can.margin }))
 
   // ── Fetch proposals to determine primary budget ──────────────────────────────
   const proposals = await db.proposal.findMany({
@@ -119,8 +135,11 @@ export default async function BudgetPage({
         <BudgetEditor
           budget={activeBudget as never}
           projectId={projectId}
-          canSeeFinancials={canSeeFin}
-          readOnly={!canSeeFin}
+          canSeeFinancials={can.margin}
+          showCosts={can.costs}
+          canEditMargin={can.marginEdit}
+          readOnly={!can.linesEdit}
+          {...capabilities}
         />
       </div>
     )
@@ -137,7 +156,11 @@ export default async function BudgetPage({
         budgets={budgets as never}
         activeBudgetId={activeBudget.id}
         budgetStatusMap={budgetStatusMap}
-        canSeeFin={canSeeFin}
+        canSeeFin={can.margin}
+        showCosts={can.costs}
+        canEditMargin={can.marginEdit}
+        readOnly={!can.linesEdit}
+        capabilities={capabilities}
       />
     </div>
   )

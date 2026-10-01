@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { searchRateCards, upsertLineItem } from '@/server/actions/budgets'
 import { searchContacts, type ContactSearchResult } from '@/server/actions/rolodex'
 import { centsToRate, rateToCents, parseQtyFormula, formatMoney } from '@/lib/money'
+import { useBudgetVisibility } from './budget-visibility-context'
 import type { RateCardOption } from '@/types'
 import type { RateUnit } from '@prisma/client'
 
@@ -82,6 +83,9 @@ interface Props {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved }: Props) {
+  // Without costs / margin access the server keeps the stored rate and markup
+  // whatever is sent, so don't offer inputs for them.
+  const { showCosts, showMargin } = useBudgetVisibility()
   const [pending, startTransition] = useTransition()
   const isEdit = !!editItem
 
@@ -233,7 +237,7 @@ export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved
     const qty     = parseFloat(quantity)
     const daysVal = Math.max(1, parseInt(days) || 1)
     if (isNaN(qty) || qty <= 0) { setError('Quantity must be a positive number'); return }
-    const rateCents = rateToCents(rate)
+    const rateCents = showCosts ? rateToCents(rate) : 0
     if (isNaN(rateCents)) { setError('Enter a valid rate'); return }
     setError('')
 
@@ -286,7 +290,7 @@ export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved
 
         <div className="grid gap-4 py-2">
           {/* Rate card search */}
-          <div className="grid gap-1.5">
+          {showCosts && <div className="grid gap-1.5">
             <Label>Search rate cards</Label>
             <div className="relative">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -325,7 +329,7 @@ export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved
                 </button>
               </p>
             )}
-          </div>
+          </div>}
 
           {/* Description */}
           <div className="grid gap-1.5">
@@ -339,7 +343,7 @@ export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved
           </div>
 
           {/* Qty / Days / Unit / Rate row */}
-          <div className="grid grid-cols-4 gap-3">
+          <div className={showCosts ? 'grid grid-cols-4 gap-3' : 'grid grid-cols-3 gap-3'}>
             <div className="grid gap-1.5">
               <Label htmlFor="li-qty">Qty</Label>
               <Input
@@ -374,7 +378,7 @@ export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid gap-1.5">
+            {showCosts && <div className="grid gap-1.5">
               <Label htmlFor="li-rate">Rate ($)</Label>
               <Input
                 id="li-rate"
@@ -385,7 +389,7 @@ export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved
                 value={rate}
                 onChange={e => setRate(e.target.value)}
               />
-            </div>
+            </div>}
           </div>
 
           {/* Category / Markup / Notes */}
@@ -405,7 +409,7 @@ export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid gap-1.5">
+            {showMargin && <div className="grid gap-1.5">
               <Label htmlFor="li-markup">Markup %</Label>
               <Input
                 id="li-markup"
@@ -417,7 +421,7 @@ export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved
                 value={markup}
                 onChange={e => setMarkup(e.target.value)}
               />
-            </div>
+            </div>}
             <div className="grid gap-1.5">
               <Label htmlFor="li-notes">Notes</Label>
               <Input

@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { requireProjectAccess } from '@/lib/project-access'
+import { requireProjectAccess, requireProjectArea } from '@/lib/project-access'
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { CallSheetEditor } from '@/components/call-sheets/CallSheetEditor'
@@ -29,6 +29,7 @@ export default async function CallSheetPage({
 }) {
   const { id: projectId, csId } = await params
   const { role } = await requireProjectAccess(projectId)
+  await requireProjectArea(projectId, 'callSheets')
   const workspaceId = await getWorkspaceId()
 
   const [cs, project, budget, rolodexContacts, workspace] = await Promise.all([

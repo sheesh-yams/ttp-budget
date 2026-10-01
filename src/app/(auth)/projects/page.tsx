@@ -1,7 +1,7 @@
 import { getScopedDb } from '@/lib/db-scoped'
 import { db } from '@/lib/db'
 import { getWorkspaceId, getCurrentUser } from '@/lib/auth'
-import { canSeeFinancials } from '@/lib/budget-visibility'
+import { getAccess } from '@/lib/access'
 import type { Prisma } from '@prisma/client'
 import { ProjectsPageClient } from '@/components/projects/ProjectsPageClient'
 import type { ProjectForCard, ProjectMetrics, AttentionItem, UpcomingShoot, StatusCounts } from '@/components/projects/projects-types'
@@ -56,24 +56,26 @@ export default async function ProjectsPage({
 }: {
   searchParams: Promise<{ status?: string; view?: string; sort?: string }>
 }) {
-  const [resolvedParams, workspaceId, currentUser] = await Promise.all([
+  const [resolvedParams, workspaceId, currentUser, access] = await Promise.all([
     searchParams,
     getWorkspaceId(),
     getCurrentUser(),
+    getAccess(),
   ])
 
   // ── RBAC: Collaborators only see projects they're explicitly assigned to.
   // Owners/Producers see the whole workspace. Merged into the scoped where so
   // it composes with the automatic workspaceId injection.
+  // Roles: an ASSIGNED-scope role only lists projects they're on.
   const visibilityWhere: Prisma.ProjectWhereInput =
-    currentUser.role === 'COLLABORATOR'
+    !access.isOwner && access.projectScope === 'ASSIGNED'
       ? { assignments: { some: { userId: currentUser.id } } }
       : {}
 
   // Collaborators are margin-blind — workspace-wide financial KPIs (pipeline,
   // outstanding, won) must not reach them. Zeroed server-side so the real
   // figures never enter the payload; the metrics strip is also hidden in the UI.
-  const canSeeFin = canSeeFinancials(currentUser.role)
+  const canSeeFin = access.can('dashboardMoney')
 
   const sdb         = await getScopedDb()
   const now         = new Date()
@@ -467,7 +469,7 @@ export default async function ProjectsPage({
       projects={allProjectsForClient as unknown as ProjectForCard[]}
       metrics={metrics}
       canSeeFinancials={canSeeFin}
-      canEditTeam={canSeeFin}
+      canEditTeam={currentUser.role !== 'COLLABORATOR'}
       attentionItems={attentionItems}
       upcomingShoots={upcomingShoots}
       statusCounts={statusCounts}

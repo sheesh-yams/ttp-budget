@@ -3,7 +3,9 @@
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
 import { getScopedDb } from '@/lib/db-scoped'
-import { getCurrentUser, getWorkspaceId, requireRole } from '@/lib/auth'
+import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
+import { getAccess, requirePermission } from '@/lib/access'
+import { canBrowseAllBudgets, requireBudgetPermission } from '@/lib/budget-access'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import { Prisma, type RateUnit, type RateCategory, type ProposalStatus } from '@prisma/client'
@@ -49,7 +51,8 @@ function mapRateCategory(rc: RateCategory): LineItemCategory {
 
 export async function createBudget(projectId: string, templateId?: string): Promise<ActionResult<{ id: string }>> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    // From a template brings its rates, so that needs costs too.
+    const roleGate = await requireBudgetPermission({ projectId }, templateId ? 'budget.costs' : 'budget.lines', 'EDIT')
     if (!roleGate.ok) return roleGate.error
     const [sdb, user, workspaceId] = await Promise.all([getScopedDb(), getCurrentUser(), getWorkspaceId()])
 
@@ -195,8 +198,8 @@ export type CloneableBudget = {
 
 export async function listCloneableBudgets(): Promise<ActionResult<CloneableBudget[]>> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
-    if (!roleGate.ok) return roleGate.error
+    // Lists every project's budget, with totals and rates — Producer-level only.
+    if (!canBrowseAllBudgets(await getAccess())) return { success: false, error: 'UNAUTHORIZED_ROLE' }
     const sdb = await getScopedDb()
 
     const budgets = await sdb.budget.findMany({
@@ -306,8 +309,7 @@ export async function getBudgetClonePreview(
   sourcePhaseId?: string,
 ): Promise<ActionResult<ClonePreview>> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
-    if (!roleGate.ok) return roleGate.error
+    if (!canBrowseAllBudgets(await getAccess())) return { success: false, error: 'UNAUTHORIZED_ROLE' }
     const sdb = await getScopedDb()
 
     const budget = await sdb.budget.findFirst({
@@ -454,8 +456,15 @@ interface CloneSourceAccount {
 
 export async function cloneBudget(input: CloneBudgetInput): Promise<ActionResult<CloneBudgetResult>> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
-    if (!roleGate.ok) return roleGate.error
+    if (!canBrowseAllBudgets(await getAccess())) return { success: false, error: 'UNAUTHORIZED_ROLE' }
+    const targetGate = await requireBudgetPermission(
+      input.target.mode === 'NEW_BUDGET'
+        ? { projectId: (input.target as { projectId: string }).projectId }
+        : { budgetId: (input.target as { budgetId: string }).budgetId },
+      // A new budget copies the source's markup and discount too.
+      input.target.mode === 'NEW_BUDGET' ? 'budget.margin' : 'budget.costs', 'EDIT',
+    )
+    if (!targetGate.ok) return targetGate.error
     const [sdb, user, workspaceId] = await Promise.all([getScopedDb(), getCurrentUser(), getWorkspaceId()])
 
     // ── Step 1: fetch the source through the scoped client — this is what
@@ -719,7 +728,7 @@ const addAccountSchema = z.object({
 
 export async function addAccount(input: z.infer<typeof addAccountSchema>): Promise<ActionResult<{ id: string }>> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    const roleGate = await requireBudgetPermission({ phaseId: input.phaseId }, 'budget.lines', 'EDIT')
     if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     const data = addAccountSchema.parse(input)
@@ -760,10 +769,32 @@ export async function upsertLineItem(
   input: z.infer<typeof lineItemSchema>
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
-    if (!roleGate.ok) return roleGate.error
-    const sdb = await getScopedDb()
     const data = lineItemSchema.parse(input)
+    const roleGate = await requireBudgetPermission(id ? { lineItemId: id } : { accountId: data.accountId }, 'budget.lines', 'EDIT')
+    if (!roleGate.ok) return roleGate.error
+    if (id) {
+      // The line's (possibly new) account must be on the same project.
+      const toGate = await requireBudgetPermission({ accountId: data.accountId }, 'budget.lines', 'EDIT')
+      if (!toGate.ok) return toGate.error
+      if (roleGate.projectIds.some(id => id !== toGate.projectId)) return { success: false, error: 'Not found' }
+    }
+    const sdb = await getScopedDb()
+
+    // Field-level: without costs / margin access the editor never received
+    // the real rate or markup (stripped server-side), so whatever it sends
+    // back for them is ignored — the stored values are kept.
+    const canCosts  = roleGate.project!.can('budget.costs', 'EDIT')
+    const canMargin = roleGate.project!.can('budget.margin', 'EDIT')
+    if (!canCosts || !canMargin) {
+      const current = id
+        ? await sdb.lineItem.findFirst({ where: { id }, select: { rateCents: true, rateCardId: true, markupPct: true } })
+        : null
+      if (!canCosts) {
+        data.rateCents  = current?.rateCents ?? 0
+        data.rateCardId = current?.rateCardId ?? null
+      }
+      if (!canMargin) data.markupPct = current?.markupPct != null ? Number(current.markupPct) : null
+    }
 
     let item
     if (id) {
@@ -988,7 +1019,7 @@ async function runCrewWorkflow(
 
 export async function deleteLineItem(id: string): Promise<ActionResult> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    const roleGate = await requireBudgetPermission({ lineItemId: id }, 'budget.lines', 'EDIT')
     if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     // Scoped delete — WHERE id = ? AND workspaceId = ?; no-ops silently on foreign ids.
@@ -1003,7 +1034,7 @@ export async function deleteLineItem(id: string): Promise<ActionResult> {
 
 export async function duplicateLineItem(lineItemId: string): Promise<ActionResult<{ newLineItemId: string }>> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    const roleGate = await requireBudgetPermission({ lineItemId }, 'budget.lines', 'EDIT')
     if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
 
@@ -1061,7 +1092,7 @@ export async function duplicateLineItem(lineItemId: string): Promise<ActionResul
 
 export async function updateAccount(id: string, input: { name: string; code?: string | null }): Promise<ActionResult> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    const roleGate = await requireBudgetPermission({ accountId: id }, 'budget.lines', 'EDIT')
     if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     await sdb.account.update({ where: { id }, data: input })
@@ -1077,7 +1108,7 @@ export async function reorderAccounts(
   accounts: { id: string; order: number; code?: string | null }[]
 ): Promise<ActionResult> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    const roleGate = await requireBudgetPermission({ accountIds: accounts.map(a => a.id) }, 'budget.lines', 'EDIT')
     if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     // Verify ALL account IDs belong to this workspace in one scoped count.
@@ -1102,7 +1133,7 @@ export async function reorderAccounts(
 
 export async function deleteAccount(id: string): Promise<ActionResult> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    const roleGate = await requireBudgetPermission({ accountId: id }, 'budget.lines', 'EDIT')
     if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     await sdb.account.delete({ where: { id } })
@@ -1116,8 +1147,11 @@ export async function deleteAccount(id: string): Promise<ActionResult> {
 
 export async function moveLineItem(itemId: string, targetAccountId: string): Promise<ActionResult> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    const roleGate = await requireBudgetPermission({ lineItemIds: [itemId] }, 'budget.lines', 'EDIT')
     if (!roleGate.ok) return roleGate.error
+    const toGate = await requireBudgetPermission({ accountId: targetAccountId }, 'budget.lines', 'EDIT')
+    if (!toGate.ok) return toGate.error
+    if (roleGate.projectIds.some(id => id !== toGate.projectId)) return { success: false, error: 'Not found' }
     const sdb = await getScopedDb()
     // Verify both the line item and target account belong to this workspace.
     const [item, account] = await Promise.all([
@@ -1145,8 +1179,11 @@ export async function moveLineItems(
 ): Promise<ActionResult> {
   if (!lineItemIds.length) return { success: true, data: undefined }
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    const roleGate = await requireBudgetPermission({ lineItemIds }, 'budget.lines', 'EDIT')
     if (!roleGate.ok) return roleGate.error
+    const toGate = await requireBudgetPermission({ accountId: toAccountId }, 'budget.lines', 'EDIT')
+    if (!toGate.ok) return toGate.error
+    if (roleGate.projectIds.some(id => id !== toGate.projectId)) return { success: false, error: 'Not found' }
     const sdb = await getScopedDb()
 
     // Verify all items and the target account belong to this workspace.
@@ -1221,7 +1258,7 @@ export async function moveLineItems(
 
 export async function reorderLineItems(items: { id: string; order: number }[]): Promise<ActionResult> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    const roleGate = await requireBudgetPermission({ lineItemIds: items.map(i => i.id) }, 'budget.lines', 'EDIT')
     if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     // Verify all IDs belong to this workspace.
@@ -1240,7 +1277,7 @@ export async function reorderLineItems(items: { id: string; order: number }[]): 
 
 export async function duplicatePhase(phaseId: string, newName: string): Promise<ActionResult<{ id: string }>> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    const roleGate = await requireBudgetPermission({ phaseId }, 'budget.lines', 'EDIT')
     if (!roleGate.ok) return roleGate.error
     const [sdb, workspaceId] = await Promise.all([getScopedDb(), getWorkspaceId()])
 
@@ -1301,7 +1338,8 @@ export async function updatePhaseOverview(
   data: { overview: string | null; description: string | null; deliverables: DeliverableInput[] }
 ): Promise<ActionResult> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    // Overview, description and deliverables — the proposal overview, not the budget.
+    const roleGate = await requireBudgetPermission({ phaseId }, 'overview', 'EDIT')
     if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     const updateFn = sdb.phase.update as unknown as (args: { where: { id: string }; data: Record<string, unknown> }) => Promise<unknown>
@@ -1324,7 +1362,7 @@ export async function updatePhaseOverview(
 
 export async function updateBudgetGlobals(budgetId: string, globals: Record<string, number>): Promise<ActionResult> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    const roleGate = await requireBudgetPermission({ budgetId }, 'budget.lines', 'EDIT')
     if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     await sdb.budget.update({ where: { id: budgetId }, data: { globals } })
@@ -1338,8 +1376,8 @@ export async function updateBudgetGlobals(budgetId: string, globals: Record<stri
 
 export async function searchRateCards(query: string): Promise<ActionResult<unknown[]>> {
   try {
-    // Callable directly — Owner/Producer only (client pricing / cost rates).
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    // Callable directly — the workspace rate library (cost rates).
+    const gate = await requirePermission('library', 'VIEW')
     if (!gate.ok) return gate.error
     const sdb = await getScopedDb()
     const rates = await sdb.rateCard.findMany({
@@ -1366,7 +1404,8 @@ export async function updateBudgetRates(
   { markupPct, taxPct }: { markupPct: number | null; taxPct: number | null }
 ): Promise<ActionResult> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    // Markup (agency fee) and tax.
+    const roleGate = await requireBudgetPermission({ budgetId }, 'budget.margin', 'EDIT')
     if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     await sdb.budget.update({ where: { id: budgetId }, data: { markupPct, taxPct } })
@@ -1392,7 +1431,7 @@ export async function updateBudgetDiscount(
   input: z.infer<typeof discountSchema>
 ): Promise<ActionResult> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    const roleGate = await requireBudgetPermission({ budgetId }, 'budget.margin', 'EDIT')
     if (!roleGate.ok) return roleGate.error
     const data = discountSchema.parse(input)
     const sdb = await getScopedDb()
@@ -1504,7 +1543,8 @@ export async function insertPackageIntoPhase(
   structure: TemplateStructure
 ): Promise<ActionResult> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    // Packages carry rates.
+    const roleGate = await requireBudgetPermission({ phaseId }, 'budget.costs', 'EDIT')
     if (!roleGate.ok) return roleGate.error
     const [sdb, workspaceId] = await Promise.all([getScopedDb(), getWorkspaceId()])
 
@@ -1588,7 +1628,7 @@ async function cloneAccounts(accounts: AccountNode[], phaseId: string, sectionId
 
 export async function renamePhase(phaseId: string, name: string): Promise<ActionResult> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    const roleGate = await requireBudgetPermission({ phaseId }, 'budget.lines', 'EDIT')
     if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     // Scoped update — WHERE id = ? AND workspaceId = ?
@@ -1602,7 +1642,8 @@ export async function renamePhase(phaseId: string, name: string): Promise<Action
 
 export async function makePhasePrimary(phaseId: string): Promise<ActionResult> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    // The primary version is what proposals and invoices bill.
+    const roleGate = await requireBudgetPermission({ phaseId }, 'proposals', 'EDIT')
     if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     // Scoped read verifies ownership; budgetId is now trusted.
@@ -1628,7 +1669,7 @@ export async function setPhaseProposalVisibility(
   visible: boolean,
 ): Promise<ActionResult> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    const roleGate = await requireBudgetPermission({ phaseId }, 'proposals', 'EDIT')
     if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     // Scoped update — WHERE id = ? AND workspaceId = ?
@@ -1646,7 +1687,7 @@ export async function setPhaseProposalVisibility(
 
 export async function deletePhase(phaseId: string): Promise<ActionResult> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    const roleGate = await requireBudgetPermission({ phaseId }, 'budget.lines', 'EDIT')
     if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
     // Scoped read verifies ownership.
@@ -1670,7 +1711,8 @@ export async function deletePhase(phaseId: string): Promise<ActionResult> {
 
 export async function bulkDeleteLineItems(ids: string[]): Promise<ActionResult> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!ids.length) return { success: true, data: undefined }
+    const roleGate = await requireBudgetPermission({ lineItemIds: ids }, 'budget.lines', 'EDIT')
     if (!roleGate.ok) return roleGate.error
     if (!ids.length) return { success: true, data: undefined }
     const sdb = await getScopedDb()
@@ -1689,8 +1731,12 @@ export async function bulkMoveToNewAccount(
   phaseId:     string,
 ): Promise<ActionResult<{ accountId: string }>> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!ids.length) return { success: false, error: 'No items selected' }
+    const roleGate = await requireBudgetPermission({ lineItemIds: ids }, 'budget.lines', 'EDIT')
     if (!roleGate.ok) return roleGate.error
+    const toGate = await requireBudgetPermission({ phaseId }, 'budget.lines', 'EDIT')
+    if (!toGate.ok) return toGate.error
+    if (roleGate.projectIds.some(id => id !== toGate.projectId)) return { success: false, error: 'Not found' }
     if (!ids.length) return { success: false, error: 'No items selected' }
     const sdb = await getScopedDb()
 
@@ -1737,7 +1783,9 @@ export async function bulkUpdateLineItems(
   updates: { quantity?: number; unit?: RateUnit; rateCents?: number },
 ): Promise<ActionResult> {
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!ids.length) return { success: true, data: undefined }
+    // Changing rates needs costs; quantity / unit only needs lines.
+    const roleGate = await requireBudgetPermission({ lineItemIds: ids }, updates.rateCents !== undefined ? 'budget.costs' : 'budget.lines', 'EDIT')
     if (!roleGate.ok) return roleGate.error
     if (!ids.length) return { success: true, data: undefined }
     const sdb = await getScopedDb()
@@ -1763,7 +1811,7 @@ export async function bulkUpdateLineItems(
 export async function bulkDuplicateLineItems(ids: string[]): Promise<ActionResult<{ newLineItemIds: string[] }>> {
   if (!ids.length) return { success: true, data: { newLineItemIds: [] } }
   try {
-    const roleGate = await requireRole(['OWNER', 'PRODUCER'])
+    const roleGate = await requireBudgetPermission({ lineItemIds: ids }, 'budget.lines', 'EDIT')
     if (!roleGate.ok) return roleGate.error
     const sdb = await getScopedDb()
 

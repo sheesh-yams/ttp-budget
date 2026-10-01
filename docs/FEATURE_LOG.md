@@ -26,6 +26,14 @@ Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
 - **7 Clerk orgs have no linked workspace** (e.g. "The Third Place Creative",
   "Crossover Productions"). Found by the roles backfill and skipped.
 
+- **Roles Phase 2 is converting area by area.** Done: budget + overview.
+  Still on the legacy role: crew/deal memos, call sheets, schedule, delivery,
+  proposals, invoices, actuals, contract, settings/team, and the workspace
+  pages. Until an area is converted, a project role can't grant more than the
+  legacy role there (tabs and blocks require both).
+- **Start from a template needs browse-all.** The budget empty state's picker
+  mixes templates and other projects' budgets, so someone with costs EDIT but
+  not Producer-level browse can only create a blank budget.
 - **Invited people get a throwaway personal workspace.** Every sign-up gets
   its own workspace (the `user.created` webhook, or a lazy create if a page
   loads first — "Ashish TEST's Workspace" has no Clerk org). Accepting an
@@ -88,6 +96,45 @@ Run each through `/feature`. Check the overlap first:
 ---
 
 ## Shipped
+
+### 2026-10-01 — Roles Phase 2 (1/n): budget + overview enforce permissions
+- Asked for: a Collaborator on a project saw the budget down to rates and
+  line totals. Now the default Collaborator sees lines, quantities and units
+  with no money. Project roles can grant costs or margin per project.
+- **Writes:** every budget/section action (`budgets.ts`, `sections.ts`,
+  `importToBudget`) now goes through `requireBudgetPermission`
+  (`src/lib/budget-access.ts`). It resolves any line, account, phase, section
+  or budget id to its project in the ACTIVE workspace and checks:
+  - `budget.lines` for structure
+  - `budget.costs` for rates, packages, imports and template starts
+  - `budget.margin` for fee, tax and discount
+  - `overview` for the proposal overview text
+  - `proposals` for the primary version and option tabs
+
+  `upsertLineItem` keeps stored rate and markup when the caller can't edit
+  them. Cloning another project's budget needs Producer-level browse
+  (`canBrowseAllBudgets`). Empty ids are refused.
+- **Reads:** `stripBudgetForAccess` zeroes rates and rate cards, and drops
+  tax, without costs; without margin it strips fee and discount. It's applied
+  on the budget page and the overview. The overview's priced preview, money
+  blocks, the editor's columns and inputs, the line modal and the bulk bar
+  each follow their own area. Project tabs follow permissions; crew,
+  schedule and call-sheet pages check their area. Grid and dashboard money
+  follow `dashboardMoney`; ASSIGNED scope filters the lists.
+- **Access diff before shipping:** only darkustigrus × Sheeshyams changed
+  (costs View → None). The user kept Collaborator call sheets on Edit, and
+  the 11 stored Collaborator roles were updated with AuditEvents.
+- pitfall-reviewer found 2 medium + 4 low issues, then 3 low on re-check:
+  - clone scope
+  - actuals summary
+  - empty-id gate
+  - multi-project moves
+  - dead buttons
+  - clone margin
+
+  All fixed except the template-start follow-up.
+- **Needs a manual pass:** as the test Collaborator on Sheeshyams, the budget
+  and overview should show lines without $. As an Owner, nothing changes.
 
 ### 2026-10-01 — Call sheets and comments check project access
 - All 8 call-sheet actions (via `getOwnedSheet`, `importCrewFromBudget`,

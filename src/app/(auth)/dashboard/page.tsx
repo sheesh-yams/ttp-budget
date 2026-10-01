@@ -4,16 +4,18 @@ import { InvoiceTracker } from '@/components/dashboard/InvoiceTracker'
 import { ProposalQueue } from '@/components/dashboard/ProposalQueue'
 import { db } from '@/lib/db'
 import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
+import { getAccess } from '@/lib/access'
 import { calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 
 export const metadata = { title: 'Dashboard' }
 
 export default async function DashboardPage() {
-  const [workspaceId, user] = await Promise.all([getWorkspaceId(), getCurrentUser()])
-  // Collaborators get their assigned projects only, and no money at all —
-  // the financial queries below aren't even run for them, so nothing reaches
-  // the payload (not merely hidden in the UI).
-  const isCollaborator = user.role === 'COLLABORATOR'
+  const [workspaceId, user, access] = await Promise.all([getWorkspaceId(), getCurrentUser(), getAccess()])
+  // Without "Dashboard money" no money at all — the financial queries below
+  // aren't even run, so nothing reaches the payload (not merely hidden in the
+  // UI). An ASSIGNED-scope role only lists the projects they're on.
+  const isCollaborator = !access.can('dashboardMoney')
+  const assignedOnly   = !access.isOwner && access.projectScope === 'ASSIGNED'
 
   // ── Parallel fetches ─────────────────────────────────────────────────────────
   // invoicesAll  → lightweight, no relations, used for metric calculations
@@ -22,7 +24,7 @@ export default async function DashboardPage() {
     db.project.findMany({
       where:   {
         workspaceId, archivedAt: null,
-        ...(isCollaborator ? { assignments: { some: { userId: user.id } } } : {}),
+        ...(assignedOnly ? { assignments: { some: { userId: user.id } } } : {}),
       },
       include: {
         client:     true,
