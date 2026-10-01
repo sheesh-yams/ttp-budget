@@ -119,7 +119,15 @@ Run each through `/feature`. Check the overlap first:
 - Removing a workspace member now also drops their project access.
 - The workspace purge cron clears team rows first: their User FK has no
   cascade, so purging any workspace with a team failed.
-- Backfill: `scripts/backfill-roles.ts` (dry-run by default; `--apply`).
+- Backfill `scripts/backfill-roles.ts` **applied 2026-10-01** (user-approved):
+  - roles seeded in 11 workspaces
+  - 12 memberships (including the Owner one in "A NEW SPACE" from Clerk admin)
+  - 11 team slots mapped
+  - 1 Team member row
+  - 35 AuditEvents
+  The parity script confirmed memberships match `User.role`, the resolver
+  equals today's `requireRole` outcomes, and every assignment has an active
+  team row.
 - pitfall-reviewer found 5 issues (replaced-holder access, removed members'
   leftover assignments, backfill timeout, purge FK order, history noise); all
   fixed and DB-verified.
