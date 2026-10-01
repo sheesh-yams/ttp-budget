@@ -2,14 +2,14 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { X, Search, Shield, User, Eye } from 'lucide-react'
-import { listEligibleUsersForProjectTeam, assignProjectTeamRole, addProjectMember, type EligibleUser, type ProjectTeamMap } from '@/server/actions/project-team'
-import type { ProjectTeamRole, UserRole } from '@prisma/client'
-
-const ROLE_LABEL: Record<ProjectTeamRole, string> = {
-  PROJECT_LEAD:    'Project Lead',
-  ACCOUNT_MANAGER: 'Account Manager',
-  PROJECT_MANAGER: 'Project Manager',
-}
+import {
+  listEligibleUsersForProjectTeam,
+  addToProjectTeam,
+  type EligibleUser,
+  type ProjectRoleOption,
+  type TeamRow,
+} from '@/server/actions/project-team'
+import type { UserRole } from '@prisma/client'
 
 const WORKSPACE_ROLE_META: Record<UserRole, { label: string; icon: React.ElementType }> = {
   OWNER:        { label: 'Owner',        icon: Shield },
@@ -20,6 +20,7 @@ const WORKSPACE_ROLE_META: Record<UserRole, { label: string; icon: React.Element
 function Avatar({ name, email, avatarUrl, size = 32 }: { name: string | null; email: string; avatarUrl: string | null; size?: number }) {
   const initials = (name ?? email).split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
   if (avatarUrl) {
+    // eslint-disable-next-line @next/next/no-img-element
     return <img src={avatarUrl} alt={name ?? email} style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
   }
   return (
@@ -36,57 +37,43 @@ function Avatar({ name, email, avatarUrl, size = 32 }: { name: string | null; em
 
 interface Props {
   projectId:   string
-  /** A named role slot, or null to add someone to the project without one. */
-  role:        ProjectTeamRole | null
-  currentTeam: ProjectTeamMap
-  /** Users already on the project without a named role (only used when role is null). */
-  otherUserIds?: string[]
+  roles:       ProjectRoleOption[]
+  currentRows: TeamRow[]
   onAssigned:  () => void
   onClose:     () => void
 }
 
-export function AssignTeamMemberModal({ projectId, role, currentTeam, otherUserIds = [], onAssigned, onClose }: Props) {
+export function AssignTeamMemberModal({ projectId, roles, currentRows, onAssigned, onClose }: Props) {
   const [users, setUsers]       = useState<EligibleUser[]>([])
   const [query, setQuery]       = useState('')
   const [loading, setLoading]   = useState(true)
   const [assigning, setAssigning] = useState<string | null>(null)
   const [error, setError]       = useState<string | null>(null)
+  const [roleId, setRoleId]     = useState(roles.find(r => r.systemKey === 'TEAM_MEMBER')?.id ?? roles[0]?.id ?? '')
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    listEligibleUsersForProjectTeam().then(res => {
+    listEligibleUsersForProjectTeam(projectId).then(res => {
       if (res.success) setUsers(res.data)
+      else setError((res as { success: false; error: string }).error)
       setLoading(false)
     })
     setTimeout(() => inputRef.current?.focus(), 50)
-  }, [])
+  }, [projectId])
 
-  // Map userId → role they currently hold on this project
-  const currentRoleByUser: Record<string, ProjectTeamRole> = {}
-  for (const [r, member] of Object.entries(currentTeam)) {
-    if (member) currentRoleByUser[member.userId] = r as ProjectTeamRole
-  }
+  // userId → the project roles they already hold here
+  const heldBy: Record<string, TeamRow[]> = {}
+  for (const row of currentRows) (heldBy[row.userId] ??= []).push(row)
 
   const filtered = users.filter(u =>
     !query || u.name?.toLowerCase().includes(query.toLowerCase()) || u.email.toLowerCase().includes(query.toLowerCase())
   )
 
-  const others = new Set(otherUserIds)
-
-  // Already where this pick would put them: same role slot, or (adding without
-  // a role) anywhere on the project.
-  function isAlreadyThere(userId: string) {
-    return role ? currentRoleByUser[userId] === role : !!currentRoleByUser[userId] || others.has(userId)
-  }
-
   async function handlePick(user: EligibleUser) {
-    if (isAlreadyThere(user.id)) return
-
+    if (heldBy[user.id]?.some(r => r.projectRoleId === roleId)) return
     setAssigning(user.id)
     setError(null)
-    const result = role
-      ? await assignProjectTeamRole({ projectId, role, userId: user.id })
-      : await addProjectMember({ projectId, userId: user.id })
+    const result = await addToProjectTeam({ projectId, userId: user.id, projectRoleId: roleId })
     setAssigning(null)
     if (result.success) {
       onAssigned()
@@ -111,8 +98,17 @@ export function AssignTeamMemberModal({ projectId, role, currentTeam, otherUserI
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid hsl(var(--border))', flexShrink: 0 }}>
           <div>
-            <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'hsl(var(--muted-foreground))' }}>{role ? 'Assign' : 'Add to project'}</p>
-            <p style={{ fontSize: 15, fontWeight: 700, color: 'hsl(var(--foreground))' }}>{role ? ROLE_LABEL[role] : 'Team member'}</p>
+            <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'hsl(var(--muted-foreground))' }}>Add to project</p>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, fontSize: 13, color: 'hsl(var(--foreground))' }}>
+              as
+              <select
+                value={roleId}
+                onChange={e => setRoleId(e.target.value)}
+                style={{ fontSize: 13, fontWeight: 600, padding: '2px 6px', borderRadius: 6, border: '1px solid hsl(var(--border))', background: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+              >
+                {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </label>
           </div>
           <button onClick={onClose} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 6, background: 'hsl(var(--muted))', border: 'none', cursor: 'pointer', color: 'hsl(var(--muted-foreground))' }}>
             <X style={{ width: 15, height: 15 }} />
@@ -135,66 +131,51 @@ export function AssignTeamMemberModal({ projectId, role, currentTeam, otherUserI
 
         {/* User list */}
         <div style={{ flex: 1, overflowY: 'auto' }}>
-          {loading && (
-            <p style={{ padding: '20px 20px', fontSize: 13, color: 'hsl(var(--muted-foreground))' }}>Loading…</p>
-          )}
-          {!loading && filtered.length === 0 && (
-            <p style={{ padding: '20px 20px', fontSize: 13, color: 'hsl(var(--muted-foreground))' }}>No members found.</p>
-          )}
+          {loading && <p style={{ padding: '20px 20px', fontSize: 13, color: 'hsl(var(--muted-foreground))' }}>Loading…</p>}
+          {!loading && filtered.length === 0 && <p style={{ padding: '20px 20px', fontSize: 13, color: 'hsl(var(--muted-foreground))' }}>No members found.</p>}
           {filtered.map((user, i) => {
-            const meta      = WORKSPACE_ROLE_META[user.role]
-            const Icon      = meta.icon
-            const heldRole  = currentRoleByUser[user.id]
-            const isSameSlot = isAlreadyThere(user.id)
-            const badge     = isSameSlot
-              ? (role ? 'Already assigned' : 'On this project')
-              : heldRole ? `Already: ${ROLE_LABEL[heldRole]}` : null
-            const isProcessing = assigning === user.id
+            const meta       = WORKSPACE_ROLE_META[user.role]
+            const Icon       = meta.icon
+            const held       = heldBy[user.id] ?? []
+            const hasThisOne = held.some(r => r.projectRoleId === roleId)
+            const busy       = assigning === user.id
 
             return (
               <button
                 key={user.id}
-                onClick={() => !isSameSlot && !isProcessing && handlePick(user)}
-                disabled={isSameSlot || isProcessing}
+                onClick={() => !hasThisOne && !busy && handlePick(user)}
+                disabled={hasThisOne || busy}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 12,
                   width: '100%', padding: '10px 16px',
                   borderBottom: i < filtered.length - 1 ? '1px solid hsl(var(--border))' : 'none',
-                  background: isSameSlot ? 'hsl(var(--muted))' : 'transparent',
-                  border: 'none', cursor: isSameSlot ? 'default' : 'pointer',
+                  background: hasThisOne ? 'hsl(var(--muted))' : 'transparent',
+                  border: 'none', cursor: hasThisOne ? 'default' : 'pointer',
                   textAlign: 'left', transition: 'background 0.1s',
                 }}
-                onMouseEnter={e => { if (!isSameSlot) (e.currentTarget as HTMLElement).style.background = 'hsl(var(--muted))' }}
-                onMouseLeave={e => { if (!isSameSlot) (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+                onMouseEnter={e => { if (!hasThisOne) (e.currentTarget as HTMLElement).style.background = 'hsl(var(--muted))' }}
+                onMouseLeave={e => { if (!hasThisOne) (e.currentTarget as HTMLElement).style.background = 'transparent' }}
               >
                 <Avatar name={user.name} email={user.email} avatarUrl={user.avatarUrl} size={34} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: 13, fontWeight: 500, color: 'hsl(var(--foreground))', marginBottom: 1 }}>
-                    {user.name ?? user.email}
-                  </p>
+                  <p style={{ fontSize: 13, fontWeight: 500, color: 'hsl(var(--foreground))', marginBottom: 1 }}>{user.name ?? user.email}</p>
                   {user.name && <p style={{ fontSize: 11, color: 'hsl(var(--muted-foreground))' }}>{user.email}</p>}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, flexShrink: 0 }}>
-                  <span style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 3,
-                    fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
-                    background: 'hsl(var(--muted))', color: 'hsl(var(--muted-foreground))',
-                  }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4, background: 'hsl(var(--muted))', color: 'hsl(var(--muted-foreground))' }}>
                     <Icon style={{ width: 10, height: 10 }} />
                     {meta.label}
                   </span>
-                  {badge && (
+                  {held.length > 0 && (
                     <span style={{
                       fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
-                      background: isSameSlot ? 'hsl(var(--muted))' : '#fef3c7',
-                      color: isSameSlot ? 'hsl(var(--muted-foreground))' : '#92400e',
+                      background: hasThisOne ? 'hsl(var(--muted))' : '#fef3c7',
+                      color: hasThisOne ? 'hsl(var(--muted-foreground))' : '#92400e',
                     }}>
-                      {badge}
+                      {hasThisOne ? 'Already in this role' : `On project: ${held.map(r => r.roleName).join(', ')}`}
                     </span>
                   )}
-                  {isProcessing && (
-                    <span style={{ fontSize: 10, color: 'hsl(var(--muted-foreground))' }}>Assigning…</span>
-                  )}
+                  {busy && <span style={{ fontSize: 10, color: 'hsl(var(--muted-foreground))' }}>Adding…</span>}
                 </div>
               </button>
             )

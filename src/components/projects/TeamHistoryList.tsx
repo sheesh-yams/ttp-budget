@@ -92,7 +92,7 @@ export function TeamHistoryList({ projectId }: Props) {
                   {row.user.name ?? row.user.email}
                 </p>
                 <p style={{ fontSize: 10, color: 'hsl(var(--muted-foreground))' }}>
-                  {(row.role && ROLE_LABEL[row.role]) ?? row.roleName ?? 'Team member'} · {REASON_LABEL[row.unassignReason ?? ''] ?? row.unassignReason}
+                  {row.roleName ?? (row.role && ROLE_LABEL[row.role]) ?? 'Team member'} · {REASON_LABEL[row.unassignReason ?? ''] ?? row.unassignReason}
                   {' · '}
                   {new Date(row.unassignedAt!).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })}
                 </p>

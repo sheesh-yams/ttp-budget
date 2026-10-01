@@ -23,7 +23,8 @@ export default async function ProposalsPage() {
       include: {
         client: { select: { name: true } },
         teamMembers: {
-          where:  { unassignedAt: null, role: 'ACCOUNT_MANAGER' },
+          where:  { unassignedAt: null, projectRole: { systemKey: 'ACCOUNT_MANAGER' } },
+            orderBy: { assignedAt: 'asc' },
           select: { user: { select: { name: true, email: true, avatarUrl: true } } },
           take: 1,
         },

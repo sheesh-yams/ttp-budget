@@ -29,7 +29,8 @@ export default async function ClientsPage() {
             },
           },
           teamMembers: {
-            where:  { unassignedAt: null, role: 'ACCOUNT_MANAGER' },
+            where:  { unassignedAt: null, projectRole: { systemKey: 'ACCOUNT_MANAGER' } },
+            orderBy: { assignedAt: 'asc' },
             select: { user: { select: { name: true, email: true, avatarUrl: true } } },
             take: 1,
           },

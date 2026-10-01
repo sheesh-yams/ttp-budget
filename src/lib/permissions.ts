@@ -225,7 +225,7 @@ export const LEGACY_TEAM_SLOT_KEY = {
  * derived by legacyRoleFor — the Roles screen labels those "not enforced yet".
  */
 export const ENFORCED_PROJECT_AREAS: ReadonlySet<ProjectArea> = new Set<ProjectArea>([
-  'overview', 'budget.lines', 'budget.costs', 'budget.margin', 'crew', 'dealMemos',
+  'overview', 'budget.lines', 'budget.costs', 'budget.margin', 'crew', 'dealMemos', 'projectTeam',
 ])
 export const ENFORCED_WORKSPACE_AREAS: ReadonlySet<WorkspaceArea> = new Set<WorkspaceArea>([
   'dashboardMoney',

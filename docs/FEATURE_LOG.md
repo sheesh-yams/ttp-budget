@@ -97,6 +97,32 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-01 — Roles Phase 3b: per-person project roles in the Team panel
+- The project Team panel is one list. Everyone on a project holds a project
+  role, any role can have several people, and a person may hold more than
+  one. Each row has a role picker and remove. "+ Add person" picks a role and
+  a person. Team member is the default; it adds nothing on top of another
+  role and is superseded by one.
+- Changes need `projectTeam` EDIT. You can only give, change or take away a
+  role that grants nothing beyond your own access on that project (a Project
+  Manager can't make someone, or themselves, Account Manager).
+- The legacy `role` column is no longer written; its old one-per-slot unique
+  index would block a second Account Manager. Chips and the Clients/Proposals
+  Account Manager columns now read the project role (earliest holder when
+  several), the same rows on today's data.
+- Add, change and remove for one person on one project are serialised (a
+  transaction advisory lock) and guarded on still-active rows, so "assignment
+  iff an active row" holds under concurrent clicks.
+- Removed: getProjectTeam, assignProjectTeamRole, unassignProjectTeamRole,
+  getProjectOthers, and the team-side add/removeProjectMember. History shows
+  role names.
+- pitfall-reviewer found 1 high (the unique index), 1 medium (granting beyond
+  your own access), then 1 medium + 2 low on re-check (concurrent removes,
+  add vs remove, custom roles hidden from history); all fixed. The lock was
+  verified against Neon.
+- **Needs a manual pass:** open a project's Team panel → + Add person as
+  "Vendor coordinator"; change a role; remove. Then sign in as that person.
+
 ### 2026-10-01 — Roles Phase 3a: Settings → Roles, role assignment, invites with a role
 - **Settings → Roles** (Owner) has two lists, up to 7 each:
   - Workspace roles: project scope, workspace pages, and a baseline for

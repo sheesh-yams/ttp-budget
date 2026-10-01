@@ -45,9 +45,11 @@ const PROJECT_INCLUDES = {
     },
   },
   teamMembers: {
-    // The PL/AM/PM chips — Team member rows have no slot.
-    where:  { unassignedAt: null, role: { not: null } },
-    select: { role: true, user: { select: { name: true, email: true, avatarUrl: true } } },
+    // The PL/AM/PM chips — read from the project role (the legacy `role`
+    // column is no longer written for new rows).
+    where:   { unassignedAt: null, projectRole: { systemKey: { in: ['PROJECT_LEAD', 'ACCOUNT_MANAGER', 'PROJECT_MANAGER'] as string[] } } },
+    orderBy: { assignedAt: 'asc' },
+    select:  { projectRole: { select: { systemKey: true } }, user: { select: { name: true, email: true, avatarUrl: true } } },
   },
 } as const
 
@@ -267,12 +269,22 @@ export default async function ProjectsPage({
   // without financial access every money field is zeroed server-side: the
   // gross budget total in particular, compared with the net budget they can
   // see, would give away the markup.
+  // One chip per built-in role — the earliest holder when several share it.
+  const chips = (rows: (typeof allProjects)[number]['teamMembers'] | undefined) => {
+    const seen = new Set<string>()
+    return (rows ?? []).flatMap(r => {
+      const role = r.projectRole?.systemKey as 'PROJECT_LEAD' | 'ACCOUNT_MANAGER' | 'PROJECT_MANAGER' | undefined
+      if (!role || seen.has(role)) return []
+      seen.add(role)
+      return [{ role, user: r.user }]
+    })
+  }
   const withCardMoney = (p: (typeof allProjects)[number]) => canSeeFin
     ? {
         ...p,
         actualSpentCents: actualSpentByProject.get(p.id) ?? 0,
         budgetTotalCents: budgetTotalByProject.get(p.id) ?? 0,
-        teamMembers: p.teamMembers ?? [],
+        teamMembers: chips(p.teamMembers),
       }
     : {
         ...p,
@@ -280,7 +292,7 @@ export default async function ProjectsPage({
         invoices:  p.invoices.map(inv => ({ ...inv, totalCents: 0, amountPaidCents: 0 })),
         actualSpentCents: 0,
         budgetTotalCents: 0,
-        teamMembers: p.teamMembers ?? [],
+        teamMembers: chips(p.teamMembers),
       }
   const projectsWithBurn = allProjects.map(withCardMoney)
   const archivedWithBurn = archivedProjects.map(withCardMoney)
