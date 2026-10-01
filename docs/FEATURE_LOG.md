@@ -23,9 +23,6 @@ Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
   `getScopedDb()` uses the *active* one. Gates that write with
   `gate.workspaceId` act on the home workspace when someone has switched.
   Phase 2's `requirePermission` uses the active workspace.
-- **Call-sheet actions have no role or project check** (`call-sheets.ts`, 8
-  exports): any member can edit, send or delete any call sheet in the
-  workspace, including Collaborators on unassigned projects.
 - **7 Clerk orgs have no linked workspace** (e.g. "The Third Place Creative",
   "Crossover Productions"). Found by the roles backfill and skipped.
 
@@ -91,6 +88,14 @@ Run each through `/feature`. Check the overlap first:
 ---
 
 ## Shipped
+
+### 2026-10-01 — Call sheets and comments check project access
+- All 8 call-sheet actions (via `getOwnedSheet`, `importCrewFromBudget`,
+  `createCallSheet`) and `addProjectComment` only checked the workspace. A
+  Collaborator could edit, send, finalize or delete call sheets — or comment —
+  on projects they aren't assigned to. Now `checkProjectAccess` is required,
+  with the same "not found" message. Collaborators still work on their
+  assigned projects' sheets; roles Phase 2 applies the `callSheets` level.
 
 ### 2026-10-01 — Roles Phase 1: workspace roles + project roles (data model, no behaviour change)
 - Migration `20261001000001_workspace_and_project_roles`: `WorkspaceRole`,

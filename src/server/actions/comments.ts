@@ -125,12 +125,9 @@ export async function addProjectComment(
       getWorkspaceId(),
     ])
 
-    // Ownership check: the project must belong to the active workspace.
-    const project = await sdb.project.findFirst({
-      where:  { id: projectId },
-      select: { id: true },
-    })
-    if (!project) return { success: false, error: 'Project not found' }
+    // The project must be in the active workspace and one the caller can
+    // open (a Collaborator only their assigned ones).
+    if (!(await checkProjectAccess(projectId))) return { success: false, error: 'Project not found' }
 
     // workspaceId is auto-injected by the scoped client; passed explicitly here
     // too so the type-checker is satisfied (required column) — the values match.
