@@ -32,6 +32,7 @@ export default async function InvoicesPage() {
       paidAt: true,
       lineItems: true,
       taxPct: true,
+      discountCents: true,
       notes: true,
       project: {
         select: {

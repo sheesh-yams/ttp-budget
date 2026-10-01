@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { createInvoice } from '@/server/actions/invoices'
 import { formatMoney } from '@/lib/money'
+import { calcInvoiceTotals, autoInvoiceDiscount, localISODate, addDaysISO } from '@/lib/invoice-totals'
 import type { ProposalContent, PaymentMilestone, InvoiceLineItem } from '@/types'
 
 // ─── Line-item row types ───────────────────────────────────────────────────────
@@ -119,10 +120,8 @@ type InvoiceOption =
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function defaultDueDate(days = 30) {
-  const d = new Date()
-  d.setDate(d.getDate() + days)
-  return d.toISOString().split('T')[0]
+function defaultDueDate(days = 30, from = localISODate()) {
+  return addDaysISO(from, days)
 }
 
 function lineTotal(quantity: number, rateCents: number, markupPct: number | null) {
@@ -229,7 +228,12 @@ export function NewInvoiceModal({
     return opt ? buildLineItemsForOption(opt).map(liToRow) : [blankRow()]
   })
   const [title, setTitle]               = useState('')
+  const [issueDate, setIssueDate]       = useState(() => localISODate())
   const [dueDate, setDueDate]           = useState(() => defaultDueDate(invoiceExpiryDays))
+  const [dueTouched, setDueTouched]     = useState(false)
+  // null = automatic (see autoInvoiceDiscount); a number = what the user set.
+  const [discountOverride, setDiscountOverride] = useState<number | null>(null)
+  const [discountText, setDiscountText] = useState<string | null>(null) // while typing
   const [taxPct, setTaxPct]             = useState(0)
   const [notes, setNotes]               = useState('')
   const [submitting, setSubmitting]     = useState(false)
@@ -240,6 +244,7 @@ export function NewInvoiceModal({
   useEffect(() => {
     const opt = options[selectedIdx]
     if (opt) setRows(buildLineItemsForOption(opt).map(liToRow))
+    setDiscountOverride(null)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedIdx])
 
@@ -253,7 +258,10 @@ export function NewInvoiceModal({
       setTitle('')
       setTaxPct(0)
       setNotes('')
+      setIssueDate(localISODate())
       setDueDate(defaultDueDate(invoiceExpiryDays))
+      setDueTouched(false)
+      setDiscountOverride(null)
       setError('')
       setShowLineItems(false)
     }
@@ -279,14 +287,20 @@ export function NewInvoiceModal({
 
   // ── Derived totals (always from rows) ────────────────────────────────────────
 
-  const subtotalCents = rows.reduce((s, r) => s + rowToCents(r), 0)
-  // Discount for the currently selected option — prorated for a milestone slice,
-  // or the full budget discount for "Full invoice". Falls out of the pre-discount
-  // vs. net amounts computed above; works the same for both branches of
-  // buildLineItemsForOption (detailed snapshot items or a single summary row).
-  const discountCents = selected ? Math.max(0, selected.preDiscountAmountCents - selected.amountCents) : 0
-  const taxCents       = Math.round((subtotalCents - discountCents) * taxPct / 100)
-  const totalWithTax   = subtotalCents - discountCents + taxCents
+  const rawSubtotal = rows.reduce((s, r) => s + rowToCents(r), 0)
+  // Discount for the selected option — prorated for a milestone slice, or the
+  // full budget discount for "Full invoice" — unless the amounts entered are
+  // already the discounted figure (then it's in the price; applying it again
+  // was the double discount). The user can always set or remove it.
+  const auto = selected
+    ? autoInvoiceDiscount({ subtotalCents: rawSubtotal, preDiscountAmountCents: selected.preDiscountAmountCents, netAmountCents: selected.amountCents })
+    : { discountCents: 0, alreadyIncluded: false }
+  const fullDiscountCents = selected ? Math.max(0, selected.preDiscountAmountCents - selected.amountCents) : 0
+  const { subtotalCents, discountCents, taxCents, totalCents: totalWithTax } = calcInvoiceTotals({
+    lineTotalsCents: rows.map(rowToCents),
+    discountCents:   discountOverride ?? auto.discountCents,
+    taxPct,
+  })
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -311,6 +325,8 @@ export function NewInvoiceModal({
     const invoiceTitle = title.trim() || getAutoTitle()
     if (!invoiceTitle) { setError('Title is required'); return }
     if (!dueDate) { setError('Due date is required'); return }
+    if (!issueDate) { setError('Invoice date is required'); return }
+    if (dueDate < issueDate) { setError('The due date can’t be before the invoice date.'); return }
     if (rows.length === 0) { setError('At least one line item is required'); return }
     const emptyDesc = rows.some(r => !r.description.trim())
     if (emptyDesc) { setError('All line items need a description.'); return }
@@ -326,6 +342,7 @@ export function NewInvoiceModal({
         budgetId: proposal.budgetId,
         kind: getKind(),
         title: invoiceTitle,
+        issueDate,
         dueDate,
         lineItems,
         subtotalCents,
@@ -514,15 +531,31 @@ export function NewInvoiceModal({
             <p className="mt-1 text-xs text-muted-foreground">Leave blank to use auto-generated title.</p>
           </div>
 
-          {/* Due date + Tax */}
-          <div className="grid grid-cols-2 gap-4">
+          {/* Invoice date + Due date + Tax */}
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <Label htmlFor="inv-issue">Invoice date</Label>
+              <Input
+                id="inv-issue"
+                type="date"
+                value={issueDate}
+                onChange={e => {
+                  const v = e.target.value
+                  setIssueDate(v)
+                  // Keep the usual payment window unless the due date was set by hand.
+                  if (v && !dueTouched) setDueDate(defaultDueDate(invoiceExpiryDays, v))
+                }}
+                className="mt-1"
+              />
+            </div>
             <div>
               <Label htmlFor="inv-due">Due date</Label>
               <Input
                 id="inv-due"
                 type="date"
                 value={dueDate}
-                onChange={e => setDueDate(e.target.value)}
+                min={issueDate || undefined}
+                onChange={e => { setDueDate(e.target.value); setDueTouched(true) }}
                 className="mt-1"
               />
             </div>
@@ -560,11 +593,38 @@ export function NewInvoiceModal({
               <span>Subtotal</span>
               <span className="tabular-nums">{formatMoney(subtotalCents)}</span>
             </div>
-            {discountCents > 0 && (
-              <div className="flex items-center justify-between text-sm text-green-600">
-                <span>Discount</span>
-                <span className="tabular-nums">-{formatMoney(discountCents)}</span>
+            {(fullDiscountCents > 0 || discountOverride !== null) && (
+              <div className="flex items-center justify-between gap-3 text-sm text-green-600">
+                <span className="flex items-center gap-2">
+                  Discount
+                  {discountCents > 0
+                    ? <button type="button" className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground" onClick={() => setDiscountOverride(0)}>Remove</button>
+                    : fullDiscountCents > 0 && (
+                      <button type="button" className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground" onClick={() => setDiscountOverride(fullDiscountCents)}>
+                        Apply {formatMoney(fullDiscountCents)}
+                      </button>
+                    )}
+                </span>
+                <span className="flex items-center gap-1 tabular-nums">
+                  -$
+                  <input
+                    type="number" min={0} step="0.01"
+                    value={discountText ?? (discountCents / 100).toFixed(2)}
+                    onChange={e => {
+                      setDiscountText(e.target.value)
+                      setDiscountOverride(Math.max(0, Math.round((parseFloat(e.target.value) || 0) * 100)))
+                    }}
+                    onBlur={() => setDiscountText(null)}
+                    className="w-24 rounded border border-input bg-background px-1.5 py-0.5 text-right text-sm text-green-700 tabular-nums"
+                    aria-label="Discount amount"
+                  />
+                </span>
               </div>
+            )}
+            {auto.alreadyIncluded && discountOverride === null && (
+              <p className="text-xs text-muted-foreground">
+                The amount above already includes the budget discount ({formatMoney(fullDiscountCents)}), so it isn’t taken off again.
+              </p>
             )}
             {taxPct > 0 && (
               <div className="flex items-center justify-between text-sm text-muted-foreground">

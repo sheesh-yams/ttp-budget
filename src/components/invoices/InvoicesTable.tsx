@@ -29,6 +29,8 @@ export interface InvoiceListRow {
   lineItems?: unknown
   taxPct?: number | null
   notes?: string | null
+  issueDate?: Date | string
+  discountCents?: number
   project: {
     id: string
     name: string
@@ -194,6 +196,8 @@ export function InvoicesTable({ invoices }: { invoices: InvoiceListRow[] }) {
                           currentNotes={inv.notes}
                           currentTitle={inv.title}
                           currentDueDate={new Date(inv.dueDate).toISOString()}
+                          currentIssueDate={inv.issueDate ? new Date(inv.issueDate).toISOString() : undefined}
+                          currentDiscountCents={inv.discountCents ?? 0}
                           onSaved={refresh}
                           trigger={open => (
                             <button

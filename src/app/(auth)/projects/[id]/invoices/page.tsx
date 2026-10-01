@@ -99,6 +99,8 @@ export default async function InvoicesSubPage({ params }: Props) {
           sentAt:          true,
           lineItems:       true,
           taxPct:          true,
+          discountCents:   true,
+          issueDate:       true,
           notes:           true,
         },
       },
@@ -145,6 +147,7 @@ export default async function InvoicesSubPage({ params }: Props) {
   const serializedInvoices = project.invoices.map(inv => ({
     ...inv,
     dueDate:   inv.dueDate.toISOString(),
+    issueDate: inv.issueDate.toISOString(),
     sentAt:    inv.sentAt?.toISOString() ?? null,
     lineItems: inv.lineItems,
     taxPct:    Number(inv.taxPct ?? 0),

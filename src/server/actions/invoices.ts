@@ -10,6 +10,8 @@ import type { ActionResult } from '@/types'
 import { logAuditEvent } from '@/lib/audit'
 import { generatePublicToken } from '@/lib/secure-token'
 import { normalizeRecipientEmails, buildCcList } from '@/lib/email'
+import { calcInvoiceTotals, calendarDateToStored } from '@/lib/invoice-totals'
+import { formatMoney } from '@/lib/money'
 
 // ─── Payment terms label ────────────────────────────────────────────────────
 // Derived from the actual gap between issue date and due date, rather than a
@@ -30,6 +32,8 @@ const createSchema = z.object({
   budgetId: z.string().optional().nullable(),
   kind: z.enum(['DEPOSIT', 'PROGRESS', 'FINAL', 'STANDALONE']),
   title: z.string().min(1).max(300),
+  /** YYYY-MM-DD; defaults to today. Can be backdated (a client asks for a date). */
+  issueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   dueDate: z.string(),
   lineItems: z.array(z.object({
     id: z.string(),
@@ -64,14 +68,25 @@ export async function createInvoice(
       getWorkspaceId(),
     ])
     const data = createSchema.parse(input)
+
+    // Calendar dates stored at midday UTC (see calendarDateToStored).
+    const issueDate = data.issueDate ? calendarDateToStored(data.issueDate) : new Date()
+    const dueDate   = calendarDateToStored(data.dueDate.slice(0, 10))
+    if (!issueDate || !dueDate) return { success: false, error: 'Invalid date' }
+    if (data.issueDate && dueDate < issueDate) return { success: false, error: 'The due date can’t be before the invoice date.' }
+
+    // Only take a number once the invoice is going to be created (no gaps).
     const number = await generateInvoiceNumber(workspaceId)
     const workspace = await db.workspace.findUnique({
       where: { id: workspaceId },
       select: { defaultInvoiceTerms: true },
     })
-
-    const issueDate = new Date()
-    const dueDate   = new Date(data.dueDate)
+    // Recompute — never trust totals sent by the client.
+    const totals = calcInvoiceTotals({
+      lineTotalsCents: data.lineItems.map(li => li.lineTotalCents),
+      discountCents:   data.discountCents ?? 0,
+      taxPct:          data.taxPct,
+    })
 
     const invoice = await scopedDb.invoice.create({
       data: {
@@ -85,11 +100,11 @@ export async function createInvoice(
         issueDate,
         dueDate,
         lineItems: data.lineItems as object[],
-        subtotalCents: data.subtotalCents,
+        subtotalCents: totals.subtotalCents,
         taxPct: data.taxPct,
-        taxCents: data.taxCents,
-        discountCents: data.discountCents ?? 0,
-        totalCents: data.totalCents,
+        taxCents: totals.taxCents,
+        discountCents: totals.discountCents,
+        totalCents: totals.totalCents,
         notes:         data.notes ?? null,
         terms:         data.terms ?? workspace?.defaultInvoiceTerms ?? null,
         paymentTerms:  data.paymentTerms ?? deriveInvoicePaymentTerms(issueDate, dueDate),
@@ -550,6 +565,7 @@ export async function updateInvoiceLineItems(
   notes?:       string,
   title?:       string,
   dueDate?:     string,
+  extra?:       { issueDate?: string; discountCents?: number },
 ): Promise<ActionResult> {
   try {
     const gate = await requireRole(['OWNER', 'PRODUCER'])
@@ -559,32 +575,49 @@ export async function updateInvoiceLineItems(
 
     const invoice = await scopedDb.invoice.findFirst({
       where: { id: invoiceId },
-      select: { status: true, projectId: true, workspaceId: true, issueDate: true },
+      select: { status: true, projectId: true, workspaceId: true, issueDate: true, dueDate: true, discountCents: true, amountPaidCents: true },
     })
     if (!invoice) return { success: false, error: 'Invoice not found' }
     if ((invoice.status as string) === 'PAID') return { success: false, error: 'Cannot edit a paid invoice' }
     if ((invoice.status as string) === 'VOID') return { success: false, error: 'Cannot edit a voided invoice' }
 
     const validated = z.array(lineItemSchema).parse(lineItems)
-    const subtotalCents = validated.reduce((s, li) => s + li.lineTotalCents, 0)
-    const taxCents      = Math.round(subtotalCents * taxPct / 100)
-    const totalCents    = subtotalCents + taxCents
+    // Same math as create. The discount used to be dropped here (total was
+    // subtotal + tax on the pre-discount subtotal) — keep the stored one
+    // unless a new one is sent.
+    const { subtotalCents, discountCents, taxCents, totalCents } = calcInvoiceTotals({
+      lineTotalsCents: validated.map(li => li.lineTotalCents),
+      discountCents:   extra?.discountCents ?? invoice.discountCents,
+      taxPct,
+    })
+    if (totalCents < invoice.amountPaidCents) {
+      return { success: false, error: `The total can’t go below what’s already been paid (${formatMoney(invoice.amountPaidCents)}).` }
+    }
 
-    // Re-derive the Terms label whenever the due date changes — otherwise it
+    // Re-derive the Terms label whenever either date changes — otherwise it
     // stays stuck at whatever was shown when the invoice was first created.
-    const newDueDate = dueDate !== undefined ? new Date(dueDate) : null
+    const newDueDate   = dueDate !== undefined ? calendarDateToStored(dueDate.slice(0, 10)) : null
+    const newIssueDate = extra?.issueDate ? calendarDateToStored(extra.issueDate) : null
+    if ((dueDate !== undefined && !newDueDate) || (extra?.issueDate && !newIssueDate)) {
+      return { success: false, error: 'Invalid date' }
+    }
+    const issueDate = newIssueDate ?? invoice.issueDate
+    const due       = newDueDate ?? invoice.dueDate
+    if (due < issueDate) return { success: false, error: 'The due date can’t be before the invoice date.' }
+    const datesChanged = !!newDueDate || !!newIssueDate
 
     await scopedDb.invoice.update({
       where: { id: invoiceId },
       data: {
         lineItems:     validated as object[],
         subtotalCents,
+        discountCents,
         taxPct,
         taxCents,
         totalCents,
         ...(notes    !== undefined ? { notes }              : {}),
         ...(title    !== undefined ? { title }              : {}),
-        ...(newDueDate ? { dueDate: newDueDate, paymentTerms: deriveInvoicePaymentTerms(invoice.issueDate, newDueDate) } : {}),
+        ...(datesChanged ? { issueDate, dueDate: due, paymentTerms: deriveInvoicePaymentTerms(issueDate, due) } : {}),
       },
     })
 

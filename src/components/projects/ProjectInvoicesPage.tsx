@@ -50,6 +50,8 @@ interface InvoiceRow {
   lineItems: unknown
   taxPct: number | string
   notes: string | null
+  issueDate?: Date | string
+  discountCents?: number
 }
 
 interface ProposalRef {
@@ -402,6 +404,8 @@ export function ProjectInvoicesPage({
                               currentNotes={inv.notes}
                               currentTitle={inv.title}
                               currentDueDate={inv.dueDate}
+                          currentIssueDate={inv.issueDate ? new Date(inv.issueDate).toISOString() : undefined}
+                          currentDiscountCents={inv.discountCents ?? 0}
                               onSaved={refresh}
                               trigger={open => (
                                 <button

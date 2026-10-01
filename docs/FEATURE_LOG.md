@@ -34,6 +34,12 @@ Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
 - **Start from a template needs browse-all.** The budget empty state's picker
   mixes templates and other projects' budgets, so someone with costs EDIT but
   not Producer-level browse can only create a blank budget.
+- **Invoice numbers follow the creation year,** not a backdated invoice date
+  (`invoice-numbering.ts` keeps one sequence per year). An invoice backdated
+  into last year gets this year's number.
+- **Editing an invoice during an online checkout:** `settle.ts` charges the
+  balance captured when checkout started, then marks PAID. Editing the
+  invoice mid-checkout could leave it PAID for a different amount.
 - **Invited people get a throwaway personal workspace.** Every sign-up gets
   its own workspace (the `user.created` webhook, or a lazy create if a page
   loads first — "Ashish TEST's Workspace" has no Clerk org). Accepting an
@@ -96,6 +102,33 @@ Run each through `/feature`. Check the overlap first:
 ---
 
 ## Shipped
+
+### 2026-10-01 — Invoice date (backdating) + double-discount fix
+- **Invoice date:** both the new and edit invoice modals have an "Invoice
+  date" (Invoice.issueDate already existed, always "now"). The due date keeps
+  the usual window from it unless set by hand, and can't be earlier. Payment
+  terms are re-derived. Calendar dates are stored at midday UTC
+  (`calendarDateToStored`), so the public page no longer shows the day before
+  in US timezones (this already affected due dates). The edit modal only
+  sends the invoice date when it was changed.
+- **Double discount (reported):** a milestone invoice always subtracted its
+  share of the budget discount, even when the amount typed was already the
+  discounted figure (50% of the post-discount total). Now
+  `autoInvoiceDiscount` skips it on an exact match and says so. The discount
+  row is visible, editable and removable in both modals.
+- **Also fixed:** editing an invoice dropped its discount from the total and
+  taxed the pre-discount subtotal. Create, edit and both previews now share
+  `calcInvoiceTotals` (tax on subtotal − discount). Create recomputes totals
+  server-side instead of trusting the client. An edit can't take the total
+  below what's been paid. A rejected create no longer burns an invoice number.
+- Data: a read-only check found 0 of 20 invoices with a discount or a
+  mismatched total, so nothing to repair.
+- pitfall-reviewer found 2 medium (timezone display, total below paid) and
+  4 low; fixed except the two logged follow-ups.
+- **Needs a manual pass:**
+  - The Daadi 50% milestone: type $37,440 and the total stays $37,440, with
+    the "already includes the discount" note.
+  - Backdate an invoice and check the PDF and the public page.
 
 ### 2026-10-01 — Roles Phase 3b: per-person project roles in the Team panel
 - The project Team panel is one list. Everyone on a project holds a project

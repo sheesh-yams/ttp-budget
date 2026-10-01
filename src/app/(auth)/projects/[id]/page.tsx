@@ -146,6 +146,8 @@ export default async function ProjectDetailPage({
           sentAt:          true,
           lineItems:       true,
           taxPct:          true,
+          discountCents:   true,
+          issueDate:       true,
           notes:           true,
         },
       },

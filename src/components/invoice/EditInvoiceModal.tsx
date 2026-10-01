@@ -14,6 +14,8 @@
  *   currentNotes    — current notes field (editable)
  *   currentTitle    — current invoice title (editable)
  *   currentDueDate  — ISO string, editable
+ *   currentIssueDate — ISO string, editable (backdating)
+ *   currentDiscountCents — kept unless changed here
  *   trigger         — render-prop so any element can open the modal
  *   onSaved         — called after a successful save
  */
@@ -26,6 +28,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { formatMoney } from '@/lib/money'
+import { calcInvoiceTotals, localISODate } from '@/lib/invoice-totals'
 import { updateInvoiceLineItems } from '@/server/actions/invoices'
 import type { InvoiceLineItem } from '@/types'
 
@@ -52,6 +55,8 @@ interface EditInvoiceModalProps {
   currentNotes?:  string | null
   currentTitle?:  string | null
   currentDueDate: string       // ISO string
+  currentIssueDate?: string    // ISO string — the invoice date (can be backdated)
+  currentDiscountCents?: number
   trigger:        (open: () => void) => React.ReactNode
   onSaved?:       () => void
 }
@@ -120,6 +125,8 @@ export function EditInvoiceModal({
   currentNotes,
   currentTitle,
   currentDueDate,
+  currentIssueDate,
+  currentDiscountCents = 0,
   trigger,
   onSaved,
 }: EditInvoiceModalProps) {
@@ -134,6 +141,12 @@ export function EditInvoiceModal({
   const [notes, setNotes]     = useState(currentNotes ?? '')
   const [title, setTitle]     = useState(currentTitle ?? '')
   const [dueDate, setDueDate] = useState(currentDueDate.split('T')[0])
+  // The invoice date as the viewer's calendar day; only sent back if changed,
+  // so saving other fields never moves it.
+  const initialIssueDate = currentIssueDate ? localISODate(new Date(currentIssueDate)) : ''
+  const [issueDate, setIssueDate] = useState(initialIssueDate)
+  const [discountCents, setDiscountCents] = useState(currentDiscountCents)
+  const [discountText, setDiscountText]   = useState<string | null>(null) // while typing
 
   function handleOpen() {
     setRows(existingItems.length > 0 ? existingItems.map(toRow) : [blankRow()])
@@ -141,6 +154,9 @@ export function EditInvoiceModal({
     setNotes(currentNotes ?? '')
     setTitle(currentTitle ?? '')
     setDueDate(currentDueDate.split('T')[0])
+    setIssueDate(initialIssueDate)
+    setDiscountCents(currentDiscountCents)
+    setDiscountText(null)
     setError(null)
     setSaved(false)
     setOpen(true)
@@ -158,9 +174,12 @@ export function EditInvoiceModal({
     setRows(prev => prev.filter((_, i) => i !== idx))
   }
 
-  const subtotalCents = rows.reduce((s, r) => s + rowTotal(r), 0)
-  const taxCents      = Math.round(subtotalCents * taxPct / 100)
-  const totalCents    = subtotalCents + taxCents
+  // Same math the server uses: tax on the discounted amount.
+  const { subtotalCents, discountCents: appliedDiscount, taxCents, totalCents } = calcInvoiceTotals({
+    lineTotalsCents: rows.map(rowTotal),
+    discountCents,
+    taxPct,
+  })
 
   function handleSave() {
     // Validate
@@ -169,6 +188,7 @@ export function EditInvoiceModal({
     const badRate = rows.some(r => (parseFloat(r.rate) || 0) <= 0)
     if (badRate)  { setError('All line items need a rate greater than zero.'); return }
     if (!dueDate) { setError('Due date is required.'); return }
+    if (issueDate && dueDate < issueDate) { setError('The due date can’t be before the invoice date.'); return }
     setError(null)
 
     start(async () => {
@@ -179,6 +199,7 @@ export function EditInvoiceModal({
         notes,
         title || undefined,
         dueDate,
+        { issueDate: issueDate && issueDate !== initialIssueDate ? issueDate : undefined, discountCents },
       )
       if (result.success) {
         setSaved(true)
@@ -217,8 +238,8 @@ export function EditInvoiceModal({
             <>
               <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
 
-                {/* Title + due date */}
-                <div className="grid grid-cols-2 gap-4">
+                {/* Title + dates */}
+                <div className="grid grid-cols-3 gap-4">
                   <div>
                     <Label htmlFor="ei-title">Invoice title</Label>
                     <Input
@@ -226,6 +247,16 @@ export function EditInvoiceModal({
                       value={title}
                       onChange={e => setTitle(e.target.value)}
                       placeholder="Optional title…"
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="ei-issue">Invoice date</Label>
+                    <Input
+                      id="ei-issue"
+                      type="date"
+                      value={issueDate}
+                      onChange={e => setIssueDate(e.target.value)}
                       className="mt-1"
                     />
                   </div>
@@ -354,6 +385,28 @@ export function EditInvoiceModal({
                   <div className="flex justify-between text-sm text-muted-foreground">
                     <span>Subtotal</span>
                     <span className="tabular-nums">{formatMoney(subtotalCents)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm text-green-600">
+                    <span className="flex items-center gap-2">
+                      Discount
+                      {appliedDiscount > 0 && (
+                        <button type="button" className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground" onClick={() => { setDiscountCents(0); setDiscountText(null) }}>Remove</button>
+                      )}
+                    </span>
+                    <span className="flex items-center gap-1 tabular-nums">
+                      -$
+                      <Input
+                        type="number" min={0} step="0.01"
+                        value={discountText ?? (appliedDiscount / 100).toFixed(2)}
+                        onChange={e => {
+                          setDiscountText(e.target.value)
+                          setDiscountCents(Math.max(0, Math.round((parseFloat(e.target.value) || 0) * 100)))
+                        }}
+                        onBlur={() => setDiscountText(null)}
+                        className="h-6 w-24 text-xs text-right px-2"
+                        aria-label="Discount amount"
+                      />
+                    </span>
                   </div>
                   <div className="flex items-center justify-between text-sm text-muted-foreground">
                     <span className="flex items-center gap-2">
