@@ -4,7 +4,7 @@ import { headers } from 'next/headers'
 import { WebhookEvent, clerkClient } from '@clerk/nextjs/server'
 import { db } from '@/lib/db'
 import { seedWorkspaceFromGlobals } from '@/lib/workspace-seeder'
-import { syncWorkspaceMembership } from '@/lib/roles'
+import { ensureWorkspaceMembership, legacyRoleForInvite, syncWorkspaceMembership } from '@/lib/roles'
 
 export async function POST(req: NextRequest) {
   const WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET
@@ -184,13 +184,16 @@ export async function POST(req: NextRequest) {
     const memberEmail = (public_user_data?.identifier ?? '').toLowerCase()
 
     let invitedRole: 'PRODUCER' | 'COLLABORATOR' | 'OWNER' | null = null
+    let invitedRoleId: string | null = null
     if (clerkRole !== 'org:admin' && memberEmail) {
       const invite = await db.workspaceInvitation.findFirst({
         where: { workspaceId: workspace.id, email: memberEmail },
         orderBy: { createdAt: 'desc' },
-        select: { role: true },
+        select: { role: true, roleId: true },
       })
-      invitedRole = invite?.role ?? null
+      // The invited role as it is now (it may have been edited since sending).
+      invitedRole   = invite ? await legacyRoleForInvite(invite, workspace.id) : null
+      invitedRoleId = invite?.roleId ?? null
     }
     const dbRole = clerkRole === 'org:admin' ? 'OWNER' : (invitedRole ?? 'PRODUCER')
 
@@ -202,7 +205,8 @@ export async function POST(req: NextRequest) {
     if (existingUser?.workspaceId === workspace.id) {
       // Already in the right workspace — this is the org-creator's own membership
       // event. Don't touch their role (they're the OWNER who created this workspace).
-      await syncWorkspaceMembership({
+      // Create-only: an accepted invite may already have set a custom role.
+      await ensureWorkspaceMembership({
         userId: existingUser.id, workspaceId: workspace.id,
         role:   clerkRole === 'org:admin' ? 'OWNER' : existingUser.role,
       })
@@ -216,7 +220,7 @@ export async function POST(req: NextRequest) {
         where: { clerkId: memberClerkId },
         data: { workspaceId: workspace.id, role: dbRole, onboarded: true },
       })
-      await syncWorkspaceMembership({ userId: existingUser.id, workspaceId: workspace.id, role: dbRole })
+      await syncWorkspaceMembership({ userId: existingUser.id, workspaceId: workspace.id, role: dbRole, roleId: invitedRoleId })
     } else {
       // Brand-new user (sign-up + invite completed in one flow).
       const name = [public_user_data?.first_name, public_user_data?.last_name]
@@ -232,7 +236,7 @@ export async function POST(req: NextRequest) {
           onboarded:   true,
         },
       })
-      await syncWorkspaceMembership({ userId: created.id, workspaceId: workspace.id, role: dbRole })
+      await syncWorkspaceMembership({ userId: created.id, workspaceId: workspace.id, role: dbRole, roleId: invitedRoleId })
     }
 
     // Auto-mark any matching pending invitation as accepted.

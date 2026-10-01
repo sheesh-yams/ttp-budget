@@ -8,7 +8,7 @@
 
 import type { Prisma, ProjectTeamRole, UserRole } from '@prisma/client'
 import { db } from '@/lib/db'
-import { WORKSPACE_ROLE_PRESETS, PROJECT_ROLE_PRESETS } from '@/lib/permissions'
+import { WORKSPACE_ROLE_PRESETS, PROJECT_ROLE_PRESETS, legacyRoleFor } from '@/lib/permissions'
 
 type Client = typeof db | Prisma.TransactionClient
 
@@ -68,14 +68,31 @@ export async function systemProjectRoleId(workspaceId: string, key: ProjectRoleK
 }
 
 /**
+ * The legacy User.role an invitation grants when it's ACCEPTED: from its
+ * workspace role as that role is now (it may have been edited since the
+ * invite was sent), else the role stored on the invitation.
+ */
+export async function legacyRoleForInvite(
+  invite: { role: UserRole; roleId: string | null }, workspaceId: string, client: Client = db,
+): Promise<UserRole> {
+  if (!invite.roleId) return invite.role
+  const role = await client.workspaceRole.findFirst({ where: { id: invite.roleId, workspaceId } })
+  return role ? legacyRoleFor(role) : invite.role
+}
+
+/**
  * Record that `userId` is a member of `workspaceId` with the system role
  * matching the legacy `role`. Creates or updates the membership.
  */
 export async function setWorkspaceMembership(
-  args: { userId: string; workspaceId: string; role: UserRole },
+  args: { userId: string; workspaceId: string; role: UserRole; roleId?: string | null },
   client: Client = db,
 ) {
-  const roleId = await systemWorkspaceRoleId(args.workspaceId, args.role, client)
+  // A specific (possibly custom) role wins when it's still in this workspace.
+  const chosen = args.roleId
+    ? await client.workspaceRole.findFirst({ where: { id: args.roleId, workspaceId: args.workspaceId }, select: { id: true } })
+    : null
+  const roleId = chosen?.id ?? await systemWorkspaceRoleId(args.workspaceId, args.role, client)
   await client.workspaceMember.upsert({
     where:  { workspaceId_userId: { workspaceId: args.workspaceId, userId: args.userId } },
     create: { workspaceId: args.workspaceId, userId: args.userId, roleId },
@@ -91,10 +108,24 @@ export async function removeWorkspaceMembership(
 }
 
 /**
+ * Create a membership only if there isn't one — for event paths (webhooks)
+ * that may land after a richer write (e.g. an accepted invite's custom role)
+ * and must not overwrite it.
+ */
+export async function ensureWorkspaceMembership(args: { userId: string; workspaceId: string; role: UserRole }) {
+  try {
+    const existing = await db.workspaceMember.findFirst({ where: { workspaceId: args.workspaceId, userId: args.userId }, select: { id: true } })
+    if (!existing) await setWorkspaceMembership(args)
+  } catch (err) {
+    console.error('[roles] ensure membership failed (non-fatal):', err)
+  }
+}
+
+/**
  * Best-effort wrapper for paths where the membership mirror must never block
  * the main operation (sign-up, webhooks). Logs and continues on failure.
  */
-export async function syncWorkspaceMembership(args: { userId: string; workspaceId: string; role: UserRole }) {
+export async function syncWorkspaceMembership(args: { userId: string; workspaceId: string; role: UserRole; roleId?: string | null }) {
   try {
     await setWorkspaceMembership(args)
   } catch (err) {

@@ -8,6 +8,7 @@ const tabs = [
   { label: 'General',   href: '/settings' },
   { label: 'Payments',  href: '/settings/payments' },
   { label: 'Contracts', href: '/settings/contracts' },
+  { label: 'Roles',     href: '/settings/roles' },
 ]
 
 export function SettingsTabs() {

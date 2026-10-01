@@ -216,3 +216,52 @@ export const LEGACY_TEAM_SLOT_KEY = {
   ACCOUNT_MANAGER: 'ACCOUNT_MANAGER',
   PROJECT_MANAGER: 'PROJECT_MANAGER',
 } as const
+
+// ─── Phase 3: custom roles ────────────────────────────────────────────────────
+
+/**
+ * Areas whose pages and actions already enforce these permissions (roles
+ * Phase 2 converts area by area). Anything else still runs on the legacy role
+ * derived by legacyRoleFor — the Roles screen labels those "not enforced yet".
+ */
+export const ENFORCED_PROJECT_AREAS: ReadonlySet<ProjectArea> = new Set<ProjectArea>([
+  'overview', 'budget.lines', 'budget.costs', 'budget.margin', 'crew', 'dealMemos',
+])
+export const ENFORCED_WORKSPACE_AREAS: ReadonlySet<WorkspaceArea> = new Set<WorkspaceArea>([
+  'dashboardMoney',
+])
+
+export interface RoleShape {
+  systemKey:            string | null
+  projectScope:         ProjectScopeValue
+  workspacePermissions: unknown
+  projectBaseline:      unknown
+}
+
+/**
+ * The legacy User.role a member with this workspace role gets, for every
+ * check not yet converted to permissions. Never more than the custom role
+ * grants: OWNER only for the Owner role; PRODUCER only for a role at least as
+ * open as the Producer preset; COLLABORATOR otherwise.
+ */
+export function legacyRoleFor(role: RoleShape): UserRole {
+  if (role.systemKey === 'OWNER') return 'OWNER'
+  const producer = WORKSPACE_ROLE_PRESETS.find(p => p.systemKey === 'PRODUCER')!
+  const ws   = readWorkspacePermissions(role.workspacePermissions)
+  const base = readProjectPermissions(role.projectBaseline)
+  const atLeastProducer =
+    role.projectScope === 'ALL' &&
+    WORKSPACE_AREA_KEYS.every(k => atLeast(ws[k], producer.workspacePermissions[k])) &&
+    PROJECT_AREA_KEYS.every(k => atLeast(base[k], producer.projectBaseline[k]))
+  return atLeastProducer ? 'PRODUCER' : 'COLLABORATOR'
+}
+
+/** Clean a submitted matrix: known areas only, valid levels, caps applied. */
+export function normaliseWorkspacePermissions(input: unknown): WorkspacePermissions {
+  return readWorkspacePermissions(input)
+}
+export function normaliseProjectPermissions(input: unknown): ProjectPermissions {
+  return readProjectPermissions(input)
+}
+
+export const ROLE_NAME_MAX = 40

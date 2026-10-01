@@ -146,3 +146,24 @@ describe('presets', () => {
     }
   })
 })
+
+describe('legacyRoleFor (custom roles never exceed what they grant)', () => {
+  const { legacyRoleFor } = jest.requireActual('../permissions') as typeof import('../permissions')
+  it('system presets map to themselves', () => {
+    for (const p of WORKSPACE_ROLE_PRESETS) expect(legacyRoleFor(p)).toBe(p.systemKey)
+  })
+  it('a Producer copy with one area lowered is a Collaborator for legacy checks', () => {
+    const p = preset('PRODUCER')
+    expect(legacyRoleFor({ ...p, systemKey: null, workspacePermissions: { ...p.workspacePermissions, invoices: 'VIEW' } })).toBe('COLLABORATOR')
+    expect(legacyRoleFor({ ...p, systemKey: null, projectScope: 'ASSIGNED' })).toBe('COLLABORATOR')
+    expect(legacyRoleFor({ ...p, systemKey: null, projectBaseline: { ...p.projectBaseline, actuals: 'VIEW' } })).toBe('COLLABORATOR')
+  })
+  it('a Producer copy with settings added is still Producer, not Owner', () => {
+    const p = preset('PRODUCER')
+    expect(legacyRoleFor({ ...p, systemKey: null, workspacePermissions: { ...p.workspacePermissions, settings: 'EDIT', team: 'EDIT' } })).toBe('PRODUCER')
+  })
+  it('only the Owner system role is Owner', () => {
+    const o = preset('OWNER')
+    expect(legacyRoleFor({ ...o, systemKey: null })).toBe('PRODUCER')
+  })
+})

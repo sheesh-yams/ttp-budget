@@ -1,19 +1,26 @@
 import { redirect } from 'next/navigation'
 import { listTeamMembers, getPendingInvitations } from '@/server/actions/team'
 import { TeamPageClient } from '@/components/team/TeamPageClient'
-import { getActiveWorkspace, getCurrentRole } from '@/lib/auth'
+import { getActiveWorkspace } from '@/lib/auth'
+import { requireTeamAdmin } from '@/lib/access'
+import { listRoles } from '@/server/actions/roles'
 
 export const metadata = { title: 'Team' }
 
 export default async function TeamPage() {
-  // Member management is OWNER-only (server-side gate, not just hidden in the UI).
-  if ((await getCurrentRole()) !== 'OWNER') redirect('/')
+  // Member management (requireTeamAdmin: Team & roles EDIT, and Owner while the
+  // workspace pages are on the legacy role) — server-side, not just hidden.
+  if (!(await requireTeamAdmin()).ok) redirect('/')
 
-  const [members, pending, workspace] = await Promise.all([
+  const [members, pending, workspace, rolesRes] = await Promise.all([
     listTeamMembers(),
     getPendingInvitations(),
     getActiveWorkspace(),
+    listRoles(),
   ])
+  const roles = rolesRes.success
+    ? rolesRes.data.workspaceRoles.map(r => ({ id: r.id, name: r.name, systemKey: r.systemKey }))
+    : []
 
   return (
     <div>
@@ -32,6 +39,7 @@ export default async function TeamPage() {
           createdAt: p.createdAt.toISOString(),
         }))}
         isOwner={true}
+        roles={roles}
       />
     </div>
   )

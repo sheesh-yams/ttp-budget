@@ -2,13 +2,14 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Mail, Clock, X, UserPlus, Shield, User, Eye, Trash2 } from 'lucide-react'
+import { Mail, Clock, X, UserPlus, Shield, User, Eye, Trash2, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { inviteTeamMember, revokeInvitation, changeMemberRole, removeWorkspaceMember } from '@/server/actions/team'
+import { inviteTeamMember, revokeInvitation, removeWorkspaceMember } from '@/server/actions/team'
+import { assignWorkspaceRole } from '@/server/actions/roles'
 import { getActiveProjectRolesForUser } from '@/server/actions/project-team'
 import type { UserRole } from '@prisma/client'
 
@@ -20,7 +21,18 @@ const ROLE_META: Record<UserRole, { label: string; icon: React.ElementType; badg
   COLLABORATOR: { label: 'Collaborator', icon: Eye,    badge: 'bg-blue-100 text-blue-700 hover:bg-blue-100',       blurb: 'Assigned projects only · margin-blind budgets.' },
 }
 
-const ROLE_ORDER: UserRole[] = ['COLLABORATOR', 'PRODUCER', 'OWNER']
+/** A workspace role offered on this page (built-in or custom). */
+export interface RoleOption {
+  id:        string
+  name:      string
+  systemKey: string | null
+}
+
+function metaFor(systemKey: string | null) {
+  return systemKey && systemKey in ROLE_META
+    ? ROLE_META[systemKey as UserRole]
+    : { label: '', icon: Users, badge: 'bg-amber-50 text-amber-800 hover:bg-amber-50', blurb: 'Custom role — see Settings → Roles.' }
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -30,6 +42,8 @@ interface Member {
   email:         string
   avatarUrl:     string | null
   role:          UserRole
+  roleId:        string | null
+  roleName:      string | null
   createdAt:     string
   isCurrentUser: boolean
 }
@@ -38,6 +52,7 @@ interface PendingInvite {
   id:            string
   email:         string
   role:          UserRole
+  roleName:      string | null
   invitedByName: string | null
   expiresAt:     string
   createdAt:     string
@@ -54,6 +69,7 @@ interface Props {
   members:            Member[]
   pendingInvitations: PendingInvite[]
   isOwner:            boolean
+  roles:              RoleOption[]
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -76,32 +92,31 @@ function Avatar({ name, email, avatarUrl }: { name: string | null; email: string
   )
 }
 
-function RoleBadge({ role }: { role: UserRole }) {
-  const meta = ROLE_META[role]
+function RoleBadge({ name, systemKey }: { name: string; systemKey: string | null }) {
+  const meta = metaFor(systemKey)
   const Icon = meta.icon
   return (
     <Badge className={`gap-1 font-medium ${meta.badge}`}>
       <Icon className="h-3 w-3" />
-      {meta.label}
+      {name}
     </Badge>
   )
 }
 
 // Owner-only inline role editor for an existing member. The whole Team page is
 // already OWNER-gated, so every viewer here may reassign others' roles.
-function MemberRoleSelect({ userId, role }: { userId: string; role: UserRole }) {
+function MemberRoleSelect({ userId, roleId, roles }: { userId: string; roleId: string | null; roles: RoleOption[] }) {
   const router = useRouter()
-  const [value, setValue]  = useState<UserRole>(role)
+  const [value, setValue]  = useState<string>(roleId ?? '')
   const [isPending, start] = useTransition()
   const [error, setError]  = useState<string | null>(null)
 
   function onChange(next: string) {
-    const nextRole = next as UserRole
     const prev = value
-    setValue(nextRole)
+    setValue(next)
     setError(null)
     start(async () => {
-      const res = await changeMemberRole(userId, nextRole)
+      const res = await assignWorkspaceRole(userId, next)
       if (res.success) {
         router.refresh()
       } else {
@@ -118,8 +133,8 @@ function MemberRoleSelect({ userId, role }: { userId: string; role: UserRole }) 
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {ROLE_ORDER.map(r => (
-            <SelectItem key={r} value={r} className="text-xs">{ROLE_META[r].label}</SelectItem>
+          {roles.map(r => (
+            <SelectItem key={r.id} value={r.id} className="text-xs">{r.name}</SelectItem>
           ))}
         </SelectContent>
       </Select>
@@ -136,10 +151,12 @@ const ROLE_LABEL: Record<string, string> = {
   PROJECT_MANAGER: 'Project Manager',
 }
 
-export function TeamPageClient({ members, pendingInvitations, isOwner }: Props) {
+export function TeamPageClient({ members, pendingInvitations, isOwner, roles }: Props) {
   const router = useRouter()
   const [inviteEmail, setInviteEmail]   = useState('')
-  const [inviteRole, setInviteRole]     = useState<UserRole>('PRODUCER')
+  const [inviteRoleId, setInviteRoleId] = useState<string>(
+    roles.find(r => r.systemKey === 'PRODUCER')?.id ?? roles[0]?.id ?? '',
+  )
   const [inviteError, setInviteError]   = useState<string | null>(null)
   const [inviteSuccess, setInviteSuccess] = useState(false)
   const [isPending, startTransition]    = useTransition()
@@ -157,7 +174,7 @@ export function TeamPageClient({ members, pendingInvitations, isOwner }: Props) 
     setInviteSuccess(false)
 
     startTransition(async () => {
-      const result = await inviteTeamMember(inviteEmail.trim(), inviteRole)
+      const result = await inviteTeamMember(inviteEmail.trim(), inviteRoleId)
       if (result.success) {
         setInviteEmail('')
         setInviteSuccess(true)
@@ -231,10 +248,10 @@ export function TeamPageClient({ members, pendingInvitations, isOwner }: Props) 
                 )}
               </div>
               {member.isCurrentUser
-                ? <RoleBadge role={member.role} />
+                ? <RoleBadge name={member.roleName ?? ROLE_META[member.role].label} systemKey={roles.find(r => r.id === member.roleId)?.systemKey ?? member.role} />
                 : (
                   <div className="flex items-center gap-2">
-                    <MemberRoleSelect userId={member.id} role={member.role} />
+                    <MemberRoleSelect userId={member.id} roleId={member.roleId} roles={roles} />
                     {isOwner && (
                       <button
                         onClick={() => handleRemoveClick(member)}
@@ -274,7 +291,7 @@ export function TeamPageClient({ members, pendingInvitations, isOwner }: Props) 
                     Expires {new Date(invite.expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </p>
                 </div>
-                <RoleBadge role={invite.role} />
+                <RoleBadge name={invite.roleName ?? ROLE_META[invite.role].label} systemKey={invite.roleName ? (roles.find(r => r.name === invite.roleName)?.systemKey ?? null) : invite.role} />
                 <button
                   onClick={() => handleRevoke(invite.id)}
                   disabled={revoking === invite.id}
@@ -316,23 +333,23 @@ export function TeamPageClient({ members, pendingInvitations, isOwner }: Props) 
                 Role
               </label>
               <div className="grid grid-cols-3 gap-2">
-                {ROLE_ORDER.map(r => {
-                  const meta = ROLE_META[r]
+                {roles.map(r => {
+                  const meta = metaFor(r.systemKey)
                   const Icon = meta.icon
                   return (
                     <button
-                      key={r}
+                      key={r.id}
                       type="button"
-                      onClick={() => setInviteRole(r)}
+                      onClick={() => setInviteRoleId(r.id)}
                       className={`rounded-lg border px-3 py-2.5 text-left text-sm transition-colors ${
-                        inviteRole === r
+                        inviteRoleId === r.id
                           ? 'border-[var(--brand-primary,#5D00A4)] bg-violet-50 text-violet-700'
                           : 'border-border text-muted-foreground hover:border-muted-foreground/50'
                       }`}
                     >
                       <div className="flex items-center gap-2">
                         <Icon className="h-3.5 w-3.5" />
-                        <span className="font-medium">{meta.label}</span>
+                        <span className="font-medium">{r.name}</span>
                       </div>
                       <p className="mt-0.5 text-[11px] leading-tight opacity-70">{meta.blurb}</p>
                     </button>

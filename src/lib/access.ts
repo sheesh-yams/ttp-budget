@@ -140,6 +140,23 @@ export async function requirePermission(area: WorkspaceArea, level: Level): Prom
   }
 }
 
+/**
+ * Managing people and roles (Team page, Settings → Roles, invites). `team`
+ * EDIT — and, until the workspace pages move to permissions, also the legacy
+ * Owner role, so the Team page, Settings and the nav (all still Owner-gated)
+ * agree on who that is.
+ */
+export async function requireTeamAdmin(): Promise<PermissionGate> {
+  const [access, user] = await Promise.all([getAccess(), getCurrentUser()])
+  const ok = access.can('team', 'EDIT') && user.role === 'OWNER'
+  return {
+    ok,
+    error: ok ? null : { success: false, error: 'UNAUTHORIZED_ROLE' },
+    userId:      access.userId,
+    workspaceId: access.workspaceId,
+  }
+}
+
 export async function requireProjectPermission(
   projectId: string, area: ProjectArea, level: Level,
 ): Promise<PermissionGate> {

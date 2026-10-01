@@ -163,14 +163,8 @@ export default async function ProjectDetailPage({
 
   if (!project) notFound()
 
-  // ── RBAC: Collaborators may only open projects they're assigned to. ──────────
-  if (currentUser.role === 'COLLABORATOR') {
-    const assignment = await db.projectAssignment.findUnique({
-      where: { projectId_userId: { projectId: id, userId: currentUser.id } },
-      select: { id: true },
-    })
-    if (!assignment) notFound()
-  }
+  // Who may open the project: requireProjectAccess / getProjectAccess above
+  // (the workspace role's project scope).
 
   // ── "Blind" budget: strip margin/markup/agency-fee data for Collaborators
   // BEFORE any total is computed or serialised, so it never reaches the client.

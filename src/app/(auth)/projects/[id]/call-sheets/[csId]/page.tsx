@@ -1,3 +1,4 @@
+import { getAccess } from '@/lib/access'
 import { notFound } from 'next/navigation'
 import { requireProjectAccess, requireProjectArea } from '@/lib/project-access'
 import { db } from '@/lib/db'
@@ -28,7 +29,7 @@ export default async function CallSheetPage({
   params: Promise<{ id: string; csId: string }>
 }) {
   const { id: projectId, csId } = await params
-  const { role } = await requireProjectAccess(projectId)
+  await requireProjectAccess(projectId)
   await requireProjectArea(projectId, 'callSheets')
   const workspaceId = await getWorkspaceId()
 
@@ -58,9 +59,9 @@ export default async function CallSheetPage({
       orderBy: { createdAt: 'asc' },
       select: { id: true },
     }),
-    // The rolodex picker is Owner/Producer only — Collaborators don't get the
-    // workspace's contact list.
-    role === 'COLLABORATOR' ? Promise.resolve([]) : db.contact.findMany({
+    // The rolodex picker needs the Rolodex permission — otherwise no
+    // workspace contact list.
+    !(await getAccess()).can('rolodex') ? Promise.resolve([]) : db.contact.findMany({
       where: { workspaceId, archivedAt: null },
       select: { id: true, name: true, primaryRole: true, email: true, phone: true },
       orderBy: { name: 'asc' },

@@ -97,6 +97,42 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-01 — Roles Phase 3a: Settings → Roles, role assignment, invites with a role
+- **Settings → Roles** (Owner) has two lists, up to 7 each:
+  - Workspace roles: project scope, workspace pages, and a baseline for
+    inside projects.
+  - Project roles.
+  Create from any role, rename, edit, and delete if unused. The Owner role is
+  locked; built-in roles can't be deleted. Areas not yet converted are
+  labelled "Not enforced yet". Logic lives in `src/lib/role-admin.ts`, with
+  thin `'use server'` wrappers in `roles.ts`.
+- **Safety for unconverted checks:** a member's legacy `User.role` =
+  `legacyRoleFor(role)`. That's Owner only for the Owner role, Producer only
+  if at least Producer-open, else Collaborator, so a custom role never gets
+  more than it grants anywhere. Editing a role re-syncs its members.
+  Accepting an invite uses the role as it is then. The editor warns when an
+  edit to a built-in role would lower that.
+- **Team page:** per-member dropdowns of workspace roles, and invites pick
+  one (the email shows its name). You can't change your own role. The last
+  Owner can't be demoted, with Owner rows locked FOR UPDATE so concurrent
+  demotions serialise. `changeMemberRole` is removed. Team listings are now
+  gated (they were callable by anyone).
+- **Project scope is enforced:** `requireProjectAccess` / `checkProjectAccess`
+  use the workspace role's ALL/ASSIGNED scope. The overview's leftover legacy
+  assignment check is gone.
+- The webhook's same-workspace branch is create-only, so it can't clobber an
+  accepted invite's custom role.
+- Managing roles needs Team & roles EDIT and the legacy Owner role while
+  Settings, Team and the nav are still Owner-gated.
+- pitfall-reviewer found 1 medium (an invite keeping a stale legacy role) and
+  2 low (the concurrent last-Owner race, Producer edits demoting); all fixed
+  and DB-verified, including a real concurrent demotion.
+- **Needs a manual pass:**
+  - Settings → Roles: create "Vendor coordinator" from Collaborator; set
+    Crew + Deal memos to Edit under project areas.
+  - Team: switch a member's role. Invite with a custom role.
+  - Project roles per person arrive in 3b.
+
 ### 2026-10-01 — Roles Phase 2 (2/n): crew + deal memos enforce permissions
 - The vendor-coordinator case: a project role with crew and deal memos Edit
   manages vendors on that project without seeing the budget's money.
