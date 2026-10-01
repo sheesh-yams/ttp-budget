@@ -48,7 +48,11 @@ export async function GET(req: NextRequest) {
         auditEvent: { deleteMany: (args: object) => Promise<unknown> }
       }).auditEvent.deleteMany({ where: { workspaceId: workspace.id } })
 
-      // 2. Hard-delete the workspace — FK Cascade handles everything else
+      // 2. Project team rows reference User and ProjectRole without cascade,
+      //    so cascade order would trip them — clear them explicitly.
+      await db.projectTeamMember.deleteMany({ where: { workspaceId: workspace.id } })
+
+      // 3. Hard-delete the workspace — FK Cascade handles everything else
       await db.workspace.delete({ where: { id: workspace.id } })
 
       console.log(`[purge-workspaces] Purged workspace ${workspace.id} (${workspace.name}), deletedAt=${workspace.deletedAt?.toISOString()}`)

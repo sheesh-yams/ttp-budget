@@ -101,6 +101,9 @@ model Workspace {
   receipts                 Receipt[]
   contractBlocks           ContractBlock[]
   dealMemos                DealMemo[]
+  workspaceRoles           WorkspaceRole[]
+  workspaceMembers         WorkspaceMember[]
+  projectRoles             ProjectRole[]
   autoAttachContractBlocks Boolean @default(false)
 }
 
@@ -132,6 +135,7 @@ model User {
   projectComments  ProjectComment[] @relation("ProjectCommentAuthor")
   projectAssignments ProjectAssignment[]
   projectTeamMembers ProjectTeamMember[]
+  workspaceMemberships WorkspaceMember[]
 
   @@index([workspaceId])
 }
@@ -264,7 +268,11 @@ model ProjectTeamMember {
   project            Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   userId             String
   user               User            @relation(fields: [userId], references: [id])
-  role               ProjectTeamRole
+  // Legacy fixed slot. Superseded by projectRoleId (configurable roles);
+  // nullable until every reader moves over, then dropped.
+  role               ProjectTeamRole?
+  projectRoleId      String?
+  projectRole        ProjectRole?    @relation(fields: [projectRoleId], references: [id], onDelete: Restrict)
   assignedAt         DateTime        @default(now())
   assignedByUserId   String?
   unassignedAt       DateTime?
@@ -275,6 +283,7 @@ model ProjectTeamMember {
   @@index([userId])
   @@index([workspaceId])
   @@index([projectId, unassignedAt])
+  @@index([projectRoleId])
 }
 
 // ─── Project activity / comment thread ────────────────────────────────────────
@@ -1065,6 +1074,10 @@ model WorkspaceInvitation {
 
   email         String
   role          UserRole  @default(PRODUCER)
+  // Configurable workspace role to join with (roles Phase 1). Null on
+  // invitations sent before roles existed — `role` maps to its system role.
+  roleId        String?
+  workspaceRole WorkspaceRole? @relation(fields: [roleId], references: [id], onDelete: SetNull)
   token         String    @unique @default(cuid())  // sent in the invite URL /invite/[token]
   invitedByName String?   // display name of the person who sent the invite
 
@@ -1075,6 +1088,82 @@ model WorkspaceInvitation {
 
   @@index([workspaceId])
   @@index([token])
+}
+
+// ─── Roles & permissions ──────────────────────────────────────────────────────
+// Two levels (see src/lib/permissions.ts for the area catalog):
+//  - WorkspaceRole: what a member can open across the workspace, which projects
+//    they can see (projectScope) and a baseline for inside every project.
+//  - ProjectRole: what a person on a project's team can do on that project.
+// Effective level on a project = max(baseline, every project role they hold).
+// Permissions are JSON maps { area: 'NONE' | 'VIEW' | 'EDIT' }; missing areas
+// read as NONE. Up to 7 of each per workspace (enforced in the actions).
+
+enum ProjectScope {
+  ALL       // every project in the workspace
+  ASSIGNED  // only projects where they're on the team
+}
+
+model WorkspaceRole {
+  id                   String       @id @default(cuid())
+  workspaceId          String
+  workspace            Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name                 String
+  // 'OWNER' | 'PRODUCER' | 'COLLABORATOR' for the seeded system roles, else null.
+  // OWNER is locked to full access.
+  systemKey            String?
+  order                Int          @default(0)
+  projectScope         ProjectScope @default(ASSIGNED)
+  workspacePermissions Json         @default("{}")
+  projectBaseline      Json         @default("{}")
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  members     WorkspaceMember[]
+  invitations WorkspaceInvitation[]
+
+  @@unique([workspaceId, name])
+  @@unique([workspaceId, systemKey])
+  @@index([workspaceId])
+}
+
+// A user's membership of one workspace, with their role there. Replaces the
+// single User.role, which can't differ between workspaces.
+model WorkspaceMember {
+  id          String        @id @default(cuid())
+  workspaceId String
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId      String
+  role        WorkspaceRole @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@index([roleId])
+}
+
+model ProjectRole {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  // 'PROJECT_LEAD' | 'ACCOUNT_MANAGER' | 'PROJECT_MANAGER' | 'TEAM_MEMBER' for
+  // the seeded roles (keeps e.g. the Account Manager column working after a
+  // rename), else null.
+  systemKey   String?
+  order       Int       @default(0)
+  permissions Json      @default("{}")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  teamMembers ProjectTeamMember[]
+
+  @@unique([workspaceId, name])
+  @@unique([workspaceId, systemKey])
+  @@index([workspaceId])
 }
 
 // =============================================================

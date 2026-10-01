@@ -6,6 +6,7 @@ import { getScopedDb } from '@/lib/db-scoped'
 import { getCurrentUser, requireRole } from '@/lib/auth'
 import { logAuditEvent } from '@/lib/audit'
 import { checkProjectAccess } from '@/lib/project-access'
+import { systemProjectRoleId } from '@/lib/roles'
 import type { ActionResult } from '@/types'
 import type { ProjectTeamRole, UserRole } from '@prisma/client'
 
@@ -26,6 +27,8 @@ export interface TeamMember {
 }
 
 export interface TeamMemberHistory extends TeamMember {
+  /** Display name of the project role (covers rows with no legacy slot). */
+  roleName:           string | null
   unassignedAt:       string | null
   unassignedByUserId: string | null
   unassignReason:     string | null
@@ -47,7 +50,8 @@ export async function getProjectTeam(
     if (!(await checkProjectAccess(projectId))) return { success: false, error: 'Project not found' }
     const sdb = await getScopedDb()
     const rows = await sdb.projectTeamMember.findMany({
-      where:   { projectId, unassignedAt: null },
+      // The 3 named slots only — Team member rows have no legacy slot.
+      where:   { projectId, unassignedAt: null, role: { not: null } },
       include: { user: { select: { name: true, email: true, avatarUrl: true, role: true } } },
       orderBy: { assignedAt: 'asc' },
     })
@@ -83,8 +87,17 @@ export async function getProjectTeamHistory(
     if (!(await checkProjectAccess(projectId))) return { success: false, error: 'Project not found' }
     const sdb = await getScopedDb()
     const rows = await sdb.projectTeamMember.findMany({
-      where:   { projectId },
-      include: { user: { select: { name: true, email: true, avatarUrl: true, role: true } } },
+      // A Team member row ended by a promotion to a named role isn't history
+      // anyone needs (the new role's own row records it).
+      // (Spelled out: SQL NULLs make a NOT { role: null, reason } drop rows.)
+      where:   {
+        projectId,
+        OR: [{ role: { not: null } }, { unassignReason: null }, { unassignReason: { not: 'REPLACED' } }],
+      },
+      include: {
+        user:        { select: { name: true, email: true, avatarUrl: true, role: true } },
+        projectRole: { select: { name: true } },
+      },
       orderBy: { assignedAt: 'desc' },
     })
 
@@ -94,6 +107,7 @@ export async function getProjectTeamHistory(
         id:                 row.id,
         userId:             row.userId,
         role:               row.role,
+        roleName:           row.projectRole?.name ?? null,
         assignedAt:         row.assignedAt.toISOString(),
         assignedByUserId:   row.assignedByUserId,
         unassignedAt:       row.unassignedAt?.toISOString() ?? null,
@@ -160,6 +174,11 @@ export async function assignProjectTeamRole(input: {
     let replacedUserId: string | undefined
     let newMemberId: string | undefined
 
+    const [projectRoleId, teamMemberRoleId] = await Promise.all([
+      systemProjectRoleId(gate.workspaceId, role),
+      systemProjectRoleId(gate.workspaceId, 'TEAM_MEMBER'),
+    ])
+
     await db.$transaction(async (tx) => {
       // 1. Mark any existing active holder as replaced.
       const existing = await tx.projectTeamMember.findFirst({
@@ -176,21 +195,43 @@ export async function assignProjectTeamRole(input: {
             unassignReason:     'REPLACED',
           },
         })
+        // They keep access to the project, so they stay on its team as a
+        // Team member unless they still hold another role here.
+        if (existing.userId !== userId) {
+          const stillOnTeam = await tx.projectTeamMember.count({
+            where: { projectId, userId: existing.userId, unassignedAt: null },
+          })
+          if (stillOnTeam === 0) {
+            await tx.projectTeamMember.create({
+              data: {
+                workspaceId: gate.workspaceId, projectId, userId: existing.userId,
+                role: null, projectRoleId: teamMemberRoleId, assignedByUserId: gate.userId,
+              },
+            })
+          }
+        }
       }
 
-      // 2. Create the new active row.
+      // 2. A named role supersedes being a plain Team member here.
+      await tx.projectTeamMember.updateMany({
+        where: { projectId, userId, workspaceId: gate.workspaceId, unassignedAt: null, role: null },
+        data:  { unassignedAt: new Date(), unassignedByUserId: gate.userId, unassignReason: 'REPLACED' },
+      })
+
+      // 3. Create the new active row.
       const newRow = await tx.projectTeamMember.create({
         data: {
           workspaceId:      gate.workspaceId,
           projectId,
           userId,
           role,
+          projectRoleId,
           assignedByUserId: gate.userId,
         },
       })
       newMemberId = newRow.id
 
-      // 3. Auto-create ProjectAssignment for visibility (idempotent).
+      // 4. Auto-create ProjectAssignment for visibility (idempotent).
       const existingAssignment = await tx.projectAssignment.findFirst({
         where:  { projectId, userId },
         select: { id: true },
@@ -255,6 +296,7 @@ export async function unassignProjectTeamRole(input: {
     if (!active) return { success: false, error: 'No active holder for this role' }
 
     const { userId } = active
+    const teamMemberRoleId = await systemProjectRoleId(gate.workspaceId, 'TEAM_MEMBER')
 
     await db.$transaction(async (tx) => {
       // 1. Mark role as removed.
@@ -267,13 +309,22 @@ export async function unassignProjectTeamRole(input: {
         },
       })
 
-      // 2. Optionally remove visibility grant if user has no other active roles.
-      if (removeVisibility) {
-        const otherActiveRoles = await tx.projectTeamMember.count({
-          where: { projectId, userId, unassignedAt: null },
-        })
-        if (otherActiveRoles === 0) {
+      // 2. With no other active role here: either drop their access, or keep
+      //    them on the team as a plain Team member (everyone with access to a
+      //    project holds a project role).
+      const otherActiveRoles = await tx.projectTeamMember.count({
+        where: { projectId, userId, unassignedAt: null },
+      })
+      if (otherActiveRoles === 0) {
+        if (removeVisibility) {
           await tx.projectAssignment.deleteMany({ where: { projectId, userId } })
+        } else {
+          await tx.projectTeamMember.create({
+            data: {
+              workspaceId: gate.workspaceId, projectId, userId,
+              role: null, projectRoleId: teamMemberRoleId, assignedByUserId: gate.userId,
+            },
+          })
         }
       }
     })
@@ -324,7 +375,7 @@ export async function getProjectOthers(
         orderBy: { createdAt: 'asc' },
       }),
       db.projectTeamMember.findMany({
-        where:  { projectId, workspaceId: access.workspaceId, unassignedAt: null },
+        where:  { projectId, workspaceId: access.workspaceId, unassignedAt: null, role: { not: null } },
         select: { userId: true },
       }),
     ])
@@ -356,10 +407,27 @@ export async function addProjectMember(input: {
     if (!project)    return { success: false, error: 'Project not found' }
     if (!targetUser) return { success: false, error: 'User not found in this workspace' }
 
-    // Unique (projectId, userId) — adding someone already on the project is a no-op.
-    const { count } = await db.projectAssignment.createMany({
-      data:           [{ projectId, userId, workspaceId: gate.workspaceId }],
-      skipDuplicates: true,
+    const teamMemberRoleId = await systemProjectRoleId(gate.workspaceId, 'TEAM_MEMBER')
+
+    // Access (ProjectAssignment) + a Team member row. Unique (projectId,
+    // userId) on the assignment — adding someone already on it is a no-op.
+    const count = await db.$transaction(async (tx) => {
+      const { count } = await tx.projectAssignment.createMany({
+        data:           [{ projectId, userId, workspaceId: gate.workspaceId }],
+        skipDuplicates: true,
+      })
+      const onTeam = await tx.projectTeamMember.count({
+        where: { projectId, userId, workspaceId: gate.workspaceId, unassignedAt: null },
+      })
+      if (onTeam === 0) {
+        await tx.projectTeamMember.create({
+          data: {
+            workspaceId: gate.workspaceId, projectId, userId,
+            role: null, projectRoleId: teamMemberRoleId, assignedByUserId: gate.userId,
+          },
+        })
+      }
+      return count
     })
 
     if (count > 0) {
@@ -392,13 +460,19 @@ export async function removeProjectMember(input: {
 
     const { projectId, userId } = input
     const heldRole = await db.projectTeamMember.findFirst({
-      where:  { projectId, userId, workspaceId: gate.workspaceId, unassignedAt: null },
+      where:  { projectId, userId, workspaceId: gate.workspaceId, unassignedAt: null, role: { not: null } },
       select: { id: true },
     })
     if (heldRole) return { success: false, error: 'They hold a named role on this project — remove them from it first.' }
 
-    const { count } = await db.projectAssignment.deleteMany({
-      where: { projectId, userId, workspaceId: gate.workspaceId },
+    const { count } = await db.$transaction(async (tx) => {
+      await tx.projectTeamMember.updateMany({
+        where: { projectId, userId, workspaceId: gate.workspaceId, unassignedAt: null },
+        data:  { unassignedAt: new Date(), unassignedByUserId: gate.userId, unassignReason: 'REMOVED' },
+      })
+      return tx.projectAssignment.deleteMany({
+        where: { projectId, userId, workspaceId: gate.workspaceId },
+      })
     })
 
     if (count > 0) {
@@ -439,7 +513,7 @@ export async function getActiveProjectRolesForUser(
     if (!gate.ok) return gate.error
 
     const rows = await db.projectTeamMember.findMany({
-      where:   { userId, workspaceId: gate.workspaceId, unassignedAt: null },
+      where:   { userId, workspaceId: gate.workspaceId, unassignedAt: null, role: { not: null } },
       include: { project: { select: { name: true } } },
       orderBy: { assignedAt: 'asc' },
     })

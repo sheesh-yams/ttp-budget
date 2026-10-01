@@ -2,6 +2,7 @@ import { auth, currentUser } from '@clerk/nextjs/server'
 import { db } from '@/lib/db'
 import { redirect } from 'next/navigation'
 import { cache } from 'react'
+import { syncWorkspaceMembership } from '@/lib/roles'
 
 // ─── getCurrentUser ───────────────────────────────────────────────────────────
 // Returns the DB User row for the currently authenticated Clerk user.
@@ -58,6 +59,7 @@ export const getCurrentUser = cache(async () => {
       },
       include: { workspace: true },
     })
+    await syncWorkspaceMembership({ userId: user.id, workspaceId: user.workspaceId, role: user.role })
   }
 
   return user

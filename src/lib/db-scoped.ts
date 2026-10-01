@@ -80,6 +80,10 @@ export const SCOPED_MODELS = new Set([
   'DealMemo',
   'DealMemoFee',
   'DealMemoSection',
+  // Roles & permissions — configurable workspace roles, memberships, project roles
+  'WorkspaceRole',
+  'WorkspaceMember',
+  'ProjectRole',
   // NOTE: WebhookEvent is NOT workspace-scoped (keyed by provider+eventId only)
   // NOTE: GlobalContractBlock / GlobalContractBlockTrigger are NOT workspace-scoped
 ])

@@ -45,7 +45,8 @@ const PROJECT_INCLUDES = {
     },
   },
   teamMembers: {
-    where:  { unassignedAt: null },
+    // The PL/AM/PM chips — Team member rows have no slot.
+    where:  { unassignedAt: null, role: { not: null } },
     select: { role: true, user: { select: { name: true, email: true, avatarUrl: true } } },
   },
 } as const

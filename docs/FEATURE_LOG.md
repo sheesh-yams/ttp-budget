@@ -16,8 +16,18 @@ Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
 - **Role is per user, not per workspace.** `User.role` follows the user's
   current home workspace (invites move it), but the active workspace comes
   from the Clerk org and there's a `WorkspaceSwitcher`. A user in two
-  workspaces gets the same role in both. Fixed by roles Phase 1
-  (`WorkspaceMember`).
+  workspaces gets the same role in both. `WorkspaceMember` (roles Phase 1)
+  records the right role per workspace; it takes effect when Phase 2
+  enforces through `getAccess()`.
+- **`requireRole` returns the *home* workspace id** (`user.workspaceId`), while
+  `getScopedDb()` uses the *active* one. Gates that write with
+  `gate.workspaceId` act on the home workspace when someone has switched.
+  Phase 2's `requirePermission` uses the active workspace.
+- **Call-sheet actions have no role or project check** (`call-sheets.ts`, 8
+  exports): any member can edit, send or delete any call sheet in the
+  workspace, including Collaborators on unassigned projects.
+- **7 Clerk orgs have no linked workspace** (e.g. "The Third Place Creative",
+  "Crossover Productions"). Found by the roles backfill and skipped.
 
 - **Invited people get a throwaway personal workspace.** Every sign-up gets
   its own workspace (the `user.created` webhook, or a lazy create if a page
@@ -81,6 +91,33 @@ Run each through `/feature`. Check the overlap first:
 ---
 
 ## Shipped
+
+### 2026-10-01 — Roles Phase 1: workspace roles + project roles (data model, no behaviour change)
+- Migration `20261001000001_workspace_and_project_roles`: `WorkspaceRole`,
+  `WorkspaceMember`, `ProjectRole`; `ProjectTeamMember.projectRoleId` (legacy
+  `role` slot now nullable); `WorkspaceInvitation.roleId`.
+- **Model** (decided with the user): workspace role = workspace pages +
+  project scope (all / assigned) + a baseline for inside projects; project
+  role = per person per project. Effective = max(baseline, project roles),
+  then caps (costs ≤ lines, margin ≤ costs). Owner always full.
+- `src/lib/permissions.ts`: catalog, presets, rules (jest). The Collaborator
+  preset is lines without money — the one intended change from today, applied
+  when Phase 2 enforces.
+- `src/lib/access.ts`: `getAccess` / `getProjectAccess` /
+  `requirePermission` / `requireProjectPermission`. Nothing enforces through it
+  yet. It falls back to `User.role` presets without a membership.
+- `src/lib/roles.ts`: system role seeding, plus a membership mirror on every
+  join, role change, removal, leave, create and lazy sign-up.
+- Everyone on a project now has a project role. "Also on this project"
+  people are "Team member" rows, and a replaced or unassigned holder who
+  keeps access becomes one.
+- Removing a workspace member now also drops their project access.
+- The workspace purge cron clears team rows first: their User FK has no
+  cascade, so purging any workspace with a team failed.
+- Backfill: `scripts/backfill-roles.ts` (dry-run by default; `--apply`).
+- pitfall-reviewer found 5 issues (replaced-holder access, removed members'
+  leftover assignments, backfill timeout, purge FK order, history noise); all
+  fixed and DB-verified.
 
 ### 2026-10-01 — Invite fixes, rolodex hidden from Collaborators, more people per project
 - **Invite flow:**

@@ -4,6 +4,7 @@ import { headers } from 'next/headers'
 import { WebhookEvent, clerkClient } from '@clerk/nextjs/server'
 import { db } from '@/lib/db'
 import { seedWorkspaceFromGlobals } from '@/lib/workspace-seeder'
+import { syncWorkspaceMembership } from '@/lib/roles'
 
 export async function POST(req: NextRequest) {
   const WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET
@@ -65,13 +66,14 @@ export async function POST(req: NextRequest) {
 
       // Persist workspace + user in one transaction.
       let newWorkspaceId: string
+      let newUserId: string
       await db.$transaction(async (tx) => {
         const workspace = await tx.workspace.create({
           data: { name: defaultWorkspaceName, clerkOrgId: org.id },
         })
         newWorkspaceId = workspace.id
 
-        await tx.user.upsert({
+        const user = await tx.user.upsert({
           where: { clerkId: id },
           update: {
             email,
@@ -88,7 +90,11 @@ export async function POST(req: NextRequest) {
             onboarded: false,
           },
         })
+        newUserId = user.id
       })
+
+      // They created this workspace, so they own it.
+      await syncWorkspaceMembership({ userId: newUserId!, workspaceId: newWorkspaceId!, role: 'OWNER' })
 
       // Seed global rate cards + templates into the new workspace.
       // Non-blocking: a seeder failure must NOT prevent account creation.
@@ -190,12 +196,16 @@ export async function POST(req: NextRequest) {
 
     const existingUser = await db.user.findUnique({
       where: { clerkId: memberClerkId },
-      select: { id: true, workspaceId: true },
+      select: { id: true, workspaceId: true, role: true },
     })
 
     if (existingUser?.workspaceId === workspace.id) {
       // Already in the right workspace — this is the org-creator's own membership
       // event. Don't touch their role (they're the OWNER who created this workspace).
+      await syncWorkspaceMembership({
+        userId: existingUser.id, workspaceId: workspace.id,
+        role:   clerkRole === 'org:admin' ? 'OWNER' : existingUser.role,
+      })
       return NextResponse.json({ received: true })
     }
 
@@ -206,11 +216,12 @@ export async function POST(req: NextRequest) {
         where: { clerkId: memberClerkId },
         data: { workspaceId: workspace.id, role: dbRole, onboarded: true },
       })
+      await syncWorkspaceMembership({ userId: existingUser.id, workspaceId: workspace.id, role: dbRole })
     } else {
       // Brand-new user (sign-up + invite completed in one flow).
       const name = [public_user_data?.first_name, public_user_data?.last_name]
         .filter(Boolean).join(' ') || null
-      await db.user.create({
+      const created = await db.user.create({
         data: {
           clerkId:     memberClerkId,
           email:       memberEmail,
@@ -221,6 +232,7 @@ export async function POST(req: NextRequest) {
           onboarded:   true,
         },
       })
+      await syncWorkspaceMembership({ userId: created.id, workspaceId: workspace.id, role: dbRole })
     }
 
     // Auto-mark any matching pending invitation as accepted.

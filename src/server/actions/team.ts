@@ -9,6 +9,7 @@ import type { ActionResult } from '@/types'
 import type { UserRole } from '@prisma/client'
 import { logAuditEvent } from '@/lib/audit'
 import { verifiedEmailsFor } from '@/lib/invitations'
+import { removeWorkspaceMembership, syncWorkspaceMembership, systemWorkspaceRoleId } from '@/lib/roles'
 
 // WorkspaceInvitation is a new model — types are generated after `prisma generate`.
 // Until then, cast db to include the accessor.
@@ -146,6 +147,7 @@ export async function inviteTeamMember(
         workspaceId,
         email:         normalizedEmail,
         role,
+        roleId:        await systemWorkspaceRoleId(workspaceId, role),
         invitedByName: currentUser.name ?? currentUser.email,
         expiresAt,
       },
@@ -242,6 +244,7 @@ export async function changeMemberRole(
     }
 
     await db.user.update({ where: { id: target.id }, data: { role } })
+    await syncWorkspaceMembership({ userId: target.id, workspaceId, role })
 
     // Best-effort Clerk sync — DB remains the source of truth regardless.
     const workspace = await getActiveWorkspace()
@@ -331,10 +334,12 @@ export async function acceptInvitation(token: string): Promise<ActionResult<{ wo
     // already a member going into this call (added via the Clerk Dashboard,
     // or a previous webhook delivery failed) there's no second event to
     // catch us up, and they'd be stuck on their throwaway personal workspace.
-    await db.user.update({
+    const joined = await db.user.update({
       where: { clerkId: clerkUserId },
       data:  { workspaceId: workspace.id, role: invitation.role, onboarded: true },
+      select: { id: true },
     })
+    await syncWorkspaceMembership({ userId: joined.id, workspaceId: workspace.id, role: invitation.role })
 
     // Mark the invitation as accepted
     await dbi.workspaceInvitation.update({
@@ -386,8 +391,10 @@ export async function removeWorkspaceMember(
     })
     if (!target) return { success: false, error: 'Member not found.' }
 
-    // Atomically vacate all active project team roles.
+    // Atomically vacate all active project team roles and their access to
+    // this workspace's projects.
     await db.$transaction(async (tx) => {
+      await tx.projectAssignment.deleteMany({ where: { userId, workspaceId: gate.workspaceId } })
       await tx.projectTeamMember.updateMany({
         where: {
           userId,
@@ -416,6 +423,9 @@ export async function removeWorkspaceMember(
         return { success: false, error: 'Failed to remove member from workspace.' }
       }
     }
+    // Mirror only — Clerk removal already succeeded.
+    await removeWorkspaceMembership({ userId, workspaceId: gate.workspaceId })
+      .catch(err => console.error('[removeWorkspaceMember] membership cleanup failed (non-fatal):', err))
 
     void logAuditEvent({
       workspaceId: gate.workspaceId,

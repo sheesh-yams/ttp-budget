@@ -13,6 +13,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { r2, R2_BUCKET } from '@/lib/r2'
 import { generatePublicToken } from '@/lib/secure-token'
 import { logAuditEvent } from '@/lib/audit'
+import { removeWorkspaceMembership, syncWorkspaceMembership } from '@/lib/roles'
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -215,6 +216,9 @@ export async function createWorkspace(
       } as unknown as Parameters<typeof db.workspace.create>[0]['data'],
     })
 
+    // The creator owns the new workspace (their role elsewhere is unchanged).
+    await syncWorkspaceMembership({ userId: user.id, workspaceId: newWorkspace.id, role: 'OWNER' })
+
     // Seed global rate cards + templates. Non-blocking — failure here must NOT
     // prevent the workspace from being returned to the client.
     try {
@@ -310,6 +314,14 @@ export async function leaveWorkspace(): Promise<ActionResult> {
     if (!membership) return { success: false, error: 'Membership not found' }
 
     await clerk.organizations.deleteOrganizationMembership({ organizationId: orgId, userId })
+
+    const [user, left] = await Promise.all([
+      getCurrentUser(),
+      db.workspace.findFirst({ where: { clerkOrgId: orgId }, select: { id: true } }),
+    ])
+    // Mirror only — they've already left in Clerk, so never fail the action here.
+    if (left) await removeWorkspaceMembership({ userId: user.id, workspaceId: left.id })
+      .catch(err => console.error('[leaveWorkspace] membership cleanup failed (non-fatal):', err))
     redirect('/sign-in')
   } catch (err) {
     if (err instanceof Error && err.message === 'NEXT_REDIRECT') throw err
