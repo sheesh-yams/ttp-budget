@@ -23,14 +23,18 @@ describe('status lifecycle', () => {
 })
 
 describe('buildDealMemoPrefill', () => {
-  const line = { description: 'Videographer', quantity: 2, quantityFormula: '1x2' }
+  const line = { description: 'Videographer', quantity: 2, quantityFormula: '1x2', rateCents: 125000, unit: 'DAY' as const }
 
-  it('uses the person’s own rates — never the budget line (the client rate)', () => {
+  it('starts the day rate from the budget line (planned cost, before the agency fee)', () => {
     const p = buildDealMemoPrefill({ defaults: BUILT_IN_DEAL_MEMO_DEFAULTS, line, contact, project })
     const day = p.fees.find(f => f.kind === 'DAY_RATE')!
-    expect(day.rateCents).toBe(200000)
-    expect(day.quantity).toBe(2)
+    expect(day).toMatchObject({ rateCents: 125000, unit: 'DAY', quantity: 2 })
     expect(p.fees.find(f => f.kind === 'KIT')).toMatchObject({ rateCents: 50000, unit: 'DAY', quantity: 2 })
+  })
+
+  it('falls back to the person’s rolodex rate when the budget line has no rate', () => {
+    const p = buildDealMemoPrefill({ defaults: BUILT_IN_DEAL_MEMO_DEFAULTS, line: { ...line, rateCents: 0 }, contact, project })
+    expect(p.fees.find(f => f.kind === 'DAY_RATE')).toMatchObject({ rateCents: 200000, quantity: 2 })
   })
 
   it('defaults the vendor-facing position to the budget role and copies shoot dates', () => {
@@ -41,17 +45,17 @@ describe('buildDealMemoPrefill', () => {
     expect(p.days).toBe(2)
   })
 
-  it('sets auto overtime from the day rate (10-hour day at 1.5x)', () => {
+  it('sets auto overtime from the day rate ($1,250 ÷ 10 hours × 1.5 = $187.50/hr)', () => {
     const p = buildDealMemoPrefill({ defaults: BUILT_IN_DEAL_MEMO_DEFAULTS, line, contact, project })
-    expect(p.fees.find(f => f.kind === 'OVERTIME')).toMatchObject({ rateCents: 30000, isAutoRate: true, quantity: 0 })
+    expect(p.fees.find(f => f.kind === 'OVERTIME')).toMatchObject({ rateCents: 18750, isAutoRate: true, quantity: 0 })
   })
 
-  it('leaves the day rate empty when the person has no rate, rather than using the client rate', () => {
+  it('still prefills from the budget when the person has no rolodex rate (the reported $0 case)', () => {
     const p = buildDealMemoPrefill({
       defaults: BUILT_IN_DEAL_MEMO_DEFAULTS, line, project,
       contact: { ...contact, defaultRateCents: null, hasKit: false, kitRateCents: null },
     })
-    expect(p.fees.find(f => f.kind === 'DAY_RATE')!.rateCents).toBe(0)
+    expect(p.fees.find(f => f.kind === 'DAY_RATE')!.rateCents).toBe(125000)
     expect(p.fees.find(f => f.kind === 'KIT')!.rateCents).toBe(0)
   })
 
@@ -63,8 +67,8 @@ describe('buildDealMemoPrefill', () => {
 
   it('expects nothing for per diem, mileage or OT until quantities are entered', () => {
     const p = buildDealMemoPrefill({ defaults: BUILT_IN_DEAL_MEMO_DEFAULTS, line, contact, project })
-    // day rate 2 × $2,000 + kit 2 × $500
-    expect(memoExpectedCents(p.fees)).toBe(500000)
+    // day rate 2 × $1,250 + kit 2 × $500
+    expect(memoExpectedCents(p.fees)).toBe(350000)
   })
 })
 

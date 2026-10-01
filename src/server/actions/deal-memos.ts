@@ -37,7 +37,7 @@ function revalidateMemo(projectId: string, memoId?: string) {
 async function lineBelongsToProject(sdb: ScopedDb, lineItemId: string, projectId: string) {
   const line = await sdb.lineItem.findFirst({
     where:  { id: lineItemId, account: { phase: { budget: { projectId } } } },
-    select: { id: true, description: true, quantity: true, quantityFormula: true },
+    select: { id: true, description: true, quantity: true, quantityFormula: true, rateCents: true, unit: true },
   })
   return line
 }

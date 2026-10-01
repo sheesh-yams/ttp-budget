@@ -57,6 +57,8 @@ export interface PrefillLine {
   description:     string
   quantity:        number | string | { toString(): string }
   quantityFormula: string | null
+  rateCents:       number
+  unit:            RateUnit
 }
 
 export interface PrefillContact {
@@ -97,8 +99,11 @@ function quantityFor(unit: RateUnit, days: number): number {
 }
 
 /**
- * Builds a new bid. Rates come from the person's own rolodex rates — never
- * from the budget line, whose rate is what the CLIENT is billed.
+ * Builds a new bid. The day rate starts from the budget line — a line's rate
+ * is the planned cost (the agency fee and markup are applied on top of it),
+ * so it's the natural opening number for a bid. With no budget line, the
+ * person's rolodex rate is used instead. Either way it's just a starting
+ * point: the producer types in the vendor's actual quote.
  */
 export function buildDealMemoPrefill(args: {
   defaults:  DealMemoDefaults
@@ -122,7 +127,11 @@ export function buildDealMemoPrefill(args: {
     }
     switch (row.kind) {
       case 'DAY_RATE':
-        if (contact.defaultRateCents) {
+        if (line && line.rateCents > 0) {
+          base.rateCents = line.rateCents
+          base.unit      = line.unit
+          base.quantity  = quantityFor(line.unit, days)
+        } else if (contact.defaultRateCents) {
           base.rateCents = contact.defaultRateCents
           base.unit      = contact.defaultRateUnit
           base.quantity  = quantityFor(contact.defaultRateUnit, days)

@@ -90,8 +90,10 @@ Run each through `/feature`. Check the overlap first:
   chosen per fee (e.g. stylist kit → Wardrobe). Unmapped fees become
   unbudgeted rows under the role's account. Amounts the user typed or
   receipts set (`amountUserOwned`) are never overwritten, including a $0.
-- **Prefill rule:** bid rates come from the person's rolodex rates, never the
-  budget line (that's the client rate).
+- **Prefill rule:** a bid's day rate starts from the budget line rate — that's
+  the planned cost; the agency fee/markup sits on top. Falls back to the
+  person's rolodex rate when unbudgeted. Fee terms are stored as merge-tag
+  templates but shown filled in (editing replaces the template).
 - **Also fixed:** `updateActualEntry` / `deleteAdHocEntry` wrote by entry id with
   no workspace check; the Actuals editor silently hid unbudgeted rows with no
   account (now an "Unbudgeted" group).

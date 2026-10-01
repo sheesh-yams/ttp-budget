@@ -13,6 +13,8 @@ import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { centsToRate, formatMoney, rateToCents } from '@/lib/money'
 import { feeExpectedCents, lineHeadcountAndDays, memoExpectedCents } from '@/lib/deal-memo-core'
+import { resolveMergeTagsPlain, type MergeTagContext } from '@/lib/merge-tags'
+import { parseLocalDate } from '@/lib/time-format'
 import type { VendorDealMemo } from '@/lib/deal-memo-vendor-view'
 import type { PhaseLine } from '@/lib/deal-memo-queries'
 import {
@@ -63,6 +65,28 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView }: 
   const perSlotBudget = roleLine ? Math.round((roleLine.quantity * roleLine.rateCents) / Math.max(1, roleSlots)) : null
   const expected = memoExpectedCents(memo.fees)
 
+  // Fee terms are stored as templates ("{{dealMemo.workDayHours}}-hour day")
+  // so they follow the memo's work-day settings. The editor shows them filled
+  // in, exactly as the vendor will read them.
+  const fmtDate = (iso: string | null) =>
+    parseLocalDate(iso)?.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+  const termsCtx: MergeTagContext = {
+    vendor:   { name: memo.contact?.name },
+    dealMemo: {
+      position:             memo.position,
+      workDayHours:         memo.workDayHours,
+      otMultiplier:         memo.otMultiplier,
+      doubleTimeAfterHours: memo.doubleTimeAfterHours,
+      doubleTimeMultiplier: memo.doubleTimeMultiplier,
+      productionZoneMiles:  memo.productionZoneMiles,
+      startDate:            fmtDate(memo.startDate),
+      endDate:              fmtDate(memo.endDate),
+    },
+  }
+  // Remount fee rows when any value their terms depend on changes.
+  const termsKey = [memo.workDayHours, memo.otMultiplier, memo.doubleTimeAfterHours,
+    memo.doubleTimeMultiplier, memo.productionZoneMiles, memo.position, memo.startDate, memo.endDate].join('|')
+
   function run(fn: () => Promise<{ success: boolean }>) {
     setError(null)
     startTransition(async () => {
@@ -73,6 +97,20 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView }: 
   }
 
   const save = (patch: Parameters<typeof updateDealMemo>[1]) => run(() => updateDealMemo(memo.id, patch))
+
+  // Memos started before the budget-rate prefill (or before the line had a
+  // rate) can pull it in with one click.
+  const dayFee = memo.fees.find(f => f.kind === 'DAY_RATE')
+  const canUseBudgetRate = !readOnly && !!roleLine && roleLine.rateCents > 0 && !!dayFee && dayFee.rateCents === 0
+  function applyBudgetRate() {
+    if (!roleLine || !dayFee) return
+    const { days } = lineHeadcountAndDays(roleLine)
+    run(() => upsertDealMemoFee(memo.id, {
+      id: dayFee.id, kind: dayFee.kind, label: dayFee.label, rateCents: roleLine.rateCents, unit: roleLine.unit,
+      quantity: roleLine.unit === 'FLAT' ? 1 : days, termsText: dayFee.termsText ?? '',
+      budgetLineItemId: dayFee.budgetLineItemId, isAutoRate: false,
+    }))
+  }
 
   async function handleAward() {
     const ok = await confirm(
@@ -152,6 +190,12 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView }: 
                 </div>
               </>
             )}
+            {canUseBudgetRate && roleLine && (
+              <button type="button" disabled={isPending} onClick={applyBudgetRate}
+                className="mt-2 w-full rounded-md border border-violet-200 bg-violet-50 px-2 py-1.5 text-xs font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-50">
+                Use the budget rate ({formatMoney(roleLine.rateCents)}{UNIT_SUFFIX[roleLine.unit]})
+              </button>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="dm-notes" className="text-xs">Internal notes</Label>
@@ -219,7 +263,7 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView }: 
             </div>
             <div className="divide-y">
               {memo.fees.map(fee => (
-                <FeeRow key={`${fee.id}:${fee.version}`} fee={fee} lines={lines} disabled={readOnly || isPending}
+                <FeeRow key={`${fee.id}:${fee.version}:${termsKey}`} fee={fee} lines={lines} termsCtx={termsCtx} disabled={readOnly || isPending}
                   onSave={f => run(() => upsertDealMemoFee(memo.id, f))}
                   onRemove={() => run(() => deleteDealMemoFee(memo.id, fee.id))} />
               ))}
@@ -302,15 +346,17 @@ function NumberField({ label, value, step, disabled, onSave }: {
   )
 }
 
-function FeeRow({ fee, lines, disabled, onSave, onRemove }: {
-  fee: EditorFee; lines: PhaseLine[]; disabled: boolean
+function FeeRow({ fee, lines, termsCtx, disabled, onSave, onRemove }: {
+  fee: EditorFee; lines: PhaseLine[]; termsCtx: MergeTagContext; disabled: boolean
   onSave: (f: Parameters<typeof upsertDealMemoFee>[1]) => void; onRemove: () => void
 }) {
   const [label, setLabel] = useState(fee.label)
   const [rate, setRate]   = useState(centsToRate(fee.rateCents))
   const [unit, setUnit]   = useState<RateUnit>(fee.unit)
   const [qty, setQty]     = useState(String(fee.quantity))
-  const [terms, setTerms] = useState(fee.termsText ?? '')
+  // Shown filled in; the stored template is only replaced if the text is edited.
+  const resolvedTerms = resolveMergeTagsPlain(fee.termsText ?? '', termsCtx)
+  const [terms, setTerms] = useState(resolvedTerms)
   const [lineId, setLineId] = useState(fee.budgetLineItemId ?? '')
 
   function commit(overrides: Partial<{ unit: RateUnit; lineId: string; isAutoRate: boolean }> = {}) {
@@ -319,13 +365,15 @@ function FeeRow({ fee, lines, disabled, onSave, onRemove }: {
     const nextLine = overrides.lineId ?? lineId
     const nextQty  = nextUnit === 'FLAT' ? 1 : Number(qty) || 0
     const rateChanged = rateCents !== fee.rateCents
+    const termsChanged = terms !== resolvedTerms
     const changed = label.trim() !== fee.label || rateChanged || nextUnit !== fee.unit ||
-      nextQty !== fee.quantity || terms !== (fee.termsText ?? '') ||
+      nextQty !== fee.quantity || termsChanged ||
       nextLine !== (fee.budgetLineItemId ?? '') || overrides.isAutoRate !== undefined
     if (!changed || !label.trim()) return
     onSave({
       id: fee.id, kind: fee.kind, label: label.trim(), rateCents, unit: nextUnit,
-      quantity: nextQty, termsText: terms, budgetLineItemId: nextLine || null,
+      // Unedited terms keep their template so they keep following the memo.
+      quantity: nextQty, termsText: termsChanged ? terms : (fee.termsText ?? ''), budgetLineItemId: nextLine || null,
       // Typing an OT rate by hand takes it off auto; the "auto" link puts it back.
       isAutoRate: overrides.isAutoRate ?? (fee.isAutoRate && !rateChanged),
     })
