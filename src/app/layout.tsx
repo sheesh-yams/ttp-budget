@@ -19,7 +19,10 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <ClerkProvider>
+    // A new account with no organization gets Clerk's choose-organization
+    // step; route it through /join so a pending invitation wins over
+    // "create your own org".
+    <ClerkProvider taskUrls={{ 'choose-organization': '/join' }}>
       <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
         <body className="min-h-screen bg-background antialiased">
           {children}

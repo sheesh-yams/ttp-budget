@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { getScopedDb } from '@/lib/db-scoped'
 import { getCurrentUser, requireRole } from '@/lib/auth'
 import { logAuditEvent } from '@/lib/audit'
+import { checkProjectAccess } from '@/lib/project-access'
 import type { ActionResult } from '@/types'
 import type { ProjectTeamRole, UserRole } from '@prisma/client'
 
@@ -37,12 +38,13 @@ export interface ProjectTeamMap {
 }
 
 // ─── getProjectTeam ───────────────────────────────────────────────────────────
-// Returns the 3 active role slots. No mutation gate — COLLABORATORs can read.
+// Returns the 3 active role slots. Anyone who can open the project can read.
 
 export async function getProjectTeam(
   projectId: string,
 ): Promise<ActionResult<ProjectTeamMap>> {
   try {
+    if (!(await checkProjectAccess(projectId))) return { success: false, error: 'Project not found' }
     const sdb = await getScopedDb()
     const rows = await sdb.projectTeamMember.findMany({
       where:   { projectId, unassignedAt: null },
@@ -78,6 +80,7 @@ export async function getProjectTeamHistory(
   projectId: string,
 ): Promise<ActionResult<TeamMemberHistory[]>> {
   try {
+    if (!(await checkProjectAccess(projectId))) return { success: false, error: 'Project not found' }
     const sdb = await getScopedDb()
     const rows = await sdb.projectTeamMember.findMany({
       where:   { projectId },
@@ -292,6 +295,129 @@ export async function unassignProjectTeamRole(input: {
   } catch (err) {
     console.error('[unassignProjectTeamRole]', err)
     return { success: false, error: 'Failed to unassign team role' }
+  }
+}
+
+// ─── Others on the project ────────────────────────────────────────────────────
+// People with access to the project (a ProjectAssignment) beyond the 3 named
+// roles. For a Collaborator the assignment *is* their access to the project.
+
+export interface ProjectOtherMember {
+  userId:    string
+  name:      string | null
+  email:     string
+  avatarUrl: string | null
+  role:      UserRole
+}
+
+export async function getProjectOthers(
+  projectId: string,
+): Promise<ActionResult<ProjectOtherMember[]>> {
+  try {
+    const access = await checkProjectAccess(projectId)
+    if (!access) return { success: false, error: 'Project not found' }
+
+    const [assignments, active] = await Promise.all([
+      db.projectAssignment.findMany({
+        where:   { projectId, workspaceId: access.workspaceId },
+        include: { user: { select: { name: true, email: true, avatarUrl: true, role: true } } },
+        orderBy: { createdAt: 'asc' },
+      }),
+      db.projectTeamMember.findMany({
+        where:  { projectId, workspaceId: access.workspaceId, unassignedAt: null },
+        select: { userId: true },
+      }),
+    ])
+    const inNamedRole = new Set(active.map(a => a.userId))
+    return {
+      success: true,
+      data: assignments
+        .filter(a => !inNamedRole.has(a.userId))
+        .map(a => ({ userId: a.userId, ...a.user })),
+    }
+  } catch {
+    return { success: false, error: 'Failed to load project members' }
+  }
+}
+
+export async function addProjectMember(input: {
+  projectId: string
+  userId:    string
+}): Promise<ActionResult> {
+  try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
+    const { projectId, userId } = input
+    const [project, targetUser] = await Promise.all([
+      db.project.findFirst({ where: { id: projectId, workspaceId: gate.workspaceId }, select: { id: true } }),
+      db.user.findFirst({ where: { id: userId, workspaceId: gate.workspaceId }, select: { id: true } }),
+    ])
+    if (!project)    return { success: false, error: 'Project not found' }
+    if (!targetUser) return { success: false, error: 'User not found in this workspace' }
+
+    // Unique (projectId, userId) — adding someone already on the project is a no-op.
+    const { count } = await db.projectAssignment.createMany({
+      data:           [{ projectId, userId, workspaceId: gate.workspaceId }],
+      skipDuplicates: true,
+    })
+
+    if (count > 0) {
+      void logAuditEvent({
+        workspaceId: gate.workspaceId,
+        actorId:     gate.userId,
+        action:      'project.member_added',
+        entityType:  'Project',
+        entityId:    projectId,
+        metadata:    { userId },
+      })
+    }
+
+    revalidatePath(`/projects/${projectId}`)
+    revalidatePath('/projects')
+    return { success: true, data: undefined }
+  } catch (err) {
+    console.error('[addProjectMember]', err)
+    return { success: false, error: 'Failed to add to project' }
+  }
+}
+
+export async function removeProjectMember(input: {
+  projectId: string
+  userId:    string
+}): Promise<ActionResult> {
+  try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
+    const { projectId, userId } = input
+    const heldRole = await db.projectTeamMember.findFirst({
+      where:  { projectId, userId, workspaceId: gate.workspaceId, unassignedAt: null },
+      select: { id: true },
+    })
+    if (heldRole) return { success: false, error: 'They hold a named role on this project — remove them from it first.' }
+
+    const { count } = await db.projectAssignment.deleteMany({
+      where: { projectId, userId, workspaceId: gate.workspaceId },
+    })
+
+    if (count > 0) {
+      void logAuditEvent({
+        workspaceId: gate.workspaceId,
+        actorId:     gate.userId,
+        action:      'project.member_removed',
+        entityType:  'Project',
+        entityId:    projectId,
+        metadata:    { userId },
+      })
+    }
+
+    revalidatePath(`/projects/${projectId}`)
+    revalidatePath('/projects')
+    return { success: true, data: undefined }
+  } catch (err) {
+    console.error('[removeProjectMember]', err)
+    return { success: false, error: 'Failed to remove from project' }
   }
 }
 

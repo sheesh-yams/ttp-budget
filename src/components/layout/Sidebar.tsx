@@ -55,9 +55,9 @@ const navGroups = [
   },
 ]
 
-// Workspace money pages — Owner/Producer only (the pages themselves 404 for
-// Collaborators; this just keeps dead links out of their nav).
-const FINANCIAL_HREFS = new Set(['/clients', '/proposals', '/invoices', '/rates', '/templates', '/library'])
+// Owner/Producer-only pages: money, client data and the rolodex (the pages
+// themselves 404 for Collaborators; this just keeps dead links out of their nav).
+const PRODUCER_HREFS = new Set(['/clients', '/proposals', '/invoices', '/rates', '/templates', '/library', '/rolodex'])
 
 export function Sidebar({ workspaceName, logoUrl, role }: {
   workspaceName: string
@@ -69,7 +69,7 @@ export function Sidebar({ workspaceName, logoUrl, role }: {
     .map(g => ({
       ...g,
       items: g.items.filter(item =>
-        !(role === 'COLLABORATOR' && FINANCIAL_HREFS.has(item.href)) &&
+        !(role === 'COLLABORATOR' && PRODUCER_HREFS.has(item.href)) &&
         // Settings and Team are Owner-only pages (they redirect everyone else).
         !((item.href === '/settings' || item.href === '/team') && role !== 'OWNER'),
       ),

@@ -39,6 +39,22 @@ describe('project page access guards', () => {
 
   it.each(FINANCIAL_TABS)('%s is Owner/Producer only', rel => {
     const src = fs.readFileSync(path.join(PROJECT_DIR, rel), 'utf8')
-    expect(src).toMatch(/await requireFinancialPageAccess\(\)/)
+    expect(src).toMatch(/await requireProducerPageAccess\(\)/)
+  })
+})
+
+// Workspace-level Owner/Producer sections: every page under each one must
+// 404 for Collaborators (the sidebar hiding them is not the barrier).
+const AUTH_DIR = path.join(process.cwd(), 'src/app/(auth)')
+const PRODUCER_SECTIONS = ['clients', 'proposals', 'invoices', 'rates', 'templates', 'library', 'rolodex']
+
+describe('Owner/Producer section guards', () => {
+  const all = PRODUCER_SECTIONS.flatMap(section =>
+    pages(path.join(AUTH_DIR, section)).map(rel => path.join(section, rel)),
+  )
+
+  it.each(all)('%s is Owner/Producer only', rel => {
+    const src = fs.readFileSync(path.join(AUTH_DIR, rel), 'utf8')
+    expect(src).toMatch(/await requireProducerPageAccess\(\)/)
   })
 })

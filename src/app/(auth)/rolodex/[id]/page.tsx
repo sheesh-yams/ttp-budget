@@ -1,3 +1,4 @@
+import { requireProducerPageAccess } from '@/lib/project-access'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ChevronLeft, Mail, Phone, Instagram, Globe, DollarSign, Calendar, ClipboardList } from 'lucide-react'
@@ -38,6 +39,7 @@ const PROJECT_STATUS_LABEL: Record<string, string> = {
 }
 
 export default async function ContactDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  await requireProducerPageAccess()
   const { id } = await params
 
   const [contact, callSheets, crewRoles, role] = await Promise.all([

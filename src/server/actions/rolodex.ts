@@ -33,16 +33,18 @@ export type ContactFormData = z.infer<typeof contactSchema>
 
 // ── Read ───────────────────────────────────────────────────────────────────────
 
-// Collaborators don't see what people charge (vendor rates). Not exported —
-// every export of a 'use server' file is an endpoint.
-function withoutRates<T extends { defaultRateCents: number | null; kitRateCents: number | null }>(c: T): T {
-  return { ...c, defaultRateCents: null, kitRateCents: null }
+// The rolodex (contacts, their rates and project history) is Owner/Producer
+// only — Collaborators see crew through the projects they're assigned to.
+// Not exported: every export of a 'use server' file is an endpoint.
+async function canReadRolodex() {
+  const user = await getCurrentUser()
+  return user.role !== 'COLLABORATOR'
 }
 
 export async function getContacts() {
-  const [db, user] = await Promise.all([getScopedDb(), getCurrentUser()])
-  const isCollaborator = user.role === 'COLLABORATOR'
-  const contacts = await db.contact.findMany({
+  if (!(await canReadRolodex())) return []
+  const db = await getScopedDb()
+  return db.contact.findMany({
     where: { archivedAt: null },
     orderBy: { name: 'asc' },
     select: {
@@ -62,25 +64,23 @@ export async function getContacts() {
       kitRateCents:     true,
       kitName:          true,
       createdAt:        true,
-      // count of projects via ProjectMember (assigned projects only for Collaborators)
+      // count of projects via ProjectMember
       projectMembers: {
-        where:  isCollaborator ? { project: { assignments: { some: { userId: user.id } } } } : undefined,
         select: { projectId: true },
       },
     },
   })
-  return isCollaborator ? contacts.map(withoutRates) : contacts
 }
 
 export type ContactRow = Awaited<ReturnType<typeof getContacts>>[number]
 
 // Search for contacts by name or role — used by the project team member picker
 export async function searchContacts(query: string) {
-  const [db, user] = await Promise.all([getScopedDb(), getCurrentUser()])
-  const strip = user.role === 'COLLABORATOR'
+  if (!(await canReadRolodex())) return []
+  const db = await getScopedDb()
   const q  = query.trim()
   if (!q) {
-    const rows = await db.contact.findMany({
+    return db.contact.findMany({
       where: { archivedAt: null },
       orderBy: { name: 'asc' },
       take: 20,
@@ -98,9 +98,8 @@ export async function searchContacts(query: string) {
         kitName:          true,
       },
     })
-    return strip ? rows.map(withoutRates) : rows
   }
-  const rows = await db.contact.findMany({
+  return db.contact.findMany({
     where: {
       archivedAt: null,
       OR: [
@@ -125,7 +124,6 @@ export async function searchContacts(query: string) {
       kitName:          true,
     },
   })
-  return strip ? rows.map(withoutRates) : rows
 }
 
 export type ContactSearchResult = Awaited<ReturnType<typeof searchContacts>>[number]
@@ -222,6 +220,7 @@ export interface DuplicateGroup {
 
 export async function findDuplicateContacts(): Promise<DuplicateGroup[]> {
   try {
+    if (!(await canReadRolodex())) return []
     const db = await getScopedDb()
     const contacts = await db.contact.findMany({
       where: { archivedAt: null },
@@ -377,11 +376,9 @@ export async function mergeContacts(
 // ── Single contact with history ───────────────────────────────────────────────
 
 export async function getContactById(id: string) {
-  const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
-  // Collaborators only see this person's history on projects they're
-  // assigned to, and not what they were paid on them (vendor rates).
-  const isCollaborator = user.role === 'COLLABORATOR'
-  const contact = await sdb.contact.findFirst({
+  if (!(await canReadRolodex())) return null
+  const sdb = await getScopedDb()
+  return sdb.contact.findFirst({
     where: { id, archivedAt: null },
     select: {
       id:               true,
@@ -401,7 +398,6 @@ export async function getContactById(id: string) {
       kitName:          true,
       createdAt:        true,
       projectMembers: {
-        where: isCollaborator ? { project: { assignments: { some: { userId: user.id } } } } : undefined,
         select: {
           role:     true,
           rateCents: true,
@@ -418,10 +414,6 @@ export async function getContactById(id: string) {
       },
     },
   })
-  if (contact && isCollaborator) {
-    return withoutRates({ ...contact, projectMembers: contact.projectMembers.map(pm => ({ ...pm, rateCents: null })) })
-  }
-  return contact
 }
 
 export type ContactDetail = NonNullable<Awaited<ReturnType<typeof getContactById>>>
@@ -429,8 +421,9 @@ export type ContactDetail = NonNullable<Awaited<ReturnType<typeof getContactById
 // Lightweight fetch — just the fields ContactModal needs for pre-population.
 // Used by the Team page to open the shared modal without navigating to /rolodex.
 export async function getContactForModal(id: string) {
-  const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
-  const contact = await sdb.contact.findFirst({
+  if (!(await canReadRolodex())) return null
+  const sdb = await getScopedDb()
+  return sdb.contact.findFirst({
     where: { id },
     select: {
       id:               true,
@@ -450,7 +443,6 @@ export async function getContactForModal(id: string) {
       kitName:          true,
     },
   })
-  return contact && user.role === 'COLLABORATOR' ? withoutRates(contact) : contact
 }
 
 export type ContactForModal = NonNullable<Awaited<ReturnType<typeof getContactForModal>>>
@@ -482,10 +474,9 @@ export async function patchContactField(
 // Scan all call sheets for rows linked to a given contact (via contactId in JSON).
 // Returns lightweight call sheet + project records for display on the contact detail page.
 export async function getContactCallSheets(contactId: string) {
-  const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+  if (!(await canReadRolodex())) return []
+  const sdb = await getScopedDb()
   const callSheets = await sdb.callSheet.findMany({
-    // Collaborators: call sheets on their assigned projects only.
-    where: user.role === 'COLLABORATOR' ? { project: { assignments: { some: { userId: user.id } } } } : undefined,
     select: {
       id:        true,
       title:     true,
@@ -557,6 +548,7 @@ export interface ImportableMember {
 // and deduplicates so each unique name appears once.
 export async function getCallSheetCrewForImport(): Promise<ImportableMember[]> {
   try {
+    if (!(await canReadRolodex())) return []
     const db = await getScopedDb()
 
     // Fetch call sheets (crew + talent JSON + title)

@@ -2,10 +2,12 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import { useClerk } from '@clerk/nextjs'
 import { acceptInvitation } from '@/server/actions/team'
 
 export function InviteAcceptClient({ token }: { token: string }) {
   const router = useRouter()
+  const { setActive } = useClerk()
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [accepted, setAccepted] = useState(false)
@@ -16,8 +18,15 @@ export function InviteAcceptClient({ token }: { token: string }) {
       const result = await acceptInvitation(token)
       if (result.success) {
         setAccepted(true)
-        // Give the webhook a moment to fire before redirecting
-        setTimeout(() => router.push('/dashboard'), 1500)
+        // Make the joined workspace the active one. For a new account this
+        // also completes Clerk's choose-organization step, so they aren't
+        // asked to create an org of their own.
+        try {
+          await setActive({ organization: result.data.clerkOrgId })
+        } catch (err) {
+          console.error('[InviteAcceptClient] setActive failed', err)
+        }
+        router.push('/dashboard')
       } else {
         setError((result as { success: false; error: string }).error)
       }

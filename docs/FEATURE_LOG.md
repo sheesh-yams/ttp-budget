@@ -19,6 +19,13 @@ Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
   workspaces gets the same role in both. Fixed by roles Phase 1
   (`WorkspaceMember`).
 
+- **Invited people get a throwaway personal workspace.** Every sign-up gets
+  its own workspace (the `user.created` webhook, or a lazy create if a page
+  loads first — "Ashish TEST's Workspace" has no Clerk org). Accepting an
+  invite moves them, leaving the empty one behind.
+- **Crew page shows edit controls to Collaborators.** Saving is refused by
+  the server; roles Phase 2 hides the controls.
+
 - **Invoice first view counted twice.** `recordInvoiceView`
   (`src/server/actions/invoices.ts`) flips SENT/OVERDUE → VIEWED with one
   `updateMany`, then a second `updateMany` on `status notIn [SENT, OVERDUE]`
@@ -74,6 +81,31 @@ Run each through `/feature`. Check the overlap first:
 ---
 
 ## Shipped
+
+### 2026-10-01 — Invite fixes, rolodex hidden from Collaborators, more people per project
+- **Invite flow:**
+  - The invite page labelled every non-Owner as "Producer"; it now shows the real role.
+  - A new account was asked to create its own org: Clerk's choose-organization step
+    took over before the invite redirect. `ClerkProvider taskUrls` now routes that
+    step to `/join`, which sends anyone with a pending invite to it. Accepting
+    makes the joined workspace active (`setActive`).
+  - Accepting now requires a verified email matching the invite. Before, anyone
+    with the link could join with the invited role.
+  - The mobile sign-in redirect keeps the return URL.
+- **Rolodex is Owner/Producer only:** nav, both pages (jest-guarded with the
+  other Owner/Producer sections), every rolodex read action, and the call-sheet
+  editor's contact picker.
+- **Project team:** an "Also on this project" list under the 3 named roles, with
+  + Add person (any workspace member) and remove. It's backed by
+  `ProjectAssignment`, which is what gives a Collaborator access. This replaces
+  the overview's separate "Assign" button. Team reads now check project access.
+- No migration. pitfall-reviewer found 2 issues (call-sheet contacts leak,
+  mobile redirect query); both fixed.
+- **Needs a manual pass:**
+  - Invite a fresh email. Sign-up should land on the invite (not "create
+    organization"), then on Accept go to the dashboard in that workspace.
+  - Signing in with another email should show the mismatch message.
+  - Collaborator: no Rolodex. Team modal: + Add person.
 
 ### 2026-10-01 — Roles Phase 0: close Collaborator read leaks
 - First step of configurable roles (plan: Phase 1 data model + resolver,

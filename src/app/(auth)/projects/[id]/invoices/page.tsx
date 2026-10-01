@@ -8,7 +8,7 @@
  */
 
 import { notFound } from 'next/navigation'
-import { requireFinancialPageAccess, requireProjectAccess } from '@/lib/project-access'
+import { requireProducerPageAccess, requireProjectAccess } from '@/lib/project-access'
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
@@ -27,7 +27,7 @@ export async function generateMetadata({ params }: Props) {
 
 export default async function InvoicesSubPage({ params }: Props) {
   const { id } = await params
-  await requireFinancialPageAccess()
+  await requireProducerPageAccess()
   await requireProjectAccess(id)
   const workspaceId = await getWorkspaceId()
 

@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { requireFinancialPageAccess } from '@/lib/project-access'
+import { requireProducerPageAccess } from '@/lib/project-access'
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { TemplateDetailClient } from '@/components/templates/TemplateDetailClient'
@@ -16,7 +16,7 @@ export async function generateMetadata({ params }: Props) {
 }
 
 export default async function TemplateDetailPage({ params }: Props) {
-  await requireFinancialPageAccess()
+  await requireProducerPageAccess()
   const { id } = await params
   const workspaceId = await getWorkspaceId()
 

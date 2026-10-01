@@ -8,6 +8,7 @@ import { sendInvitationEmail } from '@/lib/email'
 import type { ActionResult } from '@/types'
 import type { UserRole } from '@prisma/client'
 import { logAuditEvent } from '@/lib/audit'
+import { verifiedEmailsFor } from '@/lib/invitations'
 
 // WorkspaceInvitation is a new model — types are generated after `prisma generate`.
 // Until then, cast db to include the accessor.
@@ -278,9 +279,11 @@ export async function changeMemberRole(
 // Adds them to the Clerk org → triggers the organizationMembership.created
 // webhook → webhook updates (or creates) their DB User record.
 
-export async function acceptInvitation(token: string): Promise<ActionResult<{ workspaceName: string }>> {
+export async function acceptInvitation(token: string): Promise<ActionResult<{ workspaceName: string; clerkOrgId: string }>> {
   try {
-    const { userId: clerkUserId } = await auth()
+    // A brand-new account may still be "pending" (Clerk's choose-organization
+    // step) — that's exactly when it comes here to join, so count it.
+    const { userId: clerkUserId } = await auth({ treatPendingAsSignedOut: false })
     if (!clerkUserId) return { success: false, error: 'You must be signed in to accept an invitation.' }
 
     const invitation = await dbi.workspaceInvitation.findUnique({
@@ -291,6 +294,12 @@ export async function acceptInvitation(token: string): Promise<ActionResult<{ wo
     if (!invitation) return { success: false, error: 'Invitation not found or already used.' }
     if (invitation.acceptedAt) return { success: false, error: 'This invitation has already been accepted.' }
     if (invitation.expiresAt < new Date()) return { success: false, error: 'This invitation has expired.' }
+
+    // Only the person the invite was sent to may accept it.
+    const emails = await verifiedEmailsFor(clerkUserId)
+    if (!emails.includes(invitation.email.toLowerCase())) {
+      return { success: false, error: `This invitation was sent to ${invitation.email}. Sign in with that email to accept it.` }
+    }
 
     const { workspace } = invitation
     if (!workspace.clerkOrgId) return { success: false, error: 'Workspace is not fully set up yet.' }
@@ -341,7 +350,7 @@ export async function acceptInvitation(token: string): Promise<ActionResult<{ wo
       metadata:    { email: invitation.email, role: invitation.role },
     })
 
-    return { success: true, data: { workspaceName: workspace.name } }
+    return { success: true, data: { workspaceName: workspace.name, clerkOrgId: workspace.clerkOrgId } }
   } catch (err: unknown) {
     console.error('[acceptInvitation]', err)
     // Clerk throws if the user is already a member

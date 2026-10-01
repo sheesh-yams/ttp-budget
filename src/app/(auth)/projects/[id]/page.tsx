@@ -11,7 +11,6 @@ import { ProjectProposals } from '@/components/projects/ProjectProposals'
 import { ProjectInvoices } from '@/components/projects/ProjectInvoices'
 import { ProjectHeaderActions } from '@/components/projects/ProjectHeaderActions'
 import { ProjectNotesPanel } from '@/components/projects/ProjectNotesPanel'
-import { AssignCollaborators } from '@/components/projects/AssignCollaborators'
 import { ProposalOverview } from '@/components/projects/ProposalOverview'
 import { Button } from '@/components/ui/button'
 import { formatMoney } from '@/lib/money'
@@ -354,7 +353,6 @@ export default async function ProjectDetailPage({
               </Button>
             }
           />
-          {canSeeFin && <AssignCollaborators projectId={project.id} />}
           <ProjectHeaderActions project={serialisedProject} />
         </div>
       </div>

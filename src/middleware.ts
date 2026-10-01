@@ -16,6 +16,7 @@ const isPublicRoute = createRouteMatcher([
   '/d/(.*)',             // public delivery pages — token-authenticated at the route level
   '/shade-test',         // temporary Shade embed test page
   '/invite/(.*)',        // workspace invitation acceptance
+  '/join',               // Clerk choose-organization task — checks the (pending) session itself
   '/api/webhooks/(.*)',
   // Only token-keyed client-facing PDF routes are public.
   // wrap-report and any future internal PDF routes intentionally omitted — they require Clerk auth.
@@ -70,10 +71,10 @@ export default clerkMiddleware(async (auth, request) => {
   //    pages before any rate-limit or auth work.
   if (isMobileUA(request)) {
     if (pathname === '/sign-in' || pathname === '/sign-in/') {
-      return NextResponse.redirect(new URL('/m/sign-in', request.url))
+      return NextResponse.redirect(new URL('/m/sign-in' + request.nextUrl.search, request.url))
     }
     if (pathname === '/sign-up' || pathname === '/sign-up/') {
-      return NextResponse.redirect(new URL('/m/sign-up', request.url))
+      return NextResponse.redirect(new URL('/m/sign-up' + request.nextUrl.search, request.url))
     }
     // Delivery pages — /d/[token] and /d/[token]/[assetToken]
     if (pathname.startsWith('/d/')) {

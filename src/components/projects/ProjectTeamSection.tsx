@@ -1,16 +1,19 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Plus, MoreHorizontal, UserX, RefreshCw } from 'lucide-react'
+import { Plus, MoreHorizontal, UserX, RefreshCw, X } from 'lucide-react'
 import {
   getProjectTeam,
+  getProjectOthers,
   unassignProjectTeamRole,
+  removeProjectMember,
   type ProjectTeamMap,
+  type ProjectOtherMember,
   type TeamMember,
 } from '@/server/actions/project-team'
 import { AssignTeamMemberModal } from './AssignTeamMemberModal'
 import { TeamHistoryList } from './TeamHistoryList'
-import type { ProjectTeamRole } from '@prisma/client'
+import type { ProjectTeamRole, UserRole } from '@prisma/client'
 
 const ROLES: ProjectTeamRole[] = ['PROJECT_LEAD', 'ACCOUNT_MANAGER', 'PROJECT_MANAGER']
 
@@ -18,6 +21,12 @@ const ROLE_LABEL: Record<ProjectTeamRole, string> = {
   PROJECT_LEAD:    'Project Lead',
   ACCOUNT_MANAGER: 'Account Manager',
   PROJECT_MANAGER: 'Project Manager',
+}
+
+const WORKSPACE_ROLE_LABEL: Record<UserRole, string> = {
+  OWNER:        'Owner',
+  PRODUCER:     'Producer',
+  COLLABORATOR: 'Collaborator',
 }
 
 function Avatar({ name, email, avatarUrl }: { name: string | null; email: string; avatarUrl: string | null }) {
@@ -234,6 +243,63 @@ function RoleSlot({
   )
 }
 
+// Someone on the project without one of the 3 named roles
+function OtherRow({
+  projectId,
+  member,
+  isEditor,
+  onRemoved,
+}: {
+  projectId: string
+  member:    ProjectOtherMember
+  isEditor:  boolean
+  onRemoved: () => void
+}) {
+  const [removing, setRemoving] = useState(false)
+  const [error, setError]       = useState<string | null>(null)
+
+  async function handleRemove() {
+    setRemoving(true)
+    setError(null)
+    const res = await removeProjectMember({ projectId, userId: member.userId })
+    setRemoving(false)
+    if (res.success) onRemoved()
+    else setError((res as { success: false; error: string }).error)
+  }
+
+  return (
+    <div style={{ padding: '8px 0', borderBottom: '1px solid hsl(var(--border))' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <Avatar name={member.name} email={member.email} avatarUrl={member.avatarUrl} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ fontSize: 13, fontWeight: 500, color: 'hsl(var(--foreground))', lineHeight: 1.3 }}>
+            {member.name ?? member.email}
+          </p>
+          <p style={{ fontSize: 11, color: 'hsl(var(--muted-foreground))' }}>
+            {member.name ? `${member.email} · ` : ''}{WORKSPACE_ROLE_LABEL[member.role]}
+          </p>
+        </div>
+        {isEditor && (
+          <button
+            onClick={handleRemove}
+            disabled={removing}
+            title="Remove from project"
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: 26, height: 26, borderRadius: 5, flexShrink: 0,
+              background: 'transparent', border: 'none', cursor: removing ? 'default' : 'pointer',
+              color: 'hsl(var(--muted-foreground))', opacity: removing ? 0.5 : 1,
+            }}
+          >
+            <X style={{ width: 14, height: 14 }} />
+          </button>
+        )}
+      </div>
+      {error && <p style={{ marginTop: 4, fontSize: 11, color: 'hsl(var(--destructive))' }}>{error}</p>}
+    </div>
+  )
+}
+
 interface Props {
   projectId: string
   isEditor:  boolean
@@ -241,12 +307,15 @@ interface Props {
 
 export function ProjectTeamSection({ projectId, isEditor }: Props) {
   const [team, setTeam]       = useState<ProjectTeamMap | null>(null)
+  const [others, setOthers]   = useState<ProjectOtherMember[]>([])
   const [loading, setLoading] = useState(true)
-  const [assigning, setAssigning] = useState<ProjectTeamRole | null>(null)
+  // A role slot being filled, 'OTHER' when adding someone without a role.
+  const [assigning, setAssigning] = useState<ProjectTeamRole | 'OTHER' | null>(null)
 
   async function load() {
-    const res = await getProjectTeam(projectId)
+    const [res, othersRes] = await Promise.all([getProjectTeam(projectId), getProjectOthers(projectId)])
     if (res.success) setTeam(res.data)
+    if (othersRes.success) setOthers(othersRes.data)
     setLoading(false)
   }
 
@@ -273,13 +342,38 @@ export function ProjectTeamSection({ projectId, isEditor }: Props) {
         />
       ))}
 
+      {(isEditor || others.length > 0) && (
+        <>
+          <p style={{ marginTop: 14, fontSize: 11, fontWeight: 600, color: 'hsl(var(--muted-foreground))', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Also on this project
+          </p>
+          {others.map(m => (
+            <OtherRow key={m.userId} projectId={projectId} member={m} isEditor={isEditor} onRemoved={load} />
+          ))}
+          {isEditor && (
+            <button
+              onClick={() => setAssigning('OTHER')}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5, padding: '10px 0 2px',
+                fontSize: 13, color: 'hsl(var(--muted-foreground))',
+                background: 'none', border: 'none', cursor: 'pointer',
+              }}
+            >
+              <Plus style={{ width: 13, height: 13 }} />
+              Add person
+            </button>
+          )}
+        </>
+      )}
+
       <TeamHistoryList projectId={projectId} />
 
       {assigning && (
         <AssignTeamMemberModal
           projectId={projectId}
-          role={assigning}
+          role={assigning === 'OTHER' ? null : assigning}
           currentTeam={team}
+          otherUserIds={others.map(m => m.userId)}
           onAssigned={() => load()}
           onClose={() => setAssigning(null)}
         />

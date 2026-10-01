@@ -28,7 +28,7 @@ export default async function CallSheetPage({
   params: Promise<{ id: string; csId: string }>
 }) {
   const { id: projectId, csId } = await params
-  await requireProjectAccess(projectId)
+  const { role } = await requireProjectAccess(projectId)
   const workspaceId = await getWorkspaceId()
 
   const [cs, project, budget, rolodexContacts, workspace] = await Promise.all([
@@ -57,7 +57,9 @@ export default async function CallSheetPage({
       orderBy: { createdAt: 'asc' },
       select: { id: true },
     }),
-    db.contact.findMany({
+    // The rolodex picker is Owner/Producer only — Collaborators don't get the
+    // workspace's contact list.
+    role === 'COLLABORATOR' ? Promise.resolve([]) : db.contact.findMany({
       where: { workspaceId, archivedAt: null },
       select: { id: true, name: true, primaryRole: true, email: true, phone: true },
       orderBy: { name: 'asc' },

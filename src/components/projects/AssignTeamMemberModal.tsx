@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { X, Search, Shield, User, Eye } from 'lucide-react'
-import { listEligibleUsersForProjectTeam, assignProjectTeamRole, type EligibleUser, type ProjectTeamMap } from '@/server/actions/project-team'
+import { listEligibleUsersForProjectTeam, assignProjectTeamRole, addProjectMember, type EligibleUser, type ProjectTeamMap } from '@/server/actions/project-team'
 import type { ProjectTeamRole, UserRole } from '@prisma/client'
 
 const ROLE_LABEL: Record<ProjectTeamRole, string> = {
@@ -36,13 +36,16 @@ function Avatar({ name, email, avatarUrl, size = 32 }: { name: string | null; em
 
 interface Props {
   projectId:   string
-  role:        ProjectTeamRole
+  /** A named role slot, or null to add someone to the project without one. */
+  role:        ProjectTeamRole | null
   currentTeam: ProjectTeamMap
-  onAssigned:  (role: ProjectTeamRole) => void
+  /** Users already on the project without a named role (only used when role is null). */
+  otherUserIds?: string[]
+  onAssigned:  () => void
   onClose:     () => void
 }
 
-export function AssignTeamMemberModal({ projectId, role, currentTeam, onAssigned, onClose }: Props) {
+export function AssignTeamMemberModal({ projectId, role, currentTeam, otherUserIds = [], onAssigned, onClose }: Props) {
   const [users, setUsers]       = useState<EligibleUser[]>([])
   const [query, setQuery]       = useState('')
   const [loading, setLoading]   = useState(true)
@@ -68,16 +71,25 @@ export function AssignTeamMemberModal({ projectId, role, currentTeam, onAssigned
     !query || u.name?.toLowerCase().includes(query.toLowerCase()) || u.email.toLowerCase().includes(query.toLowerCase())
   )
 
+  const others = new Set(otherUserIds)
+
+  // Already where this pick would put them: same role slot, or (adding without
+  // a role) anywhere on the project.
+  function isAlreadyThere(userId: string) {
+    return role ? currentRoleByUser[userId] === role : !!currentRoleByUser[userId] || others.has(userId)
+  }
+
   async function handlePick(user: EligibleUser) {
-    const existingRole = currentRoleByUser[user.id]
-    if (existingRole && existingRole === role) return // already in this exact role
+    if (isAlreadyThere(user.id)) return
 
     setAssigning(user.id)
     setError(null)
-    const result = await assignProjectTeamRole({ projectId, role, userId: user.id })
+    const result = role
+      ? await assignProjectTeamRole({ projectId, role, userId: user.id })
+      : await addProjectMember({ projectId, userId: user.id })
     setAssigning(null)
     if (result.success) {
-      onAssigned(role)
+      onAssigned()
       onClose()
     } else {
       setError((result as { success: false; error: string }).error)
@@ -99,8 +111,8 @@ export function AssignTeamMemberModal({ projectId, role, currentTeam, onAssigned
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid hsl(var(--border))', flexShrink: 0 }}>
           <div>
-            <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'hsl(var(--muted-foreground))' }}>Assign</p>
-            <p style={{ fontSize: 15, fontWeight: 700, color: 'hsl(var(--foreground))' }}>{ROLE_LABEL[role]}</p>
+            <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'hsl(var(--muted-foreground))' }}>{role ? 'Assign' : 'Add to project'}</p>
+            <p style={{ fontSize: 15, fontWeight: 700, color: 'hsl(var(--foreground))' }}>{role ? ROLE_LABEL[role] : 'Team member'}</p>
           </div>
           <button onClick={onClose} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 6, background: 'hsl(var(--muted))', border: 'none', cursor: 'pointer', color: 'hsl(var(--muted-foreground))' }}>
             <X style={{ width: 15, height: 15 }} />
@@ -133,8 +145,10 @@ export function AssignTeamMemberModal({ projectId, role, currentTeam, onAssigned
             const meta      = WORKSPACE_ROLE_META[user.role]
             const Icon      = meta.icon
             const heldRole  = currentRoleByUser[user.id]
-            const isBusy    = !!heldRole
-            const isSameSlot = heldRole === role
+            const isSameSlot = isAlreadyThere(user.id)
+            const badge     = isSameSlot
+              ? (role ? 'Already assigned' : 'On this project')
+              : heldRole ? `Already: ${ROLE_LABEL[heldRole]}` : null
             const isProcessing = assigning === user.id
 
             return (
@@ -169,13 +183,13 @@ export function AssignTeamMemberModal({ projectId, role, currentTeam, onAssigned
                     <Icon style={{ width: 10, height: 10 }} />
                     {meta.label}
                   </span>
-                  {isBusy && (
+                  {badge && (
                     <span style={{
                       fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
                       background: isSameSlot ? 'hsl(var(--muted))' : '#fef3c7',
                       color: isSameSlot ? 'hsl(var(--muted-foreground))' : '#92400e',
                     }}>
-                      {isSameSlot ? 'Already assigned' : `Already: ${ROLE_LABEL[heldRole]}`}
+                      {badge}
                     </span>
                   )}
                   {isProcessing && (

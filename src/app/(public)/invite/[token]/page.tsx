@@ -1,8 +1,10 @@
 import { auth } from '@clerk/nextjs/server'
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
+import { SignOutButton } from '@clerk/nextjs'
 import { getInvitationByToken } from '@/server/actions/team'
 import { InviteAcceptClient } from '@/components/team/InviteAcceptClient'
+import { USER_ROLE_LABEL, verifiedEmailsFor } from '@/lib/invitations'
 
 export const metadata = { title: 'Accept Invitation' }
 
@@ -26,8 +28,12 @@ export default async function InvitePage({
     return <InviteStatus status="expired" workspaceName={invitation.workspace.name} />
   }
 
-  const { userId } = await auth()
+  // Pending sessions (a new account still on Clerk's choose-organization step)
+  // count as signed in — that's how a fresh sign-up arrives here.
+  const { userId } = await auth({ treatPendingAsSignedOut: false })
   const isAuthed = !!userId
+  // Signed in as someone else: say so up front instead of failing on Accept.
+  const wrongAccount = isAuthed && !(await verifiedEmailsFor(userId)).includes(invitation.email.toLowerCase())
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://budget.thethirdplace.co'
   const inviteUrl = `${appUrl}/invite/${token}`
@@ -75,11 +81,27 @@ export default async function InvitePage({
           </div>
           <div className="flex justify-between border-t border-white/[0.06] py-1 text-white/50">
             <span>Role</span>
-            <span className="text-white/80">{invitation.role === 'OWNER' ? 'Owner' : 'Producer'}</span>
+            <span className="text-white/80">{USER_ROLE_LABEL[invitation.role]}</span>
           </div>
         </div>
 
-        {isAuthed ? (
+        {wrongAccount ? (
+          /* ── Signed in with a different email ── */
+          <div className="space-y-2.5">
+            <p className="rounded-xl border border-amber-500/20 bg-amber-900/20 px-3 py-2.5 text-center text-[13px] text-amber-300">
+              You&rsquo;re signed in with a different email. This invitation is for{' '}
+              <strong className="text-amber-200">{invitation.email}</strong>.
+            </p>
+            <SignOutButton redirectUrl={`/sign-in?force_redirect_url=${encodeURIComponent(inviteUrl)}`}>
+              <button
+                className="flex w-full items-center justify-center rounded-xl py-3 text-[14px] font-semibold transition-opacity hover:opacity-90"
+                style={{ background: '#04FFCC', color: '#003D31' }}
+              >
+                Sign out and switch account
+              </button>
+            </SignOutButton>
+          </div>
+        ) : isAuthed ? (
           /* ── Already signed in: show Accept button ── */
           <InviteAcceptClient token={token} />
         ) : (

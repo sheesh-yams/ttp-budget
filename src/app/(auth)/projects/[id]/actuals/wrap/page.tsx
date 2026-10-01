@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { requireFinancialPageAccess, requireProjectAccess } from '@/lib/project-access'
+import { requireProducerPageAccess, requireProjectAccess } from '@/lib/project-access'
 import Link from 'next/link'
 import { ArrowLeft, Download, TrendingUp, TrendingDown, DollarSign, BarChart3 } from 'lucide-react'
 import { getWrapReportData } from '@/server/actions/actuals'
@@ -25,7 +25,7 @@ export default async function WrapReportPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  await requireFinancialPageAccess()
+  await requireProducerPageAccess()
   await requireProjectAccess(id)
   const data = await getWrapReportData(id)
 

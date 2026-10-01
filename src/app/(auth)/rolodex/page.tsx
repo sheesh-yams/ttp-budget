@@ -1,9 +1,11 @@
+import { requireProducerPageAccess } from '@/lib/project-access'
 import { getContacts, getCrewRoles } from '@/server/actions/rolodex'
 import { RolodexClient } from '@/components/rolodex/RolodexClient'
 
 export const metadata = { title: 'Rolodex' }
 
 export default async function RolodexPage() {
+  await requireProducerPageAccess()
   const [contacts, crewRoles] = await Promise.all([getContacts(), getCrewRoles()])
 
   return (

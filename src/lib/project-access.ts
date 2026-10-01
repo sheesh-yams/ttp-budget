@@ -54,11 +54,11 @@ export async function requireProjectAccess(projectId: string) {
 }
 
 /**
- * Pages with workspace money (invoices, proposals, clients, actuals, rate
- * library…) — Owner/Producer only. 404 rather than redirect so their existence
- * isn't confirmed to a Collaborator.
+ * Owner/Producer-only pages: workspace money (invoices, proposals, clients,
+ * actuals, rate library…) and the rolodex. 404 rather than redirect so their
+ * existence isn't confirmed to a Collaborator.
  */
-export async function requireFinancialPageAccess() {
+export async function requireProducerPageAccess() {
   const user = await getCurrentUser()
   if (user.role === 'COLLABORATOR') notFound()
   return user
