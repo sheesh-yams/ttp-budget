@@ -48,21 +48,26 @@ interface Props {
   lines:      PhaseLine[]
   library:    { id: string; title: string; isDefault: boolean }[]
   vendorView: VendorDealMemo
+  /** budget.costs VIEW — the budget rate, budgeted amount and over/under */
+  showBudget?: boolean
+  /** dealMemos EDIT */
+  canEdit?: boolean
 }
 
 const toDateInput = (iso: string | null) => (iso ? iso.slice(0, 10) : '')
 
-export function DealMemoEditor({ projectId, memo, lines, library, vendorView }: Props) {
+export function DealMemoEditor({ projectId, memo, lines, library, vendorView, showBudget = true, canEdit = true }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const { confirm, ConfirmDialog } = useConfirm()
   const [error, setError] = useState<string | null>(null)
   const [showPreview, setShowPreview] = useState(false)
-  const readOnly = memo.status === 'CANCELLED'
+  const cancelled = memo.status === 'CANCELLED'
+  const readOnly  = cancelled || !canEdit
 
   const roleLine = memo.lineItemId ? lines.find(l => l.id === memo.lineItemId) ?? null : null
   const roleSlots = roleLine ? lineHeadcountAndDays(roleLine).headcount : 1
-  const perSlotBudget = roleLine ? Math.round((roleLine.quantity * roleLine.rateCents) / Math.max(1, roleSlots)) : null
+  const perSlotBudget = roleLine && showBudget ? Math.round((roleLine.quantity * roleLine.rateCents) / Math.max(1, roleSlots)) : null
   const expected = memoExpectedCents(memo.fees)
 
   // Fee terms are stored as templates ("{{dealMemo.workDayHours}}-hour day")
@@ -137,13 +142,13 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView }: 
           <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${meta.className}`}>{meta.label}</span>
         </div>
         <div className="flex items-center gap-2">
-          {memo.status === 'BID' && (
+          {canEdit && memo.status === 'BID' && (
             <>
               <Button variant="outline" size="sm" disabled={isPending} onClick={() => run(() => setDealMemoStatus(memo.id, 'NOT_SELECTED'))}>Not selected</Button>
               <Button size="sm" disabled={isPending} onClick={handleAward}>Award</Button>
             </>
           )}
-          {(memo.status === 'NOT_SELECTED' || memo.status === 'CANCELLED') && (
+          {canEdit && (memo.status === 'NOT_SELECTED' || memo.status === 'CANCELLED') && (
             <Button variant="outline" size="sm" disabled={isPending} onClick={() => run(() => setDealMemoStatus(memo.id, 'BID'))}>Reopen as bid</Button>
           )}
           <Button variant="outline" size="sm" onClick={() => setShowPreview(true)}>
@@ -152,7 +157,7 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView }: 
         </div>
       </div>
 
-      {readOnly && (
+      {cancelled && (
         <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           This deal memo is cancelled and read-only. Reopen it as a bid to make changes.
         </p>
@@ -170,7 +175,7 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView }: 
             <p className="text-sm font-medium text-foreground">{memo.roleLabel}</p>
             <p className="text-xs text-muted-foreground">
               {roleLine
-                ? `${roleLine.accountName} · budget ${formatMoney(roleLine.rateCents)}${UNIT_SUFFIX[roleLine.unit]}`
+                ? (showBudget ? `${roleLine.accountName} · budget ${formatMoney(roleLine.rateCents)}${UNIT_SUFFIX[roleLine.unit]}` : roleLine.accountName)
                 : memo.lineItemId ? 'Budget line no longer exists' : 'Not in the budget'}
             </p>
           </div>

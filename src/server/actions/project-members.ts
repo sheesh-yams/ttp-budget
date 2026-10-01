@@ -1,8 +1,8 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { requireRole } from '@/lib/auth'
-import { checkProjectAccess } from '@/lib/project-access'
+import { db } from '@/lib/db'
+import { getAccess, getProjectAccess, requireProjectPermission } from '@/lib/access'
 import { getScopedDb } from '@/lib/db-scoped'
 import { toJsonSafe } from '@/lib/json-safe'
 import { z } from 'zod'
@@ -26,14 +26,58 @@ const memberSchema = z.object({
 
 export type MemberFormData = z.infer<typeof memberSchema>
 
+// ── Gates (not exported — every export of a 'use server' file is an endpoint) ─
+
+/**
+ * A crew member action: the member must be on `projectId` (the client sends
+ * both — never trust the pairing) and the caller needs crew EDIT there.
+ */
+async function requireMemberPermission(memberId: string, projectId: string) {
+  const access = await getAccess()
+  const member = typeof memberId === 'string' && memberId
+    ? await db.projectMember.findFirst({ where: { id: memberId, workspaceId: access.workspaceId }, select: { projectId: true } })
+    : null
+  if (!member || member.projectId !== projectId) {
+    return { ok: false, error: { success: false as const, error: 'Team member not found' }, userId: access.userId, workspaceId: access.workspaceId }
+  }
+  return requireProjectPermission(projectId, 'crew', 'EDIT')
+}
+
+/**
+ * People picked from a project-scoped search arrive without contact details
+ * (names-only search) — fill email / phone / rate from their rolodex record.
+ * Never overrides what the caller sent.
+ */
+async function fillFromContact(sdb: Awaited<ReturnType<typeof getScopedDb>>, data: MemberFormData, opts: { rate: boolean }) {
+  // Only for callers who got the names-only search; with the rolodex the
+  // form already carried the details, and a blank is deliberate.
+  if (!data.contactId || (await getAccess()).can('rolodex')) return
+  const c = await sdb.contact.findFirst({
+    where:  { id: data.contactId },
+    select: { email: true, phone: true, defaultRateCents: true, defaultRateUnit: true },
+  })
+  if (!c) return
+  if (!data.email) data.email = c.email
+  if (!data.phone) data.phone = c.phone
+  // Rate only when adding — on an edit an empty rate may be deliberate.
+  if (opts.rate && data.rateCents == null && c.defaultRateCents != null) {
+    data.rateCents = c.defaultRateCents
+    data.rateUnit  = c.defaultRateUnit as MemberFormData['rateUnit']
+  }
+}
+
+/** What crew are paid follows dealMemos. */
+async function canSetRates(projectId: string) {
+  return !!(await getProjectAccess(projectId))?.can('dealMemos', 'EDIT')
+}
+
 // ── Read ───────────────────────────────────────────────────────────────────────
 
 export async function getProjectMembers(projectId: string) {
   // Callable directly by any signed-in user, so it enforces the same rule as
-  // the pages: the project must be one this user may open (Collaborators:
-  // assigned only).
-  const access = await checkProjectAccess(projectId)
-  if (!access) return []
+  // the crew page: crew VIEW on a project this user may open.
+  const access = await getProjectAccess(projectId)
+  if (!access || !access.can('crew')) return []
   const sdb = await getScopedDb()
 
   const members = await sdb.projectMember.findMany({
@@ -55,9 +99,14 @@ export async function getProjectMembers(projectId: string) {
     },
   })
   // Crew rates are vendor pay (awarded deal memos write the day rate here) —
-  // stripped for roles without financial access, like the deal memos themselves.
-  if (access.role === 'COLLABORATOR') return members.map(m => ({ ...m, rateCents: null }))
-  return members
+  // they follow dealMemos, like the deal memos themselves. An "Unassigned"
+  // placeholder's rate was seeded from the budget line, so it's a budget cost.
+  const seesVendorRates = access.can('dealMemos')
+  const seesBudgetRates = access.can('budget.costs')
+  return members.map(m => {
+    const visible = m.name === 'Unassigned' ? seesVendorRates && seesBudgetRates : seesVendorRates
+    return visible ? m : { ...m, rateCents: null }
+  })
 }
 
 export type ProjectMemberRow = Awaited<ReturnType<typeof getProjectMembers>>[number]
@@ -69,7 +118,7 @@ export async function addProjectMember(
   input: MemberFormData
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProjectPermission(projectId, 'crew', 'EDIT')
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()
@@ -78,6 +127,9 @@ export async function addProjectMember(
     if (!project) return { success: false, error: 'Project not found' }
 
     const data = memberSchema.parse(input)
+    await fillFromContact(sdb, data, { rate: true })
+    // Setting what someone is paid is a deal-memo level decision.
+    if (!(await canSetRates(projectId))) data.rateCents = null
 
     // sdb.projectMember.create auto-injects workspaceId.
     const member = await sdb.projectMember.create({
@@ -109,12 +161,26 @@ export async function updateProjectMember(
   input: MemberFormData
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMemberPermission(id, projectId)
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()
     // Scoped update — WHERE id = ? AND workspaceId = ? blocks foreign member ids.
     const data = memberSchema.parse(input)
+    await fillFromContact(sdb, data, { rate: false })
+    // If the editor never received the rate (stripped on read: no dealMemos,
+    // or a budget-seeded placeholder without budget.costs) keep the stored
+    // one rather than writing back a blank.
+    const projectAccess = await getProjectAccess(projectId)
+    const existing = await sdb.projectMember.findFirst({ where: { id }, select: { name: true } })
+    const rateWasHidden =
+      !projectAccess?.can('dealMemos', 'EDIT') ||
+      (existing?.name === 'Unassigned' && !projectAccess.can('budget.costs'))
+    if (rateWasHidden) {
+      const current = await sdb.projectMember.findFirst({ where: { id }, select: { rateCents: true, rateUnit: true } })
+      data.rateCents = current?.rateCents ?? null
+      if (current?.rateUnit) data.rateUnit = current.rateUnit
+    }
     await sdb.projectMember.update({
       where: { id },
       data: {
@@ -194,7 +260,7 @@ export async function seedTeamFromBudget(
   projectId: string
 ): Promise<ActionResult<{ count: number; proposalTitle: string | null }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProjectPermission(projectId, 'crew', 'EDIT')
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()
@@ -334,7 +400,7 @@ export async function removeProjectMember(
   projectId: string
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMemberPermission(id, projectId)
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()
@@ -355,7 +421,7 @@ export async function dismissMismatch(
   projectId: string
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMemberPermission(id, projectId)
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()

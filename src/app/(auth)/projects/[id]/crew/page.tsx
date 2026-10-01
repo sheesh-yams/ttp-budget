@@ -1,7 +1,8 @@
+import { getAccess } from '@/lib/access'
 import { notFound } from 'next/navigation'
 import { requireProjectAccess, requireProjectArea } from '@/lib/project-access'
 import { db } from '@/lib/db'
-import { getCurrentRole, getWorkspaceId } from '@/lib/auth'
+import { getWorkspaceId } from '@/lib/auth'
 import { getProjectMembers, seedTeamFromBudget } from '@/server/actions/project-members'
 import { ProjectTeam, type CrewDealMemoRef } from '@/components/projects/ProjectTeam'
 import type { TimeFormat } from '@/lib/time-format'
@@ -27,7 +28,7 @@ export default async function ProjectTeamPage({
 }) {
   const { id } = await params
   await requireProjectAccess(id)
-  await requireProjectArea(id, 'crew')
+  const projectAccess = await requireProjectArea(id, 'crew')
   const workspaceId = await getWorkspaceId()
 
   // Verify project exists + belongs to this workspace
@@ -37,18 +38,20 @@ export default async function ProjectTeamPage({
   })
   if (!project) notFound()
 
-  // Auto-seed team from proposal crew if team is empty (no-op if already seeded)
-  const [seedResult, members, workspace, role] = await Promise.all([
-    seedTeamFromBudget(id),
+  // Auto-seed team from proposal crew if team is empty (no-op if already
+  // seeded). Seeding is a crew edit — viewers just see what's there.
+  const [seedResult, members, workspace] = await Promise.all([
+    projectAccess.can('crew', 'EDIT')
+      ? seedTeamFromBudget(id)
+      : Promise.resolve({ success: false as const, error: 'view only' }),
     getProjectMembers(id),
     db.workspace.findUnique({ where: { id: workspaceId }, select: { callTimeFormat: true } }),
-    getCurrentRole(),
   ])
 
-  // Deal memo pill per crew member (Owner/Producer only — memos reveal vendor
+  // Deal memo pill per crew member (dealMemos VIEW — memos reveal vendor
   // rates). A confirmed memo wins; otherwise an open bid for the same person.
   let dealMemos: Record<string, CrewDealMemoRef> | undefined
-  if (role !== 'COLLABORATOR') {
+  if (projectAccess.can('dealMemos')) {
     const memos = await db.dealMemo.findMany({
       where:   { projectId: id, workspaceId, status: { in: ['CONFIRMED', 'BID'] } },
       orderBy: { updatedAt: 'desc' },
@@ -78,7 +81,12 @@ export default async function ProjectTeamPage({
         </p>
       </div>
 
-      <ProjectTeam projectId={id} members={members} seedProposalTitle={proposalTitle} timeFormat={timeFormat} dealMemos={dealMemos} />
+      <ProjectTeam
+        projectId={id} members={members} seedProposalTitle={proposalTitle} timeFormat={timeFormat} dealMemos={dealMemos}
+        canEdit={projectAccess.can('crew', 'EDIT')}
+        canSetRates={projectAccess.can('dealMemos', 'EDIT')}
+        canOpenRolodex={(await getAccess()).can('rolodex')}
+      />
     </div>
   )
 }

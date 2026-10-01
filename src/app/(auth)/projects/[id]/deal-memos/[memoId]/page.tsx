@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
-import { requireProjectAccess } from '@/lib/project-access'
+import { requireProjectAccess, requireProjectArea } from '@/lib/project-access'
 import { db } from '@/lib/db'
-import { getCurrentRole, getWorkspaceId } from '@/lib/auth'
+import { getWorkspaceId } from '@/lib/auth'
 import { getScopedDb } from '@/lib/db-scoped'
 import { loadDealMemoEditor } from '@/lib/deal-memo-queries'
 import { toVendorDealMemo } from '@/lib/deal-memo-vendor-view'
@@ -12,7 +12,8 @@ export const metadata = { title: 'Deal Memo' }
 export default async function DealMemoPage({ params }: { params: Promise<{ id: string; memoId: string }> }) {
   const { id, memoId } = await params
   await requireProjectAccess(id)
-  if ((await getCurrentRole()) === 'COLLABORATOR') notFound()
+  const access = await requireProjectArea(id, 'dealMemos')
+  const showBudget = access.can('budget.costs')
 
   const [sdb, workspaceId] = await Promise.all([getScopedDb(), getWorkspaceId()])
   const [data, project, workspace] = await Promise.all([
@@ -21,7 +22,10 @@ export default async function DealMemoPage({ params }: { params: Promise<{ id: s
     db.workspace.findUnique({ where: { id: workspaceId }, select: { name: true, legalName: true } }),
   ])
   if (!data || !project) notFound()
-  const { memo, lines, library } = data
+  const { memo, library } = data
+  // Budget lines are offered for fee mapping (lines VIEW is enough); their
+  // rates are budget costs.
+  const lines = showBudget ? data.lines : data.lines.map(l => ({ ...l, rateCents: 0 }))
 
   const editorMemo: EditorMemo = {
     id:                   memo.id,
@@ -57,5 +61,10 @@ export default async function DealMemoPage({ params }: { params: Promise<{ id: s
     workspaceLegalName: workspace?.legalName ?? null,
   })
 
-  return <DealMemoEditor projectId={id} memo={editorMemo} lines={lines} library={library} vendorView={vendorView} />
+  return (
+    <DealMemoEditor
+      projectId={id} memo={editorMemo} lines={lines} library={library} vendorView={vendorView}
+      showBudget={showBudget} canEdit={access.can('dealMemos', 'EDIT')}
+    />
+  )
 }

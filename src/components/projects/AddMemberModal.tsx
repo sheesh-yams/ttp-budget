@@ -3,6 +3,7 @@
 import { useState, useTransition, useEffect, useRef } from 'react'
 import { X, Search, UserPlus, Users } from 'lucide-react'
 import { searchContacts, type ContactSearchResult } from '@/server/actions/rolodex'
+import { useCrewPermissions } from './crew-permissions-context'
 import { addProjectMember, type MemberFormData } from '@/server/actions/project-members'
 import { formatMoney } from '@/lib/money'
 
@@ -122,12 +123,12 @@ function SearchPane({
     if (debounce.current) clearTimeout(debounce.current)
     debounce.current = setTimeout(async () => {
       setLoading(true)
-      const r = await searchContacts(query)
+      const r = await searchContacts(query, projectId)
       setResults(r)
       setLoading(false)
     }, 200)
     return () => { if (debounce.current) clearTimeout(debounce.current) }
-  }, [query])
+  }, [query, projectId])
 
   return (
     <div className="px-6 py-5">
@@ -217,6 +218,7 @@ function ConfirmPane({
   onClose:   () => void
   onAdded:   () => void
 }) {
+  const { canSetRates } = useCrewPermissions()
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState('')
 
@@ -302,7 +304,7 @@ function ConfirmPane({
 
       {/* Rate + Call time */}
       <div className="grid grid-cols-2 gap-3">
-        <div>
+        {canSetRates && <div>
           <label className="mb-1 block text-xs font-medium text-muted-foreground uppercase tracking-wide">Rate</label>
           <div className="flex gap-1.5">
             <div className="relative flex-1">
@@ -325,7 +327,7 @@ function ConfirmPane({
               {RATE_UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)}
             </select>
           </div>
-        </div>
+        </div>}
         <div>
           <label className="mb-1 block text-xs font-medium text-muted-foreground uppercase tracking-wide">Call time</label>
           <input
@@ -394,6 +396,7 @@ function ManualPane({
   onClose:   () => void
   onAdded:   () => void
 }) {
+  const { canSetRates } = useCrewPermissions()
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState('')
 
@@ -490,7 +493,7 @@ function ManualPane({
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <div>
+        {canSetRates && <div>
           <label className="mb-1 block text-xs font-medium text-muted-foreground uppercase tracking-wide">Rate</label>
           <div className="flex gap-1.5">
             <div className="relative flex-1">
@@ -506,7 +509,7 @@ function ManualPane({
               {RATE_UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)}
             </select>
           </div>
-        </div>
+        </div>}
         <div>
           <label className="mb-1 block text-xs font-medium text-muted-foreground uppercase tracking-wide">Call time</label>
           <input type="time" value={callTime} onChange={e => setCallTime(e.target.value)}

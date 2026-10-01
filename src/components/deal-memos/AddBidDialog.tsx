@@ -39,12 +39,12 @@ export function AddBidDialog({ projectId, open, onClose, lineItemId, roleLabel }
   useEffect(() => {
     if (!open) return
     const t = setTimeout(() => {
-      searchContacts(query)
+      searchContacts(query, projectId)
         .then(r => { setResults(r); setSearchedQuery(query) })
         .catch(() => { setResults([]); setSearchedQuery(query) })
     }, 200)
     return () => clearTimeout(t)
-  }, [query, open])
+  }, [query, open, projectId])
 
   function reset() {
     setQuery(''); setNewMode(false); setNewName(''); setNewEmail(''); setError(null); setRoleName(roleLabel)
@@ -75,7 +75,7 @@ export function AddBidDialog({ projectId, open, onClose, lineItemId, roleLabel }
       const created = await createContact({
         name: name.trim(), primaryRole: role, email: newEmail.trim() || null,
         secondaryRoles: [], defaultRateUnit: 'DAY', hasKit: false,
-      })
+      }, projectId)
       if (!created.success) { setError((created as { success: false; error: string }).error); return }
       openMemo(created.data.id)
     })

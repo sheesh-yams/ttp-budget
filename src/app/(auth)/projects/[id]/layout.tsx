@@ -31,7 +31,7 @@ export default async function ProjectLayout({
     receipts:   legacyMoney && can('actuals'),
     invoices:   legacyMoney && can('invoices'),
     crew:       can('crew'),
-    dealMemos:  legacyMoney && can('dealMemos'),
+    dealMemos:  can('dealMemos'),
     schedule:   can('schedule'),
     callSheets: can('callSheets'),
     delivery:   legacyMoney && can('delivery'),

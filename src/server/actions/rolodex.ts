@@ -1,7 +1,8 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { getCurrentUser, requireRole } from '@/lib/auth'
+import { requireRole } from '@/lib/auth'
+import { getAccess, getProjectAccess } from '@/lib/access'
 import { getScopedDb } from '@/lib/db-scoped'
 import { db } from '@/lib/db'
 import { z } from 'zod'
@@ -37,8 +38,27 @@ export type ContactFormData = z.infer<typeof contactSchema>
 // only — Collaborators see crew through the projects they're assigned to.
 // Not exported: every export of a 'use server' file is an endpoint.
 async function canReadRolodex() {
-  const user = await getCurrentUser()
-  return user.role !== 'COLLABORATOR'
+  return (await getAccess()).can('rolodex')
+}
+
+/**
+ * Picking people for one project (crew, bids) without rolodex access: allowed
+ * with crew or dealMemos EDIT on that project, but it isn't the rolodex — the
+ * search shows names and roles only (user decision 2026-10-01). Contact
+ * details and rates are filled in server-side once someone is added.
+ */
+async function projectContactAccess(projectId: string | undefined, level: 'VIEW' | 'EDIT') {
+  const access = await getAccess()
+  if (access.can('rolodex', level)) return { ok: true, full: true, setRates: true }
+  if (typeof projectId !== 'string' || !projectId) return { ok: false, full: false, setRates: false }
+  const p = await getProjectAccess(projectId)
+  if (!p || !(p.can('crew', 'EDIT') || p.can('dealMemos', 'EDIT'))) return { ok: false, full: false, setRates: false }
+  return { ok: true, full: false, setRates: p.can('dealMemos', 'EDIT') }
+}
+
+/** Names and roles only — no contact details, no rates. */
+function namesOnly<T extends { email: string | null; phone: string | null; defaultRateCents: number | null; kitRateCents: number | null }>(c: T): T {
+  return { ...c, email: null, phone: null, defaultRateCents: null, kitRateCents: null }
 }
 
 export async function getContacts() {
@@ -74,13 +94,17 @@ export async function getContacts() {
 
 export type ContactRow = Awaited<ReturnType<typeof getContacts>>[number]
 
-// Search for contacts by name or role — used by the project team member picker
-export async function searchContacts(query: string) {
-  if (!(await canReadRolodex())) return []
+// Search for contacts by name or role — used by the project team member picker.
+// Pass the project when picking for one (crew, bids) — see projectContactAccess.
+export async function searchContacts(query: string, projectId?: string) {
+  const allowed = await projectContactAccess(projectId, 'VIEW')
+  if (!allowed.ok) return []
+  const strip = <T extends { email: string | null; phone: string | null; defaultRateCents: number | null; kitRateCents: number | null }>(rows: T[]) =>
+    allowed.full ? rows : rows.map(namesOnly)
   const db = await getScopedDb()
   const q  = query.trim()
   if (!q) {
-    return db.contact.findMany({
+    return strip(await db.contact.findMany({
       where: { archivedAt: null },
       orderBy: { name: 'asc' },
       take: 20,
@@ -97,15 +121,16 @@ export async function searchContacts(query: string) {
         kitRateCents:     true,
         kitName:          true,
       },
-    })
+    }))
   }
-  return db.contact.findMany({
+  return strip(await db.contact.findMany({
     where: {
       archivedAt: null,
       OR: [
         { name:        { contains: q, mode: 'insensitive' } },
         { primaryRole: { contains: q, mode: 'insensitive' } },
-        { email:       { contains: q, mode: 'insensitive' } },
+        // Names-only callers can't probe the rolodex by email address.
+        ...(allowed.full ? [{ email: { contains: q, mode: 'insensitive' as const } }] : []),
       ],
     },
     orderBy: { name: 'asc' },
@@ -123,7 +148,7 @@ export async function searchContacts(query: string) {
       kitRateCents:     true,
       kitName:          true,
     },
-  })
+  }))
 }
 
 export type ContactSearchResult = Awaited<ReturnType<typeof searchContacts>>[number]
@@ -131,14 +156,18 @@ export type ContactSearchResult = Awaited<ReturnType<typeof searchContacts>>[num
 // ── Write ──────────────────────────────────────────────────────────────────────
 
 export async function createContact(
-  input: ContactFormData
+  input: ContactFormData,
+  // Adding someone new while staffing a project (crew, bids) — see projectContactAccess.
+  projectId?: string,
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
-    if (!gate.ok) return gate.error
+    const allowed = await projectContactAccess(projectId, 'EDIT')
+    if (!allowed.ok) return { success: false, error: 'UNAUTHORIZED_ROLE' }
 
     const db   = await getScopedDb()
     const data = contactSchema.parse(input)
+    // What someone charges is a deal-memo level fact.
+    if (!allowed.setRates) { data.defaultRateCents = null; data.kitRateCents = null }
     const contact = await db.contact.create({
       data: {
         ...data,

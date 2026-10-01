@@ -22,6 +22,7 @@ import {
   type ContactForModal,
 } from '@/server/actions/rolodex'
 import { ContactModal } from '@/components/rolodex/ContactModal'
+import { CrewPermissionsContext, useCrewPermissions } from './crew-permissions-context'
 import { AddMemberModal } from './AddMemberModal'
 import { formatTime, type TimeFormat } from '@/lib/time-format'
 import { formatMoney } from '@/lib/money'
@@ -100,9 +101,15 @@ interface Props {
   timeFormat?:        TimeFormat
   /** Deal memo per crew member id — only passed for Owner/Producer. */
   dealMemos?:         Record<string, CrewDealMemoRef>
+  /** crew EDIT — add, edit, assign and remove crew */
+  canEdit?:           boolean
+  /** rolodex VIEW — the contact badge opens the Rolodex contact */
+  canOpenRolodex?:    boolean
+  /** dealMemos EDIT — set what crew are paid */
+  canSetRates?:       boolean
 }
 
-export function ProjectTeam({ projectId, members: initial, seedProposalTitle, timeFormat = '12H', dealMemos }: Props) {
+export function ProjectTeam({ projectId, members: initial, seedProposalTitle, timeFormat = '12H', dealMemos, canEdit = true, canOpenRolodex = true, canSetRates = true }: Props) {
   const [members,   setMembers]   = useState(initial)
   const [adding,    setAdding]    = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -121,6 +128,7 @@ export function ProjectTeam({ projectId, members: initial, seedProposalTitle, ti
   }
 
   return (
+    <CrewPermissionsContext.Provider value={{ canSetRates }}>
     <div>
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
@@ -138,13 +146,15 @@ export function ProjectTeam({ projectId, members: initial, seedProposalTitle, ti
             <BookUser className="h-3.5 w-3.5" />
             Rolodex
           </Link>
-          <button
-            onClick={() => setAdding(true)}
-            className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-1.5 text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity"
-          >
-            <Plus className="h-4 w-4" />
-            Add crew
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => setAdding(true)}
+              className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-1.5 text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity"
+            >
+              <Plus className="h-4 w-4" />
+              Add crew
+            </button>
+          )}
         </div>
       </div>
 
@@ -155,13 +165,15 @@ export function ProjectTeam({ projectId, members: initial, seedProposalTitle, ti
           <p className="mt-1 text-sm text-muted-foreground">
             Add crew from your Rolodex or enter manually.
           </p>
-          <button
-            onClick={() => setAdding(true)}
-            className="mt-4 flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity"
-          >
-            <Plus className="h-4 w-4" />
-            Add first crew member
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => setAdding(true)}
+              className="mt-4 flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity"
+            >
+              <Plus className="h-4 w-4" />
+              Add first crew member
+            </button>
+          )}
         </div>
       )}
 
@@ -204,6 +216,7 @@ export function ProjectTeam({ projectId, members: initial, seedProposalTitle, ti
                       key={member.id}
                       member={member}
                       projectId={projectId}
+                      canEdit={canEdit}
                       onAssign={() => setEditingId(member.id)}
                       onRemoved={() => handleRemoved(member.id)}
                     />
@@ -212,6 +225,8 @@ export function ProjectTeam({ projectId, members: initial, seedProposalTitle, ti
                       key={member.id}
                       member={member}
                       projectId={projectId}
+                      canEdit={canEdit}
+                      canOpenRolodex={canOpenRolodex}
                       timeFormat={timeFormat}
                       dealMemo={dealMemos?.[member.id]}
                       onEdit={() => setEditingId(member.id)}
@@ -242,6 +257,7 @@ export function ProjectTeam({ projectId, members: initial, seedProposalTitle, ti
         />
       )}
     </div>
+    </CrewPermissionsContext.Provider>
   )
 }
 
@@ -252,11 +268,13 @@ function PlaceholderCard({
   projectId,
   onAssign,
   onRemoved,
+  canEdit = true,
 }: {
   member:    ProjectMemberRow
   projectId: string
   onAssign:  () => void
   onRemoved: () => void
+  canEdit?:  boolean
 }) {
   const [removing, startTransition] = useTransition()
   const { confirm, ConfirmDialog }  = useConfirm()
@@ -278,14 +296,14 @@ function PlaceholderCard({
       {ConfirmDialog}
       <div className="group relative flex min-h-[148px] flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border bg-muted/20 p-4 text-center transition-colors hover:border-primary/25 hover:bg-primary/[0.03]">
         {/* Remove */}
-        <button
+        {canEdit && <button
           onClick={handleRemove}
           disabled={removing}
           title="Remove placeholder"
           className="absolute right-2 top-2 rounded p-1 text-muted-foreground/30 opacity-0 transition-all hover:text-red-400 group-hover:opacity-100 disabled:opacity-30"
         >
           <X className="h-3.5 w-3.5" />
-        </button>
+        </button>}
 
         {/* Empty avatar ring */}
         <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/20 bg-muted/40 text-muted-foreground/40">
@@ -303,13 +321,13 @@ function PlaceholderCard({
         </div>
 
         {/* Assign CTA */}
-        <button
+        {canEdit ? <button
           onClick={onAssign}
           className="flex items-center gap-1.5 rounded-lg border border-primary/30 bg-background px-3 py-1.5 text-xs font-semibold text-primary shadow-sm transition-colors hover:border-primary hover:bg-primary/5"
         >
           <UserPlus className="h-3 w-3" />
           Assign crew member
-        </button>
+        </button> : <p className="text-xs text-muted-foreground">Unassigned</p>}
       </div>
     </>
   )
@@ -325,11 +343,15 @@ function MemberCard({
   onEdit,
   onRemoved,
   onMismatchDismissed,
+  canEdit = true,
+  canOpenRolodex = true,
 }: {
   member:               ProjectMemberRow
   projectId:            string
   timeFormat?:          TimeFormat
   dealMemo?:            CrewDealMemoRef
+  canEdit?:             boolean
+  canOpenRolodex?:      boolean
   onEdit:               () => void
   onRemoved:            () => void
   onMismatchDismissed?: (id: string) => void
@@ -400,7 +422,7 @@ function MemberCard({
         )}
 
         {/* Action buttons */}
-        <div className="absolute right-2.5 top-2.5 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+        {canEdit && <div className="absolute right-2.5 top-2.5 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
           <button
             onClick={onEdit}
             title="Edit position"
@@ -416,12 +438,12 @@ function MemberCard({
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
-        </div>
+        </div>}
 
         {/* Avatar row */}
         <div className="mb-3 flex items-center gap-2">
           <Initials name={member.name} />
-          {member.contactId && (
+          {member.contactId && canOpenRolodex && (
             // Clicking opens the Rolodex contact modal directly — no page navigation needed.
             <button
               onClick={handleEditRolodexContact}
@@ -487,7 +509,7 @@ function MemberCard({
         </div>
 
         {/* Mismatch confirm button */}
-        {isMismatch && (
+        {isMismatch && canEdit && (
           <button
             onClick={handleDismissMismatch}
             disabled={dismissing}
@@ -515,6 +537,7 @@ function EditCard({
   onSaved:   (updated: ProjectMemberRow) => void
   onCancel:  () => void
 }) {
+  const { canSetRates } = useCrewPermissions()
   const [isPending, startTransition] = useTransition()
   const [name,       setName]       = useState(isUnassigned(member) ? '' : member.name)
   const [contactId,  setContactId]  = useState<string | null>(member.contactId ?? null)
@@ -559,7 +582,7 @@ function EditCard({
     if (nameDebounce.current) clearTimeout(nameDebounce.current)
     if (!v.trim()) { setNameResults([]); setNameOpen(false); return }
     nameDebounce.current = setTimeout(async () => {
-      const results = await searchContacts(v)
+      const results = await searchContacts(v, projectId)
       setNameResults(results)
       if (results.length > 0 && nameInputRef.current) {
         const rect = nameInputRef.current.getBoundingClientRect()
@@ -598,7 +621,8 @@ function EditCard({
         order:      member.order,
       }
       await updateProjectMember(member.id, projectId, data)
-      onSaved({ ...member, ...data, rateCents: data.rateCents ?? null } as ProjectMemberRow)
+      // Without rate access the server kept the stored rate (we never had it).
+      onSaved({ ...member, ...data, rateCents: canSetRates ? (data.rateCents ?? null) : member.rateCents } as ProjectMemberRow)
     })
   }
 
@@ -709,7 +733,7 @@ function EditCard({
         </div>
 
         {/* Rate */}
-        <div>
+        {canSetRates && <div>
           <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Rate ($)</label>
           <input
             type="number"
@@ -718,10 +742,10 @@ function EditCard({
             min="0" step="0.01"
             className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
           />
-        </div>
+        </div>}
 
         {/* Unit */}
-        <div>
+        {canSetRates && <div>
           <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Unit</label>
           <select
             value={rateUnit}
@@ -730,7 +754,7 @@ function EditCard({
           >
             {RATE_UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)}
           </select>
-        </div>
+        </div>}
 
         {/* Call time */}
         <div>

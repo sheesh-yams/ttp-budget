@@ -6,6 +6,7 @@ import type { DealMemoStatus } from '@prisma/client'
 import { db } from '@/lib/db'
 import { getScopedDb, type ScopedDb } from '@/lib/db-scoped'
 import { getCurrentUser, getWorkspaceId, requireRole } from '@/lib/auth'
+import { getAccess, getProjectAccess, requireProjectPermission } from '@/lib/access'
 import { logAuditEvent } from '@/lib/audit'
 import type { ActionResult } from '@/types'
 import {
@@ -40,6 +41,22 @@ async function lineBelongsToProject(sdb: ScopedDb, lineItemId: string, projectId
     select: { id: true, description: true, quantity: true, quantityFormula: true, rateCents: true, unit: true },
   })
   return line
+}
+
+/**
+ * Gate for actions on an existing memo: resolve it to its project in the
+ * active workspace, then require dealMemos EDIT there. Not exported — every
+ * export of a 'use server' file is an endpoint.
+ */
+async function requireMemoPermission(memoId: string) {
+  const access = await getAccess()
+  const memo = typeof memoId === 'string' && memoId
+    ? await db.dealMemo.findFirst({ where: { id: memoId, workspaceId: access.workspaceId }, select: { projectId: true } })
+    : null
+  if (!memo) {
+    return { ok: false, error: { success: false as const, error: 'Deal memo not found.' }, userId: access.userId, workspaceId: access.workspaceId }
+  }
+  return requireProjectPermission(memo.projectId, 'dealMemos', 'EDIT')
 }
 
 /** Loads a memo that may still be edited (anything but CANCELLED). */
@@ -119,11 +136,14 @@ const createSchema = z.object({
 
 export async function createDealMemo(input: z.infer<typeof createSchema>): Promise<ActionResult<{ id: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
-    if (!gate.ok) return gate.error
     const parsed = createSchema.safeParse(input)
     if (!parsed.success) return { success: false, error: 'Missing project or person.' }
     const { projectId, lineItemId, contactId, roleLabel } = parsed.data
+    const gate = await requireProjectPermission(projectId, 'dealMemos', 'EDIT')
+    if (!gate.ok) return gate.error
+    // The day rate prefills from the budget line rate — that's a budget cost,
+    // so without budget.costs it falls back to the person's own rate.
+    const canSeeCosts = !!(await getProjectAccess(projectId))?.can('budget.costs')
 
     const [sdb, user, workspaceId] = await Promise.all([getScopedDb(), getCurrentUser(), getWorkspaceId()])
     const [project, contact, workspace] = await Promise.all([
@@ -143,7 +163,8 @@ export async function createDealMemo(input: z.infer<typeof createSchema>): Promi
 
     const prefill = buildDealMemoPrefill({
       defaults: resolveDealMemoDefaults(workspace?.dealMemoDefaults),
-      line, contact, roleLabel, project,
+      line: line && !canSeeCosts ? { ...line, rateCents: 0 } : line,
+      contact, roleLabel, project,
     })
     const defaultBlocks = await sdb.contractBlock.findMany({
       where:   { audience: 'VENDOR', isActive: true, isDefault: true },
@@ -197,7 +218,7 @@ const updateSchema = z.object({
 
 export async function updateDealMemo(memoId: string, patch: z.infer<typeof updateSchema>): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMemoPermission(memoId)
     if (!gate.ok) return gate.error
     const parsed = updateSchema.safeParse(patch)
     if (!parsed.success) return { success: false, error: 'Some fields are invalid.' }
@@ -241,7 +262,7 @@ const feeSchema = z.object({
 
 export async function upsertDealMemoFee(memoId: string, input: z.infer<typeof feeSchema>): Promise<ActionResult<{ id: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMemoPermission(memoId)
     if (!gate.ok) return gate.error
     const parsed = feeSchema.safeParse(input)
     if (!parsed.success) return { success: false, error: 'Check the fee’s name, rate and quantity.' }
@@ -293,7 +314,7 @@ export async function upsertDealMemoFee(memoId: string, input: z.infer<typeof fe
 
 export async function deleteDealMemoFee(memoId: string, feeId: string): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMemoPermission(memoId)
     if (!gate.ok) return gate.error
     const sdb = await getScopedDb()
     const loaded = await loadEditableMemo(sdb, memoId)
@@ -318,7 +339,7 @@ export async function addDealMemoSection(
   from: { blockId: string } | { adHoc: true },
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMemoPermission(memoId)
     if (!gate.ok) return gate.error
     const sdb = await getScopedDb()
     const loaded = await loadEditableMemo(sdb, memoId)
@@ -353,7 +374,7 @@ export async function updateDealMemoSection(
   memoId: string, sectionId: string, input: { title: string; body: string },
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMemoPermission(memoId)
     if (!gate.ok) return gate.error
     const title = input.title.trim()
     if (!title) return { success: false, error: 'Sections need a title.' }
@@ -375,7 +396,7 @@ export async function updateDealMemoSection(
 
 export async function resetDealMemoSection(memoId: string, sectionId: string): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMemoPermission(memoId)
     if (!gate.ok) return gate.error
     const sdb = await getScopedDb()
     const loaded = await loadEditableMemo(sdb, memoId)
@@ -397,7 +418,7 @@ export async function resetDealMemoSection(memoId: string, sectionId: string): P
 
 export async function removeDealMemoSection(memoId: string, sectionId: string): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMemoPermission(memoId)
     if (!gate.ok) return gate.error
     const sdb = await getScopedDb()
     const loaded = await loadEditableMemo(sdb, memoId)
@@ -414,7 +435,7 @@ export async function removeDealMemoSection(memoId: string, sectionId: string): 
 
 export async function awardDealMemo(memoId: string): Promise<ActionResult<{ crewUpdated: boolean; closedOthers: number }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMemoPermission(memoId)
     if (!gate.ok) return gate.error
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
 
@@ -488,7 +509,7 @@ const SETTABLE: DealMemoStatus[] = ['NOT_SELECTED', 'BID', 'CANCELLED']
 
 export async function setDealMemoStatus(memoId: string, to: DealMemoStatus): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMemoPermission(memoId)
     if (!gate.ok) return gate.error
     if (!SETTABLE.includes(to)) return { success: false, error: 'Use Award to confirm a bid.' }
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
@@ -516,7 +537,7 @@ export async function setDealMemoStatus(memoId: string, to: DealMemoStatus): Pro
 
 export async function deleteDealMemo(memoId: string): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMemoPermission(memoId)
     if (!gate.ok) return gate.error
     const sdb = await getScopedDb()
     const memo = await sdb.dealMemo.findFirst({ where: { id: memoId }, select: { projectId: true } })

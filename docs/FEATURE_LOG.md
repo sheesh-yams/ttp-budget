@@ -26,8 +26,8 @@ Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
 - **7 Clerk orgs have no linked workspace** (e.g. "The Third Place Creative",
   "Crossover Productions"). Found by the roles backfill and skipped.
 
-- **Roles Phase 2 is converting area by area.** Done: budget + overview.
-  Still on the legacy role: crew/deal memos, call sheets, schedule, delivery,
+- **Roles Phase 2 is converting area by area.** Done: budget + overview,
+  crew + deal memos. Still on the legacy role: call sheets, schedule, delivery,
   proposals, invoices, actuals, contract, settings/team, and the workspace
   pages. Until an area is converted, a project role can't grant more than the
   legacy role there (tabs and blocks require both).
@@ -96,6 +96,37 @@ Run each through `/feature`. Check the overlap first:
 ---
 
 ## Shipped
+
+### 2026-10-01 — Roles Phase 2 (2/n): crew + deal memos enforce permissions
+- The vendor-coordinator case: a project role with crew and deal memos Edit
+  manages vendors on that project without seeing the budget's money.
+- **Deal memos:**
+  - Every memo action resolves the memo to its project, then needs
+    `dealMemos` EDIT; creating a bid needs it too.
+  - Without `budget.costs` the bid's day rate prefills from the person's own
+    rate, not the budget line.
+  - The board and editor need `dealMemos` VIEW. Budget comparisons (line rate,
+    budgeted, vs budget, "Use the budget rate") are stripped server-side
+    without `budget.costs`, and edit controls hide without EDIT.
+  - Workspace deal-memo defaults stay on the legacy role until the settings
+    slice.
+- **Crew:**
+  - Reads need `crew` VIEW. Add and seed need `crew` EDIT. Update, remove and
+    dismiss verify that the member belongs to the project the client named,
+    which nothing checked before.
+  - What crew are paid follows `dealMemos`: rates are stripped on read, kept on
+    save when hidden, and their inputs hidden. Budget-seeded "Unassigned"
+    placeholder rates also need `budget.costs`.
+  - Viewers no longer trigger auto-seeding.
+- **People search for project staffing** (user decision): without Rolodex,
+  crew or deal memos Edit on a project allows searching names and roles only,
+  with no email match. Email, phone and rate are filled in server-side when
+  someone is added, and only for those names-only callers. Rolodex users are
+  unchanged.
+- pitfall-reviewer found 4 issues, then 4 more on re-check (an Owner
+  email/phone refill regression, email probing, a placeholder rate wipe, the
+  add-then-read route). All fixed except add-then-read, which is by design:
+  people on your project show their details.
 
 ### 2026-10-01 — Roles Phase 2 (1/n): budget + overview enforce permissions
 - Asked for: a Collaborator on a project saw the budget down to rates and
