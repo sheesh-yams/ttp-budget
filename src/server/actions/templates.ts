@@ -127,6 +127,9 @@ export async function listPackages(): Promise<ActionResult<Array<{
   itemCount: number
 }>>> {
   try {
+    // Callable directly — Owner/Producer only (client pricing / cost rates).
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
     const db = await getScopedDb()
     const whereClause = {
       kind: 'PACKAGE',

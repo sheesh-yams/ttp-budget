@@ -113,6 +113,9 @@ export async function getMergeTagContext(
   proposalId: string,
 ): Promise<ActionResult<MergeTagContext>> {
   try {
+    // Callable directly — Owner/Producer only (client pricing / cost rates).
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
     const sdb = await getScopedDb()
 
     type ProposalRow = {

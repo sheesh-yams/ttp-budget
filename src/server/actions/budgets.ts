@@ -1338,6 +1338,9 @@ export async function updateBudgetGlobals(budgetId: string, globals: Record<stri
 
 export async function searchRateCards(query: string): Promise<ActionResult<unknown[]>> {
   try {
+    // Callable directly — Owner/Producer only (client pricing / cost rates).
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
     const sdb = await getScopedDb()
     const rates = await sdb.rateCard.findMany({
       where: {

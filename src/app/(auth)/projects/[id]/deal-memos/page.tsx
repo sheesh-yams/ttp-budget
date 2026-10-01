@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { requireProjectAccess } from '@/lib/project-access'
 import { getCurrentRole } from '@/lib/auth'
 import { getScopedDb } from '@/lib/db-scoped'
 import { loadDealMemoBoard } from '@/lib/deal-memo-queries'
@@ -8,6 +9,7 @@ export const metadata = { title: 'Deal Memos' }
 
 export default async function DealMemosPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+  await requireProjectAccess(id)
   // Vendor rates next to client budget rates reveal margin — Owner/Producer only.
   if ((await getCurrentRole()) === 'COLLABORATOR') notFound()
 

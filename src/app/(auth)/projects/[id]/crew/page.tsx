@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { requireProjectAccess } from '@/lib/project-access'
 import { db } from '@/lib/db'
 import { getCurrentRole, getWorkspaceId } from '@/lib/auth'
 import { getProjectMembers, seedTeamFromBudget } from '@/server/actions/project-members'
@@ -25,6 +26,7 @@ export default async function ProjectTeamPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
+  await requireProjectAccess(id)
   const workspaceId = await getWorkspaceId()
 
   // Verify project exists + belongs to this workspace

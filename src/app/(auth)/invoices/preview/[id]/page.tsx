@@ -9,6 +9,7 @@
  */
 
 import { notFound } from 'next/navigation'
+import { requireFinancialPageAccess } from '@/lib/project-access'
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { InvoicePublicView } from '@/components/invoice/InvoicePublicView'
@@ -23,6 +24,7 @@ export async function generateMetadata({ params }: Props) {
 }
 
 export default async function InvoicePreviewPage({ params }: Props) {
+  await requireFinancialPageAccess()
   const { id } = await params
   const workspaceId = await getWorkspaceId()
 

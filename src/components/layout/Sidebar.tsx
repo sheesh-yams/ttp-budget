@@ -55,8 +55,26 @@ const navGroups = [
   },
 ]
 
-export function Sidebar({ workspaceName, logoUrl }: { workspaceName: string; logoUrl?: string | null }) {
+// Workspace money pages — Owner/Producer only (the pages themselves 404 for
+// Collaborators; this just keeps dead links out of their nav).
+const FINANCIAL_HREFS = new Set(['/clients', '/proposals', '/invoices', '/rates', '/templates', '/library'])
+
+export function Sidebar({ workspaceName, logoUrl, role }: {
+  workspaceName: string
+  logoUrl?: string | null
+  role: 'OWNER' | 'PRODUCER' | 'COLLABORATOR'
+}) {
   const pathname = usePathname()
+  const visibleGroups = navGroups
+    .map(g => ({
+      ...g,
+      items: g.items.filter(item =>
+        !(role === 'COLLABORATOR' && FINANCIAL_HREFS.has(item.href)) &&
+        // Settings and Team are Owner-only pages (they redirect everyone else).
+        !((item.href === '/settings' || item.href === '/team') && role !== 'OWNER'),
+      ),
+    }))
+    .filter(g => g.items.length > 0)
 
   return (
     <aside
@@ -70,7 +88,7 @@ export function Sidebar({ workspaceName, logoUrl }: { workspaceName: string; log
 
       {/* ── Nav ── */}
       <nav className="flex-1 py-3">
-        {navGroups.map((group) => (
+        {visibleGroups.map((group) => (
           <div key={group.section ?? 'main'}>
             {group.section && (
               <p className="px-4 pb-1 pt-4 text-[9px] font-semibold uppercase tracking-[0.1em] text-white/25">

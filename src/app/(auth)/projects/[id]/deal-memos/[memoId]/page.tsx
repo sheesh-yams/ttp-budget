@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { requireProjectAccess } from '@/lib/project-access'
 import { db } from '@/lib/db'
 import { getCurrentRole, getWorkspaceId } from '@/lib/auth'
 import { getScopedDb } from '@/lib/db-scoped'
@@ -10,6 +11,7 @@ export const metadata = { title: 'Deal Memo' }
 
 export default async function DealMemoPage({ params }: { params: Promise<{ id: string; memoId: string }> }) {
   const { id, memoId } = await params
+  await requireProjectAccess(id)
   if ((await getCurrentRole()) === 'COLLABORATOR') notFound()
 
   const [sdb, workspaceId] = await Promise.all([getScopedDb(), getWorkspaceId()])

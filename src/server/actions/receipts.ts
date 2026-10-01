@@ -305,6 +305,8 @@ export async function getProjectReceipts(
   projectId: string,
 ): Promise<ReceiptDb[]> {
   try {
+    // Money data — Owner/Producer only (server actions are callable directly).
+    if (!(await requireRole(['OWNER', 'PRODUCER'])).ok) return []
     const sdb      = await getScopedDb()
     const receipts = await sdb.receipt.findMany({
       where:   { projectId },
@@ -328,6 +330,8 @@ export async function getEntryReceipts(
   projectId:     string,
 ): Promise<ReceiptDb[]> {
   try {
+    // Money data — Owner/Producer only (server actions are callable directly).
+    if (!(await requireRole(['OWNER', 'PRODUCER'])).ok) return []
     const sdb      = await getScopedDb()
     const receipts = await sdb.receipt.findMany({
       where:   { actualEntryId, projectId },
@@ -398,6 +402,8 @@ export async function getProjectActualEntries(
   projectId: string,
 ): Promise<ActualEntryForMatching[]> {
   try {
+    // Money data — Owner/Producer only (server actions are callable directly).
+    if (!(await requireRole(['OWNER', 'PRODUCER'])).ok) return []
     const sdb   = await getScopedDb()
     const sheet = await sdb.actualSheet.findFirst({
       where:   { projectId },

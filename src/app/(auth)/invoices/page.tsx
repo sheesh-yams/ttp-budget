@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { requireFinancialPageAccess } from '@/lib/project-access'
 import { Receipt } from 'lucide-react'
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
@@ -10,6 +11,7 @@ export const metadata = { title: 'Invoices' }
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function InvoicesPage() {
+  await requireFinancialPageAccess()
   const workspaceId = await getWorkspaceId()
 
   const invoices = await db.invoice.findMany({

@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { requireProjectAccess } from '@/lib/project-access'
 import Link from 'next/link'
 import { Calendar, User, TrendingUp, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { db } from '@/lib/db'
@@ -49,6 +50,7 @@ export default async function ProjectDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
+  await requireProjectAccess(id)
   const [workspaceId, currentUser] = await Promise.all([getWorkspaceId(), getCurrentUser()])
   const canSeeFin = canSeeFinancials(currentUser.role)
 
@@ -88,8 +90,11 @@ export default async function ProjectDetailPage({
           },
         },
       },
+      // Proposals and invoices carry client pricing, public links and payment
+      // amounts — none of it is fetched for roles without financial access.
       proposals: {
         orderBy: { createdAt: 'desc' },
+        take:    canSeeFin ? undefined : 0,
         select: {
           id:              true,
           title:           true,
@@ -108,6 +113,7 @@ export default async function ProjectDetailPage({
       },
       invoices: {
         orderBy: { createdAt: 'desc' },
+        take:    canSeeFin ? undefined : 0,
         select: {
           id:              true,
           number:          true,
@@ -297,7 +303,7 @@ export default async function ProjectDetailPage({
         </div>
 
         <div className="flex items-start gap-3">
-          {project.status === 'ACTIVE' && budget && !actualsSummary && (
+          {canSeeFin && project.status === 'ACTIVE' && budget && !actualsSummary && (
             <div className="rounded-xl border bg-card shadow-sm overflow-hidden text-right">
               <ActiveFinancialStat
                 label="Approved Amount"
@@ -323,7 +329,9 @@ export default async function ProjectDetailPage({
           <ProjectNotesPanel
             projectId={project.id}
             isEditor={currentUser.role === 'OWNER' || currentUser.role === 'PRODUCER'}
-            client={{
+            // Client contact details are CRM data — name and logo only for
+            // roles without financial access.
+            client={canSeeFin ? {
               id:             project.client.id,
               name:           project.client.name,
               logoUrl:        project.client.logoUrl ?? null,
@@ -334,6 +342,10 @@ export default async function ProjectDetailPage({
               notes:          project.client.notes ?? null,
               billingAddress: project.client.billingAddress ?? null,
               specialNotes:   (project.client as { specialNotes?: string | null }).specialNotes ?? null,
+            } : {
+              id: project.client.id, name: project.client.name, logoUrl: project.client.logoUrl ?? null,
+              contactName: null, contactEmail: null, contactPhone: null, website: null,
+              notes: null, billingAddress: null, specialNotes: null,
             }}
             trigger={
               <Button size="sm" variant="outline" className="flex-shrink-0">
@@ -399,8 +411,8 @@ export default async function ProjectDetailPage({
         </section>
       )}
 
-      {/* ── Proposals ────────────────────────────────────────────────────────── */}
-      <section className="mb-8">
+      {/* ── Proposals + Invoices (Owner/Producer only) ───────────────────────── */}
+      {canSeeFin && <section className="mb-8">
         <ProjectProposals
           proposals={project.proposals as never}
           projectId={project.id}
@@ -411,15 +423,14 @@ export default async function ProjectDetailPage({
           proposalExpiryDays={workspaceDefaults?.proposalExpiryDays ?? 30}
           invoiceExpiryDays={workspaceDefaults?.invoiceExpiryDays ?? 30}
         />
-      </section>
+      </section>}
 
-      {/* ── Invoices ─────────────────────────────────────────────────────────── */}
-      <section className="mb-8">
+      {canSeeFin && <section className="mb-8">
         <ProjectInvoices
           invoices={project.invoices as never}
           projectId={project.id}
         />
-      </section>
+      </section>}
 
       {/* ── Deliverables / Proposal Overview ─────────────────────────────────── */}
       {budget && budget.phases.length > 0 && (() => {

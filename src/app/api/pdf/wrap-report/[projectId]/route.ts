@@ -4,6 +4,7 @@ import { renderToBuffer } from '@react-pdf/renderer'
 import { db } from '@/lib/db'
 import { WrapReportPDF } from '@/components/actuals/WrapReportPDF'
 import { getWrapReportData } from '@/server/actions/actuals'
+import { checkProjectAccess } from '@/lib/project-access'
 import React from 'react'
 
 export async function GET(
@@ -32,6 +33,13 @@ export async function GET(
     select: { id: true },
   })
   if (!project) {
+    return new NextResponse('Project not found', { status: 404 })
+  }
+
+  // The wrap report is profit and margin — Owner/Producer only, and only for
+  // a project the user can open (same 404 either way: don't confirm it exists).
+  const access = await checkProjectAccess(projectId)
+  if (!access || access.role === 'COLLABORATOR') {
     return new NextResponse('Project not found', { status: 404 })
   }
 

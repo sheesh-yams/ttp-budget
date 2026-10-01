@@ -1,4 +1,5 @@
 import { notFound }                    from 'next/navigation'
+import { requireProjectAccess } from '@/lib/project-access'
 import { db }                          from '@/lib/db'
 import { getWorkspaceId, requireRole } from '@/lib/auth'
 import { generatePublicToken }         from '@/lib/secure-token'
@@ -18,6 +19,7 @@ export async function generateMetadata({ params }: Props) {
 
 export default async function DeliveryDeliverablesPage({ params }: Props) {
   const { id } = await params
+  await requireProjectAccess(id)
   const workspaceId = await getWorkspaceId()
 
   const gate = await requireRole(['OWNER', 'PRODUCER'])

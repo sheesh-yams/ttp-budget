@@ -13,6 +13,12 @@ Append an entry after every feature or notable fix (see `/feature`, step 9).
 Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
 `/health-check` or when working nearby.
 
+- **Role is per user, not per workspace.** `User.role` follows the user's
+  current home workspace (invites move it), but the active workspace comes
+  from the Clerk org and there's a `WorkspaceSwitcher`. A user in two
+  workspaces gets the same role in both. Fixed by roles Phase 1
+  (`WorkspaceMember`).
+
 - **Invoice first view counted twice.** `recordInvoiceView`
   (`src/server/actions/invoices.ts`) flips SENT/OVERDUE → VIEWED with one
   `updateMany`, then a second `updateMany` on `status notIn [SENT, OVERDUE]`
@@ -68,6 +74,37 @@ Run each through `/feature`. Check the overlap first:
 ---
 
 ## Shipped
+
+### 2026-10-01 — Roles Phase 0: close Collaborator read leaks
+- First step of configurable roles (plan: Phase 1 data model + resolver,
+  Phase 2 permission enforcement, Phase 3 Settings → Roles UI). No migration.
+- Writes were already gated (179 Owner/Producer, 17 Owner). Reads weren't. A
+  Collaborator could see:
+  - the dashboard money, every invoice and proposal, clients, actuals,
+    receipts, the wrap-report PDF and rate cards
+  - any project's tabs by URL
+- **Fix:**
+  - `src/lib/project-access.ts` — `requireProjectAccess` (assignment-aware)
+    on every `projects/[id]` page, with a jest coverage test so a new tab
+    can't skip it.
+  - `requireFinancialPageAccess` on the money pages and tabs.
+  - Read actions gated: actuals, wrap, receipts, invoice send data, payment
+    config (now `select`ed), merge-tag context, packages, rate-card search,
+    project activity, crew list.
+  - The dashboard and project grid stop *fetching* money for Collaborators.
+  - The overview stops sending proposals, invoices and client contact info.
+  - Crew rates and rolodex project history are filtered to assigned
+    projects, with rates stripped. Contact default/kit rates are stripped
+    from every rolodex read.
+  - Nav hides dead links.
+- **Also fixed:** the call-sheet page rendered another project's sheet if
+  given its id, and its `generateMetadata` read titles by id across
+  workspaces.
+- pitfall-reviewer found 7 further leaks after the first pass, and 1 more
+  (contact rates) on re-check; all closed.
+- **Needs a manual pass:** log in as a Collaborator — the sidebar and project
+  tabs should hide money pages, an unassigned project URL should 404, and the
+  dashboard should show assigned projects with no Value column.
 
 ### 2026-09-30 — Deal memos, Phase 1 (bids → confirmed memos → crew + actuals)
 - Migrations `20260930000001_deal_memos` and `20260930000002_actual_entry_ownership`.

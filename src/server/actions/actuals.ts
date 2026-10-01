@@ -352,6 +352,8 @@ export async function updateActualSheet(
  */
 export async function getActualSheet(budgetId: string): Promise<ActualSheetFull | null> {
   try {
+    // Money data — Owner/Producer only (server actions are callable directly).
+    if (!(await requireRole(['OWNER', 'PRODUCER'])).ok) return null
     const sdb = await getScopedDb()
     const sheet = await sdb.actualSheet.findFirst({
       where:   { budgetId },
@@ -485,6 +487,8 @@ export async function getWrapReportData(
   projectId: string,
 ): Promise<WrapReportData | null> {
   try {
+    // Money data — Owner/Producer only (server actions are callable directly).
+    if (!(await requireRole(['OWNER', 'PRODUCER'])).ok) return null
     const sdb = await getScopedDb()
 
     // Load project + client

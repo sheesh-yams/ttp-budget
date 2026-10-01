@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { requireProjectAccess } from '@/lib/project-access'
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { ProjectCallSheets } from '@/components/call-sheets/ProjectCallSheets'
@@ -23,6 +24,7 @@ export default async function CallSheetsPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
+  await requireProjectAccess(id)
   const workspaceId = await getWorkspaceId()
 
   const project = await db.project.findFirst({

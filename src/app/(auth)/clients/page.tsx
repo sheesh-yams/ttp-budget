@@ -1,10 +1,12 @@
 import { db } from '@/lib/db'
+import { requireFinancialPageAccess } from '@/lib/project-access'
 import { getWorkspaceId } from '@/lib/auth'
 import { ClientsPageClient } from '@/components/clients/ClientsPageClient'
 
 export const metadata = { title: 'Clients' }
 
 export default async function ClientsPage() {
+  await requireFinancialPageAccess()
   const workspaceId = await getWorkspaceId()
 
   const clients = await db.client.findMany({

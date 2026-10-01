@@ -196,13 +196,13 @@ export function ProjectsPageClient({
             ) : view === 'list' ? (
               <div className="flex flex-col gap-2">
                 {sorted.map(p => (
-                  <ProjectCard key={p.id} project={p} view="list" canEditTeam={canEditTeam} />
+                  <ProjectCard key={p.id} project={p} view="list" canEditTeam={canEditTeam} showMoney={canSeeFinancials} />
                 ))}
               </div>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {sorted.map(p => (
-                  <ProjectCard key={p.id} project={p} view="grid" canEditTeam={canEditTeam} />
+                  <ProjectCard key={p.id} project={p} view="grid" canEditTeam={canEditTeam} showMoney={canSeeFinancials} />
                 ))}
               </div>
             )}

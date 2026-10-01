@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { requireFinancialPageAccess, requireProjectAccess } from '@/lib/project-access'
 import Link from 'next/link'
 import { ChevronLeft } from 'lucide-react'
 import { db } from '@/lib/db'
@@ -19,6 +20,8 @@ export default async function ReceiptsPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
+  await requireFinancialPageAccess()
+  await requireProjectAccess(id)
   const workspaceId = await getWorkspaceId()
 
   const project = await db.project.findFirst({

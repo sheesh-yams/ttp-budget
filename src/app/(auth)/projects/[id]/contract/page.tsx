@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { requireFinancialPageAccess, requireProjectAccess } from '@/lib/project-access'
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { ContractTab } from '@/components/proposals/ContractTab'
@@ -11,6 +12,8 @@ export default async function ProjectContractPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
+  await requireFinancialPageAccess()
+  await requireProjectAccess(id)
   const workspaceId = await getWorkspaceId()
 
   // Fetch project and its proposals — prefer non-draft, fall back to draft

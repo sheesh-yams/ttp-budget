@@ -1,4 +1,5 @@
 import { FileText } from 'lucide-react'
+import { requireFinancialPageAccess } from '@/lib/project-access'
 import Link from 'next/link'
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
@@ -8,6 +9,7 @@ import { ProposalsTable } from '@/components/proposals/ProposalsTable'
 export const metadata = { title: 'Proposals' }
 
 export default async function ProposalsPage() {
+  await requireFinancialPageAccess()
   const workspaceId = await getWorkspaceId()
 
   const [projects, allProposals] = await Promise.all([

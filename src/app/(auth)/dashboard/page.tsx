@@ -3,20 +3,27 @@ import { RecentProjects } from '@/components/dashboard/RecentProjects'
 import { InvoiceTracker } from '@/components/dashboard/InvoiceTracker'
 import { ProposalQueue } from '@/components/dashboard/ProposalQueue'
 import { db } from '@/lib/db'
-import { getWorkspaceId } from '@/lib/auth'
+import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
 import { calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 
 export const metadata = { title: 'Dashboard' }
 
 export default async function DashboardPage() {
-  const workspaceId = await getWorkspaceId()
+  const [workspaceId, user] = await Promise.all([getWorkspaceId(), getCurrentUser()])
+  // Collaborators get their assigned projects only, and no money at all —
+  // the financial queries below aren't even run for them, so nothing reaches
+  // the payload (not merely hidden in the UI).
+  const isCollaborator = user.role === 'COLLABORATOR'
 
   // ── Parallel fetches ─────────────────────────────────────────────────────────
   // invoicesAll  → lightweight, no relations, used for metric calculations
   // invoicesWidget → includes relations, limited to 5, used for the tracker widget
   const [projectsRaw, invoicesAll, invoicesWidget, proposals, primaryPhases] = await Promise.all([
     db.project.findMany({
-      where:   { workspaceId, archivedAt: null },
+      where:   {
+        workspaceId, archivedAt: null,
+        ...(isCollaborator ? { assignments: { some: { userId: user.id } } } : {}),
+      },
       include: {
         client:     true,
         // Grab the single most-recently-updated record from each related table
@@ -27,7 +34,7 @@ export default async function DashboardPage() {
         actualSheets:{ select: { updatedAt: true }, orderBy: { updatedAt: 'desc' }, take: 1 },
       },
     }),
-    db.invoice.findMany({
+    isCollaborator ? Promise.resolve([]) : db.invoice.findMany({
       where:   { workspaceId },
       select:  {
         status:          true,
@@ -38,13 +45,13 @@ export default async function DashboardPage() {
         updatedAt:       true,
       },
     }),
-    db.invoice.findMany({
+    isCollaborator ? Promise.resolve([]) : db.invoice.findMany({
       where:   { workspaceId },
       include: { client: true, project: true },
       orderBy: { dueDate: 'asc' },
       take:    5,
     }),
-    db.proposal.findMany({
+    isCollaborator ? Promise.resolve([]) : db.proposal.findMany({
       where:   { workspaceId, status: { in: ['SENT', 'VIEWED', 'APPROVED'] } },
       include: { project: { include: { client: true } } },
       orderBy: { updatedAt: 'desc' },
@@ -54,7 +61,7 @@ export default async function DashboardPage() {
     // ── Primary phase gross totals (net + markup + tax) for the "Value" column ──
     // Same calc as the Projects grid cards (src/app/(auth)/projects/page.tsx),
     // so the numbers agree across the app.
-    db.phase.findMany({
+    isCollaborator ? Promise.resolve([]) : db.phase.findMany({
       where: { isPrimary: true, workspaceId },
       select: {
         budget: {
@@ -118,6 +125,14 @@ export default async function DashboardPage() {
     })
     .sort((a, b) => b.lastActivity.getTime() - a.lastActivity.getTime())
     .slice(0, 10)
+
+  if (isCollaborator) {
+    return (
+      <div className="space-y-6">
+        <RecentProjects projects={projects} showValue={false} />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">

@@ -145,6 +145,8 @@ export async function markInvoicePaid(
 
 export async function getInvoiceSendData(invoiceId: string) {
   try {
+    // Money data — Owner/Producer only (server actions are callable directly).
+    if (!(await requireRole(['OWNER', 'PRODUCER'])).ok) return null
     const [scopedDb, workspaceId] = await Promise.all([getScopedDb(), getWorkspaceId()])
 
     const invoice = await scopedDb.invoice.findFirst({

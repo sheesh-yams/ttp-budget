@@ -23,11 +23,18 @@ interface Props {
   projectId: string
   projectName: string
   clientName: string
-  /** Deal memos expose vendor rates vs client rates — hidden from Collaborators. */
-  canSeeDealMemos?: boolean
+  /** Money tabs (contract, actuals, receipts, invoices, deal memos) — hidden
+   *  from Collaborators; the pages themselves 404 for them too. */
+  canSeeMoney?: boolean
 }
 
-export function ProjectSubNav({ projectId, projectName, clientName, canSeeDealMemos = false }: Props) {
+// Owner/Producer-only tabs: project money, plus the client delivery pages
+// (those pages refuse other roles too).
+const MONEY_TABS = new Set(['contract', 'actuals', 'receipts', 'invoices'])
+const isOwnerProducerTab = (href: string) =>
+  MONEY_TABS.has(href.split('/').pop() ?? '') || href.includes('/delivery/')
+
+export function ProjectSubNav({ projectId, projectName, clientName, canSeeMoney = false }: Props) {
   const pathname = usePathname()
 
   const sections: NavSection[] = [
@@ -75,7 +82,7 @@ export function ProjectSubNav({ projectId, projectName, clientName, canSeeDealMe
           href: `/projects/${projectId}/crew`,
           icon: Users,
         },
-        ...(canSeeDealMemos
+        ...(canSeeMoney
           ? [{ label: 'Deal Memos', href: `/projects/${projectId}/deal-memos`, icon: Handshake }]
           : []),
         {
@@ -106,6 +113,13 @@ export function ProjectSubNav({ projectId, projectName, clientName, canSeeDealMe
       ],
     },
   ]
+
+  const visibleSections = sections
+    .map(sec => ({
+      ...sec,
+      items: sec.items.filter(item => canSeeMoney || !isOwnerProducerTab(item.href)),
+    }))
+    .filter(sec => sec.items.length > 0)
 
   function isActive(item: NavItem): boolean {
     if (item.exact) {
@@ -139,7 +153,7 @@ export function ProjectSubNav({ projectId, projectName, clientName, canSeeDealMe
 
       {/* Navigation */}
       <nav className="flex-1 px-2 py-3 space-y-4 overflow-y-auto">
-        {sections.map((section) => (
+        {visibleSections.map((section) => (
           <div key={section.title}>
             <p className="px-2 mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
               {section.title}

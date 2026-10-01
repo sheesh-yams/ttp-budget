@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { requireProjectAccess } from '@/lib/project-access'
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { CallSheetEditor } from '@/components/call-sheets/CallSheetEditor'
@@ -14,8 +15,10 @@ export async function generateMetadata({
 }: {
   params: Promise<{ id: string; csId: string }>
 }) {
-  const { csId } = await params
-  const cs = await db.callSheet.findUnique({ where: { id: csId }, select: { title: true } })
+  const { id: projectId, csId } = await params
+  // Scoped to this workspace and project — never resolve a title by id alone.
+  const workspaceId = await getWorkspaceId()
+  const cs = await db.callSheet.findFirst({ where: { id: csId, projectId, workspaceId }, select: { title: true } })
   return { title: cs ? `${cs.title} | Call Sheet` : 'Call Sheet' }
 }
 
@@ -25,11 +28,14 @@ export default async function CallSheetPage({
   params: Promise<{ id: string; csId: string }>
 }) {
   const { id: projectId, csId } = await params
+  await requireProjectAccess(projectId)
   const workspaceId = await getWorkspaceId()
 
   const [cs, project, budget, rolodexContacts, workspace] = await Promise.all([
+    // Must belong to THIS project — the access check above is for projectId,
+    // so a call sheet from another project must not render under it.
     db.callSheet.findFirst({
-      where: { id: csId, workspaceId },
+      where: { id: csId, projectId, workspaceId },
     }),
     db.project.findFirst({
       where: { id: projectId, workspaceId },

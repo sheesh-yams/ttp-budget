@@ -1,10 +1,12 @@
 import { db } from '@/lib/db'
+import { requireFinancialPageAccess } from '@/lib/project-access'
 import { getWorkspaceId } from '@/lib/auth'
 import { LibraryPageClient } from '@/components/library/LibraryPageClient'
 
 export const metadata = { title: 'Global Library' }
 
 export default async function LibraryPage() {
+  await requireFinancialPageAccess()
   const workspaceId = await getWorkspaceId()
 
   const [globalRates, globalTemplates, workspaceRates, workspaceTemplates] = await Promise.all([

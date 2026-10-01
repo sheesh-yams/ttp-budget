@@ -47,6 +47,7 @@ export default async function AuthLayout({
         <Sidebar
           workspaceName={workspace.name}
           logoUrl={workspace.logoUrl ?? null}
+          role={user.role}
         />
         <div className="flex flex-1 flex-col overflow-hidden">
           <TopBar />

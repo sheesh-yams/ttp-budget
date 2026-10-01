@@ -9,6 +9,7 @@
  */
 
 import { revalidatePath } from 'next/cache'
+import { checkProjectAccess } from '@/lib/project-access'
 import { z } from 'zod'
 import { getScopedDb } from '@/lib/db-scoped'
 import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
@@ -40,6 +41,8 @@ export async function getProjectActivity(
   projectId: string,
 ): Promise<ActionResult<ActivityComment[]>> {
   try {
+    // Callable directly — only for a project this user may open (Collaborators: assigned only).
+    if (!(await checkProjectAccess(projectId))) return { success: false, error: 'Project not found' }
     const sdb = await getScopedDb()
 
     // Scoped findFirst → null if the project isn't in the active workspace.

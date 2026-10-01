@@ -24,6 +24,8 @@ interface Props {
   project:      ProjectForCard
   view?:        'grid' | 'list'
   canEditTeam?: boolean
+  /** False for roles without financial access — their payload has no money. */
+  showMoney?:   boolean
 }
 
 // ── Client avatar (initials in a deterministic colored circle) ─────────────────
@@ -63,7 +65,7 @@ function ClientAvatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md' 
   )
 }
 
-export function ProjectCard({ project, view = 'grid', canEditTeam = false }: Props) {
+export function ProjectCard({ project, view = 'grid', canEditTeam = false, showMoney = true }: Props) {
   const router    = useRouter()
   const { confirm, ConfirmDialog } = useConfirm()
   const [menuOpen,    setMenuOpen]    = useState(false)
@@ -181,7 +183,7 @@ export function ProjectCard({ project, view = 'grid', canEditTeam = false }: Pro
         )}
 
         {/* Financial pill */}
-        <div className="flex-shrink-0 text-right hidden lg:block w-28">
+        {showMoney && <div className="flex-shrink-0 text-right hidden lg:block w-28">
           {isActive ? (
             <div className="text-xs leading-snug">
               <div>
@@ -205,7 +207,7 @@ export function ProjectCard({ project, view = 'grid', canEditTeam = false }: Pro
           ) : (
             <span className="text-xs text-gray-400">—</span>
           )}
-        </div>
+        </div>}
 
         {/* 3-dot menu */}
         <button
@@ -304,7 +306,7 @@ export function ProjectCard({ project, view = 'grid', canEditTeam = false }: Pro
         )}
 
         {/* Burn bar — only for ACTIVE projects with actuals */}
-        {isActive && project.actualSpentCents > 0 && project.budgetTotalCents > 0 && (
+        {showMoney && isActive && project.actualSpentCents > 0 && project.budgetTotalCents > 0 && (
           <BurnBar spentCents={project.actualSpentCents} budgetCents={project.budgetTotalCents} />
         )}
 
@@ -319,7 +321,7 @@ export function ProjectCard({ project, view = 'grid', canEditTeam = false }: Pro
       {/* Bottom stats bar */}
       <div className="border-t border-gray-50 px-4 py-2.5 flex items-center justify-between bg-gray-50/50">
         {/* Financial */}
-        <div className="text-xs flex flex-col gap-0.5">
+        {showMoney ? <div className="text-xs flex flex-col gap-0.5">
           {isActive ? (
             <>
               <div>
@@ -362,7 +364,7 @@ export function ProjectCard({ project, view = 'grid', canEditTeam = false }: Pro
           ) : (
             <span className="text-gray-300">No proposal</span>
           )}
-        </div>
+        </div> : <div />}
 
         {/* Doc icon counts */}
         <div className="flex items-center gap-2">

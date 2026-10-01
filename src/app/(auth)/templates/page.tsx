@@ -1,4 +1,5 @@
 import { db } from '@/lib/db'
+import { requireFinancialPageAccess } from '@/lib/project-access'
 import { getWorkspaceId } from '@/lib/auth'
 import { TemplatesPageClient } from '@/components/templates/TemplatesPageClient'
 import type { ProposalBranding } from '@/components/proposals/ProposalTemplatePreview'
@@ -6,6 +7,7 @@ import type { ProposalBranding } from '@/components/proposals/ProposalTemplatePr
 export const metadata = { title: 'Document Hub' }
 
 export default async function TemplatesPage() {
+  await requireFinancialPageAccess()
   const workspaceId = await getWorkspaceId()
 
   const [templates, workspace] = await Promise.all([

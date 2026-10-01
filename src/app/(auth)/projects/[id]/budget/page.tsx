@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { requireProjectAccess } from '@/lib/project-access'
 import { db } from '@/lib/db'
 import { getWorkspaceId, getCurrentUser } from '@/lib/auth'
 import { canSeeFinancials, stripBudgetForRole } from '@/lib/budget-visibility'
@@ -38,6 +39,7 @@ export default async function BudgetPage({
   searchParams: Promise<{ budgetId?: string }>
 }) {
   const { id: projectId } = await params
+  await requireProjectAccess(projectId)
   const { budgetId: qBudgetId } = await searchParams
 
   const [workspaceId, currentUser] = await Promise.all([getWorkspaceId(), getCurrentUser()])

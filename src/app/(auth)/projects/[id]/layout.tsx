@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { requireProjectAccess } from '@/lib/project-access'
 import { db } from '@/lib/db'
 import { getCurrentRole, getWorkspaceId } from '@/lib/auth'
 import { ProjectSubNav } from '@/components/projects/ProjectSubNav'
@@ -11,6 +12,9 @@ export default async function ProjectLayout({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
+  // Every page under here also calls requireProjectAccess itself — layouts
+  // don't re-run on sibling navigation, so this is belt-and-braces only.
+  await requireProjectAccess(id)
   const [workspaceId, role] = await Promise.all([getWorkspaceId(), getCurrentRole()])
 
   // Lightweight fetch — just what the sidebar needs
@@ -38,7 +42,7 @@ export default async function ProjectLayout({
           projectId={project.id}
           projectName={project.name}
           clientName={project.client.name}
-          canSeeDealMemos={role !== 'COLLABORATOR'}
+          canSeeMoney={role !== 'COLLABORATOR'}
         />
       </aside>
 

@@ -48,12 +48,14 @@ export type InitiatePaymentResult =
 // ── getPaymentConfig ───────────────────────────────────────────────────────
 
 export async function getPaymentConfig() {
+  // Callable directly — Owner/Producer only, and only the fields callers use.
+  if (!(await requireRole(['OWNER', 'PRODUCER'])).ok) return null
   const sdb = await getScopedDb()
   const config = await (sdb as unknown as {
     workspacePaymentConfig: {
       findFirst: (args: object) => Promise<{ id: string; provider: string } | null>
     }
-  }).workspacePaymentConfig.findFirst({})
+  }).workspacePaymentConfig.findFirst({ select: { id: true, provider: true } })
   return config
 }
 

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { requireRole } from '@/lib/auth'
+import { checkProjectAccess } from '@/lib/project-access'
 import { getScopedDb } from '@/lib/db-scoped'
 import { toJsonSafe } from '@/lib/json-safe'
 import { z } from 'zod'
@@ -28,12 +29,14 @@ export type MemberFormData = z.infer<typeof memberSchema>
 // ── Read ───────────────────────────────────────────────────────────────────────
 
 export async function getProjectMembers(projectId: string) {
+  // Callable directly by any signed-in user, so it enforces the same rule as
+  // the pages: the project must be one this user may open (Collaborators:
+  // assigned only).
+  const access = await checkProjectAccess(projectId)
+  if (!access) return []
   const sdb = await getScopedDb()
-  // Scoped read — verifies project belongs to this workspace.
-  const project = await sdb.project.findFirst({ where: { id: projectId }, select: { id: true } })
-  if (!project) return []
 
-  return sdb.projectMember.findMany({
+  const members = await sdb.projectMember.findMany({
     where: { projectId },
     orderBy: [{ department: 'asc' }, { order: 'asc' }, { name: 'asc' }],
     select: {
@@ -51,6 +54,10 @@ export async function getProjectMembers(projectId: string) {
       order:        true,
     },
   })
+  // Crew rates are vendor pay (awarded deal memos write the day rate here) —
+  // stripped for roles without financial access, like the deal memos themselves.
+  if (access.role === 'COLLABORATOR') return members.map(m => ({ ...m, rateCents: null }))
+  return members
 }
 
 export type ProjectMemberRow = Awaited<ReturnType<typeof getProjectMembers>>[number]

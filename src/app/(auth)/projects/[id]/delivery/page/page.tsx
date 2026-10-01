@@ -1,4 +1,5 @@
 import { notFound }                    from 'next/navigation'
+import { requireProjectAccess } from '@/lib/project-access'
 import { db }                          from '@/lib/db'
 import { getWorkspaceId, requireRole } from '@/lib/auth'
 import { ClientPagePreview }           from '@/components/delivery/ClientPagePreview'
@@ -16,6 +17,7 @@ export async function generateMetadata({ params }: Props) {
 
 export default async function DeliveryClientPage({ params }: Props) {
   const { id } = await params
+  await requireProjectAccess(id)
 
   const gate = await requireRole(['OWNER', 'PRODUCER'])
   if (!gate.ok) return <p className="text-sm text-muted-foreground">Access denied.</p>

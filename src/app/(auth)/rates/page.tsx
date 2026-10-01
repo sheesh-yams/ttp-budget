@@ -1,4 +1,5 @@
 import { db } from '@/lib/db'
+import { requireFinancialPageAccess } from '@/lib/project-access'
 import { getWorkspaceId } from '@/lib/auth'
 import { RateCardTable } from '@/components/budget/RateCardTable'
 import { AddRateButton } from '@/components/budget/AddRateButton'
@@ -6,6 +7,7 @@ import { AddRateButton } from '@/components/budget/AddRateButton'
 export const metadata = { title: 'Rate cards' }
 
 export default async function RatesPage() {
+  await requireFinancialPageAccess()
   const workspaceId = await getWorkspaceId()
 
   const rateCards = await db.rateCard.findMany({

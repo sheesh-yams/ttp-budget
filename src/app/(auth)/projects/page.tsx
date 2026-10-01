@@ -260,20 +260,27 @@ export default async function ProjectsPage({
     return sum + (budgetTotalByProject.get(p.projectId) ?? 0)
   }, 0)
 
-  // Attach burn data to both non-archived and archived projects
-  const projectsWithBurn = allProjects.map(p => ({
-    ...p,
-    actualSpentCents: actualSpentByProject.get(p.id) ?? 0,
-    budgetTotalCents: budgetTotalByProject.get(p.id) ?? 0,
-    teamMembers: p.teamMembers ?? [],
-  }))
-
-  const archivedWithBurn = archivedProjects.map(p => ({
-    ...p,
-    actualSpentCents: actualSpentByProject.get(p.id) ?? 0,
-    budgetTotalCents: budgetTotalByProject.get(p.id) ?? 0,
-    teamMembers: p.teamMembers ?? [],
-  }))
+  // Attach burn data to both non-archived and archived projects. For roles
+  // without financial access every money field is zeroed server-side: the
+  // gross budget total in particular, compared with the net budget they can
+  // see, would give away the markup.
+  const withCardMoney = (p: (typeof allProjects)[number]) => canSeeFin
+    ? {
+        ...p,
+        actualSpentCents: actualSpentByProject.get(p.id) ?? 0,
+        budgetTotalCents: budgetTotalByProject.get(p.id) ?? 0,
+        teamMembers: p.teamMembers ?? [],
+      }
+    : {
+        ...p,
+        proposals: p.proposals.map(pr => ({ ...pr, approvedTotalCents: null })),
+        invoices:  p.invoices.map(inv => ({ ...inv, totalCents: 0, amountPaidCents: 0 })),
+        actualSpentCents: 0,
+        budgetTotalCents: 0,
+        teamMembers: p.teamMembers ?? [],
+      }
+  const projectsWithBurn = allProjects.map(withCardMoney)
+  const archivedWithBurn = archivedProjects.map(withCardMoney)
 
   // All projects for the client (non-archived first, then archived at the end)
   const allProjectsForClient = [...projectsWithBurn, ...archivedWithBurn]
