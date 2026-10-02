@@ -87,6 +87,8 @@ interface SnapshotAccount {
 interface BudgetSnapshot {
   accounts: SnapshotAccount[]
   totalCents: number
+  budgetMarkupPct?: number
+  budgetTaxPct?: number
 }
 
 interface ProposalForInvoice {
@@ -175,9 +177,18 @@ export function NewInvoiceModal({
     { type: 'full', amountCents: totalCents, preDiscountAmountCents: preDiscountTotalCents },
   ]
 
+  // A full invoice itemised from the budget snapshot lists the budget's lines
+  // at their pre-discount rates, so it carries the discount as its own row.
+  // Everything else (a % milestone, or a full invoice without a snapshot) is a
+  // single line at the already-discounted amount — the discount is in the price.
+  function isItemized(opt: InvoiceOption | undefined): boolean {
+    return !!opt && opt.type === 'full' && !!snapshot?.accounts?.some(a =>
+      a.lineItems.length > 0 || a.children.some(c => c.lineItems.length > 0))
+  }
+
   // Build line items for a given option
   function buildLineItemsForOption(opt: InvoiceOption): InvoiceLineItem[] {
-    if (opt.type === 'full' && snapshot?.accounts) {
+    if (isItemized(opt) && snapshot?.accounts) {
       const items: InvoiceLineItem[] = []
       for (const acc of snapshot.accounts) {
         for (const item of acc.lineItems) {
@@ -203,12 +214,35 @@ export function NewInvoiceModal({
           }
         }
       }
-      if (items.length > 0) return items
+      if (items.length > 0) {
+        // The budget's lines don't include the budget-level agency fee (or
+        // tax) — add them as one line so the invoice adds up to the approved
+        // total. Without it a "Full invoice" came to the lines less the
+        // discount (Daadi: $58,656 instead of $71,136).
+        const linesCents = items.reduce((sum, li) => sum + li.lineTotalCents, 0)
+        const gapCents   = opt.preDiscountAmountCents - linesCents
+        if (gapCents > 0) {
+          const pct    = Number(snapshot.budgetMarkupPct) || 0
+          const hasTax = (Number(snapshot.budgetTaxPct) || 0) > 0
+          const label  = hasTax
+            ? 'Agency fee & tax'
+            : pct > 0 ? `Agency fee (${Math.round(pct * 100)}%)` : 'Agency fee'
+          items.push({
+            id: crypto.randomUUID(),
+            description: label,
+            quantity: 1,
+            unit: 'FLAT' as InvoiceLineItem['unit'],
+            rateCents: gapCents,
+            lineTotalCents: gapCents,
+          })
+        }
+        return items
+      }
     }
-    // Milestone or fallback → single line item, pre-discount dollar value
-    // (the modal's own Discount row nets it back out — see subtotalCents/discountCents below)
+    // Milestone or fallback → single line item at the net amount: e.g. 50% of
+    // the approved (post-discount) total. No discount row — it's already in.
     const label = opt.type === 'milestone' ? opt.milestone.name : projectName
-    const amountCents = opt.preDiscountAmountCents
+    const amountCents = opt.amountCents
     return [{
       id: crypto.randomUUID(),
       description: label,
@@ -288,14 +322,16 @@ export function NewInvoiceModal({
   // ── Derived totals (always from rows) ────────────────────────────────────────
 
   const rawSubtotal = rows.reduce((s, r) => s + rowToCents(r), 0)
-  // Discount for the selected option — prorated for a milestone slice, or the
-  // full budget discount for "Full invoice" — unless the amounts entered are
-  // already the discounted figure (then it's in the price; applying it again
-  // was the double discount). The user can always set or remove it.
-  const auto = selected
+  // Discount: only an itemised full invoice carries one (its lines are the
+  // budget's pre-discount rates), and not if the amounts entered already equal
+  // the discounted figure. A % milestone is prefilled at the net amount, so it
+  // starts at 0 — the discount is already in the price. The user can always
+  // set or remove it.
+  const itemized = isItemized(selected)
+  const auto = selected && itemized
     ? autoInvoiceDiscount({ subtotalCents: rawSubtotal, preDiscountAmountCents: selected.preDiscountAmountCents, netAmountCents: selected.amountCents })
     : { discountCents: 0, alreadyIncluded: false }
-  const fullDiscountCents = selected ? Math.max(0, selected.preDiscountAmountCents - selected.amountCents) : 0
+  const fullDiscountCents = selected && itemized ? Math.max(0, selected.preDiscountAmountCents - selected.amountCents) : 0
   const { subtotalCents, discountCents, taxCents, totalCents: totalWithTax } = calcInvoiceTotals({
     lineTotalsCents: rows.map(rowToCents),
     discountCents:   discountOverride ?? auto.discountCents,

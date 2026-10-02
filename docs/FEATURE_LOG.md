@@ -103,6 +103,20 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-02 — % milestone invoices prefill at the net amount; full invoices include the agency fee
+- **Reported:** a 50% milestone still defaulted to a discount row ($37,440 −
+  $1,872), even though the approved total ($71,136) already includes the
+  discount. A % milestone (and any single-line invoice) is now prefilled at the
+  net amount — 50% of $71,136 = $35,568 — with no discount row. Only a full
+  invoice itemised from the budget carries the discount: its lines are the
+  budget's pre-discount rates.
+- **Found while checking:** an itemised "Full invoice" listed the budget's
+  lines but not the budget-level agency fee. Daadi would have invoiced $58,656
+  instead of $71,136. It now adds an "Agency fee (20%)" line ("Agency fee &
+  tax" when the budget has tax) for the gap, so it totals the approved amount.
+  Confirmed against the Daadi snapshot (lines $62,400 + fee $12,480 − discount
+  $3,744).
+
 ### 2026-10-01 — Invoice date (backdating) + double-discount fix
 - **Invoice date:** both the new and edit invoice modals have an "Invoice
   date" (Invoice.issueDate already existed, always "now"). The due date keeps
