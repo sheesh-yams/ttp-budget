@@ -36,11 +36,22 @@ Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
   authenticated and public delivery pages. **`recordDeliverableView`** is a
   'use server' export that takes a workspaceId argument; move it to `src/lib`
   (same pattern as the invoice/proposal view recorders).
-- **Roles Phase 2 is converting area by area.** Done: budget + overview,
-  crew + deal memos, schedule + call sheets + delivery. Still on the legacy role:
-  proposals, invoices, actuals, contract, settings/team, and the workspace
-  pages. Until an area is converted, a project role can't grant more than the
-  legacy role there (tabs and blocks require both).
+- **Roles Phase 2 is converting area by area.**
+  - Done: budget and overview; crew and deal memos; schedule, call sheets
+    and delivery; money (proposals, invoices, actuals, contract, and the
+    /proposals and /invoices lists).
+  - Still on the legacy role: settings/team and the workspace pages
+    (clients, rolodex, rates/templates/library). Until an area is converted,
+    a project role can't grant more than the legacy role there.
+- **Actuals sync runs for view-only users too.** `syncActualSheetEntries`
+  runs on every Actuals page load. It adds $0 entries for new budget lines
+  (now validated against the sheet's phase) and refreshes deal-memo
+  prefills, so a View user's page load writes. The writes are idempotent and
+  only use server data, but moving the sync into `src/lib` and running it on
+  edit would be cleaner.
+- **`listLibraryBlocksForPicker` is ungated** (contract block titles in the
+  workspace). This is low risk; gate it with roles 2b's library/settings
+  areas.
 - **Start from a template needs browse-all.** The budget empty state's picker
   mixes templates and other projects' budgets, so someone with costs EDIT but
   not Producer-level browse can only create a blank budget.
@@ -103,8 +114,7 @@ Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
 - **Roles — finish Phase 2 (parked 2026-10-05, user's call):** convert the
   remaining areas, which still say "Not enforced yet" and follow the closest
   built-in role:
-  1. Money: proposals, invoices + payments, actuals + receipts, contract
-     (~42 legacy checks).
+  1. ~~Money~~ (shipped 2026-10-05, roles 2a).
   2. Workspace pages: clients, rolodex, rates/templates/library, contract
      blocks, settings, Stripe, public links, project create/archive (~45).
   3. Team & settings access (Owner-only today) and deal-memo defaults.
@@ -125,6 +135,68 @@ Run each through `/feature`. Check the overlap first:
 ---
 
 ## Shipped
+
+### 2026-10-05 — Roles Phase 2a: money areas enforce permissions
+- **Goal (user):** someone can **view the budget without editing it** and
+  still **work on deal memos and actuals**. Budget lines, costs and margin
+  and deal memos were already enforced. Proposals, invoices and payments,
+  actuals and receipts, and contract now are too, plus the /proposals and
+  /invoices lists.
+- **The rule (user decision):** Actuals needs Budget costs at View or above.
+  - `PROJECT_VIEW_REQUIREMENTS` in `permissions.ts` sets actuals to NONE
+    when budget.costs is NONE; otherwise it keeps its level, so View budget
+    plus Edit actuals works.
+  - It's applied to the person's combined access
+    (`resolveProjectPermissions`), so a project role can rely on the
+    workspace role for budget visibility.
+  - The Roles screen shows an amber warning on the Actuals row.
+- **Proposals, Invoices and Contract are independent areas** (user
+  decision); they show client prices.
+- **Guardrail:** on Actuals, billed, profit and margin %, the revenue
+  override and the wrap report (page, action and PDF route) need Budget
+  margin View.
+  - Without it, budget lines reach the client net of markup.
+  - The summary shows Budgeted (line costs) and Spent only.
+- **Gates:** the new `src/lib/money-access.ts`:
+  - `requireMoneyPermission` resolves a proposal, invoice, budget, actual
+    sheet or entry, receipt or contract-section id to its project in the
+    active workspace; other workspaces get "not found".
+  - About 55 legacy checks were converted across proposals, invoices,
+    payments, public-tokens, actuals, receipts and proposal-contracts.
+  - Proposal creates check that the budget belongs to the projectId.
+  - The /invoices and /proposals lists filter rows to projects with the
+    area, using `projectsWithArea`. Row actions follow Edit for each
+    project.
+- **Controls:** view-only Actuals (via context), Receipts, all three invoice
+  lists, proposals (overview list, kanban, table), and the contract tab (no
+  auto-attach). The proposal modal's Contract tab follows the Contract
+  permission. The sidebar's Proposals and Invoices links follow the
+  workspace permission.
+- **Security fixes found on the way:**
+  - `linkReceiptToEntry` rewrote any entry's `actualCents` by id (cross
+    workspace). The entry must now be on the same project.
+  - `updateReceiptDetails` and `updateActualSheet` wrote client objects
+    straight to the database (they could re-point the entry, project or
+    budget). Both are now whitelisted.
+  - Actuals sync trusted the client's line list. It's now validated against
+    the sheet's phase.
+  - Two contract reads (`listContractSections`,
+    `evaluateProposalContractTriggers`) were ungated.
+- **Access diff:** 12 memberships × every project × 4 areas, plus the 2
+  workspace lists, run with the real resolver: **0 changes**.
+- **Verified:**
+  - jest 233, including the view-requirement rules and the updated page
+    guard coverage test.
+  - A DB script checked every money target type (its own project; another
+    workspace refused; empty or undefined ids refused) and the sync filter.
+- **pitfall-reviewer:** 5 findings, all fixed:
+  - markup on the actuals payload
+  - a stripped total feeding the invoice and proposal modals (they now get
+    the client total)
+  - the receipt patch
+  - the sheet data
+  - the sync trust
+  - Also a low one: Send-button precedence.
 
 ### 2026-10-05 — Deal memo terms: checkbox picker, reorder, blue "review" blocks
 - **Choose terms** replaces "Add from library…".

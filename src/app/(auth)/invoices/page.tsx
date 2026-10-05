@@ -1,5 +1,6 @@
 import Link from 'next/link'
-import { requireProducerPageAccess } from '@/lib/project-access'
+import { requireWorkspaceArea } from '@/lib/project-access'
+import { projectsWithArea } from '@/lib/money-access'
 import { Receipt } from 'lucide-react'
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
@@ -11,11 +12,13 @@ export const metadata = { title: 'Invoices' }
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function InvoicesPage() {
-  await requireProducerPageAccess()
-  const workspaceId = await getWorkspaceId()
+  // Roles Phase 2a: the workspace Invoices list, limited to projects where the
+  // person has Invoices access (metrics below are over these rows only).
+  await requireWorkspaceArea('invoices')
+  const [workspaceId, visible, editable] = await Promise.all([getWorkspaceId(), projectsWithArea('invoices'), projectsWithArea('invoices', 'EDIT')])
 
   const invoices = await db.invoice.findMany({
-    where: { workspaceId },
+    where: { workspaceId, ...(visible ? { projectId: { in: visible } } : {}) },
     orderBy: { createdAt: 'desc' },
     select: {
       id: true,
@@ -114,7 +117,7 @@ export default async function InvoicesPage() {
           paidAt:    inv.paidAt?.toISOString() ?? null,
           taxPct:    Number(inv.taxPct ?? 0),
           notes:     inv.notes ?? null,
-        }))} />
+        }))} editableProjectIds={editable} />
       )}
     </div>
   )

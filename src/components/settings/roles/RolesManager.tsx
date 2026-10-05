@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils'
 import {
   PROJECT_AREAS, WORKSPACE_AREAS, LEVELS, MAX_ROLES, ROLE_NAME_MAX,
   ENFORCED_PROJECT_AREAS, ENFORCED_WORKSPACE_AREAS,
-  applyProjectDependencies, legacyRoleFor,
+  applyProjectDependencies, legacyRoleFor, unmetViewRequirements, PROJECT_AREAS as ALL_PROJECT_AREAS,
   type Level, type ProjectArea, type ProjectPermissions, type ProjectScopeValue,
   type WorkspaceArea, type WorkspacePermissions,
 } from '@/lib/permissions'
@@ -62,6 +62,10 @@ function AreaMatrix<K extends string>({
   disabled?: boolean
 }) {
   const groups = [...new Set(areas.map(a => a.group))]
+  // Project matrices only: areas switched off because what they need isn't visible.
+  const isProject = areas.some(a => a.key === ('actuals' as K))
+  const unmet = isProject ? unmetViewRequirements(values as unknown as Parameters<typeof unmetViewRequirements>[0]) : []
+  const labelOf = (key: string) => ALL_PROJECT_AREAS.find(a => a.key === key)?.label ?? key
   return (
     <div className="divide-y divide-border rounded-lg border border-border">
       {groups.map(group => (
@@ -85,7 +89,15 @@ function AreaMatrix<K extends string>({
               </div>
               <LevelPicker value={values[a.key]} onChange={l => onChange(a.key, l)} disabled={disabled} />
             </div>
-          ))}
+          )).flatMap((row, i) => {
+            const area = areas.filter(x => x.group === group)[i]
+            const need = unmet.find(u => u.area === (area.key as string))
+            return need ? [row, (
+              <p key={`${area.key}-needs`} className="-mt-1 mb-1 rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+                {area.label} needs {labelOf(need.requires)} at View or above. Without it (from this or another role), {area.label} stays off.
+              </p>
+            )] : [row]
+          })}
           {group === 'Budget' && (
             <p className="pb-1 text-[11px] text-muted-foreground">Costs can’t be more open than lines, and margin can’t be more open than costs — adjusted automatically.</p>
           )}

@@ -1,5 +1,6 @@
 import { FileText } from 'lucide-react'
-import { requireProducerPageAccess } from '@/lib/project-access'
+import { requireWorkspaceArea } from '@/lib/project-access'
+import { projectsWithArea } from '@/lib/money-access'
 import Link from 'next/link'
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
@@ -9,8 +10,12 @@ import { ProposalsTable } from '@/components/proposals/ProposalsTable'
 export const metadata = { title: 'Proposals' }
 
 export default async function ProposalsPage() {
-  await requireProducerPageAccess()
-  const workspaceId = await getWorkspaceId()
+  // Roles Phase 2a: the workspace Proposals list, limited to projects where
+  // the person has Proposals access.
+  await requireWorkspaceArea('proposals')
+  const [workspaceId, visible, editable] = await Promise.all([getWorkspaceId(), projectsWithArea('proposals'), projectsWithArea('proposals', 'EDIT')])
+  const projectFilter  = visible ? { id: { in: visible } } : {}
+  const proposalFilter = visible ? { projectId: { in: visible } } : {}
 
   const [projects, allProposals] = await Promise.all([
     // For Kanban — projects with proposals, latest version first
@@ -19,6 +24,7 @@ export default async function ProposalsPage() {
         workspaceId,
         archivedAt: null,
         proposals: { some: {} },
+        ...projectFilter,
       },
       include: {
         client: { select: { name: true } },
@@ -51,7 +57,7 @@ export default async function ProposalsPage() {
 
     // For table — all proposals flat, newest first
     db.proposal.findMany({
-      where: { workspaceId },
+      where: { workspaceId, ...proposalFilter },
       orderBy: { createdAt: 'desc' },
       select: {
         id:            true,
@@ -135,7 +141,7 @@ export default async function ProposalsPage() {
           </Link>
         </div>
       ) : (
-        <ProposalsKanban cards={cards} />
+        <ProposalsKanban cards={cards} editableProjectIds={editable} />
       )}
 
       {/* ── All proposals list ── */}
@@ -144,7 +150,7 @@ export default async function ProposalsPage() {
           <h2 className="text-[13px] font-semibold uppercase tracking-wide text-muted-foreground mb-3">
             All Proposals
           </h2>
-          <ProposalsTable proposals={allProposals} />
+          <ProposalsTable proposals={allProposals} editableProjectIds={editable} />
         </div>
       )}
     </div>

@@ -34,6 +34,12 @@ interface Props {
   totalCents: number
   proposalExpiryDays?: number
   invoiceExpiryDays?: number
+  /** Proposals EDIT — otherwise view-only (roles Phase 2a). */
+  allowEdit?: boolean
+  /** Invoices EDIT — "Create invoice" from a proposal. */
+  allowInvoice?: boolean
+  /** Contract permission, for the Contract tab in the proposal editor. */
+  contractAccess?: 'NONE' | 'VIEW' | 'EDIT'
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; fg: string; icon: React.ReactNode }> = {
@@ -73,7 +79,7 @@ function extractFromContent(content: unknown): {
   }
 }
 
-export function ProjectProposals({ proposals, projectId, projectName, clientId, budgetId, totalCents, proposalExpiryDays = 30, invoiceExpiryDays = 30 }: Props) {
+export function ProjectProposals({ proposals, projectId, projectName, clientId, budgetId, totalCents, proposalExpiryDays = 30, invoiceExpiryDays = 30, allowEdit = true, allowInvoice = true, contractAccess = 'EDIT' }: Props) {
   const router = useRouter()
 
   // Proposal modal state
@@ -97,7 +103,7 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
     router.refresh()
   }
 
-  const canCreateProposal = !!budgetId
+  const canCreateProposal = !!budgetId && allowEdit
 
   function openCreate() {
     setEditingProposal(null)
@@ -155,24 +161,28 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
     <div>
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-base font-semibold text-foreground">Proposals</h2>
-        <Button
-          size="sm"
-          onClick={openCreate}
-          disabled={!canCreateProposal}
-          title={!canCreateProposal ? 'Add a budget first' : undefined}
-        >
-          <Plus className="mr-1.5 h-3.5 w-3.5" />
-          New Proposal
-        </Button>
+        {allowEdit && (
+          <Button
+            size="sm"
+            onClick={openCreate}
+            disabled={!canCreateProposal}
+            title={!canCreateProposal ? 'Add a budget first' : undefined}
+          >
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            New Proposal
+          </Button>
+        )}
       </div>
 
       {proposals.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-10 text-center">
           <p className="text-sm font-medium text-foreground">No proposals yet</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {canCreateProposal
-              ? 'Create a proposal to share your budget with the client.'
-              : 'Add a budget before creating a proposal.'}
+            {!allowEdit
+              ? 'None yet.'
+              : canCreateProposal
+                ? 'Create a proposal to share your budget with the client.'
+                : 'Add a budget before creating a proposal.'}
           </p>
           {canCreateProposal && (
             <Button size="sm" className="mt-4" onClick={openCreate}>
@@ -199,10 +209,12 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
                 const effectiveStatus = statusOverrides[p.id] ?? p.status
                 const cfg = STATUS_CONFIG[effectiveStatus] ?? STATUS_CONFIG.DRAFT
                 const isExpiredEff    = !!p.expiresAt && new Date(p.expiresAt) < new Date() && !['APPROVED', 'LOST'].includes(effectiveStatus)
-                const canEdit     = effectiveStatus === 'DRAFT'
-                const canInvoice  = ['SENT', 'VIEWED', 'APPROVED'].includes(effectiveStatus) && !!budgetId
-                const canDelete   = true
+                const canEdit     = effectiveStatus === 'DRAFT' && allowEdit
+                const canInvoice  = ['SENT', 'VIEWED', 'APPROVED'].includes(effectiveStatus) && !!budgetId && allowInvoice
+                const canDelete   = allowEdit
                 const isTerminal  = ['APPROVED', 'LOST', 'DECLINED'].includes(effectiveStatus) || isExpiredEff
+                // View-only: the status shows as a badge, not a dropdown.
+                const statusLocked = isTerminal || !allowEdit
 
                 return (
                   <tr key={p.id} className="border-b last:border-0 hover:bg-muted/30">
@@ -211,7 +223,7 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
                       <span className="ml-2 text-xs text-muted-foreground font-normal">v{p.version}</span>
                     </td>
                     <td className="px-3 py-2.5">
-                      {isTerminal ? (
+                      {statusLocked ? (
                         <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${isExpiredEff ? 'bg-amber-100 text-amber-700' : cfg.color}`}>
                           {cfg.icon}
                           {isExpiredEff ? 'Expired' : effectiveStatus === 'APPROVED' ? 'Won' : cfg.label}
@@ -326,6 +338,7 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
           prefill={modalMode === 'create' ? prefill : undefined}
           onDone={() => router.refresh()}
           proposalExpiryDays={proposalExpiryDays}
+          contractAccess={contractAccess}
         />
       )}
 

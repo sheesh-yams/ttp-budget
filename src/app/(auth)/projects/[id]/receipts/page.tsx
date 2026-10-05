@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { requireProducerPageAccess, requireProjectAccess } from '@/lib/project-access'
+import { requireProjectAccess, requireProjectArea } from '@/lib/project-access'
 import Link from 'next/link'
 import { ChevronLeft } from 'lucide-react'
 import { db } from '@/lib/db'
@@ -20,8 +20,9 @@ export default async function ReceiptsPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  await requireProducerPageAccess()
   await requireProjectAccess(id)
+  // Roles Phase 2a: the actuals permission on this project.
+  const projectAccess = await requireProjectArea(id, 'actuals')
   const workspaceId = await getWorkspaceId()
 
   const project = await db.project.findFirst({
@@ -53,6 +54,7 @@ export default async function ReceiptsPage({
       <ReceiptsPageClient
         projectId={project.id}
         initialReceipts={receipts}
+        canEdit={projectAccess.can('actuals', 'EDIT')}
       />
     </div>
   )

@@ -74,6 +74,8 @@ interface Props {
   budgetDiscountCents?: number
   invoices: InvoiceRow[]
   invoiceExpiryDays?: number
+  /** Invoices EDIT on this project — otherwise view-only (roles Phase 2a). */
+  allowEdit?: boolean
 }
 
 // ── Status config ───────────────────────────────────────────────────────────
@@ -130,6 +132,7 @@ export function ProjectInvoicesPage({
   budgetDiscountCents = 0,
   invoices,
   invoiceExpiryDays = 30,
+  allowEdit = true,
 }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -206,7 +209,7 @@ export function ProjectInvoicesPage({
             </p>
           )}
         </div>
-        {budget && proposal && (
+        {allowEdit && budget && proposal && (
           <Button size="sm" onClick={() => openNewInvoice()}>
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             New Invoice
@@ -282,6 +285,8 @@ export function ProjectInvoicesPage({
                           }
                         </span>
                       </div>
+                    ) : !allowEdit ? (
+                      <span className="text-xs text-muted-foreground">Not invoiced</span>
                     ) : (
                       <button
                         type="button"
@@ -329,7 +334,7 @@ export function ProjectInvoicesPage({
           <div className="rounded-xl border border-dashed p-8 text-center">
             <Receipt className="h-7 w-7 text-muted-foreground/40 mx-auto mb-3" />
             <p className="text-sm font-medium text-foreground">No invoices yet</p>
-            {budget && proposal ? (
+            {!allowEdit ? null : budget && proposal ? (
               <Button size="sm" className="mt-4" onClick={() => openNewInvoice()}>
                 <Plus className="mr-1.5 h-3.5 w-3.5" />
                 Create First Invoice
@@ -364,10 +369,10 @@ export function ProjectInvoicesPage({
                   const badgeClass = isOverdue ? 'bg-red-100 text-red-700' : isPartial ? 'bg-amber-100 text-amber-700' : cfg.color
                   const badgeLabel = isPartial ? 'Partial' : isOverdue ? 'Overdue' : cfg.label
 
-                  const canSend   = inv.status === 'DRAFT' || inv.status === 'SENT'
-                  const canEdit   = !['PAID', 'VOID'].includes(inv.status)
-                  const canPay    = !['DRAFT', 'PAID', 'VOID'].includes(inv.status)
-                  const canVoid   = ['DRAFT', 'SENT', 'VIEWED', 'OVERDUE'].includes(inv.status)
+                  const canSend   = (inv.status === 'DRAFT' || inv.status === 'SENT') && allowEdit
+                  const canEdit   = !['PAID', 'VOID'].includes(inv.status) && allowEdit
+                  const canPay    = !['DRAFT', 'PAID', 'VOID'].includes(inv.status) && allowEdit
+                  const canVoid   = ['DRAFT', 'SENT', 'VIEWED', 'OVERDUE'].includes(inv.status) && allowEdit
                   const isBusy    = actingId === inv.id && isPending
 
                   return (
@@ -472,18 +477,20 @@ export function ProjectInvoicesPage({
                             </button>
                           )}
 
-                          <ArchiveInvoiceButton invoiceId={inv.id} archived={!!inv.archivedAt} disabled={isBusy} />
+                          {allowEdit && <ArchiveInvoiceButton invoiceId={inv.id} archived={!!inv.archivedAt} disabled={isBusy} />}
 
                           {/* Delete (any status — typed confirm unless a never-sent draft) */}
-                          <button
-                            type="button"
-                            onClick={() => setDeleting(inv)}
-                            disabled={isBusy}
-                            className="rounded p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600 inline-flex disabled:opacity-40"
-                            title="Delete invoice"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                          {allowEdit && (
+                            <button
+                              type="button"
+                              onClick={() => setDeleting(inv)}
+                              disabled={isBusy}
+                              className="rounded p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600 inline-flex disabled:opacity-40"
+                              title="Delete invoice"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

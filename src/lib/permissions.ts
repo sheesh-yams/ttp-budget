@@ -118,8 +118,36 @@ export function applyProjectDependencies(p: ProjectPermissions): ProjectPermissi
 }
 
 /**
+ * An area that only works when another is at least VIEW — but otherwise keeps
+ * its own level (unlike PROJECT_DEPENDENCIES, which cap). Actuals compares
+ * spend to budgeted amounts, so it needs Budget costs visible; someone can
+ * still EDIT actuals while only VIEWing the budget (user decision 2026-10-05).
+ *
+ * Applied to the person's combined access (resolveProjectPermissions), not to
+ * each stored role, so a project role can grant Actuals and rely on the
+ * workspace role for budget visibility.
+ */
+export const PROJECT_VIEW_REQUIREMENTS: readonly { area: ProjectArea; requires: ProjectArea }[] = [
+  { area: 'actuals', requires: 'budget.costs' },
+]
+
+export function applyProjectViewRequirements(p: ProjectPermissions): ProjectPermissions {
+  const out = { ...p }
+  for (const { area, requires } of PROJECT_VIEW_REQUIREMENTS) {
+    if (out[requires] === 'NONE') out[area] = 'NONE'
+  }
+  return out
+}
+
+/** Areas switched off by a view requirement, for the Roles screen warning. */
+export function unmetViewRequirements(p: ProjectPermissions): { area: ProjectArea; requires: ProjectArea }[] {
+  return PROJECT_VIEW_REQUIREMENTS.filter(r => p[r.area] !== 'NONE' && p[r.requires] === 'NONE')
+}
+
+/**
  * Effective permissions on one project: the workspace role's baseline, raised
- * by every project role the person holds there, then dependency-capped.
+ * by every project role the person holds there, then dependency-capped and
+ * view requirements applied.
  */
 export function resolveProjectPermissions(
   baseline: ProjectPermissions,
@@ -129,7 +157,7 @@ export function resolveProjectPermissions(
   for (const grant of roleGrants) {
     for (const k of PROJECT_AREA_KEYS) merged[k] = maxLevel(merged[k], grant[k])
   }
-  return applyProjectDependencies(merged)
+  return applyProjectViewRequirements(applyProjectDependencies(merged))
 }
 
 // ─── Presets ──────────────────────────────────────────────────────────────────
@@ -227,9 +255,10 @@ export const LEGACY_TEAM_SLOT_KEY = {
 export const ENFORCED_PROJECT_AREAS: ReadonlySet<ProjectArea> = new Set<ProjectArea>([
   'overview', 'budget.lines', 'budget.costs', 'budget.margin', 'crew', 'dealMemos', 'projectTeam',
   'schedule', 'callSheets', 'delivery',
+  'proposals', 'invoices', 'actuals', 'contract',
 ])
 export const ENFORCED_WORKSPACE_AREAS: ReadonlySet<WorkspaceArea> = new Set<WorkspaceArea>([
-  'dashboardMoney',
+  'dashboardMoney', 'proposals', 'invoices',
 ])
 
 export interface RoleShape {

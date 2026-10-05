@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { requireProducerPageAccess, requireProjectAccess } from '@/lib/project-access'
+import { requireProjectAccess, requireProjectArea } from '@/lib/project-access'
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { ContractTab } from '@/components/proposals/ContractTab'
@@ -12,8 +12,9 @@ export default async function ProjectContractPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  await requireProducerPageAccess()
   await requireProjectAccess(id)
+  // Roles Phase 2a: the contract permission on this project.
+  const projectAccess = await requireProjectArea(id, 'contract')
   const workspaceId = await getWorkspaceId()
 
   // Fetch project and its proposals — prefer non-draft, fall back to draft
@@ -70,7 +71,10 @@ export default async function ProjectContractPage({
         </p>
       </div>
 
-      <ContractTab proposalId={proposal.id} contractEnabled={contractEnabled} height="calc(100vh - 200px)" />
+      <ContractTab
+        proposalId={proposal.id} contractEnabled={contractEnabled} height="calc(100vh - 200px)"
+        canEdit={projectAccess.can('contract', 'EDIT')}
+      />
     </div>
   )
 }

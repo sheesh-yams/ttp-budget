@@ -9,7 +9,7 @@
  */
 
 import { notFound } from 'next/navigation'
-import { requireProducerPageAccess } from '@/lib/project-access'
+import { requireMoneyPermission } from '@/lib/money-access'
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { InvoicePublicView } from '@/components/invoice/InvoicePublicView'
@@ -24,8 +24,9 @@ export async function generateMetadata({ params }: Props) {
 }
 
 export default async function InvoicePreviewPage({ params }: Props) {
-  await requireProducerPageAccess()
   const { id } = await params
+  // Roles Phase 2a: Invoices access on this invoice's project.
+  if (!(await requireMoneyPermission({ invoiceId: id }, 'invoices', 'VIEW')).ok) notFound()
   const workspaceId = await getWorkspaceId()
 
   const invoice = await db.invoice.findFirst({

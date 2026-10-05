@@ -19,7 +19,9 @@
 
 import { randomUUID } from 'crypto'
 import { getScopedDb } from '@/lib/db-scoped'
-import { getCurrentUser, getWorkspaceId, requireRole } from '@/lib/auth'
+import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
+import { requirePermission } from '@/lib/access'
+import { requireMoneyPermission } from '@/lib/money-access'
 import { helcimAdapter, sha256Hex, PaymentConfigError } from '@/lib/payments/helcim'
 import { stripeAdapter, StripeConfigError } from '@/lib/payments/stripe'
 import { logAuditEvent } from '@/lib/audit'
@@ -48,8 +50,8 @@ export type InitiatePaymentResult =
 // ── getPaymentConfig ───────────────────────────────────────────────────────
 
 export async function getPaymentConfig() {
-  // Callable directly — Owner/Producer only, and only the fields callers use.
-  if (!(await requireRole(['OWNER', 'PRODUCER'])).ok) return null
+  // Callable directly — workspace Invoices access, and only the fields callers use.
+  if (!(await requirePermission('invoices', 'VIEW')).ok) return null
   const sdb = await getScopedDb()
   const config = await (sdb as unknown as {
     workspacePaymentConfig: {
@@ -65,7 +67,7 @@ export async function initiatePayment(
   invoiceId: string,
 ): Promise<ActionResult<InitiatePaymentResult>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ invoiceId }, 'invoices', 'EDIT')
     if (!gate.ok) return gate.error
 
     const [sdb, workspaceId] = await Promise.all([getScopedDb(), getWorkspaceId()])

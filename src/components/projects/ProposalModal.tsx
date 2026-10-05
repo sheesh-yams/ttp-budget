@@ -118,6 +118,8 @@ interface Props {
   prefill?: { milestones?: PaymentMilestone[]; about?: string; deliverables?: unknown[] }
   onDone: () => void
   proposalExpiryDays?: number
+  /** Contract permission: NONE hides the Contract tab, VIEW shows it read-only. */
+  contractAccess?: 'NONE' | 'VIEW' | 'EDIT'
 }
 
 const MODE_TITLE: Record<ProposalModalMode, string> = {
@@ -146,6 +148,7 @@ export function ProposalModal({
   prefill,
   onDone,
   proposalExpiryDays = 30,
+  contractAccess = 'EDIT',
 }: Props) {
   const [pending, startTransition] = useTransition()
   const [activeTab, setActiveTab]  = useState<'overview' | 'contract'>('overview')
@@ -363,7 +366,7 @@ export function ProposalModal({
         </DialogHeader>
 
         {/* Tab bar — only visible in edit-draft mode, not on the success screen */}
-        {mode === 'edit-draft' && !successToken && existing && (
+        {mode === 'edit-draft' && !successToken && existing && contractAccess !== 'NONE' && (
           <div className="flex border-b border-border -mx-6 px-6 -mt-1">
             {(['overview', 'contract'] as const).map(tab => (
               <button
@@ -383,9 +386,9 @@ export function ProposalModal({
         )}
 
         {/* Contract tab */}
-        {activeTab === 'contract' && mode === 'edit-draft' && existing && !successToken && (
+        {activeTab === 'contract' && mode === 'edit-draft' && existing && !successToken && contractAccess !== 'NONE' && (
           <div className="py-2">
-            <ContractTab proposalId={existing.id} contractEnabled={existing.contractEnabled ?? true} />
+            <ContractTab proposalId={existing.id} contractEnabled={existing.contractEnabled ?? true} canEdit={contractAccess === 'EDIT'} />
           </div>
         )}
 

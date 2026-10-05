@@ -39,6 +39,8 @@ export interface InvoiceRow {
 interface Props {
   invoices: InvoiceRow[]
   projectId?: string
+  /** Invoices EDIT on this project — otherwise view-only (roles Phase 2a). */
+  allowEdit?: boolean
 }
 
 // ─── Status config ────────────────────────────────────────────────────────────
@@ -54,7 +56,7 @@ const STATUS_CONFIG: Record<InvoiceStatus, { label: string; color: string }> = {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function ProjectInvoices({ invoices, projectId }: Props) {
+export function ProjectInvoices({ invoices, projectId, allowEdit = true }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [actingId, setActingId] = useState<string | null>(null)
@@ -173,10 +175,10 @@ export function ProjectInvoices({ invoices, projectId }: Props) {
               const badgeClass = isOverdue ? 'bg-red-100 text-red-700' : isPartial ? 'bg-amber-100 text-amber-700' : cfg.color
               const badgeLabel = isPartial ? 'Partial' : isOverdue ? 'Overdue' : cfg.label
 
-              const canSend   = inv.status === 'DRAFT' || inv.status === 'SENT'
-              const canPay    = !['DRAFT', 'PAID', 'VOID'].includes(inv.status)
-              const canEdit   = !['PAID', 'VOID'].includes(inv.status)
-              const canVoid   = ['DRAFT', 'SENT', 'VIEWED', 'OVERDUE'].includes(inv.status)
+              const canSend   = (inv.status === 'DRAFT' || inv.status === 'SENT') && allowEdit
+              const canPay    = !['DRAFT', 'PAID', 'VOID'].includes(inv.status) && allowEdit
+              const canEdit   = !['PAID', 'VOID'].includes(inv.status) && allowEdit
+              const canVoid   = ['DRAFT', 'SENT', 'VIEWED', 'OVERDUE'].includes(inv.status) && allowEdit
               const isBusy    = actingId === inv.id && isPending
 
               return (
@@ -289,18 +291,20 @@ export function ProjectInvoices({ invoices, projectId }: Props) {
                         </button>
                       )}
 
-                      <ArchiveInvoiceButton invoiceId={inv.id} archived={!!inv.archivedAt} disabled={isBusy} />
+                      {allowEdit && <ArchiveInvoiceButton invoiceId={inv.id} archived={!!inv.archivedAt} disabled={isBusy} />}
 
                       {/* Delete (any status — typed confirm unless a never-sent draft) */}
-                      <button
-                        type="button"
-                        onClick={() => setDeleting(inv)}
-                        disabled={isBusy}
-                        className="rounded p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600 inline-flex disabled:opacity-40"
-                        title="Delete invoice"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      {allowEdit && (
+                        <button
+                          type="button"
+                          onClick={() => setDeleting(inv)}
+                          disabled={isBusy}
+                          className="rounded p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600 inline-flex disabled:opacity-40"
+                          title="Delete invoice"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

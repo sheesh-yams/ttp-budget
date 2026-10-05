@@ -120,11 +120,12 @@ function StatusBadge({
 }: {
   status:     string
   expiresAt:  Date | string | null
-  onChange:   (s: string) => void
+  /** Omitted when view-only — the status shows as a badge. */
+  onChange?:  (s: string) => void
 }) {
   const eff   = effectiveStatus(status, expiresAt)
   const style = STATUS_STYLES[eff] ?? STATUS_STYLES.DRAFT
-  const term  = isTerminal(status, expiresAt)
+  const term  = isTerminal(status, expiresAt) || !onChange
 
   if (term) {
     return (
@@ -145,7 +146,7 @@ function StatusBadge({
     <div className="relative inline-flex items-center">
       <select
         value={status}
-        onChange={e => onChange(e.target.value)}
+        onChange={e => onChange?.(e.target.value)}
         style={{ background: style.bg, color: style.text }}
         className="rounded-full pl-2 pr-6 py-0.5 text-[10px] font-medium border-0 outline-none cursor-pointer appearance-none leading-none"
       >
@@ -172,12 +173,13 @@ function ProposalCard({
 }: {
   card:           ProposalCardData
   isDragging:     boolean
-  onStatusChange: (proposalId: string, newStatus: string) => void
+  /** Omitted when this person can't edit the card's project proposals. */
+  onStatusChange?: (proposalId: string, newStatus: string) => void
   onDragStart:    (e: React.DragEvent<HTMLDivElement>) => void
   onDragEnd:      (e: React.DragEvent<HTMLDivElement>) => void
 }) {
   const { proposal } = card
-  const terminal = isTerminal(proposal.status, proposal.expiresAt)
+  const terminal = isTerminal(proposal.status, proposal.expiresAt) || !onStatusChange
   const eff      = effectiveStatus(proposal.status, proposal.expiresAt)
 
   return (
@@ -298,7 +300,7 @@ function ProposalCard({
         <StatusBadge
           status={proposal.status}
           expiresAt={proposal.expiresAt}
-          onChange={(newStatus) => onStatusChange(proposal.id, newStatus)}
+          onChange={onStatusChange ? (newStatus) => onStatusChange(proposal.id, newStatus) : undefined}
         />
         <a
           href={`/p/${proposal.publicToken}`}
@@ -316,7 +318,12 @@ function ProposalCard({
 
 // ─── Main Kanban board ────────────────────────────────────────────────────────
 
-export function ProposalsKanban({ cards: initialCards }: { cards: ProposalCardData[] }) {
+export function ProposalsKanban({ cards: initialCards, editableProjectIds = null }: {
+  cards: ProposalCardData[]
+  /** Projects whose proposals this person may change (Proposals EDIT); null = all. */
+  editableProjectIds?: string[] | null
+}) {
+  const canEditProject = (projectId: string) => editableProjectIds === null || editableProjectIds.includes(projectId)
   const router = useRouter()
   const [, startTransition] = useTransition()
   const [cards, setCards]           = useState(initialCards)
@@ -392,7 +399,8 @@ export function ProposalsKanban({ cards: initialCards }: { cards: ProposalCardDa
               onDrop={e => {
                 e.preventDefault()
                 const proposalId = e.dataTransfer.getData('proposalId')
-                if (proposalId && col.droppable) {
+                const dropped = cards.find(c => c.proposal.id === proposalId)
+                if (proposalId && col.droppable && dropped && canEditProject(dropped.projectId)) {
                   // WON column maps to APPROVED status; LOST stays LOST
                   const targetStatus = col.id === 'WON' ? 'APPROVED' : col.id
                   handleStatusChange(proposalId, targetStatus)
@@ -446,7 +454,7 @@ export function ProposalsKanban({ cards: initialCards }: { cards: ProposalCardDa
                       <ProposalCard
                         card={card}
                         isDragging={draggedId === card.proposal.id}
-                        onStatusChange={handleStatusChange}
+                        onStatusChange={canEditProject(card.projectId) ? handleStatusChange : undefined}
                         onDragStart={e => {
                           // Set drag image to the whole card element
                           const cardEl = e.currentTarget.closest('[data-card]') as HTMLElement

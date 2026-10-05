@@ -23,14 +23,15 @@ function ReceiptCard({
   onDelete,
 }: {
   receipt:  ReceiptDb
-  onClick:  () => void
-  onDelete: () => void
+  /** Omitted when read-only — no details panel, no delete. */
+  onClick?:  () => void
+  onDelete?: () => void
 }) {
   const hasAmount = receipt.amountCents != null
 
   return (
     <div
-      className="group relative cursor-pointer rounded-xl border border-border bg-card overflow-hidden shadow-sm hover:border-primary/50 hover:shadow-md transition-all"
+      className={`group relative ${onClick ? 'cursor-pointer' : ''} rounded-xl border border-border bg-card overflow-hidden shadow-sm hover:border-primary/50 hover:shadow-md transition-all`}
       onClick={onClick}
     >
       {/* Thumbnail */}
@@ -81,13 +82,15 @@ function ReceiptCard({
         >
           <ExternalLink className="h-3.5 w-3.5" />
         </a>
-        <button
-          onClick={e => { e.stopPropagation(); onDelete() }}
-          className="rounded bg-black/60 p-1 text-white hover:bg-red-600 transition-colors"
-          title="Delete"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        {onDelete && (
+          <button
+            onClick={e => { e.stopPropagation(); onDelete() }}
+            className="rounded bg-black/60 p-1 text-white hover:bg-red-600 transition-colors"
+            title="Delete"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
 
       {/* Status badges */}
@@ -112,9 +115,11 @@ function ReceiptCard({
 interface Props {
   projectId:       string
   initialReceipts: ReceiptDb[]
+  /** Actuals EDIT — otherwise receipts are view-only (roles Phase 2a). */
+  canEdit:         boolean
 }
 
-export function ReceiptsPageClient({ projectId, initialReceipts }: Props) {
+export function ReceiptsPageClient({ projectId, initialReceipts, canEdit }: Props) {
   const [receipts,       setReceipts]       = useState<ReceiptDb[]>(initialReceipts)
   const [selectedReceipt, setSelectedReceipt] = useState<ReceiptDb | null>(null)
   const [panelOpen,      setPanelOpen]      = useState(false)
@@ -163,13 +168,15 @@ export function ReceiptsPageClient({ projectId, initialReceipts }: Props) {
       <div className="space-y-8">
 
         {/* ── Upload zone ─────────────────────────────────────────────────── */}
-        <section>
-          <ReceiptUploader
-            projectId={projectId}
-            listenPaste
-            onUploaded={handleUploaded}
-          />
-        </section>
+        {canEdit && (
+          <section>
+            <ReceiptUploader
+              projectId={projectId}
+              listenPaste
+              onUploaded={handleUploaded}
+            />
+          </section>
+        )}
 
         {/* ── Inbox: unattached receipts ───────────────────────────────────── */}
         <section>
@@ -194,8 +201,8 @@ export function ReceiptsPageClient({ projectId, initialReceipts }: Props) {
                 <ReceiptCard
                   key={r.id}
                   receipt={r}
-                  onClick={() => openPanel(r)}
-                  onDelete={() => handleDelete(r.id)}
+                  onClick={canEdit ? () => openPanel(r) : undefined}
+                  onDelete={canEdit ? () => handleDelete(r.id) : undefined}
                 />
               ))}
             </div>
@@ -216,8 +223,8 @@ export function ReceiptsPageClient({ projectId, initialReceipts }: Props) {
                 <ReceiptCard
                   key={r.id}
                   receipt={r}
-                  onClick={() => openPanel(r)}
-                  onDelete={() => handleDelete(r.id)}
+                  onClick={canEdit ? () => openPanel(r) : undefined}
+                  onDelete={canEdit ? () => handleDelete(r.id) : undefined}
                 />
               ))}
             </div>

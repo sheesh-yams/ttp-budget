@@ -55,14 +55,16 @@ const navGroups = [
   },
 ]
 
-// Owner/Producer-only pages: money, client data and the rolodex (the pages
+// Owner/Producer-only pages: client data, rates and the rolodex (the pages
 // themselves 404 for Collaborators; this just keeps dead links out of their nav).
-const PRODUCER_HREFS = new Set(['/clients', '/proposals', '/invoices', '/rates', '/templates', '/library', '/rolodex'])
+const PRODUCER_HREFS = new Set(['/clients', '/rates', '/templates', '/library', '/rolodex'])
 
-export function Sidebar({ workspaceName, logoUrl, role }: {
+export function Sidebar({ workspaceName, logoUrl, role, moneyLists }: {
   workspaceName: string
   logoUrl?: string | null
   role: 'OWNER' | 'PRODUCER' | 'COLLABORATOR'
+  /** The workspace Proposals / Invoices lists follow their permissions (roles Phase 2a). */
+  moneyLists: { proposals: boolean; invoices: boolean }
 }) {
   const pathname = usePathname()
   const visibleGroups = navGroups
@@ -70,6 +72,8 @@ export function Sidebar({ workspaceName, logoUrl, role }: {
       ...g,
       items: g.items.filter(item =>
         !(role === 'COLLABORATOR' && PRODUCER_HREFS.has(item.href)) &&
+        !(item.href === '/proposals' && !moneyLists.proposals) &&
+        !(item.href === '/invoices' && !moneyLists.invoices) &&
         // Settings and Team are Owner-only pages (they redirect everyone else).
         !((item.href === '/settings' || item.href === '/team') && role !== 'OWNER'),
       ),

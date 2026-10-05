@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { getScopedDb } from '@/lib/db-scoped'
-import { getCurrentUser, requireRole } from '@/lib/auth'
+import { getCurrentUser } from '@/lib/auth'
+import { requireMoneyPermission } from '@/lib/money-access'
 import { logAuditEvent } from '@/lib/audit'
 import type { ActionResult } from '@/types'
 import { requireProductionPermission } from '@/lib/production-access'
@@ -17,7 +18,7 @@ export async function regenerateProposalToken(
   proposalId: string
 ): Promise<ActionResult<{ token: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ proposalId }, 'proposals', 'EDIT')
     if (!gate.ok) return gate.error
 
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
@@ -55,7 +56,7 @@ export async function regenerateInvoiceToken(
   invoiceId: string
 ): Promise<ActionResult<{ token: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ invoiceId }, 'invoices', 'EDIT')
     if (!gate.ok) return gate.error
 
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])

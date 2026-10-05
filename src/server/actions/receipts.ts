@@ -4,7 +4,8 @@ import { revalidatePath } from 'next/cache'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { r2, R2_BUCKET } from '@/lib/r2'
-import { getCurrentUser, getWorkspaceId, requireRole } from '@/lib/auth'
+import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
+import { moneyTargetProjectId, requireMoneyPermission } from '@/lib/money-access'
 import { db } from '@/lib/db'
 import { getScopedDb } from '@/lib/db-scoped'
 import { generatePublicToken } from '@/lib/secure-token'
@@ -83,7 +84,7 @@ export async function getReceiptUploadUrl(
   fileName:    string,
 ): Promise<ActionResult<{ uploadUrl: string; publicUrl: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ projectId }, 'actuals', 'EDIT')
     if (!gate.ok) return gate.error
 
     const [user, workspaceId] = await Promise.all([getCurrentUser(), getWorkspaceId()])
@@ -138,7 +139,7 @@ export async function createReceiptRecord(
   actualEntryId: string | null = null,
 ): Promise<ActionResult<ReceiptDb>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ projectId }, 'actuals', 'EDIT')
     if (!gate.ok) return gate.error
 
     const workspaceId = await getWorkspaceId()
@@ -194,7 +195,7 @@ export async function linkReceiptToEntry(
   projectId:     string,
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ projectId }, 'actuals', 'EDIT')
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()
@@ -204,6 +205,11 @@ export async function linkReceiptToEntry(
       select: { id: true, amountCents: true },
     })
     if (!receipt) return { success: false, error: 'Receipt not found.' }
+    // The entry must be on this project's sheet — its total is rewritten below
+    // by id (ActualEntry has no workspaceId).
+    if (await moneyTargetProjectId({ actualEntryId }, gate.workspaceId) !== projectId) {
+      return { success: false, error: 'Entry not found.' }
+    }
 
     await sdb.receipt.update({
       where: { id: receiptId },
@@ -232,7 +238,7 @@ export async function unlinkReceipt(
   projectId: string,
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ projectId }, 'actuals', 'EDIT')
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()
@@ -273,7 +279,7 @@ export async function deleteReceipt(
   projectId: string,
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ projectId }, 'actuals', 'EDIT')
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()
@@ -305,8 +311,8 @@ export async function getProjectReceipts(
   projectId: string,
 ): Promise<ReceiptDb[]> {
   try {
-    // Money data — Owner/Producer only (server actions are callable directly).
-    if (!(await requireRole(['OWNER', 'PRODUCER'])).ok) return []
+    // Money data — Actuals permission on this project (server actions are callable directly).
+    if (!(await requireMoneyPermission({ projectId }, 'actuals', 'VIEW')).ok) return []
     const sdb      = await getScopedDb()
     const receipts = await sdb.receipt.findMany({
       where:   { projectId },
@@ -330,8 +336,8 @@ export async function getEntryReceipts(
   projectId:     string,
 ): Promise<ReceiptDb[]> {
   try {
-    // Money data — Owner/Producer only (server actions are callable directly).
-    if (!(await requireRole(['OWNER', 'PRODUCER'])).ok) return []
+    // Money data — Actuals permission on this project (server actions are callable directly).
+    if (!(await requireMoneyPermission({ projectId }, 'actuals', 'VIEW')).ok) return []
     const sdb      = await getScopedDb()
     const receipts = await sdb.receipt.findMany({
       where:   { actualEntryId, projectId },
@@ -361,7 +367,7 @@ export async function updateReceiptDetails(
   },
 ): Promise<ActionResult<ReceiptDb>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ projectId }, 'actuals', 'EDIT')
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()
@@ -372,9 +378,19 @@ export async function updateReceiptDetails(
     })
     if (!existing) return { success: false, error: 'Receipt not found.' }
 
+    // Only the details fields — a raw client patch could re-point actualEntryId
+    // (linking goes through linkReceiptToEntry, which checks the entry).
+    const data: { amountCents?: number | null; merchantName?: string | null; receiptDate?: Date | null } = {}
+    if ('amountCents' in patch) {
+      if (patch.amountCents !== null && !Number.isInteger(patch.amountCents)) return { success: false, error: 'Invalid amount.' }
+      data.amountCents = patch.amountCents ?? null
+    }
+    if ('merchantName' in patch) data.merchantName = typeof patch.merchantName === 'string' ? patch.merchantName.slice(0, 200) : null
+    if ('receiptDate' in patch)  data.receiptDate  = patch.receiptDate ? new Date(patch.receiptDate) : null
+
     const updated = await sdb.receipt.update({
       where: { id: receiptId },
-      data:  patch,
+      data,
     }) as unknown as ReceiptDb
 
     // Resync the entry's actualCents if the amount changed and receipt is attached
@@ -402,8 +418,8 @@ export async function getProjectActualEntries(
   projectId: string,
 ): Promise<ActualEntryForMatching[]> {
   try {
-    // Money data — Owner/Producer only (server actions are callable directly).
-    if (!(await requireRole(['OWNER', 'PRODUCER'])).ok) return []
+    // Money data — Actuals permission on this project (server actions are callable directly).
+    if (!(await requireMoneyPermission({ projectId }, 'actuals', 'VIEW')).ok) return []
     const sdb   = await getScopedDb()
     const sheet = await sdb.actualSheet.findFirst({
       where:   { projectId },
@@ -451,7 +467,7 @@ export async function createAdHocEntryFromReceipt(
   description: string,
 ): Promise<ActionResult<{ entryId: string; entryDescription: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ projectId }, 'actuals', 'EDIT')
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()

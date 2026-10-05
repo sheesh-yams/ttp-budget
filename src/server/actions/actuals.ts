@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
-import { getWorkspaceId, requireRole } from '@/lib/auth'
+import { getWorkspaceId } from '@/lib/auth'
+import { requireMoneyPermission } from '@/lib/money-access'
 import { getScopedDb } from '@/lib/db-scoped'
 import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 import { lineTotal } from '@/lib/money'
@@ -97,7 +98,7 @@ export async function createActualSheet(
   phaseId: string,
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ budgetId }, 'actuals', 'EDIT')
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()
@@ -187,7 +188,7 @@ export async function updateActualEntry(
   },
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ actualEntryId: entryId }, 'actuals', 'EDIT')
     if (!gate.ok) return gate.error
 
     // ActualEntry has no workspaceId — verify ownership through its sheet
@@ -236,7 +237,7 @@ export async function addAdHocEntry(
   },
 ): Promise<ActionResult<ActualEntryDb>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ actualSheetId: sheetId }, 'actuals', 'EDIT')
     if (!gate.ok) return gate.error
 
     // Verify the sheet belongs to this workspace via sdb
@@ -287,7 +288,7 @@ export async function deleteAdHocEntry(
   projectId: string,
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ actualEntryId: entryId }, 'actuals', 'EDIT')
     if (!gate.ok) return gate.error
 
     const existing = await entryInActiveWorkspace(entryId)
@@ -326,13 +327,22 @@ export async function updateActualSheet(
   data: { revenueOverrideCents?: number | null; name?: string },
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ actualSheetId: sheetId }, 'actuals', 'EDIT', data.revenueOverrideCents !== undefined ? [{ area: 'budget.margin', level: 'VIEW' }] : [])
     if (!gate.ok) return gate.error
+
+    // Only these two fields — a raw client object could move the sheet to
+    // another project / budget / phase.
+    const patch: { revenueOverrideCents?: number | null; name?: string } = {}
+    if (data.revenueOverrideCents !== undefined) {
+      if (data.revenueOverrideCents !== null && !Number.isInteger(data.revenueOverrideCents)) return { success: false, error: 'Invalid amount.' }
+      patch.revenueOverrideCents = data.revenueOverrideCents
+    }
+    if (typeof data.name === 'string') patch.name = data.name.slice(0, 200)
 
     const sdb = await getScopedDb()
     await sdb.actualSheet.update({
       where: { id: sheetId },
-      data,
+      data:  patch,
     })
 
     revalidate(projectId)
@@ -353,7 +363,7 @@ export async function updateActualSheet(
 export async function getActualSheet(budgetId: string): Promise<ActualSheetFull | null> {
   try {
     // Money data — Owner/Producer only (server actions are callable directly).
-    if (!(await requireRole(['OWNER', 'PRODUCER'])).ok) return null
+    if (!(await requireMoneyPermission({ budgetId }, 'actuals', 'VIEW')).ok) return null
     const sdb = await getScopedDb()
     const sheet = await sdb.actualSheet.findFirst({
       where:   { budgetId },
@@ -384,7 +394,7 @@ export async function syncActualSheetEntries(
   phaseAccounts: AccountNode[],
 ): Promise<ActualSheetFull | null> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ actualSheetId: sheetId }, 'actuals', 'VIEW')
     if (!gate.ok) return null
 
     const sdb = await getScopedDb()
@@ -413,14 +423,24 @@ export async function syncActualSheetEntries(
       seen.add(li.lineItemId)
       return true
     })
-    if (missing.length > 0) {
+    // Trust only lines that really are in this sheet's budget version — the
+    // accounts list comes from the caller (callable directly, at VIEW).
+    const real = missing.length
+      ? await db.lineItem.findMany({
+          where:  { id: { in: missing.map(li => li.lineItemId) }, account: { phaseId: sheet.phaseId } },
+          select: { id: true, accountId: true, description: true },
+        })
+      : []
+    const realById = new Map(real.map(r => [r.id, r]))
+    const toCreate = missing.filter(li => realById.has(li.lineItemId))
+    if (toCreate.length > 0) {
       const maxOrder = sheet.entries.reduce((m, e) => Math.max(m, e.order), -1)
       await db.actualEntry.createMany({
-        data: missing.map((li, i) => ({
+        data: toCreate.map((li, i) => ({
           actualSheetId: sheetId,
           lineItemId:    li.lineItemId,
-          accountId:     li.accountId,
-          description:   li.description,
+          accountId:     realById.get(li.lineItemId)!.accountId,
+          description:   realById.get(li.lineItemId)!.description,
           actualCents:   0,
           isAdHoc:       false,
           order:         maxOrder + 1 + i,
@@ -488,7 +508,7 @@ export async function getWrapReportData(
 ): Promise<WrapReportData | null> {
   try {
     // Money data — Owner/Producer only (server actions are callable directly).
-    if (!(await requireRole(['OWNER', 'PRODUCER'])).ok) return null
+    if (!(await requireMoneyPermission({ projectId }, 'actuals', 'VIEW', [{ area: 'budget.margin', level: 'VIEW' }])).ok) return null
     const sdb = await getScopedDb()
 
     // Load project + client

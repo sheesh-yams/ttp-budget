@@ -8,7 +8,7 @@
  */
 
 import { notFound } from 'next/navigation'
-import { requireProducerPageAccess, requireProjectAccess } from '@/lib/project-access'
+import { requireProjectAccess, requireProjectArea } from '@/lib/project-access'
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
@@ -27,8 +27,9 @@ export async function generateMetadata({ params }: Props) {
 
 export default async function InvoicesSubPage({ params }: Props) {
   const { id } = await params
-  await requireProducerPageAccess()
   await requireProjectAccess(id)
+  // Roles Phase 2a: the invoices permission on this project.
+  const projectAccess = await requireProjectArea(id, 'invoices')
   const workspaceId = await getWorkspaceId()
 
   const [project, workspaceDefaults] = await Promise.all([
@@ -174,6 +175,7 @@ export default async function InvoicesSubPage({ params }: Props) {
       budgetTotalCents={budgetTotalCents}
       budgetDiscountCents={budgetDiscountCents}
       invoices={serializedInvoices}
+      allowEdit={projectAccess.can('invoices', 'EDIT')}
       invoiceExpiryDays={workspaceDefaults?.invoiceExpiryDays ?? 30}
     />
   )

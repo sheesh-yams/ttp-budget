@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { requireProducerPageAccess, requireProjectAccess } from '@/lib/project-access'
+import { requireProjectAccess, requireProjectArea } from '@/lib/project-access'
 import Link from 'next/link'
 import { ArrowLeft, Download, TrendingUp, TrendingDown, DollarSign, BarChart3 } from 'lucide-react'
 import { getWrapReportData } from '@/server/actions/actuals'
@@ -25,8 +25,11 @@ export default async function WrapReportPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  await requireProducerPageAccess()
   await requireProjectAccess(id)
+  // Roles Phase 2a: the actuals permission on this project.
+  const projectAccess = await requireProjectArea(id, 'actuals')
+  // The wrap report is profit and margin.
+  if (!projectAccess.can('budget.margin')) notFound()
   const data = await getWrapReportData(id)
 
   if (!data) {

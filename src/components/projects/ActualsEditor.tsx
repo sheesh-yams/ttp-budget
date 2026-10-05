@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition, useRef } from 'react'
+import { createContext, useContext, useState, useTransition, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Plus, Trash2, ChevronRight, ChevronDown, TrendingUp, TrendingDown, BarChart3, CheckCircle2, Clock, SlidersHorizontal } from 'lucide-react'
@@ -25,7 +25,14 @@ interface Props {
   phase:           { id: string; accounts: unknown[] } | null
   sheet:           ActualSheetFull | null
   budgetTotalCents: number
+  /** Actuals EDIT — otherwise the tracker is read-only (roles Phase 2a). */
+  canEdit:         boolean
+  /** Budget margin VIEW — billed, profit, margin % and the wrap report. */
+  showMargin:      boolean
 }
+
+// Rows are nested a few components deep; they read edit rights from here.
+const ActualsEditable = createContext(true)
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -57,7 +64,7 @@ function VariancePill({ budgeted, actual }: { budgeted: number; actual: number }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents }: Props) {
+export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents, canEdit, showMargin }: Props) {
   const router   = useRouter()
   const [creating, startCreate] = useTransition()
 
@@ -115,10 +122,12 @@ export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents 
         <p className="mt-1 text-sm text-muted-foreground">
           Start tracking real spend against your <strong>{budget.name}</strong> budget.
         </p>
-        <p className="mt-1 text-xs text-muted-foreground">Budget total: {formatMoney(budgetTotalCents)}</p>
-        <Button className="mt-4" onClick={handleCreateSheet} disabled={creating}>
-          {creating ? 'Creating…' : 'Start tracking actuals'}
-        </Button>
+        {showMargin && <p className="mt-1 text-xs text-muted-foreground">Budget total: {formatMoney(budgetTotalCents)}</p>}
+        {canEdit && (
+          <Button className="mt-4" onClick={handleCreateSheet} disabled={creating}>
+            {creating ? 'Creating…' : 'Start tracking actuals'}
+          </Button>
+        )}
       </div>
     )
   }
@@ -144,6 +153,8 @@ export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents 
   const billedCents     = sheet.revenueOverrideCents ?? budgetTotalCents
   const profitCents     = billedCents - totalSpentCents
   const marginPct       = billedCents > 0 ? (profitCents / billedCents) * 100 : 0
+  // Line costs only (no markup) — what someone without margin access sees.
+  const budgetedCostCents = (phase.accounts as unknown as AccountInput[]).reduce((sum, a) => sum + sumAccount(a), 0)
 
   // ── Event handlers ────────────────────────────────────────────────────────
 
@@ -221,6 +232,7 @@ export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents 
   )
 
   return (
+    <ActualsEditable.Provider value={canEdit}>
     <div className="space-y-6">
 
       {/* ── Entry detail sidebar ───────────────────────────────────────────── */}
@@ -234,15 +246,23 @@ export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents 
       {/* ── Header with Wrap Report button ────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-foreground">Actuals Tracker</h2>
-        <Link href={`/projects/${project.id}/actuals/wrap`}>
-          <Button variant="outline" size="sm" className="gap-1.5">
-            <BarChart3 className="h-4 w-4" />
-            Wrap Report
-          </Button>
-        </Link>
+        {showMargin && (
+          <Link href={`/projects/${project.id}/actuals/wrap`}>
+            <Button variant="outline" size="sm" className="gap-1.5">
+              <BarChart3 className="h-4 w-4" />
+              Wrap Report
+            </Button>
+          </Link>
+        )}
       </div>
 
-      {/* ── Summary bar ───────────────────────────────────────────────────── */}
+      {/* ── Summary bar ── billed / profit / margin need Budget margin ───── */}
+      {!showMargin ? (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <SummaryCard label="Budgeted" value={formatMoney(budgetedCostCents)} sub="budget line costs" />
+          <SummaryCard label="Spent" value={formatMoney(totalSpentCents)} sub="actual cost to date" />
+        </div>
+      ) : (
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <SummaryCard label="Billed" value={formatMoney(billedCents)} sub="client agreed to pay" />
         <SummaryCard label="Spent" value={formatMoney(totalSpentCents)} sub="actual cost to date" />
@@ -259,6 +279,7 @@ export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents 
           valueClass={marginColor}
         />
       </div>
+      )}
 
       {/* ── Column headers ─────────────────────────────────────────────────── */}
       <div className="hidden grid-cols-[1fr_120px_140px_110px] items-center gap-2 px-3 text-xs font-medium uppercase tracking-wide text-muted-foreground sm:grid">
@@ -322,6 +343,7 @@ export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents 
         </div>
       )}
     </div>
+    </ActualsEditable.Provider>
   )
 }
 
@@ -380,6 +402,7 @@ function AccountSection({
   onInputChange, onInputBlur,
   onSetAddingToAccount, onAdHocFormChange, onAddAdHoc, onDeleteAdHoc, onRowClick,
 }: AccountSectionProps) {
+  const canEdit = useContext(ActualsEditable)
   const [collapsed, setCollapsed] = useState(false)
 
   const budgetedCents = sumAccount(account as unknown as AccountInput)
@@ -478,7 +501,7 @@ function AccountSection({
           ))}
 
           {/* Inline add-row form */}
-          {addingToAccount === account.id ? (
+          {!canEdit ? null : addingToAccount === account.id ? (
             <div className="flex flex-wrap items-center gap-2 border-t px-4 py-2 bg-muted/20">
               <input
                 autoFocus
@@ -608,6 +631,7 @@ function LineRow({
 }: LineRowProps) {
   const [focused, setFocused] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const canEdit = useContext(ActualsEditable)
 
   return (
     <div className="grid grid-cols-[1fr_auto] items-center gap-2 px-4 py-2 hover:bg-muted/20 sm:grid-cols-[1fr_120px_140px_110px]">
@@ -649,7 +673,9 @@ function LineRow({
 
       {/* Actual input */}
       <div className="flex w-full items-center justify-end sm:w-[140px]">
-        {entryId && onInputChange && onInputBlur ? (
+        {entryId && !canEdit ? (
+          <span className="text-sm tabular text-foreground">{actualCents ? formatMoney(actualCents) : '—'}</span>
+        ) : entryId && onInputChange && onInputBlur ? (
           <div className="relative w-32">
             {!focused && (
               <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
@@ -690,7 +716,7 @@ function LineRow({
             {actualCents > 0 ? `-${formatMoney(actualCents)}` : '—'}
           </span>
         )}
-        {onRowClick && (
+        {onRowClick && canEdit && (
           <button
             onClick={e => { e.stopPropagation(); onRowClick() }}
             className="ml-1 rounded p-0.5 text-muted-foreground hover:text-foreground transition-colors"
@@ -699,7 +725,7 @@ function LineRow({
             <SlidersHorizontal className="h-3 w-3" />
           </button>
         )}
-        {onDelete && (
+        {onDelete && canEdit && (
           <button
             onClick={onDelete}
             className="ml-1 rounded p-0.5 text-muted-foreground hover:text-red-500 transition-colors"

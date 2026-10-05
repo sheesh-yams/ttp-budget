@@ -3,7 +3,8 @@
 import { revalidatePath } from 'next/cache'
 import { getScopedDb } from '@/lib/db-scoped'
 import { db } from '@/lib/db'
-import { getCurrentUser, getWorkspaceId, requireRole } from '@/lib/auth'
+import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
+import { requireMoneyPermission } from '@/lib/money-access'
 import { generateInvoiceNumber } from '@/lib/invoice-numbering'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
@@ -60,7 +61,7 @@ export async function createInvoice(
   input: z.infer<typeof createSchema>
 ): Promise<ActionResult<{ id: string; number: string; publicToken: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ projectId: input?.projectId }, 'invoices', 'EDIT')
     if (!gate.ok) return gate.error
 
     const [scopedDb, user, workspaceId] = await Promise.all([
@@ -128,7 +129,7 @@ export async function markInvoicePaid(
   paymentRef?: string
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ invoiceId }, 'invoices', 'EDIT')
     if (!gate.ok) return gate.error
 
     const [scopedDb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
@@ -161,8 +162,8 @@ export async function markInvoicePaid(
 
 export async function getInvoiceSendData(invoiceId: string) {
   try {
-    // Money data — Owner/Producer only (server actions are callable directly).
-    if (!(await requireRole(['OWNER', 'PRODUCER'])).ok) return null
+    // Money data — Invoices permission on this project (server actions are callable directly).
+    if (!(await requireMoneyPermission({ invoiceId }, 'invoices', 'VIEW')).ok) return null
     const [scopedDb, workspaceId] = await Promise.all([getScopedDb(), getWorkspaceId()])
 
     const invoice = await scopedDb.invoice.findFirst({
@@ -215,7 +216,7 @@ export async function sendInvoice(
   emailOpts: { to: string; cc?: string[]; subject: string; message: string },
 ): Promise<ActionResult<{ publicUrl: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ invoiceId }, 'invoices', 'EDIT')
     if (!gate.ok) return gate.error
 
     const [scopedDb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
@@ -327,7 +328,7 @@ export async function markInvoiceAsSent(
   invoiceId: string
 ): Promise<ActionResult<{ status: 'SENT' }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ invoiceId }, 'invoices', 'EDIT')
     if (!gate.ok) return gate.error
 
     const [scopedDb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
@@ -372,7 +373,7 @@ export async function markInvoiceAsSent(
 export async function voidInvoice(invoiceId: string): Promise<ActionResult> {
   console.log('[voidInvoice] called', { invoiceId })
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ invoiceId }, 'invoices', 'EDIT')
     if (!gate.ok) return gate.error
 
     const [scopedDb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
@@ -420,7 +421,7 @@ export async function voidInvoice(invoiceId: string): Promise<ActionResult> {
  */
 export async function deleteInvoice(invoiceId: string, opts: { confirm?: string } = {}): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ invoiceId }, 'invoices', 'EDIT')
     if (!gate.ok) return gate.error
 
     const [scopedDb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
@@ -478,7 +479,7 @@ export async function deleteInvoice(invoiceId: string, opts: { confirm?: string 
 /** Archive hides an invoice from the lists; totals still count it. */
 export async function setInvoiceArchived(invoiceId: string, archived: boolean): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ invoiceId }, 'invoices', 'EDIT')
     if (!gate.ok) return gate.error
 
     const [scopedDb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
@@ -545,7 +546,7 @@ export async function updateInvoiceStatus(
   status: 'DRAFT' | 'SENT' | 'VIEWED' | 'PAID' | 'OVERDUE' | 'VOID'
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ invoiceId }, 'invoices', 'EDIT')
     if (!gate.ok) return gate.error
 
     const scopedDb = await getScopedDb()
@@ -581,7 +582,7 @@ export async function recordPayment(
   ref?: string
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ invoiceId }, 'invoices', 'EDIT')
     if (!gate.ok) return gate.error
 
     const scopedDb = await getScopedDb()
@@ -631,7 +632,7 @@ export async function updateInvoiceLineItems(
   extra?:       { issueDate?: string; discountCents?: number },
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ invoiceId }, 'invoices', 'EDIT')
     if (!gate.ok) return gate.error
 
     const [scopedDb, user] = await Promise.all([getScopedDb(), getCurrentUser()])

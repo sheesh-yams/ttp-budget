@@ -1,11 +1,12 @@
 import { notFound } from 'next/navigation'
-import { requireProducerPageAccess, requireProjectAccess } from '@/lib/project-access'
+import { requireProjectAccess, requireProjectArea } from '@/lib/project-access'
 import Link from 'next/link'
 import { ChevronLeft } from 'lucide-react'
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { getActualSheet, syncActualSheetEntries } from '@/server/actions/actuals'
 import { ActualsEditor } from '@/components/projects/ActualsEditor'
+import { stripAccount } from '@/lib/budget-visibility'
 import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
@@ -21,8 +22,10 @@ export default async function ActualsPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  await requireProducerPageAccess()
   await requireProjectAccess(id)
+  // Roles Phase 2a: the actuals permission on this project.
+  const projectAccess = await requireProjectArea(id, 'actuals')
+  const showMargin = projectAccess.can('budget.margin')
   const workspaceId = await getWorkspaceId()
 
   // Load project with budget + primary phase
@@ -120,16 +123,23 @@ export default async function ActualsPage({
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-foreground">Actuals</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Track real spend against your budget and see your margins.
+          Track real spend against your budget{showMargin ? " and see your margins" : ""}.
         </p>
       </div>
 
       <ActualsEditor
         project={{ id: project.id, name: project.name }}
         budget={budget ? { id: budget.id, name: budget.name } : null}
-        phase={phase as unknown as { id: string; accounts: unknown[] }}
-        sheet={sheet}
-        budgetTotalCents={budgetTotalCents}
+        // Without Budget margin, budget lines go to the client net of markup.
+        phase={(phase && !showMargin
+          ? { ...phase, accounts: phase.accounts.map(a => stripAccount(a as unknown as Parameters<typeof stripAccount>[0])) }
+          : phase) as unknown as { id: string; accounts: unknown[] }}
+        // Billed total and the revenue override are margin data — they only
+        // reach people who can see Budget margin.
+        sheet={sheet && !showMargin ? { ...sheet, revenueOverrideCents: null } : sheet}
+        budgetTotalCents={showMargin ? budgetTotalCents : 0}
+        canEdit={projectAccess.can('actuals', 'EDIT')}
+        showMargin={showMargin}
       />
     </div>
   )

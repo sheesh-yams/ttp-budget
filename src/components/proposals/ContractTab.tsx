@@ -374,10 +374,13 @@ export function ContractTab({
   proposalId,
   contractEnabled: initialEnabled,
   height = '62vh',
+  canEdit = true,
 }: {
   proposalId:       string
   contractEnabled:  boolean
   height?:          string
+  /** Contract EDIT — otherwise read-only; read the full text via Preview (roles Phase 2a). */
+  canEdit?:         boolean
 }) {
   const [enabled,       setEnabled]      = useState(initialEnabled)
   const [sections,      setSections]     = useState<ContractSectionRow[]>([])
@@ -406,10 +409,11 @@ export function ContractTab({
   useEffect(() => {
     if (!enabled) { setLoading(false); return }
     startInit(async () => {
-      await attachDefaultBlocks(proposalId)
+      // Attaching defaults writes — only for people who can edit the contract.
+      if (canEdit) await attachDefaultBlocks(proposalId)
       await load()
     })
-  }, [proposalId, enabled, load])
+  }, [proposalId, enabled, load, canEdit])
 
   function handleToggle(on: boolean) {
     startToggle(async () => {
@@ -465,7 +469,7 @@ export function ContractTab({
           <button
             type="button"
             onClick={() => handleToggle(!enabled)}
-            disabled={togglePending}
+            disabled={togglePending || !canEdit}
             className={cn(
               'relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               enabled ? 'bg-primary' : 'bg-muted-foreground/30',
@@ -509,7 +513,7 @@ export function ContractTab({
               </div>
             ) : (
               <>
-                {suggestions.length > 0 && (
+                {canEdit && suggestions.length > 0 && (
                   <SuggestionBanner
                     suggestions={suggestions}
                     proposalId={proposalId}
@@ -540,13 +544,13 @@ export function ContractTab({
                       key={s.id}
                       section={s}
                       isActive={activeId === s.id}
-                      onActivate={() => setActiveId(activeId === s.id ? null : s.id)}
+                      onActivate={() => { if (canEdit) setActiveId(activeId === s.id ? null : s.id) }}
                       onRefresh={() => { setActiveId(null); load() }}
                     />
                   ))
                 )}
 
-                {!pickerOpen && !adHocOpen && (
+                {canEdit && !pickerOpen && !adHocOpen && (
                   <div className="flex gap-2 pt-1">
                     <button
                       className="flex-1 rounded-md border border-dashed border-border/60 py-1.5 text-xs text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors"

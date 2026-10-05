@@ -36,7 +36,11 @@ export interface ProposalRow {
   }
 }
 
-export function ProposalsTable({ proposals }: { proposals: ProposalRow[] }) {
+export function ProposalsTable({ proposals, editableProjectIds = null }: {
+  proposals: ProposalRow[]
+  /** Projects whose proposals this person may change (Proposals EDIT); null = all. */
+  editableProjectIds?: string[] | null
+}) {
   const router = useRouter()
   const [deleting, setDeleting] = useState<string | null>(null)
   const [_, startDelete]        = useTransition()
@@ -121,7 +125,7 @@ export function ProposalsTable({ proposals }: { proposals: ProposalRow[] }) {
                     >
                       <ExternalLink className="h-3.5 w-3.5" />
                     </a>
-                    <button
+                    {(editableProjectIds === null || editableProjectIds.includes(p.project.id)) && <button
                       type="button"
                       disabled={isDeleting}
                       onClick={() => handleDelete(p.id)}
@@ -129,7 +133,7 @@ export function ProposalsTable({ proposals }: { proposals: ProposalRow[] }) {
                       title="Delete proposal"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    </button>}
                   </div>
                 </td>
               </tr>

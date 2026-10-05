@@ -10,8 +10,8 @@ import { cache } from 'react'
 import { notFound } from 'next/navigation'
 import { db } from '@/lib/db'
 import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
-import { getProjectAccess } from '@/lib/access'
-import type { ProjectArea } from '@/lib/permissions'
+import { getAccess, getProjectAccess } from '@/lib/access'
+import type { ProjectArea, WorkspaceArea } from '@/lib/permissions'
 
 /**
  * Whether the signed-in user may open this project. Non-throwing — for API
@@ -55,3 +55,13 @@ export async function requireProjectArea(projectId: string, area: ProjectArea) {
   return access
 }
 
+
+/**
+ * Roles Phase 2: a workspace page on the new permissions — 404 unless the
+ * viewer has at least VIEW on its workspace area.
+ */
+export async function requireWorkspaceArea(area: WorkspaceArea) {
+  const access = await getAccess()
+  if (!access.can(area)) notFound()
+  return access
+}

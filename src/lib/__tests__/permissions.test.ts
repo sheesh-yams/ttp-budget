@@ -1,5 +1,5 @@
 import {
-  atLeast, maxLevel, applyProjectDependencies, resolveProjectPermissions,
+  atLeast, maxLevel, applyProjectDependencies, resolveProjectPermissions, unmetViewRequirements,
   readProjectPermissions, readWorkspacePermissions,
   WORKSPACE_ROLE_PRESETS, PROJECT_ROLE_PRESETS, PROJECT_AREA_KEYS, WORKSPACE_AREA_KEYS,
   MAX_ROLES, workspacePresetFor,
@@ -70,7 +70,8 @@ describe('resolveProjectPermissions (baseline + project roles add)', () => {
     const r = resolveProjectPermissions(collab, [vendor, viewer])
     expect(r.crew).toBe('EDIT')
     expect(r.dealMemos).toBe('EDIT')
-    expect(r.actuals).toBe('VIEW')
+    // Actuals needs Budget costs visible — with costs NONE it's switched off.
+    expect(r.actuals).toBe('NONE')
     expect(r['budget.costs']).toBe('NONE')
   })
 
@@ -81,6 +82,42 @@ describe('resolveProjectPermissions (baseline + project roles add)', () => {
     expect(r['budget.costs']).toBe('NONE')
     expect(r['budget.margin']).toBe('NONE')
     expect(r.invoices).toBe('NONE')
+  })
+})
+
+describe('actuals needs Budget costs visible (view requirement)', () => {
+  const lines = { ...none, 'budget.lines': 'VIEW' } as ProjectPermissions
+
+  it('Actuals EDIT with costs VIEW stays EDIT — view the budget, edit actuals', () => {
+    const r = resolveProjectPermissions(none, [{ ...lines, 'budget.costs': 'VIEW', actuals: 'EDIT', dealMemos: 'EDIT' } as ProjectPermissions])
+    expect(r.actuals).toBe('EDIT')
+    expect(r['budget.costs']).toBe('VIEW')
+    expect(r['budget.lines']).toBe('VIEW')
+    expect(r.dealMemos).toBe('EDIT')
+    expect(r['budget.margin']).toBe('NONE')
+  })
+
+  it('Actuals EDIT with costs NONE is switched off', () => {
+    const r = resolveProjectPermissions(none, [{ ...lines, actuals: 'EDIT' } as ProjectPermissions])
+    expect(r.actuals).toBe('NONE')
+  })
+
+  it('combines across roles: costs from the baseline, actuals from a project role', () => {
+    const baseline = { ...lines, 'budget.costs': 'VIEW' } as ProjectPermissions
+    const r = resolveProjectPermissions(baseline, [{ ...none, actuals: 'EDIT' } as ProjectPermissions])
+    expect(r.actuals).toBe('EDIT')
+  })
+
+  it('does not cap a single stored role on read (it may rely on another role)', () => {
+    const stored = readProjectPermissions({ actuals: 'EDIT' })
+    expect(stored.actuals).toBe('EDIT')
+    expect(unmetViewRequirements(stored)).toEqual([{ area: 'actuals', requires: 'budget.costs' }])
+    expect(unmetViewRequirements({ ...stored, 'budget.lines': 'VIEW', 'budget.costs': 'VIEW' })).toEqual([])
+  })
+
+  it('presets are unaffected (Producer/Owner keep actuals EDIT, Project Manager too)', () => {
+    expect(resolveProjectPermissions(preset('PRODUCER').projectBaseline, []).actuals).toBe('EDIT')
+    expect(resolveProjectPermissions(preset('COLLABORATOR').projectBaseline, [projectPreset('PROJECT_MANAGER').permissions]).actuals).toBe('EDIT')
   })
 })
 

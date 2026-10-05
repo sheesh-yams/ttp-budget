@@ -56,14 +56,13 @@ export default async function ProjectDetailPage({
   ])
   if (!projectAccess) notFound()
   // What this person may see here (workspace role baseline + project roles).
-  // Proposals, invoices and actuals aren't on the new permissions yet (their
-  // actions and pages still check the legacy role), so they need both.
-  const legacyMoney = currentUser.role !== 'COLLABORATOR'
   const can = {
-    proposals:  legacyMoney && projectAccess.can('proposals'),
-    invoices:   legacyMoney && projectAccess.can('invoices'),
-    // Profit / margin are only meaningful against the real (with-fee) total.
-    actuals:    legacyMoney && projectAccess.can('actuals') && projectAccess.can('budget.margin'),
+    proposals:  projectAccess.can('proposals'),
+    proposalsEdit: projectAccess.can('proposals', 'EDIT'),
+    invoices:   projectAccess.can('invoices'),
+    invoicesEdit: projectAccess.can('invoices', 'EDIT'),
+    // The actuals summary is profit / margin — only against the real (with-fee) total.
+    actuals:    projectAccess.can('actuals') && projectAccess.can('budget.margin'),
     lines:      projectAccess.can('budget.lines'),
     linesEdit:  projectAccess.can('budget.lines', 'EDIT'),
     costs:      projectAccess.can('budget.costs'),
@@ -192,41 +191,41 @@ export default async function ProjectDetailPage({
   })
 
   // Gross total from primary phase (includes budget-level markup + agency fee)
-  let grandTotalCents = 0   // kept for back-compat with proposal components
-  let grossTotalCents = 0
-  if (budget) {
-    const primaryPhase = budget.phases.find(p => p.isPrimary) ?? budget.phases[0]
-    if (primaryPhase) {
-      const netCents  = primaryPhase.accounts.reduce(
-        (sum, acc) => sum + sumAccount(acc as unknown as AccountInput), 0
-      )
-      const markupPct = Number((budget as unknown as { markupPct?: number | null }).markupPct ?? 0)
-      const taxPct    = Number((budget as unknown as { taxPct?: number | null }).taxPct ?? 0)
-      const budgetDiscount = budget as unknown as {
-        discountType?: string | null; discountLabel?: string | null
-        discountValueCents?: number | null; discountValuePct?: number | null
-      }
-      const discountConfig: BudgetDiscountConfig | null = budgetDiscount.discountType ? {
-        type:       budgetDiscount.discountType as 'flat' | 'pct',
-        label:      budgetDiscount.discountLabel,
-        valueCents: budgetDiscount.discountValueCents,
-        valuePct:   budgetDiscount.discountValuePct != null ? Number(budgetDiscount.discountValuePct) : null,
-      } : null
-      if (markupPct > 0 || taxPct > 0 || discountConfig) {
-        const totals = calcBudgetTotals(
-          primaryPhase.accounts as unknown as AccountInput[],
-          markupPct,
-          taxPct,
-          discountConfig,
-        )
-        grandTotalCents = totals.grandTotalCents
-        grossTotalCents = totals.grandTotalCents
-      } else {
-        grandTotalCents = netCents
-        grossTotalCents = netCents
-      }
+  // Grand total of a budget's primary phase (net + markup − discount + tax).
+  function primaryGrandTotal(b: typeof budget): number {
+    if (!b) return 0
+    const primaryPhase = b.phases.find(p => p.isPrimary) ?? b.phases[0]
+    if (!primaryPhase) return 0
+    const netCents  = primaryPhase.accounts.reduce(
+      (sum, acc) => sum + sumAccount(acc as unknown as AccountInput), 0
+    )
+    const markupPct = Number((b as unknown as { markupPct?: number | null }).markupPct ?? 0)
+    const taxPct    = Number((b as unknown as { taxPct?: number | null }).taxPct ?? 0)
+    const budgetDiscount = b as unknown as {
+      discountType?: string | null; discountLabel?: string | null
+      discountValueCents?: number | null; discountValuePct?: number | null
     }
+    const discountConfig: BudgetDiscountConfig | null = budgetDiscount.discountType ? {
+      type:       budgetDiscount.discountType as 'flat' | 'pct',
+      label:      budgetDiscount.discountLabel,
+      valueCents: budgetDiscount.discountValueCents,
+      valuePct:   budgetDiscount.discountValuePct != null ? Number(budgetDiscount.discountValuePct) : null,
+    } : null
+    if (markupPct > 0 || taxPct > 0 || discountConfig) {
+      return calcBudgetTotals(primaryPhase.accounts as unknown as AccountInput[], markupPct, taxPct, discountConfig).grandTotalCents
+    }
+    return netCents
   }
+
+  // From the budget as this person may see it (stripped without margin/costs).
+  const grandTotalCents = primaryGrandTotal(budget)   // kept for back-compat with proposal components
+  const grossTotalCents = grandTotalCents
+  // The client price — what proposals and invoices are built on. Proposals and
+  // Invoices are their own areas (not budget margin), so editors there get the
+  // real total even when their budget view is stripped (roles Phase 2a).
+  const clientTotalCents = (can.proposalsEdit || can.invoicesEdit)
+    ? primaryGrandTotal((project.budgets[0] ?? null) as unknown as typeof budget)
+    : grandTotalCents
 
   // Billed from invoices: sum of SENT / VIEWED / OVERDUE / PAID (not DRAFT, not VOID)
   const billedFromInvoicesCents = project.invoices
@@ -434,9 +433,12 @@ export default async function ProjectDetailPage({
           projectName={project.name}
           clientId={project.clientId}
           budgetId={budget?.id ?? null}
-          totalCents={grandTotalCents}
+          totalCents={clientTotalCents}
           proposalExpiryDays={workspaceDefaults?.proposalExpiryDays ?? 30}
           invoiceExpiryDays={workspaceDefaults?.invoiceExpiryDays ?? 30}
+          allowEdit={can.proposalsEdit}
+          allowInvoice={can.invoicesEdit}
+          contractAccess={projectAccess.permissions.contract}
         />
       </section>}
 
@@ -444,6 +446,7 @@ export default async function ProjectDetailPage({
         <ProjectInvoices
           invoices={project.invoices as never}
           projectId={project.id}
+          allowEdit={can.invoicesEdit}
         />
       </section>}
 

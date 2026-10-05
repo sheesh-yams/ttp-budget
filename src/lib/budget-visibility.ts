@@ -27,7 +27,8 @@ type BudgetLike   = Record<string, unknown> & {
   discountType?: unknown; discountLabel?: unknown; discountValueCents?: unknown; discountValuePct?: unknown
 }
 
-function stripAccount<A extends AccountLike>(acc: A): A {
+/** One account tree without markup (per-line markup / agency fee removed). */
+export function stripAccount<A extends AccountLike>(acc: A): A {
   return {
     ...acc,
     lineItems: (acc.lineItems ?? []).map(li => ({

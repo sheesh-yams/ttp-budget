@@ -4,7 +4,8 @@ import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
 import { getScopedDb } from '@/lib/db-scoped'
 import type { ScopedDb } from '@/lib/db-scoped'
-import { getCurrentUser, requireRole } from '@/lib/auth'
+import { getCurrentUser } from '@/lib/auth'
+import { requireMoneyPermission } from '@/lib/money-access'
 import { calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 import type { ActionResult } from '@/types'
 import { logAuditEvent } from '@/lib/audit'
@@ -122,7 +123,8 @@ export async function createProposal(
   title: string
 ): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ budgetId }, 'proposals', 'EDIT')
+    if (gate.ok && gate.projectId !== projectId) return { success: false, error: 'Not found' }
     if (!gate.ok) return gate.error
 
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
@@ -170,7 +172,7 @@ export async function updateProposalContent(
   content: Record<string, unknown>
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ proposalId }, 'proposals', 'EDIT')
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()
@@ -190,7 +192,7 @@ export async function updateProposalContent(
 /** Re-send an already-SENT proposal's email (e.g. a "Resend" action). Always emails. */
 export async function sendProposal(proposalId: string): Promise<ActionResult<{ publicUrl: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ proposalId }, 'proposals', 'EDIT')
     if (!gate.ok) return gate.error
 
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
@@ -318,7 +320,8 @@ export async function createSentProposal(input: {
   sendEmail: boolean
 }): Promise<ActionResult<{ id: string; publicToken: string; publicUrl: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ budgetId: input?.budgetId }, 'proposals', 'EDIT')
+    if (gate.ok && gate.projectId !== input?.projectId) return { success: false, error: 'Not found' }
     if (!gate.ok) return gate.error
 
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
@@ -443,7 +446,8 @@ export async function createDraftProposal(input: {
   recipientEmails?: string[]
 }): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ budgetId: input?.budgetId }, 'proposals', 'EDIT')
+    if (gate.ok && gate.projectId !== input?.projectId) return { success: false, error: 'Not found' }
     if (!gate.ok) return gate.error
 
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
@@ -505,7 +509,7 @@ export async function updateDraftProposal(
   }
 ): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ proposalId }, 'proposals', 'EDIT')
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()
@@ -553,7 +557,7 @@ export async function sendDraftProposal(
   sendEmail: boolean,
 ): Promise<ActionResult<{ publicToken: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ proposalId }, 'proposals', 'EDIT')
     if (!gate.ok) return gate.error
 
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
@@ -658,7 +662,7 @@ export async function createProposalRevision(
   proposalId: string
 ): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ proposalId }, 'proposals', 'EDIT')
     if (!gate.ok) return gate.error
 
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
@@ -763,7 +767,7 @@ export async function updateProposalStatus(
   status: string
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ proposalId }, 'proposals', 'EDIT')
     if (!gate.ok) return gate.error
 
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
@@ -862,7 +866,7 @@ export async function markProposalLost(proposalId: string): Promise<ActionResult
 
 export async function deleteProposal(proposalId: string): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ proposalId }, 'proposals', 'EDIT')
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()
@@ -886,7 +890,7 @@ export async function updateProposalBranding(
   brandOverrides: Record<string, unknown>
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireMoneyPermission({ proposalId }, 'proposals', 'EDIT')
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()

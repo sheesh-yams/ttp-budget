@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { getScopedDb } from '@/lib/db-scoped'
-import { getWorkspaceId, requireRole } from '@/lib/auth'
+import { getWorkspaceId } from '@/lib/auth'
+import { requireMoneyPermission } from '@/lib/money-access'
 import { evaluateContractTriggers } from '@/lib/contract-triggers'
 import type { ActionResult } from '@/types'
 import type { ScopeItem, ProposalContent } from '@/types'
@@ -67,7 +68,6 @@ const CONTRACT_LOCKED_ERROR = 'This proposal has been signed — the contract ca
 
 // Contract terms are part of what the client signs — same edit rights as
 // sending the proposal itself (OWNER/PRODUCER; Collaborators are read-only).
-const EDITOR_ROLES: ('OWNER' | 'PRODUCER')[] = ['OWNER', 'PRODUCER']
 
 // Input bounds — a section is a contract clause, not a document dump. Caps keep
 // the PDF renderer and the public page responsive.
@@ -113,8 +113,8 @@ export async function getMergeTagContext(
   proposalId: string,
 ): Promise<ActionResult<MergeTagContext>> {
   try {
-    // Callable directly — Owner/Producer only (client pricing / cost rates).
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    // Callable directly — Contract permission on the proposal's project.
+    const gate = await requireMoneyPermission({ proposalId }, 'contract', 'VIEW')
     if (!gate.ok) return gate.error
     const sdb = await getScopedDb()
 
@@ -176,7 +176,7 @@ export async function setContractEnabled(
   enabled: boolean,
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(EDITOR_ROLES)
+    const gate = await requireMoneyPermission({ proposalId }, 'contract', 'EDIT')
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()
@@ -204,6 +204,8 @@ export async function listContractSections(
   proposalId: string
 ): Promise<ActionResult<ContractSectionRow[]>> {
   try {
+    const gate = await requireMoneyPermission({ proposalId }, 'contract', 'VIEW')
+    if (!gate.ok) return gate.error
     const sdb = await getScopedDb()
     const rows = await (sdb as unknown as {
       proposalContractSection: {
@@ -225,6 +227,8 @@ export async function evaluateProposalContractTriggers(
   proposalId: string
 ): Promise<ActionResult<EvaluateResult>> {
   try {
+    const gate = await requireMoneyPermission({ proposalId }, 'contract', 'VIEW')
+    if (!gate.ok) return gate.error
     const sdb = await getScopedDb()
 
     type BlockRow = {
@@ -277,7 +281,7 @@ export async function attachDefaultBlocks(
   proposalId: string
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(EDITOR_ROLES)
+    const gate = await requireMoneyPermission({ proposalId }, 'contract', 'EDIT')
     if (!gate.ok) return gate.error
 
     const workspaceId = await getWorkspaceId()
@@ -334,7 +338,7 @@ export async function attachContractBlock(
   source:     AttachSource = 'MANUAL',
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    const gate = await requireRole(EDITOR_ROLES)
+    const gate = await requireMoneyPermission({ proposalId }, 'contract', 'EDIT')
     if (!gate.ok) return gate.error
 
     const workspaceId = await getWorkspaceId()
@@ -390,7 +394,7 @@ export async function addAdHocSection(
   body:       string,
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    const gate = await requireRole(EDITOR_ROLES)
+    const gate = await requireMoneyPermission({ proposalId }, 'contract', 'EDIT')
     if (!gate.ok) return gate.error
 
     const invalid = validateSectionInput(title, body)
@@ -444,7 +448,7 @@ export async function updateContractSection(
   body:      string,
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(EDITOR_ROLES)
+    const gate = await requireMoneyPermission({ contractSectionId: sectionId }, 'contract', 'EDIT')
     if (!gate.ok) return gate.error
 
     const invalid = validateSectionInput(title, body)
@@ -488,7 +492,7 @@ export async function updateContractSection(
 
 export async function resetContractSection(sectionId: string): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(EDITOR_ROLES)
+    const gate = await requireMoneyPermission({ contractSectionId: sectionId }, 'contract', 'EDIT')
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()
@@ -531,7 +535,7 @@ export async function resetContractSection(sectionId: string): Promise<ActionRes
 
 export async function removeContractSection(sectionId: string): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(EDITOR_ROLES)
+    const gate = await requireMoneyPermission({ contractSectionId: sectionId }, 'contract', 'EDIT')
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()
@@ -558,7 +562,7 @@ export async function reorderContractSections(
   try {
     if (orderedIds.length === 0) return { success: true, data: undefined }
 
-    const gate = await requireRole(EDITOR_ROLES)
+    const gate = await requireMoneyPermission({ contractSectionId: orderedIds[0] }, 'contract', 'EDIT')
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()
