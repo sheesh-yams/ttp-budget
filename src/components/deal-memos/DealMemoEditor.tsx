@@ -60,6 +60,8 @@ interface Props {
     signatureEmail:   string | null
     /** Live terms differ from what the vendor was sent. */
     changedSinceSent: boolean
+    /** The signed PDF (set once signed). */
+    pdfUrl:           string | null
   }
 }
 
@@ -190,6 +192,9 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
         <p className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
           Signed by <span className="font-semibold">{vendor.signatureName}</span> ({vendor.signatureEmail}) on {fmtWhen(vendor.signedAt!)}.
           The terms are locked — cancel the deal memo to change them.
+          {vendor.pdfUrl && (
+            <> <a href={vendor.pdfUrl} target="_blank" rel="noreferrer" className="font-medium underline underline-offset-2">Download PDF</a></>
+          )}
           {vendor.changedSinceSent && (
             <span className="mt-1 block text-amber-800">
               The terms below changed after it was sent and differ from what they signed. The signed version

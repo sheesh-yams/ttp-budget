@@ -23,6 +23,7 @@ const isPublicRoute = createRouteMatcher([
   // wrap-report and any future internal PDF routes intentionally omitted — they require Clerk auth.
   '/api/pdf/proposal/(.*)',
   '/api/pdf/invoice/(.*)',
+  '/api/pdf/deal-memo/(.*)',   // signed deal memo PDF — token-authenticated at the route level
   '/api/payments/(.*)',         // payment routes self-authenticate via publicToken / attemptId
   '/api/proposals/(.*)/approve', // public client sign-off — self-authenticates via proposal publicToken
   '/api/deal-memos/(.*)/sign',   // public vendor sign-off — self-authenticates via deal memo publicToken
@@ -56,7 +57,7 @@ function clientIp(req: NextRequest): string {
 
 function policyFor(pathname: string): PolicyName | null {
   if (/^\/(p|i|cs|d|dm)\//.test(pathname))                                            return 'publicDoc'
-  if (pathname.startsWith('/api/pdf/proposal/') || pathname.startsWith('/api/pdf/invoice/')) return 'publicPdf'
+  if (pathname.startsWith('/api/pdf/proposal/') || pathname.startsWith('/api/pdf/invoice/') || pathname.startsWith('/api/pdf/deal-memo/')) return 'publicPdf'
   if (pathname.startsWith('/api/payments/'))                                           return 'payments'
   if (pathname.startsWith('/api/proposals/') && pathname.endsWith('/approve'))          return 'approve'
   if (pathname.startsWith('/api/deal-memos/') && pathname.endsWith('/sign'))            return 'approve'

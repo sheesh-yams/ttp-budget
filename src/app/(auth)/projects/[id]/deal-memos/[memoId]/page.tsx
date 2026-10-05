@@ -71,6 +71,7 @@ export default async function DealMemoPage({ params }: { params: Promise<{ id: s
     signedAt:         memo.signedAt?.toISOString() ?? null,
     url:              memo.publicToken && memo.sentAt ? `${app}/dm/${memo.publicToken}` : null,
     contactEmail:     memo.contact?.email ?? null,
+    pdfUrl:           memo.publicToken && memo.signedAt ? `${app}/api/pdf/deal-memo/${memo.publicToken}` : null,
     firstViewedAt:    memo.firstViewedAt?.toISOString() ?? null,
     signatureName:    memo.signatureName,
     signatureEmail:   memo.signatureEmail,

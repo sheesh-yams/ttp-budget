@@ -127,9 +127,10 @@ function fmtDate(d: string | null) {
 // react-pdf renders plain text only, so we strip inline markers and convert
 // list prefixes to visible characters.
 
-interface PdfLine { text: string; bullet?: boolean; numbered?: string }
+// Exported for the deal memo PDF, which renders the same smart-text.
+export interface PdfLine { text: string; bullet?: boolean; numbered?: string }
 
-function parsePdfLines(raw: string): PdfLine[] {
+export function parsePdfLines(raw: string): PdfLine[] {
   return raw.split('\n').map(line => {
     if (/^- /.test(line)) return { text: stripInline(line.slice(2)), bullet: true }
     const numMatch = line.match(/^(\d+)\. (.*)/)

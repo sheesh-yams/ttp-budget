@@ -126,6 +126,45 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-05 — Deal memos: signed PDF emailed to the vendor and the sender
+- **On signing,** `renderSignedDealMemoPdf` (`src/lib/deal-memo-pdf.ts`)
+  renders `DealMemoPDF` (react-pdf) from the frozen `sentSnapshot` plus the
+  signature:
+  - name and email, date and time, signer IP
+  - the workspace logo (png/jpeg via data URI) or name
+  - Name/Role header, fees, terms
+  - a "cancelled" banner if it applies
+- The PDF is attached to both post-sign emails (Resend `attachments`). A
+  render failure only drops the attachment; the signature and emails still
+  go through.
+- **The team email now goes to the person who sent it:**
+  `loadDealMemoSender` takes the latest `dealMemo.sent` audit actor, then
+  the creator. They must still have a `WorkspaceMember` row, so a removed
+  producer gets nothing. The last fallback is the workspace contact email.
+  Previously the email went to the creator.
+- **Download any time:** `GET /api/pdf/deal-memo/[token]` (public,
+  `publicPdf` rate limit) serves signed memos only. Links:
+  - "Download PDF" on `/dm/[token]`
+  - the editor's Signed banner
+  - The header uses an ASCII `filename` plus a UTF-8 `filename*` (curly
+    apostrophes would otherwise throw).
+- **Fixed:** `sendDealMemoSignedEmails` ignored Resend's `{ error }`
+  results; it now uses `checkSend`.
+  - Found locally: the from domain isn't verified in local `.env`, so
+    signed emails never actually sent from dev. Production is unaffected.
+- `parsePdfLines` is now exported from `ProposalPDF` for reuse.
+- **Verified:**
+  - The PDF rendered and was inspected visually.
+  - Sender resolution: audit actor beats creator; contact fallback;
+    non-members rejected.
+  - Sign E2E: PDF route 404 before signing, 200 `application/pdf` after.
+  - Resend accepted a send with the PDF attached (test sender to
+    `delivered@resend.dev`).
+- **pitfall-reviewer:** the sender lookup was missing a membership check
+  (ex-member leak), and non-Latin-1 filenames returned 500. Both fixed.
+- **Follow-up:** `loadLogo` adds up to 4s to the sign request when the logo
+  host is slow.
+
 ### 2026-10-05 — Deal memos: Role shown under the vendor's name
 - The vendor document (`DealMemoDocument`, used by `/dm/[token]` and
   "Preview as vendor") now shows **Name** with **Role** beneath it, instead

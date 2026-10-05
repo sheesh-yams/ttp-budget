@@ -7,6 +7,7 @@ import { logAuditEvent } from '@/lib/audit'
 import { trustedClientIp } from '@/lib/client-ip'
 import { sendDealMemoSignedEmails } from '@/lib/email'
 import { isDealMemoOutdated, normEmail } from '@/lib/deal-memo-signing'
+import { loadDealMemoSender, renderSignedDealMemoPdf } from '@/lib/deal-memo-pdf'
 
 // Public vendor e-signature for a deal memo — no session. Mirrors the proposal
 // approve route: the token proves the link, the signer must use the email the
@@ -37,7 +38,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       publicTokenExpiresAt: true, sentAt: true, sentToEmail: true, sentSnapshot: true, signedAt: true, createdById: true,
       contact:   { select: { name: true } },
       project:   { select: { name: true } },
-      workspace: { select: { name: true, contactEmail: true, primaryColor: true, accentColor: true } },
+      workspace: { select: { name: true, contactEmail: true, primaryColor: true, accentColor: true, logoUrl: true } },
     },
   })
   if (!memo) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -81,13 +82,26 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     metadata: { signatureName, signatureEmail: normEmail(signatureEmail), signatureIp: ip, agreedToTerms: true },
   })
 
+  // The signed PDF, attached to both emails. A render failure only drops the
+  // attachment — the signature stands and the emails still go out.
+  let pdf: { filename: string; buffer: Buffer } | undefined
   try {
-    const sender = memo.createdById
-      ? await db.user.findFirst({ where: { id: memo.createdById, workspaceId: memo.workspaceId }, select: { email: true, name: true } })
-      : null
+    pdf = await renderSignedDealMemoPdf({
+      sentSnapshot: memo.sentSnapshot, signedAt: now, signatureName,
+      signatureEmail: normEmail(signatureEmail), signatureIp: ip, workspace: memo.workspace,
+    })
+  } catch (err) {
+    console.error('[deal memo sign] PDF render failed (sending without attachment):', memo.id, err)
+  }
+
+  try {
+    // "The person who sent it" — latest dealMemo.sent actor, else creator, else workspace contact.
+    const sender = await loadDealMemoSender({
+      id: memo.id, workspaceId: memo.workspaceId, createdById: memo.createdById, workspaceContactEmail: memo.workspace.contactEmail,
+    })
     const app = (process.env.NEXT_PUBLIC_APP_URL ?? '').replace(/\/$/, '')
     await sendDealMemoSignedEmails({
-      vendorTo: memo.sentToEmail, teamTo: sender?.email ?? memo.workspace.contactEmail ?? null,
+      vendorTo: memo.sentToEmail, teamTo: sender?.email ?? null, pdf,
       vendorName: memo.contact?.name ?? signatureName, signatureName,
       position: memo.position, projectName: memo.project.name,
       vendorUrl: `${app}/dm/${token}`, teamUrl: `${app}/projects/${memo.projectId}/deal-memos/${memo.id}`,

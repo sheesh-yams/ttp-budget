@@ -708,22 +708,27 @@ export async function sendDealMemoEmail(p: DealMemoBrand & {
 export async function sendDealMemoSignedEmails(p: DealMemoBrand & {
   vendorTo: string; teamTo: string | null; vendorName: string; signatureName: string
   position: string; projectName: string; vendorUrl: string; teamUrl: string; signedAt: Date
+  /** The signed PDF — attached to both emails when rendering succeeded. */
+  pdf?: { filename: string; buffer: Buffer }
 }): Promise<void> {
   const primary = p.brandPrimary || '#5D00A4'
   const accent  = p.brandAccent  || '#04FFCC'
   const brand   = p.workspaceName || 'SlateSuite'
   const when    = format(p.signedAt, "MMMM d, yyyy 'at' h:mm a")
-  const sends: Promise<unknown>[] = [
+  const attachments = p.pdf ? [{ filename: p.pdf.filename, content: p.pdf.buffer }] : undefined
+  const attachedNote = p.pdf ? ' A signed PDF copy is attached.' : ''
+  const sends: ReturnType<typeof resend.emails.send>[] = [
     resend.emails.send({
       from: buildFrom(null, p.workspaceName),
       to:   p.vendorTo,
       ...(p.actorEmail ? { replyTo: p.actorEmail } : {}),
       subject: `Signed: your deal memo for ${p.projectName}`,
+      attachments,
       html: dealMemoShell({
         brandName: brand, primary, accent, eyebrow: 'Deal memo signed', title: `${p.position} — ${p.projectName}`,
         body: `
           <p style="margin:0 0 24px;font-size:15px;color:#555;line-height:1.6">
-            Thanks, ${esc(p.signatureName)} — your deal memo was signed on ${esc(when)}. You can view the signed copy any time:
+            Thanks, ${esc(p.signatureName)} — your deal memo was signed on ${esc(when)}.${attachedNote} You can also view it online any time:
           </p>
           ${button(p.vendorUrl, 'View signed deal memo', primary)}`,
       }),
@@ -734,17 +739,18 @@ export async function sendDealMemoSignedEmails(p: DealMemoBrand & {
       from: buildFrom(null, p.workspaceName),
       to:   p.teamTo,
       subject: `${p.vendorName} signed their deal memo (${p.position})`,
+      attachments,
       html: dealMemoShell({
         brandName: brand, primary, accent, eyebrow: 'Deal memo signed', title: `${p.position} — ${p.projectName}`,
         body: `
           <p style="margin:0 0 24px;font-size:15px;color:#555;line-height:1.6">
-            <strong>${esc(p.signatureName)}</strong> signed the deal memo for <strong>${esc(p.position)}</strong> on ${esc(when)}.
+            <strong>${esc(p.signatureName)}</strong> signed the deal memo for <strong>${esc(p.position)}</strong> on ${esc(when)}.${attachedNote}
           </p>
           ${button(p.teamUrl, 'Open deal memo', primary)}`,
       }),
     }))
   }
-  await Promise.all(sends)
+  await Promise.all(sends.map(send => send.then(checkSend)))
 }
 
 /** Tells the vendor a deal memo they were sent has been cancelled. */

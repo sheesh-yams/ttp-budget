@@ -80,6 +80,13 @@ export default async function VendorDealMemoPage({ params }: { params: Promise<{
                 <p className="mt-0.5 text-sm text-emerald-800">
                   Signed by <span className="font-semibold">{memo.signatureName}</span> on {fmt(memo.signedAt!)}.
                 </p>
+                <a
+                  href={`/api/pdf/deal-memo/${token}`} target="_blank" rel="noreferrer"
+                  className="mt-2 inline-block text-sm font-semibold underline underline-offset-2 print:hidden"
+                  style={{ color: brand }}
+                >
+                  Download PDF
+                </a>
               </div>
             ) : cancelled ? null : outdated ? (
               <p className="text-sm text-[#888780]">Signing is paused until you receive the updated deal memo.</p>
