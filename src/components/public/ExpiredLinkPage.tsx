@@ -1,13 +1,14 @@
 import { Clock } from 'lucide-react'
 
 interface Props {
-  type: 'proposal' | 'invoice' | 'call-sheet'
+  type: 'proposal' | 'invoice' | 'call-sheet' | 'deal-memo'
 }
 
 const COPY = {
   proposal:   { noun: 'proposal',   verb: 'proposal' },
   invoice:    { noun: 'invoice',    verb: 'invoice'  },
   'call-sheet': { noun: 'call sheet', verb: 'call sheet' },
+  'deal-memo':  { noun: 'deal memo',  verb: 'deal memo' },
 }
 
 export function ExpiredLinkPage({ type }: Props) {

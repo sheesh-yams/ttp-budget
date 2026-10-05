@@ -55,13 +55,13 @@ export default async function ProjectTeamPage({
     const memos = await db.dealMemo.findMany({
       where:   { projectId: id, workspaceId, status: { in: ['CONFIRMED', 'BID'] } },
       orderBy: { updatedAt: 'desc' },
-      select:  { id: true, status: true, projectMemberId: true, contactId: true },
+      select:  { id: true, status: true, projectMemberId: true, contactId: true, signedAt: true },
     })
     dealMemos = {}
     for (const m of members) {
       const mine = memos.filter(x => x.projectMemberId === m.id || (m.contactId && x.contactId === m.contactId))
       const pick = mine.find(x => x.status === 'CONFIRMED') ?? mine[0]
-      if (pick) dealMemos[m.id] = { memoId: pick.id, status: pick.status }
+      if (pick) dealMemos[m.id] = { memoId: pick.id, status: pick.status, signed: !!pick.signedAt }
     }
   }
 

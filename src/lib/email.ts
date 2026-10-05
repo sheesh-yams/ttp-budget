@@ -627,3 +627,150 @@ export async function sendInvoiceEmail(payload: InvoiceSentPayload): Promise<{ i
   })
   return checkSend(result)
 }
+
+// ─── Deal memos (vendor link + e-signature) ──────────────────────────────────
+
+/** Escape text interpolated into email HTML (names, titles are user input). */
+function esc(s: string | null | undefined): string {
+  return (s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
+}
+
+function dealMemoShell(opts: {
+  brandName: string; primary: string; accent: string; eyebrow: string; title: string; body: string
+}): string {
+  return `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#F7F4FA;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F7F4FA;padding:40px 0">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #E8E3EF">
+        <tr><td style="background:#0A0612;padding:28px 36px">
+          <p style="margin:0;font-size:13px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:${opts.accent}">${esc(opts.brandName)}</p>
+        </td></tr>
+        <tr><td style="background:${opts.primary};padding:12px 36px">
+          <p style="margin:0;font-size:11px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:rgba(255,255,255,0.7)">${esc(opts.eyebrow)}</p>
+          <p style="margin:4px 0 0;font-size:20px;font-weight:700;color:#fff;letter-spacing:-0.02em">${esc(opts.title)}</p>
+        </td></tr>
+        <tr><td style="padding:32px 36px">${opts.body}</td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`
+}
+
+function button(url: string, label: string, color: string): string {
+  return `<table cellpadding="0" cellspacing="0" style="margin-top:8px"><tr><td>
+    <a href="${esc(url)}" style="display:inline-block;background:${color};color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;padding:13px 28px;border-radius:8px">${esc(label)}</a>
+  </td></tr></table>
+  <p style="margin:14px 0 0;font-size:12px;color:#aaa">Or copy this link: <a href="${esc(url)}" style="color:${color};word-break:break-all">${esc(url)}</a></p>`
+}
+
+interface DealMemoBrand {
+  workspaceName?: string | null
+  brandPrimary?:  string | null
+  brandAccent?:   string | null
+  actorName?:     string | null
+  actorEmail?:    string | null
+}
+
+/** The vendor's link to review and sign their deal memo. */
+export async function sendDealMemoEmail(p: DealMemoBrand & {
+  to: string; vendorName: string; position: string; projectName: string; url: string; expiresAt?: Date | null
+}): Promise<{ id: string }> {
+  const primary = p.brandPrimary || '#5D00A4'
+  const accent  = p.brandAccent  || '#04FFCC'
+  const brand   = p.workspaceName || 'SlateSuite'
+  const result = await resend.emails.send({
+    from: buildFrom(p.actorName, p.workspaceName),
+    to:   p.to,
+    ...(p.actorEmail ? { replyTo: p.actorEmail, cc: [p.actorEmail] } : {}),
+    subject: `Deal memo for ${p.projectName}: ${p.position}`,
+    html: dealMemoShell({
+      brandName: brand, primary, accent, eyebrow: 'Deal memo', title: `${p.position} — ${p.projectName}`,
+      body: `
+        <p style="margin:0 0 8px;font-size:22px;font-weight:700;color:#0A0612">Hi ${esc(p.vendorName.split(' ')[0] || p.vendorName)},</p>
+        <p style="margin:0 0 24px;font-size:15px;color:#555;line-height:1.6">
+          ${p.actorName ? `${esc(p.actorName)} sent` : 'Here is'} your deal memo for <strong>${esc(p.position)}</strong> on
+          <strong>${esc(p.projectName)}</strong>. Please review the rates and terms, then sign at the bottom of the page.
+        </p>
+        ${button(p.url, 'Review & sign →', primary)}
+        ${p.expiresAt ? `<p style="margin:14px 0 0;font-size:12px;color:#aaa">This link works until ${format(p.expiresAt, 'MMMM d, yyyy')}.</p>` : ''}`,
+    }),
+  })
+  if (result.error) throw new Error(result.error.message)
+  return { id: result.data!.id }
+}
+
+/** After signing: a confirmation to the vendor and a heads-up to the team. */
+export async function sendDealMemoSignedEmails(p: DealMemoBrand & {
+  vendorTo: string; teamTo: string | null; vendorName: string; signatureName: string
+  position: string; projectName: string; vendorUrl: string; teamUrl: string; signedAt: Date
+}): Promise<void> {
+  const primary = p.brandPrimary || '#5D00A4'
+  const accent  = p.brandAccent  || '#04FFCC'
+  const brand   = p.workspaceName || 'SlateSuite'
+  const when    = format(p.signedAt, "MMMM d, yyyy 'at' h:mm a")
+  const sends: Promise<unknown>[] = [
+    resend.emails.send({
+      from: buildFrom(null, p.workspaceName),
+      to:   p.vendorTo,
+      ...(p.actorEmail ? { replyTo: p.actorEmail } : {}),
+      subject: `Signed: your deal memo for ${p.projectName}`,
+      html: dealMemoShell({
+        brandName: brand, primary, accent, eyebrow: 'Deal memo signed', title: `${p.position} — ${p.projectName}`,
+        body: `
+          <p style="margin:0 0 24px;font-size:15px;color:#555;line-height:1.6">
+            Thanks, ${esc(p.signatureName)} — your deal memo was signed on ${esc(when)}. You can view the signed copy any time:
+          </p>
+          ${button(p.vendorUrl, 'View signed deal memo', primary)}`,
+      }),
+    }),
+  ]
+  if (p.teamTo) {
+    sends.push(resend.emails.send({
+      from: buildFrom(null, p.workspaceName),
+      to:   p.teamTo,
+      subject: `${p.vendorName} signed their deal memo (${p.position})`,
+      html: dealMemoShell({
+        brandName: brand, primary, accent, eyebrow: 'Deal memo signed', title: `${p.position} — ${p.projectName}`,
+        body: `
+          <p style="margin:0 0 24px;font-size:15px;color:#555;line-height:1.6">
+            <strong>${esc(p.signatureName)}</strong> signed the deal memo for <strong>${esc(p.position)}</strong> on ${esc(when)}.
+          </p>
+          ${button(p.teamUrl, 'Open deal memo', primary)}`,
+      }),
+    }))
+  }
+  await Promise.all(sends)
+}
+
+/** Tells the vendor a deal memo they were sent has been cancelled. */
+export async function sendDealMemoCancelledEmail(p: DealMemoBrand & {
+  to: string; vendorName: string; position: string; projectName: string
+}): Promise<{ id: string }> {
+  const primary = p.brandPrimary || '#5D00A4'
+  const accent  = p.brandAccent  || '#04FFCC'
+  const brand   = p.workspaceName || 'SlateSuite'
+  const result = await resend.emails.send({
+    from: buildFrom(p.actorName, p.workspaceName),
+    to:   p.to,
+    ...(p.actorEmail ? { replyTo: p.actorEmail } : {}),
+    subject: `Cancelled: deal memo for ${p.projectName}`,
+    html: dealMemoShell({
+      brandName: brand, primary, accent, eyebrow: 'Deal memo cancelled', title: `${p.position} — ${p.projectName}`,
+      body: `
+        <p style="margin:0 0 8px;font-size:15px;color:#555;line-height:1.6">
+          Hi ${esc(p.vendorName.split(' ')[0] || p.vendorName)}, the deal memo for <strong>${esc(p.position)}</strong> on
+          <strong>${esc(p.projectName)}</strong> has been cancelled, and its link no longer works.
+        </p>
+        <p style="margin:16px 0 0;font-size:15px;color:#555;line-height:1.6">
+          ${p.actorName ? `Questions? Reply to this email to reach ${esc(p.actorName)}.` : 'Questions? Reply to this email.'}
+        </p>`,
+    }),
+  })
+  if (result.error) throw new Error(result.error.message)
+  return { id: result.data!.id }
+}

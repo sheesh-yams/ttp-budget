@@ -1818,6 +1818,23 @@ model DealMemo {
   internalNotes String? @db.Text
   createdById   String?
 
+  // ── Vendor link + e-signature (deal memos Phase 2) ──────────────────────
+  // CONFIRMED still means awarded; sent / viewed / signed are these stamps.
+  publicToken          String?   @unique // the vendor link /dm/[token]
+  publicTokenExpiresAt DateTime?
+  sentAt               DateTime?
+  sentToEmail          String?   // the signer must use this address
+  // Frozen VendorDealMemo DTO at send — what the vendor sees and signs.
+  sentSnapshot         Json?
+  firstViewedAt        DateTime?
+  lastViewedAt         DateTime?
+  signedAt             DateTime?
+  signatureName        String?
+  signatureEmail       String?
+  signatureIp          String?
+  cancelledAt          DateTime?
+  cancelledById        String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

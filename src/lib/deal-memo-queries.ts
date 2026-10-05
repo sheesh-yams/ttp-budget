@@ -1,6 +1,7 @@
 // Read-side loaders for the deal memo pages. Take a scoped client so every
 // query stays in-tenant; plain module, not 'use server'.
 
+import type { Prisma } from '@prisma/client'
 import type { ScopedDb } from '@/lib/db-scoped'
 import { CREW_LINE_WHERE, lineHeadcountAndDays, memoExpectedCents } from '@/lib/deal-memo-core'
 
@@ -48,6 +49,7 @@ export type PhaseLine = Awaited<ReturnType<typeof loadPhaseLines>>[number]
 const MEMO_LIST_SELECT = {
   id: true, lineItemId: true, roleLabel: true, position: true, status: true, awardedAt: true,
   days: true, contactId: true, projectMemberId: true, updatedAt: true,
+  sentAt: true, firstViewedAt: true, signedAt: true, sentSnapshot: true,
   contact: { select: { id: true, name: true, primaryRole: true } },
   fees:    { orderBy: { order: 'asc' as const }, select: { kind: true, rateCents: true, unit: true, quantity: true } },
 }
@@ -73,6 +75,13 @@ export async function loadDealMemoBoard(sdb: ScopedDb, projectId: string) {
     }),
   ])
 
+  // A signed memo costs what the vendor signed (the frozen snapshot), not the working rows.
+  const signedExpectedCents = (m: { signedAt: Date | null; sentSnapshot: Prisma.JsonValue | null }): number | null => {
+    if (!m.signedAt || !m.sentSnapshot || typeof m.sentSnapshot !== 'object') return null
+    const v = (m.sentSnapshot as { expectedTotalCents?: unknown }).expectedTotalCents
+    return typeof v === 'number' ? v : null
+  }
+
   const serialiseMemo = (m: (typeof memos)[number]) => {
     const dayRate = m.fees.find(f => f.kind === 'DAY_RATE')
     return {
@@ -85,7 +94,10 @@ export async function loadDealMemoBoard(sdb: ScopedDb, projectId: string) {
       contactId:     m.contactId,
       dayRateCents:  dayRate?.rateCents ?? 0,
       dayRateUnit:   dayRate?.unit ?? 'DAY',
-      expectedCents: memoExpectedCents(m.fees),
+      expectedCents: signedExpectedCents(m) ?? memoExpectedCents(m.fees),
+      sentAt:        m.sentAt?.toISOString() ?? null,
+      firstViewedAt: m.firstViewedAt?.toISOString() ?? null,
+      signedAt:      m.signedAt?.toISOString() ?? null,
     }
   }
 

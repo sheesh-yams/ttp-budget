@@ -28,3 +28,24 @@ export const QTY_NOUN: Record<RateUnit, string> = {
 export const FEE_KIND_LABEL: Record<DealMemoFeeKind, string> = {
   DAY_RATE: 'Day rate', OVERTIME: 'Overtime', KIT: 'Kit', PER_DIEM: 'Per diem', MILEAGE: 'Mileage', CUSTOM: 'Custom',
 }
+
+/**
+ * Where an awarded (CONFIRMED) memo is with the vendor — from its send / view
+ * / signature stamps. Pure, so client components can use it.
+ */
+export type VendorStage = 'awarded' | 'sent' | 'viewed' | 'signed'
+
+export function vendorStage(m: { sentAt: string | Date | null; firstViewedAt: string | Date | null; signedAt: string | Date | null }): VendorStage {
+  if (m.signedAt) return 'signed'
+  if (m.firstViewedAt) return 'viewed'
+  if (m.sentAt) return 'sent'
+  return 'awarded'
+}
+
+export const VENDOR_STAGE_META: Record<VendorStage, { label: string; className: string }> = {
+  awarded: { label: 'Awarded — not sent', className: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  sent:    { label: 'Sent',               className: 'bg-blue-50 text-blue-700 border-blue-200' },
+  viewed:  { label: 'Viewed',             className: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+  signed:  { label: 'Signed',             className: 'bg-emerald-100 text-emerald-800 border-emerald-300' },
+}
+

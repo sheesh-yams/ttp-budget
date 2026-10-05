@@ -126,6 +126,55 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-05 — Deal memos Phase 2: vendor link, e-signature, email, guarded cancel
+- **Before:** Award only flipped an internal status. Nothing reached the
+  vendor.
+- **Flow:**
+  - Award (internal pick, unchanged), then **Send to vendor**. A dialog
+    prefills the contact email, which can be edited.
+  - Sending emails a `/dm/[token]` link (60 days, renewed on re-send, same
+    token) and freezes the vendor DTO into `sentSnapshot`.
+  - Status reads Awarded → Sent → Viewed → Signed in the editor, the board
+    and the crew pill.
+- **Vendor page `/dm/[token]`:**
+  - Public and rate-limited (`publicDoc`). It renders only the frozen
+    snapshot.
+  - Records views only while sent and unsigned.
+  - Signing needs a name, the email it was sent to, and an "I agree" box.
+    `POST /api/deal-memos/[id]/sign` is rate-limited (`approve`), does a
+    compare-and-set, writes an AuditEvent with `actorId: 'public'`, then
+    sends non-fatal confirmation emails to the vendor and the sender (or the
+    workspace contact).
+  - Signing is pinned to the version on screen: the page posts `sentAt`, and
+    a re-send since then gets a 409 "reload".
+- **Signed memos are locked:**
+  - Memo, fee and section writes are refused and re-check `signedAt: null`
+    at write time.
+  - The board's expected cost uses the signed snapshot's total.
+  - The editor flags working terms that drifted from what was signed.
+- **Cancel:**
+  - Type CANCEL (checked on the server).
+  - When the memo was sent, an "email the vendor" box starts ticked.
+  - A cancelled link shows a notice and returns 410 on sign.
+  - `setDealMemoStatus` no longer accepts CANCELLED. Reopen (CANCELLED → BID)
+    clears the link, snapshot and signature.
+- **Migration:** `20261005000001_deal_memo_signing`, all additive nullable
+  columns plus a unique `publicToken`. The user ran it in Neon.
+- **Data:** the Daadi Associate Producer memo was reset to BID for the
+  user's test, with an AuditEvent `dealMemo.reset_to_bid`.
+- **Verified:**
+  - Browser on a throwaway workspace: view, wrong email → 403, sign, signed
+    state.
+  - Re-sign → 409; cancelled → notice and 410.
+  - Stale version → 409; signed-memo writes refused.
+- **pitfall-reviewer** found 1 high (sign against a re-sent version),
+  1 medium (live vs signed terms) and 2 low (write race; no audit on email
+  failure). All fixed.
+- **Follow-ups:**
+  - No PDF of the signed memo yet; the page prints.
+  - New fees/sections created during the sign race aren't guarded (creates
+    can't filter on the parent), but the drift banner shows them.
+
 ### 2026-10-05 — Roles Phase 2 (3/n): schedule, call sheets, delivery enforce permissions
 - New `src/lib/production-access.ts` (`requireProductionPermission`). It
   resolves a shoot day, scene, schedule, entry, delivery page/section/asset/
@@ -453,8 +502,7 @@ Run each through `/feature`. Check the overlap first:
 - pitfall-reviewer found 7 issues pre-ship (user $0 overwritten, receipts
   overwritten, FLAT quantity inflation, stale-line writes, duplicate race,
   cross-role crew clobber, over-award) — all fixed and DB-verified.
-- **Phase 2 (not built):** vendor e-signature via a public `/dm/[token]`
-  page, the approve-route pattern, a PDF and email.
+- **Phase 2:** shipped 2026-10-05 (vendor link, e-signature, email, cancel) — see above.
 
 ### 2026-09-30 — Agent protocol + signing audit-trail hardening
 - `CLAUDE.md`, `/feature`, `/health-check`, `pitfall-reviewer`, this log, and

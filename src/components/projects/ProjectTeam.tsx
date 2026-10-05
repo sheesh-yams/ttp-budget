@@ -92,7 +92,7 @@ function Initials({ name }: { name: string }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export type CrewDealMemoRef = { memoId: string; status: DealMemoStatus }
+export type CrewDealMemoRef = { memoId: string; status: DealMemoStatus; signed?: boolean }
 
 interface Props {
   projectId:          string
@@ -469,9 +469,9 @@ function MemberCard({
         {dealMemo && (
           <Link
             href={`/projects/${projectId}/deal-memos/${dealMemo.memoId}`}
-            className={`mt-1.5 inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${DEAL_MEMO_STATUS_META[dealMemo.status].className}`}
+            className={`mt-1.5 inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${dealMemo.signed ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : DEAL_MEMO_STATUS_META[dealMemo.status].className}`}
           >
-            Deal memo · {DEAL_MEMO_STATUS_META[dealMemo.status].label}
+            Deal memo · {dealMemo.signed ? 'Signed' : DEAL_MEMO_STATUS_META[dealMemo.status].label}
           </Link>
         )}
 

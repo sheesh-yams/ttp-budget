@@ -22,7 +22,8 @@ import {
   resetDealMemoSection, setDealMemoStatus, updateDealMemo, updateDealMemoSection, upsertDealMemoFee,
 } from '@/server/actions/deal-memos'
 import { DealMemoDocument } from './DealMemoDocument'
-import { FEE_KIND_LABEL, STATUS_META, UNIT_OPTIONS, UNIT_SUFFIX } from './labels'
+import { FEE_KIND_LABEL, STATUS_META, UNIT_OPTIONS, UNIT_SUFFIX, VENDOR_STAGE_META, vendorStage } from './labels'
+import { DealMemoVendorActions, type VendorLinkInfo } from './DealMemoVendorActions'
 
 export interface EditorFee {
   id: string; kind: DealMemoFeeKind; label: string; rateCents: number; unit: RateUnit
@@ -52,18 +53,30 @@ interface Props {
   showBudget?: boolean
   /** dealMemos EDIT */
   canEdit?: boolean
+  /** Vendor link + signature state (deal memos Phase 2). */
+  vendor?: VendorLinkInfo & {
+    firstViewedAt:    string | null
+    signatureName:    string | null
+    signatureEmail:   string | null
+    /** Live terms differ from what the vendor was sent. */
+    changedSinceSent: boolean
+  }
 }
 
 const toDateInput = (iso: string | null) => (iso ? iso.slice(0, 10) : '')
 
-export function DealMemoEditor({ projectId, memo, lines, library, vendorView, showBudget = true, canEdit = true }: Props) {
+export function DealMemoEditor({ projectId, memo, lines, library, vendorView, showBudget = true, canEdit = true, vendor }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const { confirm, ConfirmDialog } = useConfirm()
   const [error, setError] = useState<string | null>(null)
   const [showPreview, setShowPreview] = useState(false)
   const cancelled = memo.status === 'CANCELLED'
-  const readOnly  = cancelled || !canEdit
+  const signed    = !!vendor?.signedAt && memo.status === 'CONFIRMED'
+  // Signed terms are what the vendor agreed to — no editing (the server refuses too).
+  const readOnly  = cancelled || !canEdit || signed
+  const stage     = memo.status === 'CONFIRMED' && vendor ? vendorStage(vendor) : null
+  const fmtWhen   = (iso: string) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
 
   const roleLine = memo.lineItemId ? lines.find(l => l.id === memo.lineItemId) ?? null : null
   const roleSlots = roleLine ? lineHeadcountAndDays(roleLine).headcount : 1
@@ -139,7 +152,11 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
           <h1 className="text-2xl font-semibold text-foreground">
             {memo.contact?.name ?? 'No contact'} <span className="font-normal text-muted-foreground">— {memo.roleLabel}</span>
           </h1>
-          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${meta.className}`}>{meta.label}</span>
+          {stage ? (
+            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${VENDOR_STAGE_META[stage].className}`}>{VENDOR_STAGE_META[stage].label}</span>
+          ) : (
+            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${meta.className}`}>{meta.label}</span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {canEdit && memo.status === 'BID' && (
@@ -151,11 +168,36 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
           {canEdit && (memo.status === 'NOT_SELECTED' || memo.status === 'CANCELLED') && (
             <Button variant="outline" size="sm" disabled={isPending} onClick={() => run(() => setDealMemoStatus(memo.id, 'BID'))}>Reopen as bid</Button>
           )}
+          {canEdit && memo.status === 'CONFIRMED' && vendor && (
+            <DealMemoVendorActions
+              memoId={memo.id} vendorName={memo.contact?.name ?? 'the vendor'} roleLabel={memo.roleLabel} link={vendor}
+            />
+          )}
           <Button variant="outline" size="sm" onClick={() => setShowPreview(true)}>
             <Eye className="mr-1.5 h-3.5 w-3.5" /> Preview as vendor
           </Button>
         </div>
       </div>
+
+      {signed && vendor && (
+        <p className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          Signed by <span className="font-semibold">{vendor.signatureName}</span> ({vendor.signatureEmail}) on {fmtWhen(vendor.signedAt!)}.
+          The terms are locked — cancel the deal memo to change them.
+          {vendor.changedSinceSent && (
+            <span className="mt-1 block text-amber-800">
+              The terms below changed after it was sent and differ from what they signed. The signed version
+              {vendor.url ? <> (<a href={vendor.url} target="_blank" rel="noreferrer" className="underline">vendor link</a>)</> : ''} is the agreement.
+            </span>
+          )}
+        </p>
+      )}
+      {!signed && memo.status === 'CONFIRMED' && vendor?.sentAt && (
+        <p className={`mb-4 rounded-lg border px-3 py-2 text-sm ${vendor.changedSinceSent ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-blue-200 bg-blue-50 text-blue-800'}`}>
+          Sent to {vendor.sentToEmail} on {fmtWhen(vendor.sentAt)}
+          {vendor.firstViewedAt ? ` · viewed ${fmtWhen(vendor.firstViewedAt)}` : ' · not opened yet'}.
+          {vendor.changedSinceSent && ' You’ve changed the terms since — the vendor still sees the earlier version. Re-send to update it.'}
+        </p>
+      )}
 
       {cancelled && (
         <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">

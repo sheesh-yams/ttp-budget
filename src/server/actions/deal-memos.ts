@@ -25,6 +25,17 @@ import {
   lineHeadcountAndDays,
 } from '@/lib/deal-memo-core'
 import { applyDealMemoAwardEffects } from '@/lib/deal-memo-effects'
+import { Prisma } from '@prisma/client'
+import { generatePublicToken } from '@/lib/secure-token'
+import { toJsonSafe } from '@/lib/json-safe'
+import { sendDealMemoEmail, sendDealMemoCancelledEmail } from '@/lib/email'
+import {
+  CANCEL_WORD, DEAL_MEMO_LINK_DAYS, buildVendorView, isCancelConfirmation, normEmail,
+} from '@/lib/deal-memo-signing'
+
+function appUrl() {
+  return (process.env.NEXT_PUBLIC_APP_URL ?? 'https://budget.thethirdplace.co').replace(/\/$/, '')
+}
 
 // ─── Shared guards (not exported — 'use server' exports are public RPC) ──────
 
@@ -59,14 +70,22 @@ async function requireMemoPermission(memoId: string) {
   return requireProjectPermission(memo.projectId, 'dealMemos', 'EDIT')
 }
 
-/** Loads a memo that may still be edited (anything but CANCELLED). */
+/**
+ * Write-time guard for child rows: the vendor may sign between
+ * loadEditableMemo's read and the write.
+ */
+const UNSIGNED = { signedAt: null } as const
+
+/** Loads a memo that may still be edited (not CANCELLED, not signed). */
 async function loadEditableMemo(sdb: ScopedDb, memoId: string) {
   const memo = await sdb.dealMemo.findFirst({
     where:  { id: memoId },
-    select: { id: true, projectId: true, status: true, workDayHours: true, otMultiplier: true },
+    select: { id: true, projectId: true, status: true, workDayHours: true, otMultiplier: true, signedAt: true },
   })
   if (!memo) return { error: 'Deal memo not found.' as const }
   if (memo.status === 'CANCELLED') return { error: 'This deal memo is cancelled. Reopen it as a bid to edit.' as const }
+  // The vendor signed these exact terms — they can't change underneath them.
+  if (memo.signedAt) return { error: 'Signed — the vendor agreed to these terms. Cancel the deal memo to change them.' as const }
   return { memo }
 }
 
@@ -84,7 +103,7 @@ async function syncAutoOvertime(sdb: ScopedDb, memoId: string) {
   const next = applyAutoOvertime(memo.fees, dayRate, memo.workDayHours, Number(memo.otMultiplier))
   await Promise.all(next
     .filter((f, i) => f.rateCents !== memo.fees[i].rateCents)
-    .map(f => sdb.dealMemoFee.update({ where: { id: f.id }, data: { rateCents: f.rateCents } })))
+    .map(f => sdb.dealMemoFee.updateMany({ where: { id: f.id, dealMemo: UNSIGNED }, data: { rateCents: f.rateCents } })))
 }
 
 // ─── Workspace defaults (Settings → Contracts → Crew & Vendor) ───────────────
@@ -228,14 +247,15 @@ export async function updateDealMemo(memoId: string, patch: z.infer<typeof updat
     if ('error' in loaded) return { success: false, error: loaded.error as string }
 
     const { startDate, endDate, ...rest } = parsed.data
-    await sdb.dealMemo.update({
-      where: { id: memoId },
+    const res = await sdb.dealMemo.updateMany({
+      where: { id: memoId, signedAt: null },
       data:  {
         ...rest,
         ...(startDate !== undefined ? { startDate: startDate ? new Date(startDate) : null } : {}),
         ...(endDate   !== undefined ? { endDate:   endDate   ? new Date(endDate)   : null } : {}),
       },
     })
+    if (res.count === 0) return { success: false, error: 'Signed — the vendor agreed to these terms. Cancel the deal memo to change them.' }
     if (rest.workDayHours !== undefined || rest.otMultiplier !== undefined) await syncAutoOvertime(sdb, memoId)
 
     revalidateMemo(loaded.memo.projectId, memoId)
@@ -290,7 +310,7 @@ export async function upsertDealMemoFee(memoId: string, input: z.infer<typeof fe
 
     let feeId: string
     if (id) {
-      const res = await sdb.dealMemoFee.updateMany({ where: { id, dealMemoId: memoId }, data })
+      const res = await sdb.dealMemoFee.updateMany({ where: { id, dealMemoId: memoId, dealMemo: UNSIGNED }, data })
       if (res.count === 0) return { success: false, error: 'Fee not found.' }
       feeId = id
     } else {
@@ -319,7 +339,7 @@ export async function deleteDealMemoFee(memoId: string, feeId: string): Promise<
     const sdb = await getScopedDb()
     const loaded = await loadEditableMemo(sdb, memoId)
     if ('error' in loaded) return { success: false, error: loaded.error as string }
-    await sdb.dealMemoFee.deleteMany({ where: { id: feeId, dealMemoId: memoId } })
+    await sdb.dealMemoFee.deleteMany({ where: { id: feeId, dealMemoId: memoId, dealMemo: UNSIGNED } })
     revalidateMemo(loaded.memo.projectId, memoId)
     return { success: true, data: undefined }
   } catch {
@@ -383,8 +403,8 @@ export async function updateDealMemoSection(
     if ('error' in loaded) return { success: false, error: loaded.error as string }
     const existing = await sdb.dealMemoSection.findFirst({ where: { id: sectionId, dealMemoId: memoId }, select: { sourceBlockId: true } })
     if (!existing) return { success: false, error: 'Section not found.' }
-    await sdb.dealMemoSection.update({
-      where: { id: sectionId },
+    await sdb.dealMemoSection.updateMany({
+      where: { id: sectionId, dealMemoId: memoId, dealMemo: UNSIGNED },
       data:  { title, body: input.body, editedFromSource: !!existing.sourceBlockId },
     })
     revalidateMemo(loaded.memo.projectId, memoId)
@@ -408,7 +428,7 @@ export async function resetDealMemoSection(memoId: string, sectionId: string): P
       select: { title: true, body: true },
     })
     if (!block) return { success: false, error: 'The library version no longer exists.' }
-    await sdb.dealMemoSection.update({ where: { id: sectionId }, data: { title: block.title, body: block.body, editedFromSource: false } })
+    await sdb.dealMemoSection.updateMany({ where: { id: sectionId, dealMemoId: memoId, dealMemo: UNSIGNED }, data: { title: block.title, body: block.body, editedFromSource: false } })
     revalidateMemo(loaded.memo.projectId, memoId)
     return { success: true, data: undefined }
   } catch {
@@ -423,7 +443,7 @@ export async function removeDealMemoSection(memoId: string, sectionId: string): 
     const sdb = await getScopedDb()
     const loaded = await loadEditableMemo(sdb, memoId)
     if ('error' in loaded) return { success: false, error: loaded.error as string }
-    await sdb.dealMemoSection.deleteMany({ where: { id: sectionId, dealMemoId: memoId } })
+    await sdb.dealMemoSection.deleteMany({ where: { id: sectionId, dealMemoId: memoId, dealMemo: UNSIGNED } })
     revalidateMemo(loaded.memo.projectId, memoId)
     return { success: true, data: undefined }
   } catch {
@@ -505,7 +525,8 @@ export async function awardDealMemo(memoId: string): Promise<ActionResult<{ crew
   }
 }
 
-const SETTABLE: DealMemoStatus[] = ['NOT_SELECTED', 'BID', 'CANCELLED']
+// Cancelling goes through cancelDealMemo (typed CANCEL confirmation).
+const SETTABLE: DealMemoStatus[] = ['NOT_SELECTED', 'BID']
 
 export async function setDealMemoStatus(memoId: string, to: DealMemoStatus): Promise<ActionResult> {
   try {
@@ -518,20 +539,159 @@ export async function setDealMemoStatus(memoId: string, to: DealMemoStatus): Pro
 
     const res = await sdb.dealMemo.updateMany({
       where: { id: memoId, status: { in: allowedFromStatuses(to) } },
-      data:  { status: to, ...(to === 'BID' ? { awardedAt: null } : {}) },
+      // Back to a bid = a fresh negotiation: the old link and any signature go.
+      data:  { status: to, ...(to === 'BID' ? { awardedAt: null, ...CLEARED_VENDOR_LINK } : {}) },
     })
     if (res.count === 0) return { success: false, error: 'That status change isn’t allowed from here.' }
 
-    if (to === 'CANCELLED') {
-      await logAuditEvent({
-        workspaceId: memo.workspaceId, actorId: user.id, action: 'dealMemo.cancelled',
-        entityType: 'DealMemo', entityId: memoId,
-      })
-    }
+    await logAuditEvent({
+      workspaceId: memo.workspaceId, actorId: user.id, action: `dealMemo.${to === 'BID' ? 'reopened' : 'not_selected'}`,
+      entityType: 'DealMemo', entityId: memoId,
+    })
     revalidateMemo(memo.projectId, memoId)
     return { success: true, data: undefined }
   } catch {
     return { success: false, error: 'Failed to update the status.' }
+  }
+}
+
+// ─── Vendor link: send, cancel ────────────────────────────────────────────────
+
+const CLEARED_VENDOR_LINK = {
+  publicToken: null, publicTokenExpiresAt: null, sentAt: null, sentToEmail: null, sentSnapshot: Prisma.DbNull,
+  firstViewedAt: null, lastViewedAt: null,
+  signedAt: null, signatureName: null, signatureEmail: null, signatureIp: null,
+  cancelledAt: null, cancelledById: null,
+}
+
+/**
+ * Email the vendor their link. Freezes the terms as they are now — the vendor
+ * sees and signs exactly this. Re-sending refreshes the snapshot and keeps the
+ * same link.
+ */
+export async function sendDealMemo(memoId: string, input: { email: string }): Promise<ActionResult<{ url: string }>> {
+  try {
+    const gate = await requireMemoPermission(memoId)
+    if (!gate.ok) return gate.error
+    const email = typeof input?.email === 'string' ? normEmail(input.email) : ''
+    if (!z.string().email().safeParse(email).success) return { success: false, error: 'Enter the vendor’s email address.' }
+
+    const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+    const memo = await sdb.dealMemo.findFirst({
+      where:  { id: memoId },
+      select: {
+        id: true, projectId: true, workspaceId: true, status: true, signedAt: true, publicToken: true, position: true,
+        contact: { select: { name: true } },
+        project: { select: { name: true } },
+        workspace: { select: { name: true, primaryColor: true, accentColor: true } },
+      },
+    })
+    if (!memo) return { success: false, error: 'Deal memo not found.' }
+    if (memo.status !== 'CONFIRMED') return { success: false, error: 'Award the bid before sending it to the vendor.' }
+    if (memo.signedAt) return { success: false, error: 'Already signed.' }
+
+    const snapshot = await buildVendorView(sdb, memoId)
+    if (!snapshot) return { success: false, error: 'Deal memo not found.' }
+    if (snapshot.fees.length === 0) return { success: false, error: 'Add at least one fee with a rate before sending.' }
+
+    const token     = memo.publicToken ?? generatePublicToken()
+    const now       = new Date()
+    const expiresAt = new Date(now.getTime() + DEAL_MEMO_LINK_DAYS * 86_400_000)
+    // Guarded: still awarded and unsigned at write time.
+    const res = await sdb.dealMemo.updateMany({
+      where: { id: memoId, status: 'CONFIRMED', signedAt: null },
+      data:  {
+        publicToken: token, publicTokenExpiresAt: expiresAt, sentAt: now, sentToEmail: email,
+        sentSnapshot: toJsonSafe(snapshot) as Prisma.InputJsonValue,
+      },
+    })
+    if (res.count === 0) return { success: false, error: 'This deal memo changed — refresh and try again.' }
+
+    const url = `${appUrl()}/dm/${token}`
+    let emailError: string | null = null
+    try {
+      await sendDealMemoEmail({
+        to: email, vendorName: memo.contact?.name ?? '', position: memo.position, projectName: memo.project.name,
+        url, expiresAt, actorName: user.name, actorEmail: user.email,
+        workspaceName: memo.workspace.name, brandPrimary: memo.workspace.primaryColor, brandAccent: memo.workspace.accentColor,
+      })
+    } catch (err) {
+      console.error('[sendDealMemo] email failed', err)
+      emailError = err instanceof Error ? err.message : 'unknown error'
+    }
+
+    // The link is live either way — audit it even when the email failed.
+    await logAuditEvent({
+      workspaceId: memo.workspaceId, actorId: user.id, action: 'dealMemo.sent',
+      entityType: 'DealMemo', entityId: memoId, metadata: { to: email, emailed: !emailError },
+    })
+    revalidateMemo(memo.projectId, memoId)
+    if (emailError) {
+      return { success: false, error: `The link is ready, but the email didn’t send: ${emailError}. Copy the link instead.` }
+    }
+    return { success: true, data: { url } }
+  } catch (err) {
+    console.error('[sendDealMemo]', err)
+    return { success: false, error: 'Failed to send the deal memo.' }
+  }
+}
+
+/**
+ * Cancel an awarded deal memo. The caller must type CANCEL (checked here, not
+ * just in the dialog). Optionally emails the vendor if it was sent; the link
+ * then shows "cancelled" and can't be signed.
+ */
+export async function cancelDealMemo(
+  memoId: string, input: { confirm: string; notifyVendor: boolean },
+): Promise<ActionResult> {
+  try {
+    const gate = await requireMemoPermission(memoId)
+    if (!gate.ok) return gate.error
+    if (!isCancelConfirmation(input?.confirm)) return { success: false, error: `Type ${CANCEL_WORD} to confirm.` }
+
+    const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+    const memo = await sdb.dealMemo.findFirst({
+      where:  { id: memoId },
+      select: {
+        id: true, projectId: true, workspaceId: true, position: true, sentAt: true, sentToEmail: true, signedAt: true,
+        contact: { select: { name: true } },
+        project: { select: { name: true } },
+        workspace: { select: { name: true, primaryColor: true, accentColor: true } },
+      },
+    })
+    if (!memo) return { success: false, error: 'Deal memo not found.' }
+
+    const now = new Date()
+    const res = await sdb.dealMemo.updateMany({
+      where: { id: memoId, status: 'CONFIRMED' },
+      data:  { status: 'CANCELLED', cancelledAt: now, cancelledById: user.id },
+    })
+    if (res.count === 0) return { success: false, error: 'Only an awarded deal memo can be cancelled.' }
+
+    let notified = false
+    if (input.notifyVendor && memo.sentAt && memo.sentToEmail) {
+      try {
+        await sendDealMemoCancelledEmail({
+          to: memo.sentToEmail, vendorName: memo.contact?.name ?? '', position: memo.position, projectName: memo.project.name,
+          actorName: user.name, actorEmail: user.email,
+          workspaceName: memo.workspace.name, brandPrimary: memo.workspace.primaryColor, brandAccent: memo.workspace.accentColor,
+        })
+        notified = true
+      } catch (err) {
+        console.error('[cancelDealMemo] vendor email failed (memo is cancelled)', err)
+      }
+    }
+
+    await logAuditEvent({
+      workspaceId: memo.workspaceId, actorId: user.id, action: 'dealMemo.cancelled',
+      entityType: 'DealMemo', entityId: memoId,
+      metadata: { wasSent: !!memo.sentAt, wasSigned: !!memo.signedAt, vendorNotified: notified },
+    })
+    revalidateMemo(memo.projectId, memoId)
+    return { success: true, data: undefined }
+  } catch (err) {
+    console.error('[cancelDealMemo]', err)
+    return { success: false, error: 'Failed to cancel the deal memo.' }
   }
 }
 

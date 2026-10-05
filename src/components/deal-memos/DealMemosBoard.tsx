@@ -10,7 +10,8 @@ import { formatMoney } from '@/lib/money'
 import { awardDealMemo, deleteDealMemo, setDealMemoStatus } from '@/server/actions/deal-memos'
 import type { DealMemoBoard } from '@/lib/deal-memo-queries'
 import { AddBidDialog } from './AddBidDialog'
-import { STATUS_META, UNIT_SUFFIX } from './labels'
+import { STATUS_META, UNIT_SUFFIX, VENDOR_STAGE_META, vendorStage } from './labels'
+import { CancelDealMemoDialog } from './CancelDealMemoDialog'
 
 type Role = DealMemoBoard['roles'][number]
 type Memo = Role['memos'][number]
@@ -60,12 +61,10 @@ export function DealMemosBoard({ projectId, board, showBudget = true, canEdit = 
     run(() => awardDealMemo(memo.id))
   }
 
-  async function handleCancel(memo: Memo) {
-    const ok = await confirm(
-      `${memo.contactName}'s confirmed deal memo will be cancelled. Their crew slot stays; you can reopen it as a bid later.`,
-      { title: 'Cancel this deal memo?', confirmLabel: 'Cancel memo' },
-    )
-    if (ok) run(() => setDealMemoStatus(memo.id, 'CANCELLED'))
+  // Cancelling needs the typed CANCEL confirmation (CancelDealMemoDialog).
+  const [cancelling, setCancelling] = useState<Memo | null>(null)
+  function handleCancel(memo: Memo) {
+    setCancelling(memo)
   }
 
   async function handleDelete(memo: Memo) {
@@ -76,7 +75,8 @@ export function DealMemosBoard({ projectId, board, showBudget = true, canEdit = 
   function MemoRow({ role, memo }: { role: Role | null; memo: Memo }) {
     const perSlotBudget = role ? Math.round(role.budgetCents / Math.max(1, role.headcount)) : null
     const delta = perSlotBudget !== null && memo.expectedCents > 0 ? perSlotBudget - memo.expectedCents : null
-    const meta = STATUS_META[memo.status]
+    const stage = memo.status === 'CONFIRMED' ? vendorStage(memo) : null
+    const meta = stage ? VENDOR_STAGE_META[stage] : STATUS_META[memo.status]
     return (
       <tr className="border-t border-border text-sm">
         <td className="py-2 pl-4 pr-3">
@@ -222,6 +222,14 @@ export function DealMemosBoard({ projectId, board, showBudget = true, canEdit = 
         </div>
         <MemoTable role={null} memos={board.unbudgeted} />
       </section>
+
+      {cancelling && (
+        <CancelDealMemoDialog
+          memoId={cancelling.id} vendorName={cancelling.contactName} roleLabel={cancelling.roleLabel}
+          wasSent={!!cancelling.sentAt} signed={!!cancelling.signedAt}
+          open onOpenChange={o => { if (!o) setCancelling(null) }}
+        />
+      )}
 
       {bidFor && (
         <AddBidDialog

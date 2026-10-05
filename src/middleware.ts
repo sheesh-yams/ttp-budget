@@ -14,6 +14,7 @@ const isPublicRoute = createRouteMatcher([
   '/i/(.*)',             // public invoice pages
   '/cs/(.*)',            // public call sheet pages
   '/d/(.*)',             // public delivery pages — token-authenticated at the route level
+  '/dm/(.*)',            // vendor deal memo pages — token-authenticated at the route level
   '/shade-test',         // temporary Shade embed test page
   '/invite/(.*)',        // workspace invitation acceptance
   '/join',               // Clerk choose-organization task — checks the (pending) session itself
@@ -24,6 +25,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/pdf/invoice/(.*)',
   '/api/payments/(.*)',         // payment routes self-authenticate via publicToken / attemptId
   '/api/proposals/(.*)/approve', // public client sign-off — self-authenticates via proposal publicToken
+  '/api/deal-memos/(.*)/sign',   // public vendor sign-off — self-authenticates via deal memo publicToken
   '/api/stripe/connect/callback', // OAuth redirect from Stripe — authenticated via HMAC-signed cookie
   '/api/csp-report',              // browser-posted CSP violation reports (no session)
 ])
@@ -53,10 +55,11 @@ function clientIp(req: NextRequest): string {
 }
 
 function policyFor(pathname: string): PolicyName | null {
-  if (/^\/(p|i|cs|d)\//.test(pathname))                                               return 'publicDoc'
+  if (/^\/(p|i|cs|d|dm)\//.test(pathname))                                            return 'publicDoc'
   if (pathname.startsWith('/api/pdf/proposal/') || pathname.startsWith('/api/pdf/invoice/')) return 'publicPdf'
   if (pathname.startsWith('/api/payments/'))                                           return 'payments'
   if (pathname.startsWith('/api/proposals/') && pathname.endsWith('/approve'))          return 'approve'
+  if (pathname.startsWith('/api/deal-memos/') && pathname.endsWith('/sign'))            return 'approve'
   if (pathname.startsWith('/api/csp-report'))                                          return 'cspReport'
   if (pathname.startsWith('/api/address-autocomplete'))                                return 'geocode'
   return null
