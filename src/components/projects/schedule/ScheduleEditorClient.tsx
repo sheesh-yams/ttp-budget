@@ -36,7 +36,7 @@ import type { SceneEntryPayload } from '@/server/actions/schedule'
 import { createCallSheet } from '@/server/actions/call-sheets'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { parseLocalDate } from '@/lib/time-format'
-import type { IntExt, TimeOfDay, BannerType, UserRole } from '@prisma/client'
+import type { IntExt, TimeOfDay, BannerType } from '@prisma/client'
 
 // ── Column definitions ───────────────────────────────────────────────────────
 
@@ -99,7 +99,10 @@ interface EntryRow {
 interface Props {
   projectId: string
   projectName: string
-  userRole: UserRole
+  /** schedule EDIT on this project */
+  canEdit: boolean
+  /** callSheets EDIT — offer "Create Call Sheet" from a shoot day */
+  canCreateCallSheet?: boolean
   shootDays: ShootDayRow[]
   schedules: { id: string; name: string; isPrimary: boolean; columnPrefs: Record<string, boolean> }[]
   activeScheduleId: string | null
@@ -137,7 +140,8 @@ function pageEighthsToDisplay(eighths: number | null): string {
 export function ScheduleEditorClient({
   projectId,
   projectName,
-  userRole,
+  canEdit,
+  canCreateCallSheet = true,
   shootDays,
   schedules,
   activeScheduleId,
@@ -148,7 +152,6 @@ export function ScheduleEditorClient({
   const router = useRouter()
   const [, startTransition] = useTransition()
   const { confirm, ConfirmDialog } = useConfirm()
-  const canEdit = userRole === 'OWNER' || userRole === 'PRODUCER'
 
   const [entries, setEntries]           = useState<EntryRow[]>(initialEntries)
   useEffect(() => { setEntries(initialEntries) }, [initialEntries])
@@ -652,6 +655,7 @@ export function ScheduleEditorClient({
         locations={locations}
         canEdit={canEdit}
         onMutated={onMutated}
+        projectId={projectId}
       />
 
       {/* Sort dialog */}
@@ -810,7 +814,7 @@ export function ScheduleEditorClient({
             }}
             onAddScene={() => openNewScene(activeTab)}
             onAddBanner={handleAddBanner}
-            onCreateCallSheet={() => handleCreateCallSheet(activeTab)}
+            onCreateCallSheet={canCreateCallSheet ? () => handleCreateCallSheet(activeTab) : undefined}
             bannerEdit={bannerEdit}
             onStartBannerEdit={entry => setBannerEdit({ entry, label: entry.bannerLabel ?? '', dur: String(entry.bannerDurationMin ?? 0) })}
             onCommitBannerEdit={commitBannerEdit}
@@ -1079,7 +1083,7 @@ interface ShootDayViewProps {
   onMoveToDay: (entryId: string, dayId: string) => void
   onAddScene: () => void
   onAddBanner: (preset: BannerPreset, label: string, duration: number) => void
-  onCreateCallSheet: () => void
+  onCreateCallSheet?: () => void
   bannerEdit: { entry: EntryRow; label: string; dur: string } | null
   onStartBannerEdit: (entry: EntryRow) => void
   onCommitBannerEdit: () => void
@@ -1217,12 +1221,14 @@ function ShootDayView({
               <span>Wrap <span className="font-semibold text-foreground">{formatHHmm(wrapTime)}</span></span>
             )}
           </div>
-          <button
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors"
-            onClick={onCreateCallSheet}
-          >
-            <FilePlus className="h-3.5 w-3.5" /> Create Call Sheet
-          </button>
+          {onCreateCallSheet && (
+            <button
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors"
+              onClick={onCreateCallSheet}
+            >
+              <FilePlus className="h-3.5 w-3.5" /> Create Call Sheet
+            </button>
+          )}
         </div>
       </div>
     </div>

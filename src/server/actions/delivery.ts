@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { requireRole }    from '@/lib/auth'
+import { requireProductionPermission } from '@/lib/production-access'
 import { getScopedDb }    from '@/lib/db-scoped'
 import { db }             from '@/lib/db'
 import { detectEmbed }    from '@/lib/embed-detection'
@@ -154,7 +154,7 @@ export async function ensureDeliveryPage(
   projectId: string,
 ): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProductionPermission({ projectId }, 'delivery', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
@@ -183,7 +183,7 @@ export async function updateDeliveryPageMeta(
   },
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProductionPermission({ deliveryPageId }, 'delivery', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
@@ -201,7 +201,7 @@ export async function publishDeliveryPage(
   deliveryPageId: string,
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProductionPermission({ deliveryPageId }, 'delivery', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
@@ -222,7 +222,7 @@ export async function unpublishDeliveryPage(
   deliveryPageId: string,
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProductionPermission({ deliveryPageId }, 'delivery', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
@@ -247,7 +247,7 @@ export async function createSection(
   orderIndex?:    number,
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProductionPermission({ deliveryPageId }, 'delivery', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
@@ -271,7 +271,7 @@ export async function renameSection(
   description?: string | null,
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProductionPermission({ deliverySectionId: sectionId }, 'delivery', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
@@ -293,13 +293,14 @@ export async function reorderSections(
   orderedSectionIds: string[],
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProductionPermission({ deliveryPageId }, 'delivery', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
     await Promise.all(
       orderedSectionIds.map((id, i) =>
-        sdb.deliverableSection.update({ where: { id }, data: { orderIndex: i } })
+        // Only sections on this page (ids from elsewhere match nothing).
+        sdb.deliverableSection.updateMany({ where: { id, deliveryPageId }, data: { orderIndex: i } })
       )
     )
     const projectId = await getProjectIdFromPage(sdb, deliveryPageId)
@@ -316,12 +317,18 @@ export async function deleteSection(
   moveAssetsToSection?: string | null,
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProductionPermission({ deliverySectionId: sectionId }, 'delivery', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
     const projectId = await getProjectIdFromSection(sdb, sectionId)
 
+    if (moveAssetsToSection) {
+      // The destination must be another section on the same delivery page.
+      const from = await sdb.deliverableSection.findFirst({ where: { id: sectionId }, select: { deliveryPageId: true } })
+      const to   = await sdb.deliverableSection.findFirst({ where: { id: moveAssetsToSection, deliveryPageId: from?.deliveryPageId }, select: { id: true } })
+      if (!from || !to) return { success: false, error: 'Section not found.' }
+    }
     if (moveAssetsToSection) {
       // Move all assets to another section before deleting
       await sdb.deliverableAsset.updateMany({
@@ -351,9 +358,13 @@ export async function createAsset(
   },
 ): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProductionPermission({ deliveryPageId }, 'delivery', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
+    // The section must be on this delivery page.
+    if (sectionId && !(await sdb.deliverableSection.findFirst({ where: { id: sectionId, deliveryPageId }, select: { id: true } }))) {
+      return { success: false, error: 'Section not found.' }
+    }
 
     // Scoped to this section (or the page-level bucket when sectionId is null) —
     // matches the optimistic UI's `s.deliverables.length`, so the real orderIndex
@@ -392,7 +403,7 @@ export async function updateAsset(
   },
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProductionPermission({ deliveryAssetId: assetId }, 'delivery', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
@@ -418,13 +429,14 @@ export async function reorderAssets(
   orderedAssetIds: string[],
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProductionPermission({ deliverySectionId: sectionId }, 'delivery', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
     await Promise.all(
       orderedAssetIds.map((id, i) =>
-        sdb.deliverableAsset.update({ where: { id }, data: { orderIndex: i } })
+        // Only assets in this section (ids from elsewhere match nothing).
+        sdb.deliverableAsset.updateMany({ where: { id, sectionId }, data: { orderIndex: i } })
       )
     )
     const projectId = await getProjectIdFromSection(sdb, sectionId)
@@ -442,9 +454,15 @@ export async function moveAssetToSection(
   orderIndex:  number,
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProductionPermission({ deliveryAssetId: assetId }, 'delivery', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
+    // The target section must be on the asset's own delivery page.
+    if (toSectionId) {
+      const asset = await sdb.deliverableAsset.findFirst({ where: { id: assetId }, select: { deliveryPageId: true } })
+      const section = await sdb.deliverableSection.findFirst({ where: { id: toSectionId, deliveryPageId: asset?.deliveryPageId }, select: { id: true } })
+      if (!asset || !section) return { success: false, error: 'Section not found.' }
+    }
 
     await sdb.deliverableAsset.update({
       where: { id: assetId },
@@ -463,7 +481,7 @@ export async function deleteAsset(
   assetId: string,
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProductionPermission({ deliveryAssetId: assetId }, 'delivery', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
@@ -496,7 +514,7 @@ export async function addVersion(
   },
 ): Promise<ActionResult<{ id: string; versionNumber: number }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProductionPermission({ deliveryAssetId: assetId }, 'delivery', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
@@ -591,7 +609,7 @@ export async function updateVersion(
   },
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProductionPermission({ deliveryVersionId: versionId }, 'delivery', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
@@ -617,7 +635,7 @@ export async function setCurrentVersion(
   versionId: string,
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProductionPermission({ deliveryAssetId: assetId }, 'delivery', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
@@ -648,7 +666,7 @@ export async function deleteVersion(
   versionId: string,
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProductionPermission({ deliveryVersionId: versionId }, 'delivery', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
@@ -696,7 +714,7 @@ export async function getAssetVersions(assetId: string): Promise<ActionResult<{
   isVertical:        boolean
 }[]>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProductionPermission({ deliveryAssetId: assetId }, 'delivery', 'VIEW')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
@@ -752,7 +770,7 @@ export async function generateFromProposal(
   choices:        GenerateChoice[],
 ): Promise<ActionResult<{ sectionsCreated: number; assetsCreated: number }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProductionPermission({ deliveryPageId }, 'delivery', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
@@ -933,7 +951,7 @@ export async function syncDeliverablesFromProposal(
   projectId: string,
 ): Promise<ActionResult<{ sectionsCreated: number; assetsCreated: number }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProductionPermission({ projectId }, 'delivery', 'EDIT')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
@@ -1028,7 +1046,7 @@ export async function getProposalDeliverables(
   projectId: string,
 ): Promise<ActionResult<{ deliverables: PhaseDeliverable[]; hasApprovedProposal: boolean }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProductionPermission({ projectId }, 'delivery', 'VIEW')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 
@@ -1121,7 +1139,7 @@ export async function getDeliveryAnalytics(
   deliveryPageId: string,
 ): Promise<ActionResult<AssetStat[]>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProductionPermission({ deliveryPageId }, 'delivery', 'VIEW')
     if (!gate.ok) return gate.error!
     const sdb = await getScopedDb()
 

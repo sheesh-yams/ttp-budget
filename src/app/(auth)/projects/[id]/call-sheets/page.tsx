@@ -25,7 +25,7 @@ export default async function CallSheetsPage({
 }) {
   const { id } = await params
   await requireProjectAccess(id)
-  await requireProjectArea(id, 'callSheets')
+  const projectAccess = await requireProjectArea(id, 'callSheets')
   const workspaceId = await getWorkspaceId()
 
   const project = await db.project.findFirst({
@@ -60,6 +60,7 @@ export default async function CallSheetsPage({
       </div>
 
       <ProjectCallSheets
+        canEdit={projectAccess.can('callSheets', 'EDIT')}
         callSheets={project.callSheets.map(cs => ({
           ...cs,
           shootDate: cs.shootDate.toISOString(),

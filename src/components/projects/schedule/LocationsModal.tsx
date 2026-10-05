@@ -20,9 +20,10 @@ interface Props {
   locations: LocationRow[]
   canEdit: boolean
   onMutated: () => void
+  projectId: string
 }
 
-export function LocationsModal({ open, onClose, locations, canEdit, onMutated }: Props) {
+export function LocationsModal({ open, onClose, locations, canEdit, onMutated, projectId }: Props) {
   const [mounted, setMounted] = useState(false)
   const [, startTransition] = useTransition()
   const { confirm, ConfirmDialog } = useConfirm()
@@ -65,8 +66,8 @@ export function LocationsModal({ open, onClose, locations, canEdit, onMutated }:
     startTransition(async () => {
       const input = { name: name.trim(), address: address.trim() || undefined }
       const result = editingId
-        ? await updateLocation(editingId, input)
-        : await createLocation(input)
+        ? await updateLocation(editingId, input, projectId)
+        : await createLocation(input, projectId)
       if ('error' in result && result.error) { setError(result.error); return }
       cancelForm()
       onMutated()
@@ -80,7 +81,7 @@ export function LocationsModal({ open, onClose, locations, canEdit, onMutated }:
     )
     if (!ok) return
     startTransition(async () => {
-      const result = await deleteLocation(loc.id)
+      const result = await deleteLocation(loc.id, projectId)
       if ('error' in result && result.error) { setError(result.error); return }
       onMutated()
     })

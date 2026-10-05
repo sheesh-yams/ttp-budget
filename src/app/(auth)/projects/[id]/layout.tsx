@@ -34,7 +34,7 @@ export default async function ProjectLayout({
     dealMemos:  can('dealMemos'),
     schedule:   can('schedule'),
     callSheets: can('callSheets'),
-    delivery:   legacyMoney && can('delivery'),
+    delivery:   can('delivery'),
   }
 
   // Lightweight fetch — just what the sidebar needs

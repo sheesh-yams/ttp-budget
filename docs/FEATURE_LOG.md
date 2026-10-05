@@ -26,8 +26,18 @@ Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
 - **7 Clerk orgs have no linked workspace** (e.g. "The Third Place Creative",
   "Crossover Productions"). Found by the roles backfill and skipped.
 
+- **View-only delivery / call sheets use a disabled fieldset,** which also
+  disables "Copy link" and the analytics toggle. Drag-to-reorder still moves
+  things on screen until a refresh (the server refuses). A proper read-only
+  mode in DeliverablesManager / ClientPagePreview / CallSheetEditor would fix
+  both. Only custom roles with View hit this; defaults are Edit or None.
+- **`getShadeThumbnailUrl` is an open proxy:** an ungated 'use server' export
+  that calls Shade with our API key for any asset id. Used by the
+  authenticated and public delivery pages. **`recordDeliverableView`** is a
+  'use server' export that takes a workspaceId argument; move it to `src/lib`
+  (same pattern as the invoice/proposal view recorders).
 - **Roles Phase 2 is converting area by area.** Done: budget + overview,
-  crew + deal memos. Still on the legacy role: call sheets, schedule, delivery,
+  crew + deal memos, schedule + call sheets + delivery. Still on the legacy role:
   proposals, invoices, actuals, contract, settings/team, and the workspace
   pages. Until an area is converted, a project role can't grant more than the
   legacy role there (tabs and blocks require both).
@@ -102,6 +112,30 @@ Run each through `/feature`. Check the overlap first:
 ---
 
 ## Shipped
+
+### 2026-10-05 — Roles Phase 2 (3/n): schedule, call sheets, delivery enforce permissions
+- New `src/lib/production-access.ts` (`requireProductionPermission`). It
+  resolves a shoot day, scene, schedule, entry, delivery page/section/asset/
+  version or call sheet id to its project in the active workspace, then checks
+  `schedule` / `callSheets` / `delivery` there.
+- **Schedule:** 25 actions. Multi-id actions require one project; shoot-day
+  reorder is project-scoped (it was raw by id, across workspaces). Locations
+  are workspace-wide but managed through a project (schedule EDIT there). The
+  page passes canEdit, and "Create Call Sheet" needs callSheets EDIT.
+- **Call sheets:** every action needs `callSheets` EDIT (it was project
+  access only). Crew import requires the call sheet's own project's budget.
+  Link regeneration moved off the legacy role. View-only gets a read-only
+  editor, and the list hides new/delete.
+- **Delivery:** 22 actions (EDIT for writes, VIEW for reads). Pages use
+  `requireProjectArea(delivery)` instead of the legacy gate; viewers don't
+  auto-create a delivery page. Same-page checks were added for section/asset
+  moves and reorders (previously ids from other pages were accepted). The
+  Delivery tab follows the permission.
+- Access diff: 0 member×project changes. All target kinds verified against
+  real rows; empty/foreign ids refused.
+- pitfall-reviewer found 3 medium cross-project gaps (scene on an entry,
+  shoot-day reorder, crew import budget) and 4 low; all fixed except the
+  read-only-UI and Shade/view-recorder follow-ups.
 
 ### 2026-10-02 — % milestone invoices prefill at the net amount; full invoices include the agency fee
 - **Reported:** a 50% milestone still defaulted to a discount row ($37,440 −

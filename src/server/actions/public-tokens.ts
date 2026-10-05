@@ -5,6 +5,7 @@ import { getScopedDb } from '@/lib/db-scoped'
 import { getCurrentUser, requireRole } from '@/lib/auth'
 import { logAuditEvent } from '@/lib/audit'
 import type { ActionResult } from '@/types'
+import { requireProductionPermission } from '@/lib/production-access'
 
 function days(n: number) {
   return new Date(Date.now() + n * 24 * 60 * 60 * 1000)
@@ -92,7 +93,8 @@ export async function regenerateCallSheetToken(
   callSheetId: string
 ): Promise<ActionResult<{ token: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    // Call sheets follow the callSheets permission (roles Phase 2).
+    const gate = await requireProductionPermission({ callSheetId }, 'callSheets', 'EDIT')
     if (!gate.ok) return gate.error
 
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])

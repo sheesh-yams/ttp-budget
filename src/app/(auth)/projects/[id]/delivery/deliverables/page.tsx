@@ -1,7 +1,7 @@
 import { notFound }                    from 'next/navigation'
-import { requireProjectAccess } from '@/lib/project-access'
+import { requireProjectAccess, requireProjectArea } from '@/lib/project-access'
 import { db }                          from '@/lib/db'
-import { getWorkspaceId, requireRole } from '@/lib/auth'
+import { getWorkspaceId } from '@/lib/auth'
 import { generatePublicToken }         from '@/lib/secure-token'
 import { DeliverablesManager }         from '@/components/delivery/DeliverablesManager'
 import { getDeliveryAnalytics }        from '@/server/actions/delivery'
@@ -20,10 +20,9 @@ export async function generateMetadata({ params }: Props) {
 export default async function DeliveryDeliverablesPage({ params }: Props) {
   const { id } = await params
   await requireProjectAccess(id)
+  const projectAccess = await requireProjectArea(id, 'delivery')
+  const canEdit = projectAccess.can('delivery', 'EDIT')
   const workspaceId = await getWorkspaceId()
-
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
-  if (!gate.ok) return <p className="text-sm text-muted-foreground">Access denied.</p>
 
   const project = await db.project.findFirst({
     where:  { id, workspaceId },
@@ -31,12 +30,15 @@ export default async function DeliveryDeliverablesPage({ params }: Props) {
   })
   if (!project) notFound()
 
-  // Auto-create the delivery page on first visit so users never see an empty state
-  await db.deliveryPage.upsert({
-    where:  { projectId: id },
-    create: { projectId: id, workspaceId, publicToken: generatePublicToken() },
-    update: {},
-  })
+  // Auto-create the delivery page on first visit so editors never see an
+  // empty state. Viewers don't create anything by looking.
+  if (canEdit) {
+    await db.deliveryPage.upsert({
+      where:  { projectId: id },
+      create: { projectId: id, workspaceId, publicToken: generatePublicToken() },
+      update: {},
+    })
+  }
 
   const deliveryPage = await db.deliveryPage.findUnique({
     where:  { projectId: id },
@@ -101,11 +103,19 @@ export default async function DeliveryDeliverablesPage({ params }: Props) {
   const analytics = analyticsResult.success ? analyticsResult.data : []
 
   return (
-    <DeliverablesManager
-      project={project}
-      deliveryPage={deliveryPage}
-      hasApprovedProposal={!!approvedProposal}
-      analytics={analytics}
-    />
+    // View-only: every control disabled (the server refuses writes regardless).
+    <fieldset disabled={!canEdit} className="contents">
+      {!canEdit && (
+        <p className="mb-4 rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          You can view the client delivery page but not change it.
+        </p>
+      )}
+      <DeliverablesManager
+        project={project}
+        deliveryPage={deliveryPage}
+        hasApprovedProposal={!!approvedProposal}
+        analytics={analytics}
+      />
+    </fieldset>
   )
 }

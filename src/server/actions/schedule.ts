@@ -3,7 +3,8 @@
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
 import { getScopedDb } from '@/lib/db-scoped'
-import { requireRole } from '@/lib/auth'
+import { getAccess } from '@/lib/access'
+import { requireProductionPermission } from '@/lib/production-access'
 import type { ActionResult } from '@/types'
 import { computeEntryTimes, buildScheduleSnapshot, snapshotToScheduleBlocks } from '@/lib/schedule-compute'
 import type { IntExt, TimeOfDay, BannerType } from '@prisma/client'
@@ -82,16 +83,33 @@ async function recomputeShootDayEntries(shootDayId: string, workspaceId: string)
 
 // ── Location ──────────────────────────────────────────────────────────────────
 
-export async function createLocation(input: LocationInput): Promise<ActionResult<{ id: string }>> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+// Locations are a workspace-wide list, managed from a project's schedule
+// screens: editing needs schedule EDIT on that project (or in the workspace
+// role's baseline, when no project is given). Not exported — every export of
+// a 'use server' file is an endpoint.
+async function requireLocationEdit(projectId?: string) {
+  if (projectId) return requireProductionPermission({ projectId }, 'schedule', 'EDIT')
+  const access = await getAccess()
+  const ok = access.isOwner || access.baseline.schedule === 'EDIT'
+  return { ok, error: ok ? null : { success: false as const, error: 'UNAUTHORIZED_ROLE' } }
+}
+async function requireLocationView(projectId?: string) {
+  if (projectId) return requireProductionPermission({ projectId }, 'schedule', 'VIEW')
+  const access = await getAccess()
+  const ok = access.isOwner || access.baseline.schedule !== 'NONE' || access.baseline.callSheets !== 'NONE'
+  return { ok, error: ok ? null : { success: false as const, error: 'UNAUTHORIZED_ROLE' } }
+}
+
+export async function createLocation(input: LocationInput, projectId?: string): Promise<ActionResult<{ id: string }>> {
+  const gate = await requireLocationEdit(projectId)
   if (!gate.ok) return gate.error!
   const sdb = await getScopedDb()
   const loc = await sdb.location.create({ data: input as unknown as Parameters<typeof sdb.location.create>[0]['data'] })
   return { success: true, data: { id: loc.id } }
 }
 
-export async function updateLocation(id: string, patch: Partial<LocationInput>): Promise<ActionResult> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+export async function updateLocation(id: string, patch: Partial<LocationInput>, projectId?: string): Promise<ActionResult> {
+  const gate = await requireLocationEdit(projectId)
   if (!gate.ok) return gate.error!
   const sdb = await getScopedDb()
   const loc = await sdb.location.findFirst({ where: { id } })
@@ -100,8 +118,8 @@ export async function updateLocation(id: string, patch: Partial<LocationInput>):
   return { success: true, data: null }
 }
 
-export async function deleteLocation(id: string): Promise<ActionResult> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+export async function deleteLocation(id: string, projectId?: string): Promise<ActionResult> {
+  const gate = await requireLocationEdit(projectId)
   if (!gate.ok) return gate.error!
   const sdb = await getScopedDb()
   const loc = await sdb.location.findFirst({ where: { id } })
@@ -114,7 +132,9 @@ export async function deleteLocation(id: string): Promise<ActionResult> {
   return { success: true, data: null }
 }
 
-export async function listLocations(): Promise<ActionResult<{ id: string; name: string; address: string | null }[]>> {
+export async function listLocations(projectId?: string): Promise<ActionResult<{ id: string; name: string; address: string | null }[]>> {
+  const gate = await requireLocationView(projectId)
+  if (!gate.ok) return gate.error!
   const sdb = await getScopedDb()
   const locs = await sdb.location.findMany({
     orderBy: { name: 'asc' },
@@ -129,7 +149,7 @@ export async function createShootDay(
   projectId: string,
   input: { date: Date; label?: string; orderIndex?: number },
 ): Promise<ActionResult<{ id: string }>> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+  const gate = await requireProductionPermission({ projectId }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
   const sdb = await getScopedDb()
   const project = await sdb.project.findFirst({ where: { id: projectId } })
@@ -143,7 +163,7 @@ export async function updateShootDay(
   id: string,
   patch: { date?: Date; label?: string; startTime?: string | null; primaryLocationId?: string | null },
 ): Promise<ActionResult> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+  const gate = await requireProductionPermission({ shootDayId: id }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
   const sdb = await getScopedDb()
   const day = await sdb.shootDay.findFirst({ where: { id } })
@@ -157,7 +177,7 @@ export async function updateShootDay(
 }
 
 export async function deleteShootDay(id: string, moveEntriesToBoneyard: boolean): Promise<ActionResult> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+  const gate = await requireProductionPermission({ shootDayId: id }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
   const sdb = await getScopedDb()
   const day = await sdb.shootDay.findFirst({ where: { id } })
@@ -174,14 +194,15 @@ export async function deleteShootDay(id: string, moveEntriesToBoneyard: boolean)
 }
 
 export async function reorderShootDays(projectId: string, orderedIds: string[]): Promise<ActionResult> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+  const gate = await requireProductionPermission({ projectId }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
   const sdb = await getScopedDb()
   const project = await sdb.project.findFirst({ where: { id: projectId } })
   if (!project) return { success: false, error: 'Project not found' }
   await db.$transaction(
     orderedIds.map((dayId, idx) =>
-      db.shootDay.update({ where: { id: dayId }, data: { orderIndex: idx } }),
+      // Only this project's days (ids from elsewhere match nothing).
+      db.shootDay.updateMany({ where: { id: dayId, projectId, workspaceId: gate.workspaceId }, data: { orderIndex: idx } }),
     ),
   )
   revalidatePath(`/projects/${projectId}/schedule`)
@@ -191,7 +212,7 @@ export async function reorderShootDays(projectId: string, orderedIds: string[]):
 // ── Scene ─────────────────────────────────────────────────────────────────────
 
 export async function createScene(projectId: string, input: SceneInput): Promise<ActionResult<{ id: string }>> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+  const gate = await requireProductionPermission({ projectId }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
   const sdb = await getScopedDb()
   const project = await sdb.project.findFirst({ where: { id: projectId } })
@@ -238,8 +259,16 @@ export async function createSceneWithEntry(
   shootDayId: string | null,
   input: SceneInput,
 ): Promise<ActionResult<SceneEntryPayload>> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+  const gate = await requireProductionPermission({ projectId }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
+  const gate2 = await requireProductionPermission({ scheduleId }, 'schedule', 'EDIT')
+  if (!gate2.ok) return gate2.error!
+  if (gate2.projectId !== gate.projectId) return { success: false, error: 'Not found' }
+  if (shootDayId) {
+    const gate3 = await requireProductionPermission({ shootDayId }, 'schedule', 'EDIT')
+    if (!gate3.ok) return gate3.error!
+    if (gate3.projectId !== gate.projectId) return { success: false, error: 'Not found' }
+  }
   const sdb = await getScopedDb()
   const [project, schedule] = await Promise.all([
     sdb.project.findFirst({ where: { id: projectId } }),
@@ -313,7 +342,7 @@ export async function createSceneWithEntry(
 }
 
 export async function updateScene(id: string, patch: Partial<SceneInput>): Promise<ActionResult> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+  const gate = await requireProductionPermission({ sceneId: id }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
   const sdb = await getScopedDb()
   const scene = await sdb.scene.findFirst({
@@ -332,7 +361,7 @@ export async function updateScene(id: string, patch: Partial<SceneInput>): Promi
 }
 
 export async function archiveScene(id: string): Promise<ActionResult> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+  const gate = await requireProductionPermission({ sceneId: id }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
   const sdb = await getScopedDb()
   const scene = await sdb.scene.findFirst({ where: { id } })
@@ -342,7 +371,7 @@ export async function archiveScene(id: string): Promise<ActionResult> {
 }
 
 export async function unarchiveScene(id: string): Promise<ActionResult> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+  const gate = await requireProductionPermission({ sceneId: id }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
   const sdb = await getScopedDb()
   const scene = await sdb.scene.findFirst({ where: { id } })
@@ -352,7 +381,7 @@ export async function unarchiveScene(id: string): Promise<ActionResult> {
 }
 
 export async function deleteScene(id: string): Promise<ActionResult> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+  const gate = await requireProductionPermission({ sceneId: id }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
   const sdb = await getScopedDb()
   const scene = await sdb.scene.findFirst({ where: { id } })
@@ -364,7 +393,7 @@ export async function deleteScene(id: string): Promise<ActionResult> {
 // ── Schedule ──────────────────────────────────────────────────────────────────
 
 export async function createSchedule(projectId: string, name: string): Promise<ActionResult<{ id: string }>> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+  const gate = await requireProductionPermission({ projectId }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
   const sdb = await getScopedDb()
   const project = await sdb.project.findFirst({ where: { id: projectId } })
@@ -377,7 +406,7 @@ export async function createSchedule(projectId: string, name: string): Promise<A
 }
 
 export async function renameSchedule(id: string, name: string): Promise<ActionResult> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+  const gate = await requireProductionPermission({ scheduleId: id }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
   const sdb = await getScopedDb()
   const schedule = await sdb.schedule.findFirst({ where: { id } })
@@ -388,8 +417,11 @@ export async function renameSchedule(id: string, name: string): Promise<ActionRe
 }
 
 export async function setPrimarySchedule(projectId: string, scheduleId: string): Promise<ActionResult> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+  const gate = await requireProductionPermission({ projectId }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
+  const gate2 = await requireProductionPermission({ scheduleId }, 'schedule', 'EDIT')
+  if (!gate2.ok) return gate2.error!
+  if (gate2.projectId !== gate.projectId) return { success: false, error: 'Not found' }
   const sdb = await getScopedDb()
   const project = await sdb.project.findFirst({ where: { id: projectId } })
   if (!project) return { success: false, error: 'Project not found' }
@@ -402,7 +434,7 @@ export async function setPrimarySchedule(projectId: string, scheduleId: string):
 }
 
 export async function updateColumnPrefs(scheduleId: string, prefs: Record<string, boolean>): Promise<ActionResult> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+  const gate = await requireProductionPermission({ scheduleId }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
   const sdb = await getScopedDb()
   const schedule = await sdb.schedule.findFirst({ where: { id: scheduleId } })
@@ -412,7 +444,7 @@ export async function updateColumnPrefs(scheduleId: string, prefs: Record<string
 }
 
 export async function deleteSchedule(id: string): Promise<ActionResult> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+  const gate = await requireProductionPermission({ scheduleId: id }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
   const sdb = await getScopedDb()
   const schedule = await sdb.schedule.findFirst({ where: { id } })
@@ -429,8 +461,18 @@ export async function createScheduleEntry(
   scheduleId: string,
   input: ScheduleEntryInput,
 ): Promise<ActionResult<{ id: string }>> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+  const gate = await requireProductionPermission({ scheduleId }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
+  if (input.shootDayId) {
+    const gate2 = await requireProductionPermission({ shootDayId: input.shootDayId }, 'schedule', 'EDIT')
+    if (!gate2.ok) return gate2.error!
+    if (gate2.projectId !== gate.projectId) return { success: false, error: 'Not found' }
+  }
+  if (input.sceneId) {
+    const gate3 = await requireProductionPermission({ sceneId: input.sceneId }, 'schedule', 'EDIT')
+    if (!gate3.ok) return gate3.error!
+    if (gate3.projectId !== gate.projectId) return { success: false, error: 'Not found' }
+  }
   const sdb = await getScopedDb()
   const schedule = await sdb.schedule.findFirst({ where: { id: scheduleId } })
   if (!schedule) return { success: false, error: 'Schedule not found' }
@@ -444,7 +486,8 @@ export async function createScheduleEntry(
   const orderIndex = input.orderIndex ?? ((maxEntry?.orderIndex ?? -1) + 1)
 
   const entry = await sdb.scheduleEntry.create({
-    data: { scheduleId, ...input, orderIndex } as unknown as Parameters<typeof sdb.scheduleEntry.create>[0]['data'],
+    // The gated scheduleId wins over anything smuggled in `input`.
+    data: { ...input, scheduleId, orderIndex } as unknown as Parameters<typeof sdb.scheduleEntry.create>[0]['data'],
   })
 
   if (input.shootDayId) {
@@ -458,8 +501,19 @@ export async function updateScheduleEntry(
   id: string,
   patch: Partial<ScheduleEntryInput>,
 ): Promise<ActionResult> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+  const gate = await requireProductionPermission({ scheduleEntryId: id }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
+  if (patch.sceneId) {
+    // A scene from another project would show its details on this schedule.
+    const gate3 = await requireProductionPermission({ sceneId: patch.sceneId }, 'schedule', 'EDIT')
+    if (!gate3.ok) return gate3.error!
+    if (gate3.projectId !== gate.projectId) return { success: false, error: 'Not found' }
+  }
+  if (patch.shootDayId) {
+    const gate2 = await requireProductionPermission({ shootDayId: patch.shootDayId }, 'schedule', 'EDIT')
+    if (!gate2.ok) return gate2.error!
+    if (gate2.projectId !== gate.projectId) return { success: false, error: 'Not found' }
+  }
   const sdb = await getScopedDb()
   const entry = await sdb.scheduleEntry.findFirst({ where: { id }, include: { schedule: true } })
   if (!entry) return { success: false, error: 'Not found' }
@@ -476,8 +530,18 @@ export async function moveScheduleEntry(input: {
   toShootDayId: string | null
   beforeEntryId: string | null
 }): Promise<ActionResult> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+  const gate = await requireProductionPermission({ scheduleEntryId: input.entryId }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
+  if (input.toShootDayId) {
+    const gate2 = await requireProductionPermission({ shootDayId: input.toShootDayId }, 'schedule', 'EDIT')
+    if (!gate2.ok) return gate2.error!
+    if (gate2.projectId !== gate.projectId) return { success: false, error: 'Not found' }
+  }
+  if (input.beforeEntryId) {
+    const gate3 = await requireProductionPermission({ scheduleEntryId: input.beforeEntryId }, 'schedule', 'EDIT')
+    if (!gate3.ok) return gate3.error!
+    if (gate3.projectId !== gate.projectId) return { success: false, error: 'Not found' }
+  }
   const sdb = await getScopedDb()
   const entry = await sdb.scheduleEntry.findFirst({ where: { id: input.entryId }, include: { schedule: true } })
   if (!entry) return { success: false, error: 'Not found' }
@@ -515,8 +579,18 @@ export async function moveScheduleEntries(input: {
   toShootDayId: string | null
   beforeEntryId: string | null
 }): Promise<ActionResult> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+  const gate = await requireProductionPermission({ scheduleEntryIds: input.entryIds }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
+  if (input.toShootDayId) {
+    const gate2 = await requireProductionPermission({ shootDayId: input.toShootDayId }, 'schedule', 'EDIT')
+    if (!gate2.ok) return gate2.error!
+    if (gate2.projectId !== gate.projectId) return { success: false, error: 'Not found' }
+  }
+  if (input.beforeEntryId) {
+    const gate3 = await requireProductionPermission({ scheduleEntryId: input.beforeEntryId }, 'schedule', 'EDIT')
+    if (!gate3.ok) return gate3.error!
+    if (gate3.projectId !== gate.projectId) return { success: false, error: 'Not found' }
+  }
   const sdb = await getScopedDb()
   const entries = await sdb.scheduleEntry.findMany({
     where: { id: { in: input.entryIds } },
@@ -578,7 +652,7 @@ export async function moveScheduleEntries(input: {
 }
 
 export async function deleteScheduleEntry(id: string): Promise<ActionResult> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+  const gate = await requireProductionPermission({ scheduleEntryId: id }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
   const sdb = await getScopedDb()
   const entry = await sdb.scheduleEntry.findFirst({ where: { id }, include: { schedule: true } })
@@ -593,7 +667,7 @@ export async function deleteScheduleEntry(id: string): Promise<ActionResult> {
 }
 
 export async function recomputeShootDay(shootDayId: string): Promise<ActionResult> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+  const gate = await requireProductionPermission({ shootDayId }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
   const sdb = await getScopedDb()
   const day = await sdb.shootDay.findFirst({ where: { id: shootDayId } })
@@ -607,7 +681,7 @@ export async function recomputeShootDay(shootDayId: string): Promise<ActionResul
 export async function syncCallSheetSchedule(
   callSheetId: string,
 ): Promise<ActionResult<{ schedule: ReturnType<typeof snapshotToScheduleBlocks> }>> {
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
+  const gate = await requireProductionPermission({ callSheetId }, 'callSheets', 'EDIT')
   if (!gate.ok) return gate.error!
   const sdb = await getScopedDb()
   const cs = await sdb.callSheet.findFirst({ where: { id: callSheetId } })

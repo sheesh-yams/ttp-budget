@@ -24,6 +24,8 @@ interface Props {
   projectId: string
   projectName: string
   shootStartDate: string | null
+  /** callSheets EDIT — create and delete */
+  canEdit?: boolean
 }
 
 const STATUS_CONFIG: Record<CallSheetStatus, { label: string; color: string }> = {
@@ -32,7 +34,7 @@ const STATUS_CONFIG: Record<CallSheetStatus, { label: string; color: string }> =
   FINAL: { label: 'Final', color: 'bg-green-100 text-green-700' },
 }
 
-export function ProjectCallSheets({ callSheets, projectId, projectName, shootStartDate }: Props) {
+export function ProjectCallSheets({ callSheets, projectId, projectName, shootStartDate, canEdit = true }: Props) {
   const router = useRouter()
   const [, startTransition] = useTransition()
   const [modalOpen, setModalOpen] = useState(false)
@@ -55,10 +57,12 @@ export function ProjectCallSheets({ callSheets, projectId, projectName, shootSta
       {ConfirmDialog}
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-base font-semibold text-foreground">Call Sheets</h2>
-        <Button size="sm" variant="outline" onClick={() => setModalOpen(true)}>
-          <Plus className="mr-1.5 h-3.5 w-3.5" />
-          New call sheet
-        </Button>
+        {canEdit && (
+          <Button size="sm" variant="outline" onClick={() => setModalOpen(true)}>
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            New call sheet
+          </Button>
+        )}
       </div>
 
       {callSheets.length === 0 ? (
@@ -66,10 +70,12 @@ export function ProjectCallSheets({ callSheets, projectId, projectName, shootSta
           <Clock className="h-8 w-8 text-muted-foreground/40 mb-2" />
           <p className="text-sm font-medium text-foreground">No call sheets yet</p>
           <p className="mt-1 text-xs text-muted-foreground">Create one to share crew calls, location details, and the day&apos;s schedule.</p>
-          <Button size="sm" variant="outline" className="mt-4" onClick={() => setModalOpen(true)}>
-            <Plus className="mr-1.5 h-3.5 w-3.5" />
-            New call sheet
-          </Button>
+          {canEdit && (
+            <Button size="sm" variant="outline" className="mt-4" onClick={() => setModalOpen(true)}>
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              New call sheet
+            </Button>
+          )}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border">
@@ -119,7 +125,7 @@ export function ProjectCallSheets({ callSheets, projectId, projectName, shootSta
                             <ExternalLink className="h-3.5 w-3.5" />
                           </a>
                         )}
-                        <button
+                        {canEdit && <button
                           type="button"
                           onClick={() => handleDelete(cs.id)}
                           disabled={deletingId === cs.id}
@@ -127,7 +133,7 @@ export function ProjectCallSheets({ callSheets, projectId, projectName, shootSta
                           title="Delete call sheet"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        </button>}
                       </div>
                     </td>
                   </tr>

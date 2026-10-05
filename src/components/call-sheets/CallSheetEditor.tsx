@@ -91,10 +91,13 @@ export function CallSheetEditor({
   initial,
   rolodexContacts = [],
   timeFormat = '12H',
+  readOnly = false,
 }: {
   initial: CallSheetData
   rolodexContacts?: RolodexContact[]
   timeFormat?: import('@/lib/time-format').TimeFormat
+  /** callSheets VIEW only — every field and button is disabled */
+  readOnly?: boolean
 }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
@@ -311,7 +314,15 @@ export function CallSheetEditor({
   // =============================================================================
 
   return (
+    // View-only: a disabled fieldset disables every input and button inside
+    // (the server refuses the writes either way).
+    <fieldset disabled={readOnly} className="contents">
     <div className="max-w-3xl mx-auto">
+      {readOnly && (
+        <p className="mb-4 rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          You can view this call sheet but not change it.
+        </p>
+      )}
       {ConfirmDialog}
       {/* Back */}
       <Link
@@ -801,6 +812,7 @@ export function CallSheetEditor({
         </div>
       )}
     </div>
+    </fieldset>
   )
 }
 

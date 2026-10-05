@@ -226,6 +226,7 @@ export const LEGACY_TEAM_SLOT_KEY = {
  */
 export const ENFORCED_PROJECT_AREAS: ReadonlySet<ProjectArea> = new Set<ProjectArea>([
   'overview', 'budget.lines', 'budget.costs', 'budget.margin', 'crew', 'dealMemos', 'projectTeam',
+  'schedule', 'callSheets', 'delivery',
 ])
 export const ENFORCED_WORKSPACE_AREAS: ReadonlySet<WorkspaceArea> = new Set<WorkspaceArea>([
   'dashboardMoney',

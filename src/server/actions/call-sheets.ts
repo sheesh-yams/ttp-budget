@@ -8,7 +8,7 @@ import type { ActionResult } from '@/types'
 import { toJsonSafe } from '@/lib/json-safe'
 import { generatePublicToken } from '@/lib/secure-token'
 import { buildScheduleSnapshot, snapshotToScheduleBlocks } from '@/lib/schedule-compute'
-import { checkProjectAccess } from '@/lib/project-access'
+import { getProjectAccess } from '@/lib/access'
 
 // =============================================================================
 // Crew import from budget
@@ -26,12 +26,12 @@ export async function importCrewFromBudget(
       where: { id: callSheetId },
       select: { id: true, projectId: true, crew: true, status: true },
     })
-    if (!cs || !(await checkProjectAccess(cs.projectId))) return { success: false, error: 'Call sheet not found' }
+    if (!cs || !(await canEditCallSheets(cs.projectId))) return { success: false, error: 'Call sheet not found' }
     if (cs.status === 'FINAL') return { success: false, error: 'Cannot edit a finalized call sheet' }
 
-    // Verify budget belongs to same workspace
+    // The budget must be this call sheet's project's (not just the workspace's).
     const budget = await sdb.budget.findFirst({
-      where: { id: budgetId },
+      where: { id: budgetId, projectId: cs.projectId },
       select: { id: true },
     })
     if (!budget) return { success: false, error: 'Budget not found' }
@@ -262,6 +262,11 @@ function wmoConditions(code: number): string {
 }
 
 /** Verify a call sheet belongs to the active workspace, return it or throw. */
+/** callSheets EDIT on a project the caller can open (roles Phase 2). */
+async function canEditCallSheets(projectId: string) {
+  return !!(await getProjectAccess(projectId))?.can('callSheets', 'EDIT')
+}
+
 async function getOwnedSheet(id: string, sdb: ScopedDb) {
   const cs = await sdb.callSheet.findFirst({
     where: { id },
@@ -271,9 +276,9 @@ async function getOwnedSheet(id: string, sdb: ScopedDb) {
       weather: true,
     },
   })
-  // Must also be on a project the caller can open (a Collaborator only their
-  // assigned ones) — same message, so other projects' sheets aren't confirmed.
-  if (!cs || !(await checkProjectAccess(cs.projectId))) throw new Error('Call sheet not found')
+  // Must be on a project where the caller can edit call sheets — same message
+  // either way, so other projects' sheets aren't confirmed.
+  if (!cs || !(await canEditCallSheets(cs.projectId))) throw new Error('Call sheet not found')
   return cs
 }
 
@@ -287,7 +292,7 @@ export async function createCallSheet(
 ): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
     const sdb = await getScopedDb()
-    if (!(await checkProjectAccess(projectId))) return { success: false, error: 'Project not found' }
+    if (!(await canEditCallSheets(projectId))) return { success: false, error: 'Project not found' }
     const project = await sdb.project.findFirst({
       where: { id: projectId },
       select: { id: true },

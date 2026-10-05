@@ -30,7 +30,7 @@ export default async function CallSheetPage({
 }) {
   const { id: projectId, csId } = await params
   await requireProjectAccess(projectId)
-  await requireProjectArea(projectId, 'callSheets')
+  const projectAccess = await requireProjectArea(projectId, 'callSheets')
   const workspaceId = await getWorkspaceId()
 
   const [cs, project, budget, rolodexContacts, workspace] = await Promise.all([
@@ -132,7 +132,7 @@ export default async function CallSheetPage({
 
   return (
     <div className="pb-24">
-      <CallSheetEditor initial={initial} rolodexContacts={rolodexContacts} timeFormat={timeFormat} />
+      <CallSheetEditor initial={initial} rolodexContacts={rolodexContacts} timeFormat={timeFormat} readOnly={!projectAccess.can('callSheets', 'EDIT')} />
     </div>
   )
 }

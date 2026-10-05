@@ -1,7 +1,7 @@
 import { notFound }                    from 'next/navigation'
-import { requireProjectAccess } from '@/lib/project-access'
+import { requireProjectAccess, requireProjectArea } from '@/lib/project-access'
 import { db }                          from '@/lib/db'
-import { getWorkspaceId, requireRole } from '@/lib/auth'
+import { getWorkspaceId } from '@/lib/auth'
 import { ClientPagePreview }           from '@/components/delivery/ClientPagePreview'
 
 interface Props {
@@ -18,11 +18,9 @@ export async function generateMetadata({ params }: Props) {
 export default async function DeliveryClientPage({ params }: Props) {
   const { id } = await params
   await requireProjectAccess(id)
-
-  const gate = await requireRole(['OWNER', 'PRODUCER'])
-  if (!gate.ok) return <p className="text-sm text-muted-foreground">Access denied.</p>
-
-  const workspaceId = gate.workspaceId
+  const projectAccess = await requireProjectArea(id, 'delivery')
+  const canEdit = projectAccess.can('delivery', 'EDIT')
+  const workspaceId = await getWorkspaceId()
 
   const project = await db.project.findFirst({
     where:  { id, workspaceId },
@@ -51,9 +49,17 @@ export default async function DeliveryClientPage({ params }: Props) {
     : null
 
   return (
-    <ClientPagePreview
-      project={project}
-      deliveryPage={page}
-    />
+    // View-only: every control disabled (the server refuses writes regardless).
+    <fieldset disabled={!canEdit} className="contents">
+      {!canEdit && (
+        <p className="mb-4 rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          You can view the client delivery page but not change it.
+        </p>
+      )}
+      <ClientPagePreview
+        project={project}
+        deliveryPage={page}
+      />
+    </fieldset>
   )
 }

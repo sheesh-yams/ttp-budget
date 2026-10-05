@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import { requireProjectAccess, requireProjectArea } from '@/lib/project-access'
 import { db } from '@/lib/db'
-import { getWorkspaceId, requireRole } from '@/lib/auth'
+import { getWorkspaceId } from '@/lib/auth'
 import { ScheduleEditorClient } from '@/components/projects/schedule/ScheduleEditorClient'
 
 export default async function SchedulePage({
@@ -13,10 +13,9 @@ export default async function SchedulePage({
 }) {
   const { id: projectId } = await params
   await requireProjectAccess(projectId)
-  await requireProjectArea(projectId, 'schedule')
+  const projectAccess = await requireProjectArea(projectId, 'schedule')
   const { scheduleId: requestedScheduleId } = await searchParams
   const workspaceId = await getWorkspaceId()
-  const gate = await requireRole(['OWNER', 'PRODUCER', 'COLLABORATOR'])
 
   const project = await db.project.findFirst({
     where: { id: projectId, workspaceId },
@@ -68,7 +67,8 @@ export default async function SchedulePage({
     <ScheduleEditorClient
       projectId={projectId}
       projectName={project.name}
-      userRole={gate.role}
+      canEdit={projectAccess.can('schedule', 'EDIT')}
+      canCreateCallSheet={projectAccess.can('callSheets', 'EDIT')}
       shootDays={shootDays.map(d => ({
         id: d.id,
         date: d.date.toISOString(),

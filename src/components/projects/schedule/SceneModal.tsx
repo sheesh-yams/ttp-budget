@@ -164,7 +164,7 @@ export function SceneModal({ open, onClose, onSaved, projectId, scene, locations
       let resolvedLocationId: string | null = locationId || null
 
       if (showNewLoc && newLocationName.trim()) {
-        const locResult = await createLocation({ name: newLocationName.trim() })
+        const locResult = await createLocation({ name: newLocationName.trim() }, projectId)
         if ('error' in locResult) { setError(locResult.error); return }
         resolvedLocationId = locResult.data.id
       }
