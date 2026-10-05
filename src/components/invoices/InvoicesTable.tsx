@@ -7,7 +7,8 @@ import { FileText, ExternalLink, Receipt, Ban, Trash2, Pencil, DollarSign } from
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { formatMoney } from '@/lib/money'
-import { voidInvoice, deleteInvoice } from '@/server/actions/invoices'
+import { voidInvoice } from '@/server/actions/invoices'
+import { ArchiveInvoiceButton, ArchivedTag, DeleteInvoiceDialog, ShowArchivedToggle } from '@/components/invoices/InvoiceArchiveDelete'
 import { SendInvoiceSplitButton } from '@/components/invoice/SendInvoiceSplitButton'
 import { PreviewPanel } from '@/components/invoice/PreviewPanel'
 import { EditInvoiceModal } from '@/components/invoice/EditInvoiceModal'
@@ -31,6 +32,8 @@ export interface InvoiceListRow {
   notes?: string | null
   issueDate?: Date | string
   discountCents?: number
+  sentAt?: Date | string | null
+  archivedAt?: Date | string | null
   project: {
     id: string
     name: string
@@ -64,11 +67,17 @@ export function InvoicesTable({ invoices }: { invoices: InvoiceListRow[] }) {
   // Payment dialog
   const [payDialog, setPayDialog] = useState<RecordPaymentInvoice | null>(null)
 
-  // Confirm dialog (void / delete)
+  // Confirm dialog (void)
   const [confirmDialog, setConfirmDialog] = useState<{
-    type: 'void' | 'delete'
+    type: 'void'
     inv: InvoiceListRow
   } | null>(null)
+
+  // Delete (any status) + archive filter
+  const [deleting, setDeleting]         = useState<InvoiceListRow | null>(null)
+  const [showArchived, setShowArchived] = useState(false)
+  const archivedCount = invoices.filter(i => i.archivedAt).length
+  const visible       = showArchived ? invoices : invoices.filter(i => !i.archivedAt)
 
   const now = new Date()
 
@@ -76,13 +85,11 @@ export function InvoicesTable({ invoices }: { invoices: InvoiceListRow[] }) {
 
   function handleConfirm() {
     if (!confirmDialog) return
-    const { type, inv } = confirmDialog
+    const { inv } = confirmDialog
     setActingId(inv.id)
     setActionError(null)
     startTransition(async () => {
-      const result = type === 'void'
-        ? await voidInvoice(inv.id)
-        : await deleteInvoice(inv.id)
+      const result = await voidInvoice(inv.id)
       if (!result.success) {
         setActionError((result as { success: false; error: string }).error)
         setActingId(null)
@@ -96,6 +103,11 @@ export function InvoicesTable({ invoices }: { invoices: InvoiceListRow[] }) {
 
   return (
     <>
+      {archivedCount > 0 && (
+        <div className="mb-2 flex justify-end">
+          <ShowArchivedToggle count={archivedCount} value={showArchived} onChange={setShowArchived} />
+        </div>
+      )}
       <div className="overflow-x-auto rounded-xl border">
         <table className="w-full text-sm">
           <thead>
@@ -112,7 +124,10 @@ export function InvoicesTable({ invoices }: { invoices: InvoiceListRow[] }) {
             </tr>
           </thead>
           <tbody>
-            {invoices.map(inv => {
+            {visible.length === 0 && (
+              <tr><td colSpan={9} className="px-4 py-6 text-center text-xs text-muted-foreground">All invoices are archived — tick “Show archived” to see them.</td></tr>
+            )}
+            {visible.map(inv => {
               const isOverdue  = !['PAID', 'VOID'].includes(inv.status) && new Date(inv.dueDate) < now
               const isPartial  = inv.amountPaidCents > 0 && inv.amountPaidCents < inv.totalCents
               const cfg        = STATUS_CONFIG[inv.status] ?? STATUS_CONFIG.DRAFT
@@ -124,15 +139,14 @@ export function InvoicesTable({ invoices }: { invoices: InvoiceListRow[] }) {
               const canSend   = inv.status === 'DRAFT' || inv.status === 'SENT'
               const canPay    = !['DRAFT', 'PAID', 'VOID'].includes(inv.status)
               const canVoid   = ['DRAFT', 'SENT', 'VIEWED', 'OVERDUE'].includes(inv.status)
-              const canDelete = inv.status === 'DRAFT'
               const isBusy    = actingId === inv.id && isPending
 
               return (
-                <tr key={inv.id} className={`border-b last:border-0 hover:bg-muted/30 ${isBusy ? 'opacity-50' : ''}`}>
+                <tr key={inv.id} className={`border-b last:border-0 hover:bg-muted/30 ${isBusy ? 'opacity-50' : inv.archivedAt ? 'opacity-60' : ''}`}>
 
                   {/* Invoice # */}
                   <td className="px-4 py-2.5">
-                    <p className="font-mono text-xs font-medium text-foreground">{inv.number}</p>
+                    <p className="font-mono text-xs font-medium text-foreground">{inv.number}{inv.archivedAt && <ArchivedTag />}</p>
                     {inv.title && <p className="mt-0.5 text-xs text-muted-foreground">{inv.title}</p>}
                   </td>
 
@@ -267,7 +281,7 @@ export function InvoicesTable({ invoices }: { invoices: InvoiceListRow[] }) {
                       )}
 
                       {/* Void (SENT/VIEWED/OVERDUE — not DRAFT which has Delete instead) */}
-                      {canVoid && !canDelete && (
+                      {canVoid && inv.status !== 'DRAFT' && (
                         <button
                           type="button"
                           onClick={() => setConfirmDialog({ type: 'void', inv })}
@@ -279,18 +293,18 @@ export function InvoicesTable({ invoices }: { invoices: InvoiceListRow[] }) {
                         </button>
                       )}
 
-                      {/* Delete (DRAFT only) */}
-                      {canDelete && (
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDialog({ type: 'delete', inv })}
-                          disabled={isBusy}
-                          className="rounded p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600 inline-flex disabled:opacity-40"
-                          title="Delete draft"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
+                      <ArchiveInvoiceButton invoiceId={inv.id} archived={!!inv.archivedAt} disabled={isBusy} />
+
+                      {/* Delete (any status — typed confirm unless a never-sent draft) */}
+                      <button
+                        type="button"
+                        onClick={() => setDeleting(inv)}
+                        disabled={isBusy}
+                        className="rounded p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600 inline-flex disabled:opacity-40"
+                        title="Delete invoice"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -307,21 +321,20 @@ export function InvoicesTable({ invoices }: { invoices: InvoiceListRow[] }) {
         onRecorded={refresh}
       />
 
-      {/* ── Void / Delete confirm dialog ───────────────────────────────── */}
+      <DeleteInvoiceDialog invoice={deleting} onClose={() => setDeleting(null)} />
+
+      {/* ── Void confirm dialog ───────────────────────────────── */}
       <Dialog open={!!confirmDialog} onOpenChange={open => { if (!open) setConfirmDialog(null) }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>
-              {confirmDialog?.type === 'delete' ? 'Delete Draft Invoice' : 'Void Invoice'}
+              Void Invoice
             </DialogTitle>
           </DialogHeader>
           {confirmDialog && (
             <div className="space-y-4 py-1">
               <p className="text-sm text-muted-foreground">
-                {confirmDialog.type === 'delete'
-                  ? `Permanently delete draft invoice ${confirmDialog.inv.number}? This cannot be undone.`
-                  : `Mark invoice ${confirmDialog.inv.number} as void? The invoice link will still work but will show as voided.`
-                }
+                {`Mark invoice ${confirmDialog.inv.number} as void? The invoice link will still work but will show as voided.`}
               </p>
               {actionError && (
                 <p className="text-sm text-red-600">{actionError}</p>
@@ -338,7 +351,7 @@ export function InvoicesTable({ invoices }: { invoices: InvoiceListRow[] }) {
                 >
                   {isPending
                     ? 'Working…'
-                    : confirmDialog.type === 'delete' ? 'Delete' : 'Void Invoice'
+                    : 'Void Invoice'
                   }
                 </Button>
               </div>

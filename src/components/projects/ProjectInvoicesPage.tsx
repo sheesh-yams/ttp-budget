@@ -23,8 +23,9 @@ import { PreviewPanel } from '@/components/invoice/PreviewPanel'
 import { EditInvoiceModal } from '@/components/invoice/EditInvoiceModal'
 import { RecordPaymentModal } from '@/components/invoice/RecordPaymentModal'
 import { formatMoney } from '@/lib/money'
-import { voidInvoice, deleteInvoice } from '@/server/actions/invoices'
+import { voidInvoice } from '@/server/actions/invoices'
 import { useTransition } from 'react'
+import { ArchiveInvoiceButton, ArchivedTag, DeleteInvoiceDialog, ShowArchivedToggle } from '@/components/invoices/InvoiceArchiveDelete'
 import type { ProposalContent, PaymentMilestone, MilestoneTrigger, InvoiceLineItem } from '@/types'
 import type { InvoiceStatus } from '@/types'
 
@@ -47,6 +48,7 @@ interface InvoiceRow {
   dueDate: string
   publicToken: string
   sentAt: string | null
+  archivedAt?: string | null
   lineItems: unknown
   taxPct: number | string
   notes: string | null
@@ -140,11 +142,17 @@ export function ProjectInvoicesPage({
   // Payment dialog
   const [payDialog, setPayDialog] = useState<InvoiceRow | null>(null)
 
-  // Confirm dialog (void / delete)
+  // Confirm dialog (void)
   const [confirmDialog, setConfirmDialog] = useState<{
-    type: 'void' | 'delete'
+    type: 'void'
     inv: InvoiceRow
   } | null>(null)
+
+  // Delete (any status) + archive filter
+  const [deleting, setDeleting]         = useState<InvoiceRow | null>(null)
+  const [showArchived, setShowArchived] = useState(false)
+  const archivedCount = invoices.filter(i => i.archivedAt).length
+  const visible       = showArchived ? invoices : invoices.filter(i => !i.archivedAt)
 
   const milestones = proposal ? parseMilestones(proposal.content) : []
 
@@ -157,12 +165,10 @@ export function ProjectInvoicesPage({
 
   function handleConfirm() {
     if (!confirmDialog) return
-    const { type, inv } = confirmDialog
+    const { inv } = confirmDialog
     setActingId(inv.id)
     startTransition(async () => {
-      const result = type === 'void'
-        ? await voidInvoice(inv.id)
-        : await deleteInvoice(inv.id)
+      const result = await voidInvoice(inv.id)
       if (!result.success) {
         alert((result as { success: false; error: string }).error)
         setActingId(null)
@@ -312,10 +318,11 @@ export function ProjectInvoicesPage({
             All Invoices
             {invoices.length > 0 && (
               <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                ({invoices.length})
+                ({invoices.length - archivedCount})
               </span>
             )}
           </h2>
+          <ShowArchivedToggle count={archivedCount} value={showArchived} onChange={setShowArchived} />
         </div>
 
         {invoices.length === 0 ? (
@@ -347,7 +354,10 @@ export function ProjectInvoicesPage({
                 </tr>
               </thead>
               <tbody>
-                {invoices.map(inv => {
+                {visible.length === 0 && (
+                  <tr><td colSpan={6} className="px-4 py-6 text-center text-xs text-muted-foreground">All invoices are archived — tick “Show archived” to see them.</td></tr>
+                )}
+                {visible.map(inv => {
                   const cfg        = STATUS_CONFIG[inv.status] ?? STATUS_CONFIG.DRAFT
                   const isPartial  = inv.amountPaidCents > 0 && inv.amountPaidCents < inv.totalCents
                   const isOverdue  = !['PAID', 'VOID'].includes(inv.status) && new Date(inv.dueDate) < new Date()
@@ -358,13 +368,12 @@ export function ProjectInvoicesPage({
                   const canEdit   = !['PAID', 'VOID'].includes(inv.status)
                   const canPay    = !['DRAFT', 'PAID', 'VOID'].includes(inv.status)
                   const canVoid   = ['DRAFT', 'SENT', 'VIEWED', 'OVERDUE'].includes(inv.status)
-                  const canDelete = inv.status === 'DRAFT'
                   const isBusy    = actingId === inv.id && isPending
 
                   return (
-                    <tr key={inv.id} className={`border-b last:border-0 hover:bg-muted/30 ${isBusy ? 'opacity-50' : ''}`}>
+                    <tr key={inv.id} className={`border-b last:border-0 hover:bg-muted/30 ${isBusy ? 'opacity-50' : inv.archivedAt ? 'opacity-60' : ''}`}>
                       <td className="px-4 py-2.5">
-                        <p className="font-mono text-xs font-medium text-foreground">{inv.number}</p>
+                        <p className="font-mono text-xs font-medium text-foreground">{inv.number}{inv.archivedAt && <ArchivedTag />}</p>
                         {inv.title && <p className="mt-0.5 text-xs text-muted-foreground">{inv.title}</p>}
                       </td>
 
@@ -451,7 +460,7 @@ export function ProjectInvoicesPage({
                             </button>
                           )}
 
-                          {canVoid && !canDelete && (
+                          {canVoid && inv.status !== 'DRAFT' && (
                             <button
                               type="button"
                               onClick={() => setConfirmDialog({ type: 'void', inv })}
@@ -463,17 +472,18 @@ export function ProjectInvoicesPage({
                             </button>
                           )}
 
-                          {canDelete && (
-                            <button
-                              type="button"
-                              onClick={() => setConfirmDialog({ type: 'delete', inv })}
-                              disabled={isBusy}
-                              className="rounded p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600 inline-flex disabled:opacity-40"
-                              title="Delete draft"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          )}
+                          <ArchiveInvoiceButton invoiceId={inv.id} archived={!!inv.archivedAt} disabled={isBusy} />
+
+                          {/* Delete (any status — typed confirm unless a never-sent draft) */}
+                          <button
+                            type="button"
+                            onClick={() => setDeleting(inv)}
+                            disabled={isBusy}
+                            className="rounded p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600 inline-flex disabled:opacity-40"
+                            title="Delete invoice"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -513,28 +523,27 @@ export function ProjectInvoicesPage({
         onRecorded={refresh}
       />
 
-      {/* ── Void / Delete confirm dialog ─────────────────────────────── */}
+      <DeleteInvoiceDialog invoice={deleting} onClose={() => setDeleting(null)} />
+
+      {/* ── Void confirm dialog ─────────────────────────────── */}
       <Dialog open={!!confirmDialog} onOpenChange={open => { if (!open) setConfirmDialog(null) }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>
-              {confirmDialog?.type === 'delete' ? 'Delete Draft Invoice' : 'Void Invoice'}
+              Void Invoice
             </DialogTitle>
           </DialogHeader>
           {confirmDialog && (
             <div className="space-y-4 py-1">
               <p className="text-sm text-muted-foreground">
-                {confirmDialog.type === 'delete'
-                  ? `Permanently delete draft invoice ${confirmDialog.inv.number}? This cannot be undone.`
-                  : `Mark invoice ${confirmDialog.inv.number} as void? The invoice link will still work but will show as voided.`
-                }
+                {`Mark invoice ${confirmDialog.inv.number} as void? The invoice link will still work but will show as voided.`}
               </p>
               <div className="flex gap-3">
                 <Button variant="outline" className="flex-1" onClick={() => setConfirmDialog(null)}>
                   Cancel
                 </Button>
                 <Button variant="destructive" className="flex-1" onClick={handleConfirm} disabled={isPending}>
-                  {isPending ? 'Working…' : confirmDialog.type === 'delete' ? 'Delete' : 'Void Invoice'}
+                  {isPending ? 'Working…' : 'Void Invoice'}
                 </Button>
               </div>
             </div>

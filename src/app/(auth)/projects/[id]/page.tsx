@@ -144,6 +144,7 @@ export default async function ProjectDetailPage({
           dueDate:         true,
           publicToken:     true,
           sentAt:          true,
+          archivedAt:      true,
           lineItems:       true,
           taxPct:          true,
           discountCents:   true,

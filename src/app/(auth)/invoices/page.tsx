@@ -29,6 +29,7 @@ export default async function InvoicesPage() {
       issueDate: true,
       publicToken: true,
       sentAt: true,
+      archivedAt: true,
       paidAt: true,
       lineItems: true,
       taxPct: true,
@@ -45,6 +46,9 @@ export default async function InvoicesPage() {
   })
 
   const now = new Date()
+  // Archive only hides from the list — the totals below still count archived invoices.
+  const archivedListCount = invoices.filter(i => i.archivedAt).length
+  const activeListCount   = invoices.length - archivedListCount
   // ── Summary metrics ──────────────────────────────────────────────────────────
   const activeInvoices = invoices.filter(i => i.status !== 'VOID')
   const totalInvoiced  = activeInvoices.reduce((s, i) => s + i.totalCents, 0)
@@ -61,7 +65,8 @@ export default async function InvoicesPage() {
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Invoices</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {invoices.length} invoice{invoices.length !== 1 ? 's' : ''} across all projects
+            {activeListCount} invoice{activeListCount !== 1 ? 's' : ''} across all projects
+            {archivedListCount > 0 && ` · ${archivedListCount} archived`}
           </p>
         </div>
       </div>

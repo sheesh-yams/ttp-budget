@@ -753,6 +753,10 @@ model Invoice {
   paymentMethod String?  // freeform v1; enum later when Stripe lands
   paymentRef    String?  // wire confirmation #, check #, etc.
 
+  // Archived = hidden from invoice lists (still counted in totals). Null = active.
+  archivedAt    DateTime?
+  archivedById  String?
+
   createdById   String?
   createdBy     User?    @relation("InvoiceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt     DateTime @default(now())

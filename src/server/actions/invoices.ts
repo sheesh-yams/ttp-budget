@@ -12,6 +12,7 @@ import { generatePublicToken } from '@/lib/secure-token'
 import { normalizeRecipientEmails, buildCcList } from '@/lib/email'
 import { calcInvoiceTotals, calendarDateToStored } from '@/lib/invoice-totals'
 import { formatMoney } from '@/lib/money'
+import { deleteNeedsTypedConfirm, matchesInvoiceNumber, paymentInProgress } from '@/lib/invoice-delete'
 
 // ─── Payment terms label ────────────────────────────────────────────────────
 // Derived from the actual gap between issue date and due date, rather than a
@@ -412,7 +413,12 @@ export async function voidInvoice(invoiceId: string): Promise<ActionResult> {
   }
 }
 
-export async function deleteInvoice(invoiceId: string): Promise<ActionResult> {
+/**
+ * Delete an invoice of any status. Drafts delete on a plain confirm; anything
+ * sent, void or paid needs the invoice number typed (checked here, not just in
+ * the dialog). Views cascade; PaymentAttempt rows are kept for reconciliation.
+ */
+export async function deleteInvoice(invoiceId: string, opts: { confirm?: string } = {}): Promise<ActionResult> {
   try {
     const gate = await requireRole(['OWNER', 'PRODUCER'])
     if (!gate.ok) return gate.error
@@ -421,16 +427,29 @@ export async function deleteInvoice(invoiceId: string): Promise<ActionResult> {
 
     const invoice = await scopedDb.invoice.findFirst({
       where: { id: invoiceId },
-      select: { workspaceId: true, status: true, projectId: true, number: true },
+      select: {
+        workspaceId: true, status: true, projectId: true, number: true, title: true,
+        totalCents: true, amountPaidCents: true, sentAt: true,
+      },
     })
 
     if (!invoice) return { success: false, error: 'Invoice not found' }
 
-    if (invoice.status !== 'DRAFT') {
-      return { success: false, error: 'Only DRAFT invoices can be deleted. Void sent invoices instead.' }
+    if (deleteNeedsTypedConfirm(invoice) && !matchesInvoiceNumber(opts.confirm, invoice.number)) {
+      return { success: false, error: `Type ${invoice.number} to confirm.` }
     }
 
-    await scopedDb.invoice.delete({ where: { id: invoiceId } })
+    // A checkout that's mid-flight would settle onto a missing invoice.
+    const attempts = await scopedDb.paymentAttempt.findMany({
+      where:  { invoiceId, status: 'INITIATED' },
+      select: { status: true, createdAt: true },
+    })
+    if (paymentInProgress(attempts)) {
+      return { success: false, error: 'A payment on this invoice is in progress — try again in a little while.' }
+    }
+
+    const res = await scopedDb.invoice.deleteMany({ where: { id: invoiceId } })
+    if (res.count === 0) return { success: false, error: 'Invoice not found' }
 
     await logAuditEvent({
       workspaceId: invoice.workspaceId as string,
@@ -438,15 +457,59 @@ export async function deleteInvoice(invoiceId: string): Promise<ActionResult> {
       action:      'invoice.deleted',
       entityType:  'Invoice',
       entityId:    invoiceId,
-      metadata:    { number: invoice.number },
+      metadata:    {
+        number: invoice.number, title: invoice.title, status: invoice.status, projectId: invoice.projectId,
+        totalCents: invoice.totalCents, amountPaidCents: invoice.amountPaidCents,
+        sentAt: invoice.sentAt?.toISOString() ?? null,
+      },
     })
 
     revalidatePath(`/projects/${invoice.projectId}`)
+    revalidatePath(`/projects/${invoice.projectId}/invoices`)
     revalidatePath('/invoices')
     revalidatePath('/dashboard')
     return { success: true, data: undefined }
-  } catch {
+  } catch (err) {
+    console.error('[deleteInvoice]', err)
     return { success: false, error: 'Failed to delete invoice' }
+  }
+}
+
+/** Archive hides an invoice from the lists; totals still count it. */
+export async function setInvoiceArchived(invoiceId: string, archived: boolean): Promise<ActionResult> {
+  try {
+    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    if (!gate.ok) return gate.error
+
+    const [scopedDb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+    const invoice = await scopedDb.invoice.findFirst({
+      where:  { id: invoiceId },
+      select: { workspaceId: true, projectId: true, number: true },
+    })
+    if (!invoice) return { success: false, error: 'Invoice not found' }
+
+    const res = await scopedDb.invoice.updateMany({
+      where: { id: invoiceId, archivedAt: archived ? null : { not: null } },
+      data:  archived ? { archivedAt: new Date(), archivedById: user.id } : { archivedAt: null, archivedById: null },
+    })
+    if (res.count > 0) {
+      await logAuditEvent({
+        workspaceId: invoice.workspaceId as string,
+        actorId:     user.id,
+        action:      archived ? 'invoice.archived' : 'invoice.unarchived',
+        entityType:  'Invoice',
+        entityId:    invoiceId,
+        metadata:    { number: invoice.number },
+      })
+    }
+
+    revalidatePath(`/projects/${invoice.projectId}`)
+    revalidatePath(`/projects/${invoice.projectId}/invoices`)
+    revalidatePath('/invoices')
+    return { success: true, data: undefined }
+  } catch (err) {
+    console.error('[setInvoiceArchived]', err)
+    return { success: false, error: archived ? 'Failed to archive invoice' : 'Failed to unarchive invoice' }
   }
 }
 

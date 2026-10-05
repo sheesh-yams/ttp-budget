@@ -126,6 +126,47 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-05 — Invoices: archive + delete at any status
+- **Before:** only DRAFT invoices could be deleted, and PAID ones couldn't
+  even be voided. 13 test invoices (9 VOID, 4 PAID) were stuck in the lists
+  and in the "Collected" totals.
+- **Delete** (`deleteInvoice`) works at any status.
+  - A never-sent, unpaid draft deletes on a plain confirm.
+  - Anything else needs the invoice number typed. This is checked on the
+    server (`matchesInvoiceNumber`, `src/lib/invoice-delete.ts`).
+  - The dialog warns that the client link stops working and that collected
+    money drops out of the totals.
+  - Views cascade. `PaymentAttempt` rows are kept (no FK) for Helcim
+    reconciliation.
+  - Audit `invoice.deleted`, with number, status, totals and sentAt.
+- **Payment guard:** delete is refused while an INITIATED attempt is under
+  2h old.
+  - Payments initiate reuses an attempt for 55 min after its `createdAt` and
+    re-tokens it without moving that timestamp. `settlePayment`'s
+    `invoice.update` would then throw on a deleted invoice: the card is
+    charged with no record.
+  - A millisecond race remains (a checkout opened between the check and the
+    delete).
+- **Archive** (`setInvoiceArchived`, `archivedAt`/`archivedById`) is
+  list-only.
+  - The three lists (`InvoicesTable`, `ProjectInvoices`,
+    `ProjectInvoicesPage`) hide archived rows behind "Show archived (n)",
+    and show them dimmed with an Archived tag.
+  - The dashboard, the `/invoices` metrics and the project totals still
+    count archived invoices.
+  - Audit `invoice.archived` / `invoice.unarchived`.
+  - Permission: `requireRole(['OWNER','PRODUCER'])`, the same as void.
+- **Migration:** `20261005000002_invoice_archive`, two nullable columns.
+  The user ran it.
+- **Verified:**
+  - Jest covers the matcher, the typed-confirm rule and the payment window.
+  - A DB script on a throwaway workspace checked: archive round-trip;
+    cross-workspace delete refused; draft deletes untyped; wrong or missing
+    number refused; the right number deletes; views cascade; a fresh
+    INITIATED attempt blocks while a stale one doesn't; attempts kept.
+- **pitfall-reviewer:** the payment window was too short (30 min). Fixed to
+  2h. The all-archived list showed an empty table; it now shows a message.
+
 ### 2026-10-05 — Deal memos: sent-but-unsigned memos go "Outdated" when terms change
 - If the producer edits a sent, unsigned memo's terms, the vendor's link
   shows an amber "This deal memo is out of date" notice.
