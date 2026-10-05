@@ -21,7 +21,10 @@ export function DealMemoDocument({ memo }: { memo: VendorDealMemo }) {
         <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#5D00A4]">Deal memo</p>
         <h1 className="mt-2 text-2xl font-semibold">{memo.position}</h1>
         <dl className="mt-4 grid grid-cols-2 gap-x-8 gap-y-2 text-sm sm:grid-cols-4">
-          <div><dt className="text-[10px] uppercase tracking-wider text-[#888780]">Crew member</dt><dd className="font-medium">{memo.vendorName}</dd></div>
+          <div className="space-y-2">
+            <div><dt className="text-[10px] uppercase tracking-wider text-[#888780]">Name</dt><dd className="font-medium">{memo.vendorName}</dd></div>
+            <div><dt className="text-[10px] uppercase tracking-wider text-[#888780]">Role</dt><dd className="font-medium">{memo.position}</dd></div>
+          </div>
           <div><dt className="text-[10px] uppercase tracking-wider text-[#888780]">Production</dt><dd className="font-medium">{memo.projectName}</dd></div>
           <div><dt className="text-[10px] uppercase tracking-wider text-[#888780]">Company</dt><dd className="font-medium">{memo.workspaceName}</dd></div>
           {dates && <div><dt className="text-[10px] uppercase tracking-wider text-[#888780]">Dates</dt><dd className="font-medium">{dates}</dd></div>}

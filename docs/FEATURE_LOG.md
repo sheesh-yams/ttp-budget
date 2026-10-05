@@ -126,6 +126,17 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-05 — Deal memos: Role shown under the vendor's name
+- The vendor document (`DealMemoDocument`, used by `/dm/[token]` and
+  "Preview as vendor") now shows **Name** with **Role** beneath it, instead
+  of a single "Crew member" field.
+- Role is the existing `DealMemo.position`. It defaults from the budget
+  line's `roleLabel` (e.g. "1AC"), and the editor field is relabelled
+  "Role (shown to the vendor)", e.g. "1st Assistant Camera".
+- Editing the role after sending already marks the memo Outdated (position
+  is in the terms key), so the vendor gets the new role on re-send.
+- No migration.
+
 ### 2026-10-05 — Invoices: archive + delete at any status
 - **Before:** only DRAFT invoices could be deleted, and PAID ones couldn't
   even be voided. 13 test invoices (9 VOID, 4 PAID) were stuck in the lists

@@ -271,9 +271,10 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
           <section className="rounded-xl border bg-card p-5">
             <div className="grid gap-4 sm:grid-cols-[2fr_1fr_1fr_90px]">
               <div className="space-y-1.5">
-                <Label htmlFor="dm-position">Position (shown to the vendor)</Label>
+                <Label htmlFor="dm-position">Role (shown to the vendor)</Label>
                 <Input
                   id="dm-position" disabled={readOnly} defaultValue={memo.position}
+                  placeholder="e.g. 1st Assistant Camera" title={`Budget line: ${memo.roleLabel}`}
                   onBlur={e => { const v = e.target.value.trim(); if (v && v !== memo.position) save({ position: v }) }}
                 />
               </div>
