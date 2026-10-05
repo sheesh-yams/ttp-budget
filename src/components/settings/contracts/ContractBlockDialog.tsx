@@ -159,6 +159,7 @@ export function ContractBlockDialog({ open, onClose, editing, audience: audience
               rows={12}
               placeholder="Enter contract text…"
               showMergeTags
+              mergeTagSet={isVendor ? 'vendor' : 'client'}
             />
             {isVendor ? (
               <p className="text-xs text-muted-foreground">

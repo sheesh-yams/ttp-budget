@@ -3,14 +3,31 @@
 import { useRef, useState, useEffect } from 'react'
 import { Link as LinkIcon, Bold, Italic, Underline, List, ListOrdered, Braces, Pilcrow } from 'lucide-react'
 
-// Merge tags available for insertion in contract/template contexts
-const MERGE_TAGS = [
+// Merge tags available for insertion in contract/template contexts.
+// Client-facing (proposal contract sections):
+const CLIENT_MERGE_TAGS = [
   { group: 'Company',  label: 'Company name',     tag: '{{workspace.name}}'        },
   { group: 'Company',  label: 'Legal name',        tag: '{{workspace.legalName}}'   },
   { group: 'Client',   label: 'Client name',       tag: '{{client.name}}'           },
   { group: 'Project',  label: 'Project name',      tag: '{{project.name}}'          },
   { group: 'Proposal', label: 'Proposal total',    tag: '{{proposal.total}}'        },
   { group: 'Proposal', label: 'Valid through date', tag: '{{proposal.validThrough}}' },
+]
+
+// Crew & vendor terms (deal memos) — must match dealMemoReplacements in src/lib/merge-tags.ts.
+const VENDOR_MERGE_TAGS = [
+  { group: 'Vendor',    label: 'Vendor name',           tag: '{{vendor.name}}'                   },
+  { group: 'Deal memo', label: 'Role',                  tag: '{{dealMemo.position}}'             },
+  { group: 'Deal memo', label: 'Start date',            tag: '{{dealMemo.startDate}}'            },
+  { group: 'Deal memo', label: 'End date',              tag: '{{dealMemo.endDate}}'              },
+  { group: 'Deal memo', label: 'Work-day hours',        tag: '{{dealMemo.workDayHours}}'         },
+  { group: 'Deal memo', label: 'Overtime multiplier',   tag: '{{dealMemo.otMultiplier}}'         },
+  { group: 'Deal memo', label: 'Double time after (hrs)', tag: '{{dealMemo.doubleTimeAfterHours}}' },
+  { group: 'Deal memo', label: 'Double-time multiplier', tag: '{{dealMemo.doubleTimeMultiplier}}' },
+  { group: 'Deal memo', label: 'Production zone (miles)', tag: '{{dealMemo.productionZoneMiles}}' },
+  { group: 'Company',   label: 'Company name',          tag: '{{workspace.name}}'                },
+  { group: 'Company',   label: 'Legal name',            tag: '{{workspace.legalName}}'           },
+  { group: 'Project',   label: 'Project name',          tag: '{{project.name}}'                  },
 ]
 
 interface Props {
@@ -20,9 +37,12 @@ interface Props {
   rows?:          number
   label?:         string
   showMergeTags?: boolean
+  /** Which tag set the Tags menu offers — vendor for crew & vendor terms. */
+  mergeTagSet?:   'client' | 'vendor'
 }
 
-export function SmartTextEditor({ value, onChange, placeholder, rows = 3, label, showMergeTags = false }: Props) {
+export function SmartTextEditor({ value, onChange, placeholder, rows = 3, label, showMergeTags = false, mergeTagSet = 'client' }: Props) {
+  const mergeTags = mergeTagSet === 'vendor' ? VENDOR_MERGE_TAGS : CLIENT_MERGE_TAGS
   const ref        = useRef<HTMLTextAreaElement>(null)
   const tagMenuRef = useRef<HTMLDivElement>(null)
   const [tagMenuOpen, setTagMenuOpen] = useState(false)
@@ -215,7 +235,7 @@ export function SmartTextEditor({ value, onChange, placeholder, rows = 3, label,
 
                 {tagMenuOpen && (
                   <div className="absolute top-full left-0 mt-1 z-50 min-w-[200px] rounded-md border border-border bg-popover shadow-md py-1">
-                    {MERGE_TAGS.map(({ label: tLabel, tag, group }) => (
+                    {mergeTags.map(({ label: tLabel, tag, group }) => (
                       <button
                         key={tag}
                         type="button"
@@ -246,7 +266,9 @@ export function SmartTextEditor({ value, onChange, placeholder, rows = 3, label,
       </div>
       <p className="text-[10px] text-muted-foreground/50">
         Select text then click a button, or click to insert at cursor.
-        {showMergeTags && ' Use Tags to insert dynamic values like company or client name.'}
+        {showMergeTags && (mergeTagSet === 'vendor'
+          ? ' Use Tags to insert dynamic values like the vendor’s name or role.'
+          : ' Use Tags to insert dynamic values like company or client name.')}
       </p>
     </div>
   )

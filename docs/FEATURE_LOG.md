@@ -126,6 +126,24 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-05 — Vendor merge tags in the contract block Tags menu
+- **Before:** the Tags menu in `SmartTextEditor` offered one hard-coded
+  client/proposal list everywhere. The crew & vendor terms dialog had no
+  way to insert `{{vendor.name}}`, and it offered `{{client.name}}` and
+  proposal tags, which don't resolve on a deal memo.
+- **Now:** a `mergeTagSet` prop (`'client'` | `'vendor'`).
+  `ContractBlockDialog` passes `'vendor'` for VENDOR blocks.
+- **The vendor list:**
+  - Vendor name
+  - Role (`dealMemo.position`)
+  - start and end dates
+  - work-day hours, OT and double-time terms, production zone
+  - company and legal name
+  - project name
+
+  It matches `dealMemoReplacements` in `src/lib/merge-tags.ts`. All 12 tags
+  were checked against `resolveMergeTagsPlain`.
+
 ### 2026-10-05 — Deal memos: signed PDF emailed to the vendor and the sender
 - **On signing,** `renderSignedDealMemoPdf` (`src/lib/deal-memo-pdf.ts`)
   renders `DealMemoPDF` (react-pdf) from the frozen `sentSnapshot` plus the
