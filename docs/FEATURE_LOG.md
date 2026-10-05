@@ -100,6 +100,19 @@ Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
 
 ## Backlog (requested directions)
 
+- **Roles — finish Phase 2 (parked 2026-10-05, user's call):** convert the
+  remaining areas, which still say "Not enforced yet" and follow the closest
+  built-in role:
+  1. Money: proposals, invoices + payments, actuals + receipts, contract
+     (~42 legacy checks).
+  2. Workspace pages: clients, rolodex, rates/templates/library, contract
+     blocks, settings, Stripe, public links, project create/archive (~45).
+  3. Team & settings access (Owner-only today) and deal-memo defaults.
+  Then cleanup: drop `User.role` and the `ProjectTeamMember.role` slot column
+  (small migration), remove the "Not enforced yet" labels, and add a jest
+  access matrix.
+  Process per slice: access diff → convert → hide controls → review → ship.
+
 Run each through `/feature`. Check the overlap first:
 - **Deal memos** — likely extends project members/crew (roles, rates, days, kit
   fees already exist) plus the e-signature + PDF patterns from proposals.
