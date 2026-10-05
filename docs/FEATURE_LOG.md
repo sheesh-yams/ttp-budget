@@ -126,6 +126,41 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-05 — Deal memo terms: checkbox picker, reorder, blue "review" blocks
+- **Choose terms** replaces "Add from library…".
+  - A popover checklist of the crew & vendor library: title, category, and
+    "Default" where it applies.
+  - Ticked means the memo already has a section from that block.
+  - Ticking adds it (`addDealMemoSection`, which is now a no-op if the block
+    is already there).
+  - Unticking removes every copy of that block. It asks first if any copy
+    was edited or if there's more than one.
+- **Reorder:** ↑/↓ on each section run `moveDealMemoSection`, which:
+  - reindexes the memo's sections to 0..n-1 (healing ties) in a scoped
+    transaction
+  - guards every write with `dealMemo: { signedAt: null }`, so a signed memo
+    is refused and rolled back
+  - uses the pure `moveInOrder` in `deal-memo-core` (jest-tested)
+  - Reordering a sent memo marks it Outdated, because order is part of the
+    terms key.
+- **Blue for SOW, Custom and blank sections:** these are templates to
+  tailor, so they get a blue border, blue inputs and a "Scope of work /
+  Custom — review" chip. Other sections are lavender. Settings → Contracts
+  cards for SOW and Custom are blue too.
+  - The section category is looked up from `sourceBlockId`
+    (`loadDealMemoEditor` → `sectionCategories`), inactive blocks included.
+  - The shared labels and rule live in `src/lib/contract-categories.ts`.
+- **Section ordering everywhere** (editor, vendor view, terms key) now
+  breaks ties by `createdAt`, so order is deterministic.
+- **Verified:**
+  - Jest for `moveInOrder`.
+  - A DB script checked tie healing and swap, end no-ops, signed refusal
+    with the order unchanged, the inactive-block category lookup, and the
+    library carrying categories.
+- **pitfall-reviewer:** 2 low findings, both fixed: duplicate block copies
+  in the picker, and a misleading "Signed" error when a section changed
+  elsewhere.
+
 ### 2026-10-05 — Vendor merge tags in the contract block Tags menu
 - **Before:** the Tags menu in `SmartTextEditor` offered one hard-coded
   client/proposal list everywhere. The crew & vendor terms dialog had no

@@ -8,15 +8,7 @@ import { renderSmartText, stripSmartText } from '@/lib/smart-text'
 import { toggleContractBlockActive, deleteContractBlock } from '@/server/actions/contract-blocks'
 import type { ContractBlockRow } from '@/server/actions/contract-blocks'
 import type { ContractBlockCategory, TriggerKind } from '@prisma/client'
-
-const CATEGORY_LABELS: Record<ContractBlockCategory, string> = {
-  SOW:        'Scope of Work',
-  TERMS:      'Terms',
-  PAYMENT:    'Payment',
-  IP_RIGHTS:  'IP & Rights',
-  COMPLIANCE: 'Compliance',
-  CUSTOM:     'Custom',
-}
+import { CONTRACT_CATEGORY_LABEL as CATEGORY_LABELS, categoryNeedsReview } from '@/lib/contract-categories'
 
 const CATEGORY_COLORS: Record<ContractBlockCategory, string> = {
   SOW:        'bg-blue-500/10 text-blue-700 dark:text-blue-400',
@@ -70,6 +62,8 @@ export function ContractBlockCard({ block }: Props) {
       <div
         className={cn(
           'rounded-xl border border-border bg-card p-5 shadow-sm transition-opacity',
+          // SOW / Custom blocks are templates to tailor per job — blue, not the default border.
+          categoryNeedsReview(block.category) && 'border-blue-300 bg-blue-50/40 dark:border-blue-500/50 dark:bg-blue-500/5',
           !block.isActive && 'opacity-60',
         )}
       >

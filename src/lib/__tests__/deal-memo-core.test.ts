@@ -1,6 +1,6 @@
 import {
   allowedFromStatuses, applyAutoOvertime, buildDealMemoPrefill, canTransition,
-  dayRateForOvertime, lineHeadcountAndDays, memoExpectedCents,
+  dayRateForOvertime, lineHeadcountAndDays, memoExpectedCents, moveInOrder,
 } from '../deal-memo-core'
 import { BUILT_IN_DEAL_MEMO_DEFAULTS } from '../deal-memo-defaults'
 
@@ -91,5 +91,22 @@ describe('overtime + line helpers', () => {
   it('reads headcount × days from the quantity formula', () => {
     expect(lineHeadcountAndDays({ quantity: 6, quantityFormula: '3x2' })).toEqual({ headcount: 3, days: 2 })
     expect(lineHeadcountAndDays({ quantity: 4, quantityFormula: null })).toEqual({ headcount: 4, days: 1 })
+  })
+})
+
+describe('moveInOrder', () => {
+  const ids = ['a', 'b', 'c']
+  it('swaps with the neighbour', () => {
+    expect(moveInOrder(ids, 'b', 'up')).toEqual(['b', 'a', 'c'])
+    expect(moveInOrder(ids, 'b', 'down')).toEqual(['a', 'c', 'b'])
+  })
+  it('is null at the ends or for an unknown id', () => {
+    expect(moveInOrder(ids, 'a', 'up')).toBeNull()
+    expect(moveInOrder(ids, 'c', 'down')).toBeNull()
+    expect(moveInOrder(ids, 'z', 'up')).toBeNull()
+  })
+  it('does not mutate the input', () => {
+    moveInOrder(ids, 'b', 'up')
+    expect(ids).toEqual(['a', 'b', 'c'])
   })
 })

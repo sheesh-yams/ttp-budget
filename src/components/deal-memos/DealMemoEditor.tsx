@@ -3,14 +3,16 @@
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Eye, Lock, Plus, RotateCcw, X } from 'lucide-react'
-import type { DealMemoFeeKind, DealMemoStatus, RateUnit } from '@prisma/client'
+import { ArrowDown, ArrowLeft, ArrowUp, Eye, ListChecks, Lock, Plus, RotateCcw, X } from 'lucide-react'
+import type { ContractBlockCategory, DealMemoFeeKind, DealMemoStatus, RateUnit } from '@prisma/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { useConfirm } from '@/components/ui/confirm-dialog'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { CONTRACT_CATEGORY_LABEL, categoryNeedsReview } from '@/lib/contract-categories'
 import { centsToRate, formatMoney, rateToCents } from '@/lib/money'
 import { feeExpectedCents, lineHeadcountAndDays, memoExpectedCents } from '@/lib/deal-memo-core'
 import { resolveMergeTagsPlain, type MergeTagContext } from '@/lib/merge-tags'
@@ -18,7 +20,7 @@ import { parseLocalDate } from '@/lib/time-format'
 import type { VendorDealMemo } from '@/lib/deal-memo-vendor-view'
 import type { PhaseLine } from '@/lib/deal-memo-queries'
 import {
-  addDealMemoSection, awardDealMemo, deleteDealMemoFee, removeDealMemoSection,
+  addDealMemoSection, awardDealMemo, deleteDealMemoFee, moveDealMemoSection, removeDealMemoSection,
   resetDealMemoSection, setDealMemoStatus, updateDealMemo, updateDealMemoSection, upsertDealMemoFee,
 } from '@/server/actions/deal-memos'
 import { DealMemoDocument } from './DealMemoDocument'
@@ -40,14 +42,19 @@ export interface EditorMemo {
   internalNotes: string | null; lineItemId: string | null
   contact: { id: string; name: string; primaryRole: string; email: string | null } | null
   fees: EditorFee[]
-  sections: { id: string; title: string; body: string; sourceBlockId: string | null; editedFromSource: boolean; version: string }[]
+  sections: {
+    id: string; title: string; body: string; sourceBlockId: string | null
+    /** The source block's category; null for blank sections or a deleted block. */
+    category: ContractBlockCategory | null
+    editedFromSource: boolean; version: string
+  }[]
 }
 
 interface Props {
   projectId:  string
   memo:       EditorMemo
   lines:      PhaseLine[]
-  library:    { id: string; title: string; isDefault: boolean }[]
+  library:    { id: string; title: string; isDefault: boolean; category: ContractBlockCategory }[]
   vendorView: VendorDealMemo
   /** budget.costs VIEW — the budget rate, budgeted amount and over/under */
   showBudget?: boolean
@@ -119,6 +126,31 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
   }
 
   const save = (patch: Parameters<typeof updateDealMemo>[1]) => run(() => updateDealMemo(memo.id, patch))
+
+  // Removing an edited library section loses those edits — ask first.
+  async function removeSection(s: EditorMemo['sections'][number]) {
+    if (s.editedFromSource && !(await confirm(`Remove “${s.title}”? Your edits to it will be lost.`, { title: 'Remove section', confirmLabel: 'Remove' }))) return
+    run(() => removeDealMemoSection(memo.id, s.id))
+  }
+
+  // Unticking a library block removes every copy of it on the memo (older
+  // memos could add a block twice). Ask first if any copy was edited.
+  async function removeBlock(copies: EditorMemo['sections']) {
+    const edited = copies.some(c => c.editedFromSource)
+    if (edited || copies.length > 1) {
+      const msg = copies.length > 1
+        ? `Remove all ${copies.length} “${copies[0].title}” sections from this memo?${edited ? ' Your edits will be lost.' : ''}`
+        : `Remove “${copies[0].title}”? Your edits to it will be lost.`
+      if (!(await confirm(msg, { title: 'Remove section', confirmLabel: 'Remove' }))) return
+    }
+    run(async () => {
+      for (const c of copies) {
+        const res = await removeDealMemoSection(memo.id, c.id)
+        if (!res.success) return res
+      }
+      return { success: true }
+    })
+  }
 
   // Memos started before the budget-rate prefill (or before the line had a
   // rate) can pull it in with one click.
@@ -351,14 +383,11 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
               {!readOnly && (
                 <div className="flex items-center gap-2">
                   {library.length > 0 && (
-                    <select
-                      value="" disabled={isPending}
-                      onChange={e => { if (e.target.value) run(() => addDealMemoSection(memo.id, { blockId: e.target.value })) }}
-                      className="h-8 rounded-md border border-input bg-transparent px-2 text-sm"
-                    >
-                      <option value="">Add from library…</option>
-                      {library.map(b => <option key={b.id} value={b.id}>{b.title}</option>)}
-                    </select>
+                    <TermsPicker
+                      library={library} sections={memo.sections} disabled={isPending}
+                      onAdd={blockId => run(() => addDealMemoSection(memo.id, { blockId }))}
+                      onRemove={removeBlock}
+                    />
                   )}
                   <Button size="sm" variant="outline" disabled={isPending} onClick={() => run(() => addDealMemoSection(memo.id, { adHoc: true }))}>
                     <Plus className="mr-1 h-3.5 w-3.5" /> Blank section
@@ -371,12 +400,14 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
                 No terms yet. Add them from your crew &amp; vendor library in <Link href="/settings/contracts?for=vendor" className="text-primary hover:underline">Settings → Contracts</Link>, or start a blank section.
               </p>
             ) : (
-              <div className="divide-y">
-                {memo.sections.map(s => (
+              <div className="space-y-3 p-4">
+                {memo.sections.map((s, i) => (
                   <SectionEditor key={`${s.id}:${s.version}`} section={s} disabled={readOnly || isPending}
+                    isFirst={i === 0} isLast={i === memo.sections.length - 1}
                     onSave={v => run(() => updateDealMemoSection(memo.id, s.id, v))}
                     onReset={() => run(() => resetDealMemoSection(memo.id, s.id))}
-                    onRemove={() => run(() => removeDealMemoSection(memo.id, s.id))} />
+                    onMove={dir => run(() => moveDealMemoSection(memo.id, s.id, dir))}
+                    onRemove={() => removeSection(s)} />
                 ))}
               </div>
             )}
@@ -503,28 +534,81 @@ function defaultTargetLabel(kind: DealMemoFeeKind): string {
   return 'its own line'
 }
 
-function SectionEditor({ section, disabled, onSave, onReset, onRemove }: {
-  section: EditorMemo['sections'][number]; disabled: boolean
-  onSave: (v: { title: string; body: string }) => void; onReset: () => void; onRemove: () => void
+/** Library checklist: ticked = already on this memo. Ticking adds, unticking removes. */
+function TermsPicker({ library, sections, disabled, onAdd, onRemove }: {
+  library: Props['library']; sections: EditorMemo['sections']; disabled: boolean
+  onAdd: (blockId: string) => void; onRemove: (copies: EditorMemo['sections']) => void
+}) {
+  // Every section on the memo from each block (normally one).
+  const onMemo = new Map<string, EditorMemo['sections']>()
+  for (const s of sections) if (s.sourceBlockId) onMemo.set(s.sourceBlockId, [...(onMemo.get(s.sourceBlockId) ?? []), s])
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button size="sm" variant="outline" disabled={disabled}>
+          <ListChecks className="mr-1 h-3.5 w-3.5" /> Choose terms
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 p-2">
+        <p className="px-2 pb-1.5 pt-1 text-xs text-muted-foreground">Tick to add a block from your crew &amp; vendor library; untick to remove it.</p>
+        <div className="max-h-80 overflow-y-auto">
+          {library.map(b => {
+            const copies = onMemo.get(b.id)
+            return (
+              <label key={b.id} className={`flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 hover:bg-muted/60 ${disabled ? 'pointer-events-none opacity-60' : ''}`}>
+                <input
+                  type="checkbox" className="mt-0.5 h-4 w-4 shrink-0" checked={!!copies} disabled={disabled}
+                  onChange={() => (copies ? onRemove(copies) : onAdd(b.id))}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-foreground">{b.title}</span>
+                  <span className={`text-[11px] ${categoryNeedsReview(b.category) ? 'text-blue-700' : 'text-muted-foreground'}`}>
+                    {CONTRACT_CATEGORY_LABEL[b.category]}{b.isDefault ? ' · Default' : ''}
+                  </span>
+                </span>
+              </label>
+            )
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function SectionEditor({ section, disabled, isFirst, isLast, onSave, onReset, onMove, onRemove }: {
+  section: EditorMemo['sections'][number]; disabled: boolean; isFirst: boolean; isLast: boolean
+  onSave: (v: { title: string; body: string }) => void; onReset: () => void
+  onMove: (dir: 'up' | 'down') => void; onRemove: () => void
 }) {
   const [title, setTitle] = useState(section.title)
   const [body, setBody]   = useState(section.body)
   const commit = () => { if (title.trim() && (title !== section.title || body !== section.body)) onSave({ title, body }) }
+  // SOW / Custom library blocks and blank sections are templates to tailor — blue.
+  const review = !section.sourceBlockId || categoryNeedsReview(section.category)
+  const reviewLabel = section.category === 'SOW' ? 'Scope of work' : 'Custom'
+  const inputTone = review ? 'border-blue-200 focus-visible:ring-blue-400' : ''
   return (
-    <div className="space-y-2 px-5 py-4">
+    <div className={`space-y-2 rounded-lg border px-4 py-3 ${review ? 'border-blue-300 bg-blue-50/40' : 'border-violet-200'}`}>
       <div className="flex items-center gap-2">
-        <Input value={title} disabled={disabled} onChange={e => setTitle(e.target.value)} onBlur={commit} className="font-medium" aria-label="Section title" />
+        <Input value={title} disabled={disabled} onChange={e => setTitle(e.target.value)} onBlur={commit} className={`font-medium ${inputTone}`} aria-label="Section title" />
+        {review && <span className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700" title="Tailor this section for the job">{reviewLabel} — review</span>}
         {section.editedFromSource && <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">Edited</span>}
         {section.sourceBlockId && section.editedFromSource && (
           <button type="button" disabled={disabled} onClick={onReset} title="Reset to the library version" className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground">
             <RotateCcw className="h-3.5 w-3.5" />
           </button>
         )}
+        <button type="button" disabled={disabled || isFirst} onClick={() => onMove('up')} title="Move up" className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground disabled:opacity-30">
+          <ArrowUp className="h-3.5 w-3.5" />
+        </button>
+        <button type="button" disabled={disabled || isLast} onClick={() => onMove('down')} title="Move down" className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground disabled:opacity-30">
+          <ArrowDown className="h-3.5 w-3.5" />
+        </button>
         <button type="button" disabled={disabled} onClick={onRemove} title="Remove section" className="shrink-0 rounded p-1 text-muted-foreground hover:text-destructive">
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
-      <Textarea rows={4} value={body} disabled={disabled} onChange={e => setBody(e.target.value)} onBlur={commit} className="text-[13px]" aria-label="Section text" />
+      <Textarea rows={4} value={body} disabled={disabled} onChange={e => setBody(e.target.value)} onBlur={commit} className={`text-[13px] ${inputTone}`} aria-label="Section text" />
     </div>
   )
 }

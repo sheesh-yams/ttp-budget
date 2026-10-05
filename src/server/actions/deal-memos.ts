@@ -23,6 +23,7 @@ import {
   buildDealMemoPrefill,
   dayRateForOvertime,
   lineHeadcountAndDays,
+  moveInOrder,
 } from '@/lib/deal-memo-core'
 import { applyDealMemoAwardEffects } from '@/lib/deal-memo-effects'
 import { Prisma } from '@prisma/client'
@@ -375,6 +376,9 @@ export async function addDealMemoSection(
         select: { id: true, title: true, body: true },
       })
       if (!block) return { success: false, error: 'That terms block isn’t in your crew & vendor library.' }
+      // Already on this memo (e.g. a double tick) — don't add a second copy.
+      const existing = await sdb.dealMemoSection.findFirst({ where: { dealMemoId: memoId, sourceBlockId: block.id }, select: { id: true } })
+      if (existing) return { success: true, data: { id: existing.id } }
       ;({ title, body } = block)
       sourceBlockId = block.id
     }
@@ -433,6 +437,56 @@ export async function resetDealMemoSection(memoId: string, sectionId: string): P
     return { success: true, data: undefined }
   } catch {
     return { success: false, error: 'Failed to reset the section.' }
+  }
+}
+
+/**
+ * Move a terms section one step up or down. Reindexes the whole memo to
+ * 0..n-1 (heals ties) inside a transaction; every write re-checks the memo
+ * is still unsigned.
+ */
+export async function moveDealMemoSection(memoId: string, sectionId: string, direction: 'up' | 'down'): Promise<ActionResult> {
+  try {
+    const gate = await requireMemoPermission(memoId)
+    if (!gate.ok) return gate.error
+    if (direction !== 'up' && direction !== 'down') return { success: false, error: 'Invalid direction.' }
+    const sdb = await getScopedDb()
+    const loaded = await loadEditableMemo(sdb, memoId)
+    if ('error' in loaded) return { success: false, error: loaded.error as string }
+
+    const sections = await sdb.dealMemoSection.findMany({
+      where:   { dealMemoId: memoId },
+      orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
+      select:  { id: true, orderIndex: true },
+    })
+    const ids = sections.map(s => s.id)
+    if (!ids.includes(sectionId)) return { success: false, error: 'Section not found.' }
+    const next = moveInOrder(ids, sectionId, direction)
+    if (!next) return { success: true, data: undefined }   // already at that end
+
+    const current = new Map(sections.map(s => [s.id, s.orderIndex]))
+    const STALE = new Error('stale')
+    try {
+      await sdb.$transaction(async tx => {
+        for (const [i, id] of next.entries()) {
+          if (current.get(id) === i) continue
+          const res = await tx.dealMemoSection.updateMany({ where: { id, dealMemoId: memoId, dealMemo: UNSIGNED }, data: { orderIndex: i } })
+          if (res.count === 0) throw STALE
+        }
+      })
+    } catch (err) {
+      if (err !== STALE) throw err
+      // Rolled back: either the vendor just signed, or a section changed elsewhere.
+      const now = await sdb.dealMemo.findFirst({ where: { id: memoId }, select: { signedAt: true } })
+      return { success: false, error: now?.signedAt
+        ? 'Signed — the vendor agreed to these terms. Cancel the deal memo to change them.'
+        : 'The terms changed — refresh and try again.' }
+    }
+    revalidateMemo(loaded.memo.projectId, memoId)
+    return { success: true, data: undefined }
+  } catch (err) {
+    console.error('[moveDealMemoSection]', err)
+    return { success: false, error: 'Failed to move the section.' }
   }
 }
 

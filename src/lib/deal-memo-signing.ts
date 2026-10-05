@@ -74,7 +74,7 @@ export async function loadDealMemoTermsKey(sdb: ScopedDb, memoId: string): Promi
       position: true, startDate: true, endDate: true, days: true,
       workDayHours: true, otMultiplier: true, doubleTimeAfterHours: true, doubleTimeMultiplier: true, productionZoneMiles: true,
       fees:     { orderBy: { order: 'asc' }, select: { label: true, rateCents: true, unit: true, quantity: true, termsText: true } },
-      sections: { orderBy: { orderIndex: 'asc' }, select: { title: true, body: true } },
+      sections: { orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }], select: { title: true, body: true } },
     },
   })
   return memo ? dealMemoTermsKey(memo) : null
@@ -103,7 +103,7 @@ export async function buildVendorView(sdb: ScopedDb, memoId: string): Promise<Ve
       project:  { select: { name: true } },
       workspace: { select: { name: true, legalName: true } },
       fees:     { orderBy: { order: 'asc' } },
-      sections: { orderBy: { orderIndex: 'asc' } },
+      sections: { orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }] },
     },
   })
   if (!memo) return null

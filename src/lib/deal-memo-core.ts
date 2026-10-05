@@ -31,6 +31,21 @@ export function lineHeadcountAndDays(line: { quantity: number | string | { toStr
   return { headcount: Math.max(1, Math.round(headcount)), days }
 }
 
+// ─── Section order ────────────────────────────────────────────────────────────
+
+/**
+ * The order after moving `id` one step up or down. Null when it can't move
+ * (unknown id, or already at that end).
+ */
+export function moveInOrder(ids: string[], id: string, dir: 'up' | 'down'): string[] | null {
+  const i = ids.indexOf(id)
+  const j = dir === 'up' ? i - 1 : i + 1
+  if (i < 0 || j < 0 || j >= ids.length) return null
+  const next = [...ids]
+  ;[next[i], next[j]] = [next[j], next[i]]
+  return next
+}
+
 // ─── Status lifecycle ─────────────────────────────────────────────────────────
 
 const ALLOWED: Record<DealMemoStatus, DealMemoStatus[]> = {

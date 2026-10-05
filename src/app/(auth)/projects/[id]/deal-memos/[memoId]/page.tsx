@@ -23,7 +23,7 @@ export default async function DealMemoPage({ params }: { params: Promise<{ id: s
     db.workspace.findUnique({ where: { id: workspaceId }, select: { name: true, legalName: true } }),
   ])
   if (!data || !project) notFound()
-  const { memo, library } = data
+  const { memo, library, sectionCategories } = data
   // Budget lines are offered for fee mapping (lines VIEW is enough); their
   // rates are budget costs.
   const lines = showBudget ? data.lines : data.lines.map(l => ({ ...l, rateCents: 0 }))
@@ -51,6 +51,7 @@ export default async function DealMemoPage({ params }: { params: Promise<{ id: s
     })),
     sections: memo.sections.map(s => ({
       id: s.id, title: s.title, body: s.body, sourceBlockId: s.sourceBlockId,
+      category: s.sourceBlockId ? sectionCategories.get(s.sourceBlockId) ?? null : null,
       editedFromSource: s.editedFromSource, version: s.updatedAt.toISOString(),
     })),
   }

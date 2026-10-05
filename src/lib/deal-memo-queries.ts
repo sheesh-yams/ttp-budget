@@ -131,7 +131,7 @@ export async function loadDealMemoEditor(sdb: ScopedDb, projectId: string, memoI
     include: {
       contact:  { select: { id: true, name: true, primaryRole: true, email: true } },
       fees:     { orderBy: { order: 'asc' } },
-      sections: { orderBy: { orderIndex: 'asc' } },
+      sections: { orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }] },
     },
   })
   if (!memo) return null
@@ -142,9 +142,17 @@ export async function loadDealMemoEditor(sdb: ScopedDb, projectId: string, memoI
     sdb.contractBlock.findMany({
       where:   { audience: 'VENDOR', isActive: true },
       orderBy: [{ orderIndex: 'asc' }, { title: 'asc' }],
-      select:  { id: true, title: true, isDefault: true },
+      select:  { id: true, title: true, isDefault: true, category: true },
     }),
   ])
 
-  return { memo, lines, library, tracked }
+  // Category of each section's source block (inactive blocks included) —
+  // SOW / Custom sections are flagged for review in the editor.
+  const sourceIds = [...new Set(memo.sections.map(s => s.sourceBlockId).filter((id): id is string => !!id))]
+  const sourceBlocks = sourceIds.length
+    ? await sdb.contractBlock.findMany({ where: { id: { in: sourceIds } }, select: { id: true, category: true } })
+    : []
+  const sectionCategories = new Map(sourceBlocks.map(b => [b.id, b.category]))
+
+  return { memo, lines, library, tracked, sectionCategories }
 }
