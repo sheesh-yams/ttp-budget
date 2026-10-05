@@ -1,4 +1,4 @@
-import { isCancelConfirmation, normEmail, vendorViewChanged } from '../deal-memo-signing'
+import { dealMemoTermsKey, isCancelConfirmation, normEmail, vendorViewChanged } from '../deal-memo-signing'
 import type { VendorDealMemo } from '../deal-memo-vendor-view'
 
 describe('isCancelConfirmation', () => {
@@ -35,5 +35,30 @@ describe('vendorViewChanged', () => {
   })
   it('nothing sent yet → changed', () => {
     expect(vendorViewChanged(base, null)).toBe(true)
+  })
+})
+
+describe('dealMemoTermsKey', () => {
+  const base = {
+    position: 'Gaffer', startDate: new Date('2026-10-01T00:00:00Z'), endDate: null, days: 2,
+    workDayHours: 10, otMultiplier: 1.5, doubleTimeAfterHours: 14, doubleTimeMultiplier: 2, productionZoneMiles: 30,
+    fees:     [{ label: 'Day rate', rateCents: 65000, unit: 'DAY', quantity: 2, termsText: 'For {{project.name}}' }],
+    sections: [{ title: 'Payment', body: 'Between {{workspace.name}} and {{vendor.name}}.' }],
+  }
+
+  it('is stable across Decimal-like and number inputs', () => {
+    expect(dealMemoTermsKey({ ...base, days: '2', otMultiplier: { toString: () => '1.5' } })).toBe(dealMemoTermsKey(base))
+  })
+
+  it('changes when a rate, a section or a work-day term changes', () => {
+    const k = dealMemoTermsKey(base)
+    expect(dealMemoTermsKey({ ...base, fees: [{ ...base.fees[0], rateCents: 70000 }] })).not.toBe(k)
+    expect(dealMemoTermsKey({ ...base, sections: [{ title: 'Payment', body: 'Net 30.' }] })).not.toBe(k)
+    expect(dealMemoTermsKey({ ...base, otMultiplier: 2 })).not.toBe(k)
+  })
+
+  it('ignores zero-rate fees the vendor never sees', () => {
+    const extra = { label: 'Kit', rateCents: 0, unit: 'DAY', quantity: 1, termsText: null }
+    expect(dealMemoTermsKey({ ...base, fees: [...base.fees, extra] })).toBe(dealMemoTermsKey(base))
   })
 })

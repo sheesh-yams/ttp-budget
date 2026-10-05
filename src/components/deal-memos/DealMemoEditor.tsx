@@ -76,6 +76,8 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
   // Signed terms are what the vendor agreed to — no editing (the server refuses too).
   const readOnly  = cancelled || !canEdit || signed
   const stage     = memo.status === 'CONFIRMED' && vendor ? vendorStage(vendor) : null
+  // Sent, unsigned, and the terms changed since — the vendor can't sign the old copy.
+  const outdated  = !signed && memo.status === 'CONFIRMED' && !!vendor?.sentAt && !!vendor?.changedSinceSent
   const fmtWhen   = (iso: string) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
 
   const roleLine = memo.lineItemId ? lines.find(l => l.id === memo.lineItemId) ?? null : null
@@ -153,7 +155,12 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
             {memo.contact?.name ?? 'No contact'} <span className="font-normal text-muted-foreground">— {memo.roleLabel}</span>
           </h1>
           {stage ? (
-            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${VENDOR_STAGE_META[stage].className}`}>{VENDOR_STAGE_META[stage].label}</span>
+            <>
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${VENDOR_STAGE_META[stage].className}`}>{VENDOR_STAGE_META[stage].label}</span>
+              {outdated && (
+                <span className="ml-1.5 inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">Outdated — re-send</span>
+              )}
+            </>
           ) : (
             <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${meta.className}`}>{meta.label}</span>
           )}
@@ -195,7 +202,12 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
         <p className={`mb-4 rounded-lg border px-3 py-2 text-sm ${vendor.changedSinceSent ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-blue-200 bg-blue-50 text-blue-800'}`}>
           Sent to {vendor.sentToEmail} on {fmtWhen(vendor.sentAt)}
           {vendor.firstViewedAt ? ` · viewed ${fmtWhen(vendor.firstViewedAt)}` : ' · not opened yet'}.
-          {vendor.changedSinceSent && ' You’ve changed the terms since — the vendor still sees the earlier version. Re-send to update it.'}
+          {outdated && (
+            <span className="mt-1 block font-medium">
+              Outdated: the terms changed after you sent it. The vendor’s link now says it’s out of date and they can’t
+              sign it. Re-send to give them the updated deal memo.
+            </span>
+          )}
         </p>
       )}
 

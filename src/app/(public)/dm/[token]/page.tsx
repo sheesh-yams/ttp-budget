@@ -6,7 +6,7 @@ import { ExpiredLinkPage } from '@/components/public/ExpiredLinkPage'
 import { RateLimitedPage } from '@/components/public/RateLimitedPage'
 import { DealMemoDocument } from '@/components/deal-memos/DealMemoDocument'
 import { DealMemoSignForm } from '@/components/deal-memos/DealMemoSignForm'
-import { loadDealMemoByToken, recordDealMemoView } from '@/lib/deal-memo-signing'
+import { isDealMemoOutdated, loadDealMemoByToken, recordDealMemoView } from '@/lib/deal-memo-signing'
 import type { VendorDealMemo } from '@/lib/deal-memo-vendor-view'
 
 export const metadata = { title: 'Deal memo' }
@@ -33,6 +33,12 @@ export default async function VendorDealMemoPage({ params }: { params: Promise<{
   }
 
   if (!signed && !cancelled) void recordDealMemoView(memo.id)
+  // Terms changed since sending: this copy is out of date and can't be signed.
+  // If the check itself fails, still show the read-only copy (the sign route re-checks).
+  const outdated = !signed && !cancelled && await isDealMemoOutdated(memo).catch(err => {
+    console.error('[dm page] outdated check', err)
+    return false
+  })
 
   const doc = memo.sentSnapshot as unknown as VendorDealMemo
   const brand = memo.workspace.primaryColor || '#5D00A4'
@@ -54,6 +60,16 @@ export default async function VendorDealMemoPage({ params }: { params: Promise<{
           </div>
         )}
 
+        {outdated && (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <p className="font-semibold">This deal memo is out of date</p>
+            <p className="mt-0.5">
+              {memo.workspace.name} has changed the terms since this was sent to you, so the version below no longer
+              applies and can’t be signed. Ask them to send you the updated deal memo.
+            </p>
+          </div>
+        )}
+
         <div className="overflow-hidden rounded-2xl border border-[#E8E3EF] shadow-sm print:border-0 print:shadow-none">
           <DealMemoDocument memo={doc} />
 
@@ -65,7 +81,9 @@ export default async function VendorDealMemoPage({ params }: { params: Promise<{
                   Signed by <span className="font-semibold">{memo.signatureName}</span> on {fmt(memo.signedAt!)}.
                 </p>
               </div>
-            ) : cancelled ? null : (
+            ) : cancelled ? null : outdated ? (
+              <p className="text-sm text-[#888780]">Signing is paused until you receive the updated deal memo.</p>
+            ) : (
               <DealMemoSignForm memoId={memo.id} token={token} sentAt={memo.sentAt!.toISOString()} brand={brand} vendorName={doc.vendorName} />
             )}
           </div>

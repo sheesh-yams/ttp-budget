@@ -126,6 +126,35 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-05 — Deal memos: sent-but-unsigned memos go "Outdated" when terms change
+- If the producer edits a sent, unsigned memo's terms, the vendor's link
+  shows an amber "This deal memo is out of date" notice.
+  - It names the studio and asks them to send the updated memo.
+  - The sign form is replaced, and the sign route returns 409.
+  - The editor shows an "Outdated — re-send" chip and banner. Re-sending
+    clears it.
+- **What counts as a change:** a `termsKey` fingerprint of the raw terms
+  (merge tags unresolved) is stored in `sentSnapshot` at send:
+  - position, dates, days
+  - work-day/OT/DT/zone terms
+  - visible fees (label, rate, unit, qty, terms)
+  - sections
+  Renaming the project, vendor or studio does not count.
+  - Snapshots without a key fall back to comparing vendor views.
+- **Verified:**
+  - Jest: key stability (Decimal vs number), rate, section and OT changes,
+    zero-rate fees ignored.
+  - E2E on a throwaway workspace: fresh → signable; project and contact
+    renamed → still signable; rate edited → outdated + 409; re-sent →
+    signable and signed.
+- **pitfall-reviewer:**
+  - A medium false positive from merge-resolved comparison. Fixed with the
+    raw-terms key.
+  - The public page no longer 500s if the check throws.
+  - Known: a millisecond race between the outdated check and the sign
+    compare-and-set. The editor's "differs from what they signed" note
+    covers it.
+
 ### 2026-10-05 — Deal memos Phase 2: vendor link, e-signature, email, guarded cancel
 - **Before:** Award only flipped an internal status. Nothing reached the
   vendor.

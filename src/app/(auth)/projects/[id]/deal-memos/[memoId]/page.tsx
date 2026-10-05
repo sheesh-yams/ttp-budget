@@ -5,7 +5,7 @@ import { getWorkspaceId } from '@/lib/auth'
 import { getScopedDb } from '@/lib/db-scoped'
 import { loadDealMemoEditor } from '@/lib/deal-memo-queries'
 import { toVendorDealMemo } from '@/lib/deal-memo-vendor-view'
-import { vendorViewChanged } from '@/lib/deal-memo-signing'
+import { dealMemoChangedSinceSent } from '@/lib/deal-memo-signing'
 import { DealMemoEditor, type EditorMemo } from '@/components/deal-memos/DealMemoEditor'
 
 export const metadata = { title: 'Deal Memo' }
@@ -76,7 +76,7 @@ export default async function DealMemoPage({ params }: { params: Promise<{ id: s
     signatureEmail:   memo.signatureEmail,
     // Also checked once signed: the signed snapshot is the agreement, so any
     // drift in the working rows must stay visible.
-    changedSinceSent: !!memo.sentAt && vendorViewChanged(vendorView, memo.sentSnapshot),
+    changedSinceSent: !!memo.sentAt && await dealMemoChangedSinceSent(sdb, memoId, memo.sentSnapshot),
   }
 
   return (

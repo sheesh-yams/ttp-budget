@@ -6,7 +6,7 @@ import { db } from '@/lib/db'
 import { logAuditEvent } from '@/lib/audit'
 import { trustedClientIp } from '@/lib/client-ip'
 import { sendDealMemoSignedEmails } from '@/lib/email'
-import { normEmail } from '@/lib/deal-memo-signing'
+import { isDealMemoOutdated, normEmail } from '@/lib/deal-memo-signing'
 
 // Public vendor e-signature for a deal memo — no session. Mirrors the proposal
 // approve route: the token proves the link, the signer must use the email the
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     where:  { id, publicToken: token },
     select: {
       id: true, workspaceId: true, projectId: true, status: true, position: true,
-      publicTokenExpiresAt: true, sentAt: true, sentToEmail: true, signedAt: true, createdById: true,
+      publicTokenExpiresAt: true, sentAt: true, sentToEmail: true, sentSnapshot: true, signedAt: true, createdById: true,
       contact:   { select: { name: true } },
       project:   { select: { name: true } },
       workspace: { select: { name: true, contactEmail: true, primaryColor: true, accentColor: true } },
@@ -55,6 +55,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
   if (normEmail(signatureEmail) !== normEmail(memo.sentToEmail)) {
     return NextResponse.json({ error: 'Use the email address this deal memo was sent to.' }, { status: 403 })
+  }
+
+  // The producer changed the terms after sending — the vendor's copy no longer applies.
+  if (await isDealMemoOutdated(memo)) {
+    return NextResponse.json({ error: `${memo.workspace.name} has changed the terms since this was sent. Ask them to send you the updated deal memo.`, stale: true }, { status: 409 })
   }
 
   // Trusted client IP (rightmost proxy-appended XFF entry) — not spoofable.

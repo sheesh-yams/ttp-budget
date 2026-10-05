@@ -30,7 +30,7 @@ import { generatePublicToken } from '@/lib/secure-token'
 import { toJsonSafe } from '@/lib/json-safe'
 import { sendDealMemoEmail, sendDealMemoCancelledEmail } from '@/lib/email'
 import {
-  CANCEL_WORD, DEAL_MEMO_LINK_DAYS, buildVendorView, isCancelConfirmation, normEmail,
+  CANCEL_WORD, DEAL_MEMO_LINK_DAYS, buildVendorView, isCancelConfirmation, loadDealMemoTermsKey, normEmail,
 } from '@/lib/deal-memo-signing'
 
 function appUrl() {
@@ -593,6 +593,8 @@ export async function sendDealMemo(memoId: string, input: { email: string }): Pr
     const snapshot = await buildVendorView(sdb, memoId)
     if (!snapshot) return { success: false, error: 'Deal memo not found.' }
     if (snapshot.fees.length === 0) return { success: false, error: 'Add at least one fee with a rate before sending.' }
+    // Fingerprint of the raw terms — what "outdated" is measured against.
+    const termsKey = await loadDealMemoTermsKey(sdb, memoId)
 
     const token     = memo.publicToken ?? generatePublicToken()
     const now       = new Date()
@@ -602,7 +604,7 @@ export async function sendDealMemo(memoId: string, input: { email: string }): Pr
       where: { id: memoId, status: 'CONFIRMED', signedAt: null },
       data:  {
         publicToken: token, publicTokenExpiresAt: expiresAt, sentAt: now, sentToEmail: email,
-        sentSnapshot: toJsonSafe(snapshot) as Prisma.InputJsonValue,
+        sentSnapshot: { ...toJsonSafe(snapshot), termsKey } as Prisma.InputJsonValue,
       },
     })
     if (res.count === 0) return { success: false, error: 'This deal memo changed — refresh and try again.' }
