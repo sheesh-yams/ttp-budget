@@ -135,7 +135,7 @@ export function DealMemoPDF({ memo, brand, logoSrc, signature, cancelledAtISO }:
         ))}
         {memo.fees.length > 0 && (
           <Text style={s.total}>
-            Estimated total <Text style={{ fontFamily: 'Helvetica-Bold' }}>{formatMoney(memo.expectedTotalCents)}</Text>
+            Total <Text style={{ fontFamily: 'Helvetica-Bold' }}>{formatMoney(memo.expectedTotalCents)}</Text>
           </Text>
         )}
 

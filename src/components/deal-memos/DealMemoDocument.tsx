@@ -64,7 +64,7 @@ export function DealMemoDocument({ memo }: { memo: VendorDealMemo }) {
         )}
         {memo.expectedTotalCents > 0 && (
           <p className="mt-3 text-right text-sm">
-            Estimated total <span className="ml-2 font-semibold tabular-nums">{formatMoney(memo.expectedTotalCents)}</span>
+            Total <span className="ml-2 font-semibold tabular-nums">{formatMoney(memo.expectedTotalCents)}</span>
           </p>
         )}
       </section>

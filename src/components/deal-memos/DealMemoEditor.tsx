@@ -324,7 +324,7 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
           <section className="rounded-xl border bg-card">
             <div className="flex items-center justify-between border-b px-5 py-3">
               <h2 className="text-sm font-semibold text-foreground">Fee structure</h2>
-              <span className="text-sm text-muted-foreground">Expected total <span className="ml-1 font-semibold tabular-nums text-foreground">{formatMoney(expected)}</span></span>
+              <span className="text-sm text-muted-foreground">Total <span className="ml-1 font-semibold tabular-nums text-foreground">{formatMoney(expected)}</span></span>
             </div>
             <div className="divide-y">
               {memo.fees.map(fee => (
