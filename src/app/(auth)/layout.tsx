@@ -48,7 +48,6 @@ export default async function AuthLayout({
         <Sidebar
           workspaceName={workspace.name}
           logoUrl={workspace.logoUrl ?? null}
-          role={user.role}
           areas={{
             proposals: access.can('proposals'), invoices: access.can('invoices'),
             clients: access.can('clients'), rolodex: access.can('rolodex'),

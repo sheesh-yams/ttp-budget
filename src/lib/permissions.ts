@@ -14,7 +14,9 @@
  * unknown keys and default missing ones to NONE.
  */
 
-import type { UserRole } from '@prisma/client'
+
+// The built-in workspace roles every workspace is seeded with.
+export type SystemRoleKey = 'OWNER' | 'PRODUCER' | 'COLLABORATOR'
 
 // ─── Levels ───────────────────────────────────────────────────────────────────
 
@@ -235,59 +237,17 @@ export const PROJECT_ROLE_PRESETS: readonly ProjectRolePreset[] = [
   { systemKey: 'TEAM_MEMBER', name: 'Team member', order: 3, permissions: ALL_PROJECT_NONE },
 ]
 
-export function workspacePresetFor(role: UserRole): WorkspaceRolePreset {
-  return WORKSPACE_ROLE_PRESETS.find(p => p.systemKey === role)!
+export function workspacePresetFor(key: SystemRoleKey): WorkspaceRolePreset {
+  return WORKSPACE_ROLE_PRESETS.find(p => p.systemKey === key)!
 }
 
-/** Today's fixed team slots → the project role preset that replaces them. */
-export const LEGACY_TEAM_SLOT_KEY = {
-  PROJECT_LEAD:    'PROJECT_LEAD',
-  ACCOUNT_MANAGER: 'ACCOUNT_MANAGER',
-  PROJECT_MANAGER: 'PROJECT_MANAGER',
-} as const
-
 // ─── Phase 3: custom roles ────────────────────────────────────────────────────
-
-/**
- * Areas whose pages and actions already enforce these permissions (roles
- * Phase 2 converts area by area). Anything else still runs on the legacy role
- * derived by legacyRoleFor — the Roles screen labels those "not enforced yet".
- */
-export const ENFORCED_PROJECT_AREAS: ReadonlySet<ProjectArea> = new Set<ProjectArea>([
-  'overview', 'budget.lines', 'budget.costs', 'budget.margin', 'crew', 'dealMemos', 'projectTeam',
-  'schedule', 'callSheets', 'delivery',
-  'proposals', 'invoices', 'actuals', 'contract',
-])
-export const ENFORCED_WORKSPACE_AREAS: ReadonlySet<WorkspaceArea> = new Set<WorkspaceArea>([
-  'dashboardMoney', 'proposals', 'invoices',
-  'clients', 'rolodex', 'library', 'settings', 'projects', 'team',
-])
 
 export interface RoleShape {
   systemKey:            string | null
   projectScope:         ProjectScopeValue
   workspacePermissions: unknown
   projectBaseline:      unknown
-}
-
-/**
- * The legacy User.role a member with this workspace role gets, for every
- * check not yet converted to permissions. Never more than the custom role
- * grants: OWNER only for the Owner role; PRODUCER only for a role at least as
- * open as the Producer preset; COLLABORATOR otherwise.
- */
-export function legacyRoleFor(role: RoleShape): UserRole {
-  if (role.systemKey === 'OWNER') return 'OWNER'
-  const producer = WORKSPACE_ROLE_PRESETS.find(p => p.systemKey === 'PRODUCER')!
-  const ws   = readWorkspacePermissions(role.workspacePermissions)
-  const base = readProjectPermissions(role.projectBaseline)
-  const atLeastProducer =
-    role.projectScope === 'ALL' &&
-    // `projects` (roles 2b) postdates the legacy role, which never encoded it —
-    // turning it off must not demote a role to Collaborator.
-    WORKSPACE_AREA_KEYS.every(k => k === 'projects' || atLeast(ws[k], producer.workspacePermissions[k])) &&
-    PROJECT_AREA_KEYS.every(k => atLeast(base[k], producer.projectBaseline[k]))
-  return atLeastProducer ? 'PRODUCER' : 'COLLABORATOR'
 }
 
 /** Clean a submitted matrix: known areas only, valid levels, caps applied. */

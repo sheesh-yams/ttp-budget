@@ -11,11 +11,11 @@ import {
 import { inviteTeamMember, revokeInvitation, removeWorkspaceMember } from '@/server/actions/team'
 import { assignWorkspaceRole } from '@/server/actions/roles'
 import { getActiveProjectRolesForUser } from '@/server/actions/project-team'
-import type { UserRole } from '@prisma/client'
+import type { SystemRoleKey } from '@/lib/permissions'
 
 // ─── Role metadata ────────────────────────────────────────────────────────────
 
-const ROLE_META: Record<UserRole, { label: string; icon: React.ElementType; badge: string; blurb: string }> = {
+const ROLE_META: Record<SystemRoleKey, { label: string; icon: React.ElementType; badge: string; blurb: string }> = {
   OWNER:        { label: 'Owner',        icon: Shield, badge: 'bg-violet-100 text-violet-700 hover:bg-violet-100', blurb: 'Full access — settings, billing, members.' },
   PRODUCER:     { label: 'Producer',     icon: User,   badge: 'bg-muted text-muted-foreground hover:bg-muted',     blurb: 'Create budgets, proposals, and invoices.' },
   COLLABORATOR: { label: 'Collaborator', icon: Eye,    badge: 'bg-blue-100 text-blue-700 hover:bg-blue-100',       blurb: 'Assigned projects only · margin-blind budgets.' },
@@ -30,7 +30,7 @@ export interface RoleOption {
 
 function metaFor(systemKey: string | null) {
   return systemKey && systemKey in ROLE_META
-    ? ROLE_META[systemKey as UserRole]
+    ? ROLE_META[systemKey as SystemRoleKey]
     : { label: '', icon: Users, badge: 'bg-amber-50 text-amber-800 hover:bg-amber-50', blurb: 'Custom role — see Settings → Roles.' }
 }
 
@@ -41,9 +41,10 @@ interface Member {
   name:          string | null
   email:         string
   avatarUrl:     string | null
-  role:          UserRole
   roleId:        string | null
   roleName:      string | null
+  /** OWNER / PRODUCER / COLLABORATOR for built-in roles, null for custom. */
+  roleSystemKey: string | null
   createdAt:     string
   isCurrentUser: boolean
 }
@@ -51,8 +52,8 @@ interface Member {
 interface PendingInvite {
   id:            string
   email:         string
-  role:          UserRole
   roleName:      string | null
+  roleSystemKey: string | null
   invitedByName: string | null
   expiresAt:     string
   createdAt:     string
@@ -158,8 +159,8 @@ export function TeamPageClient({ members, pendingInvitations, isOwner, callerIsO
   // Non-Owner team admins can't grant Owner, or change / remove an Owner.
   const roles = callerIsOwner ? allRoles : allRoles.filter(r => r.systemKey !== 'OWNER')
   const ownerRoleId = allRoles.find(r => r.systemKey === 'OWNER')?.id ?? null
-  const locked = (m: { roleId: string | null; role: string }) =>
-    !callerIsOwner && (m.roleId ? m.roleId === ownerRoleId : m.role === 'OWNER')
+  const locked = (m: { roleId: string | null; roleSystemKey: string | null }) =>
+    !callerIsOwner && (m.roleId ? m.roleId === ownerRoleId : m.roleSystemKey === 'OWNER')
   const router = useRouter()
   const [inviteEmail, setInviteEmail]   = useState('')
   const [inviteRoleId, setInviteRoleId] = useState<string>(
@@ -256,7 +257,7 @@ export function TeamPageClient({ members, pendingInvitations, isOwner, callerIsO
                 )}
               </div>
               {member.isCurrentUser || !isOwner || locked(member)
-                ? <RoleBadge name={member.roleName ?? ROLE_META[member.role].label} systemKey={roles.find(r => r.id === member.roleId)?.systemKey ?? member.role} />
+                ? <RoleBadge name={member.roleName ?? 'No role'} systemKey={member.roleSystemKey} />
                 : (
                   <div className="flex items-center gap-2">
                     <MemberRoleSelect userId={member.id} roleId={member.roleId} roles={roles} />
@@ -299,8 +300,8 @@ export function TeamPageClient({ members, pendingInvitations, isOwner, callerIsO
                     Expires {new Date(invite.expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </p>
                 </div>
-                <RoleBadge name={invite.roleName ?? ROLE_META[invite.role].label} systemKey={invite.roleName ? (roles.find(r => r.name === invite.roleName)?.systemKey ?? null) : invite.role} />
-                {isOwner && (callerIsOwner || (invite.roleName ? allRoles.find(r => r.name === invite.roleName)?.systemKey : invite.role) !== 'OWNER') && <button
+                <RoleBadge name={invite.roleName ?? 'Collaborator'} systemKey={invite.roleName ? invite.roleSystemKey : 'COLLABORATOR'} />
+                {isOwner && (callerIsOwner || invite.roleSystemKey !== 'OWNER') && <button
                   onClick={() => handleRevoke(invite.id)}
                   disabled={revoking === invite.id}
                   className="ml-2 flex-shrink-0 rounded p-1 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"

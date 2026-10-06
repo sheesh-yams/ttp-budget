@@ -107,19 +107,13 @@ model Workspace {
   autoAttachContractBlocks Boolean @default(false)
 }
 
-enum UserRole {
-  OWNER         // org:admin — full access, billing, danger zone, member mgmt
-  PRODUCER      // full CRUD on projects/budgets, no workspace settings/members
-  COLLABORATOR  // only assigned projects; budgets are margin-blind; can edit call sheets
-}
-
 model User {
   id           String   @id @default(cuid())
   clerkId      String   @unique // mapped from Clerk
   email        String   @unique
   name         String?
   avatarUrl    String?
-  role         UserRole @default(PRODUCER)
+  // (legacy `role` removed — a person's role is their WorkspaceMember.role)
   onboarded    Boolean  @default(false)
 
   workspaceId  String
@@ -255,12 +249,6 @@ model ProjectAssignment {
 }
 
 // ─── Internal project team (workspace users in named roles) ──────────────────
-enum ProjectTeamRole {
-  PROJECT_LEAD
-  ACCOUNT_MANAGER
-  PROJECT_MANAGER
-}
-
 model ProjectTeamMember {
   id                 String          @id @default(cuid())
   workspaceId        String
@@ -268,9 +256,6 @@ model ProjectTeamMember {
   project            Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   userId             String
   user               User            @relation(fields: [userId], references: [id])
-  // Legacy fixed slot. Superseded by projectRoleId (configurable roles);
-  // nullable until every reader moves over, then dropped.
-  role               ProjectTeamRole?
   projectRoleId      String?
   projectRole        ProjectRole?    @relation(fields: [projectRoleId], references: [id], onDelete: Restrict)
   assignedAt         DateTime        @default(now())
@@ -279,7 +264,6 @@ model ProjectTeamMember {
   unassignedByUserId String?
   unassignReason     String?         // 'REPLACED' | 'REMOVED' | 'USER_LEFT_WORKSPACE'
 
-  @@index([projectId, role])
   @@index([userId])
   @@index([workspaceId])
   @@index([projectId, unassignedAt])
@@ -1077,9 +1061,8 @@ model WorkspaceInvitation {
   workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   email         String
-  role          UserRole  @default(PRODUCER)
-  // Configurable workspace role to join with (roles Phase 1). Null on
-  // invitations sent before roles existed — `role` maps to its system role.
+  // The workspace role to join with. Null only if that role was deleted since
+  // (FK SET NULL) — the invite then joins as Collaborator.
   roleId        String?
   workspaceRole WorkspaceRole? @relation(fields: [roleId], references: [id], onDelete: SetNull)
   token         String    @unique @default(cuid())  // sent in the invite URL /invite/[token]

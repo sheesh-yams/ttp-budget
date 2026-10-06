@@ -5,11 +5,10 @@
 // the rules). Falls back to the legacy User.role preset when a membership
 // hasn't been written yet, so it is safe to call before the backfill.
 //
-// Phase 1: nothing enforces through this yet — requireRole / project-access.ts
-// still do. Phase 2 moves every gate here.
+// Every permission check in the app goes through here (roles Phase 2 complete;
+// the legacy User.role is gone).
 
 import { cache } from 'react'
-import type { ProjectTeamRole } from '@prisma/client'
 import { db } from '@/lib/db'
 import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
 import {
@@ -40,6 +39,8 @@ export interface ProjectAccess {
 
 const ALL_EDIT_WORKSPACE = Object.fromEntries(WORKSPACE_AREA_KEYS.map(k => [k, 'EDIT'])) as WorkspacePermissions
 const ALL_EDIT_PROJECT   = Object.fromEntries(PROJECT_AREA_KEYS.map(k => [k, 'EDIT'])) as ProjectPermissions
+const ALL_NONE_WORKSPACE = Object.fromEntries(WORKSPACE_AREA_KEYS.map(k => [k, 'NONE'])) as WorkspacePermissions
+const ALL_NONE_PROJECT   = Object.fromEntries(PROJECT_AREA_KEYS.map(k => [k, 'NONE'])) as ProjectPermissions
 
 function withCan(workspace: WorkspacePermissions) {
   return (area: WorkspaceArea, level: Level = 'VIEW') => atLeast(workspace[area], level)
@@ -67,24 +68,17 @@ export const getAccess = cache(async (): Promise<Access> => {
     }
   }
 
-  // Legacy fallback: no membership row yet → today's role, as its preset.
-  const preset  = workspacePresetFor(user.role)
-  const isOwner = user.role === 'OWNER'
+  // No membership in this workspace → no access. Every account gets one at
+  // sign-up / invite acceptance (the legacy User.role fallback is gone).
   return {
-    userId: user.id, workspaceId, isOwner,
-    roleId: null, roleName: preset.name,
-    projectScope: preset.projectScope,
-    workspace: preset.workspacePermissions,
-    baseline:  preset.projectBaseline,
-    can: withCan(preset.workspacePermissions),
+    userId: user.id, workspaceId, isOwner: false,
+    roleId: null, roleName: 'No access',
+    projectScope: 'ASSIGNED',
+    workspace: ALL_NONE_WORKSPACE,
+    baseline:  ALL_NONE_PROJECT,
+    can: withCan(ALL_NONE_WORKSPACE),
   }
 })
-
-/** Permissions of a legacy team row that has no projectRoleId yet. */
-function legacySlotGrant(slot: ProjectTeamRole | null): ProjectPermissions | null {
-  if (!slot) return null
-  return PROJECT_ROLE_PRESETS.find(p => p.systemKey === slot)?.permissions ?? null
-}
 
 /**
  * The signed-in person's access to one project, or null when they can't open
@@ -97,7 +91,7 @@ export const getProjectAccess = cache(async (projectId: string): Promise<Project
     db.project.findFirst({ where: { id: projectId, workspaceId: access.workspaceId }, select: { id: true } }),
     db.projectTeamMember.findMany({
       where:  { projectId, userId: access.userId, workspaceId: access.workspaceId, unassignedAt: null },
-      select: { role: true, projectRole: { select: { permissions: true } } },
+      select: { projectRole: { select: { permissions: true } } },
     }),
     // Until every assignment has a team row (backfill), an assignment alone
     // still puts someone on the team.
@@ -109,7 +103,7 @@ export const getProjectAccess = cache(async (projectId: string): Promise<Project
   if (!access.isOwner && access.projectScope === 'ASSIGNED' && !onTeam) return null
 
   const grants = teamRows
-    .map(r => (r.projectRole ? readProjectPermissions(r.projectRole.permissions) : legacySlotGrant(r.role)))
+    .map(r => (r.projectRole ? readProjectPermissions(r.projectRole.permissions) : null))
     .filter((g): g is ProjectPermissions => g !== null)
 
   const permissions = access.isOwner ? ALL_EDIT_PROJECT : resolveProjectPermissions(access.baseline, grants)
@@ -120,7 +114,7 @@ export const getProjectAccess = cache(async (projectId: string): Promise<Project
   }
 })
 
-// ─── Gates (same shape as requireRole's RoleGate) ────────────────────────────
+// ─── Gates (one shape for every permission check) ────────────────────────────
 
 export type PermissionGate = {
   ok:          boolean

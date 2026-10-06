@@ -9,8 +9,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
 import {
   PROJECT_AREAS, WORKSPACE_AREAS, LEVELS, MAX_ROLES, ROLE_NAME_MAX,
-  ENFORCED_PROJECT_AREAS, ENFORCED_WORKSPACE_AREAS,
-  applyProjectDependencies, legacyRoleFor, unmetViewRequirements, PROJECT_AREAS as ALL_PROJECT_AREAS,
+  applyProjectDependencies, unmetViewRequirements, PROJECT_AREAS as ALL_PROJECT_AREAS,
   type Level, type ProjectArea, type ProjectPermissions, type ProjectScopeValue,
   type WorkspaceArea, type WorkspacePermissions,
 } from '@/lib/permissions'
@@ -21,7 +20,6 @@ import {
 } from '@/server/actions/roles'
 
 const LEVEL_LABEL: Record<Level, string> = { NONE: 'None', VIEW: 'View', EDIT: 'Edit' }
-const LEGACY_LABEL = { OWNER: 'Owner', PRODUCER: 'Producer', COLLABORATOR: 'Collaborator' } as const
 
 type ActionRes = { success: boolean; error?: string }
 
@@ -53,11 +51,10 @@ function LevelPicker({ value, onChange, disabled }: { value: Level; onChange: (l
 // ─── Area matrix ──────────────────────────────────────────────────────────────
 
 function AreaMatrix<K extends string>({
-  areas, values, enforced, onChange, disabled,
+  areas, values, onChange, disabled,
 }: {
   areas:    readonly { key: K; label: string; group: string; hint: string }[]
   values:   Record<K, Level>
-  enforced: ReadonlySet<K>
   onChange: (key: K, level: Level) => void
   disabled?: boolean
 }) {
@@ -76,14 +73,6 @@ function AreaMatrix<K extends string>({
               <div className="min-w-0">
                 <p className="flex items-center gap-2 text-sm text-foreground">
                   {a.label}
-                  {!enforced.has(a.key) && (
-                    <span
-                      title="This area still follows the closest built-in role until its screens move to permissions."
-                      className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
-                    >
-                      Not enforced yet
-                    </span>
-                  )}
                 </p>
                 <p className="text-xs text-muted-foreground">{a.hint}</p>
               </div>
@@ -127,8 +116,6 @@ function WorkspaceRoleEditor({ role, onDone }: { role: WorkspaceRoleRow; onDone:
   const [base, setBase]   = useState<ProjectPermissions>(role.projectBaseline)
   const [error, setError] = useState<string | null>(null)
   const { saved, flash }  = useSaved()
-
-  const legacy = legacyRoleFor({ systemKey: role.systemKey, projectScope: scope, workspacePermissions: ws, projectBaseline: base })
 
   function save() {
     setError(null)
@@ -183,7 +170,7 @@ function WorkspaceRoleEditor({ role, onDone }: { role: WorkspaceRoleRow; onDone:
       <div>
         <p className="mb-1.5 text-xs font-medium text-muted-foreground">Workspace pages</p>
         <AreaMatrix<WorkspaceArea>
-          areas={WORKSPACE_AREAS} values={ws} enforced={ENFORCED_WORKSPACE_AREAS} disabled={locked}
+          areas={WORKSPACE_AREAS} values={ws} disabled={locked}
           onChange={(k, l) => setWs(prev => ({ ...prev, [k]: l }))}
         />
       </div>
@@ -192,22 +179,10 @@ function WorkspaceRoleEditor({ role, onDone }: { role: WorkspaceRoleRow; onDone:
         <p className="mb-0.5 text-xs font-medium text-muted-foreground">Inside every project they can open</p>
         <p className="mb-1.5 text-xs text-muted-foreground">A minimum — a project role can add more on the projects where they hold it.</p>
         <AreaMatrix<ProjectArea>
-          areas={PROJECT_AREAS} values={base} enforced={ENFORCED_PROJECT_AREAS} disabled={locked}
+          areas={PROJECT_AREAS} values={base} disabled={locked}
           onChange={(k, l) => setBase(prev => applyProjectDependencies({ ...prev, [k]: l }))}
         />
       </div>
-
-      {!locked && (
-        role.systemKey && legacy !== role.systemKey ? (
-          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            With these changes, areas not enforced yet will treat everyone with this role as <span className="font-semibold">{LEGACY_LABEL[legacy]}</span> instead of {LEGACY_LABEL[role.systemKey as keyof typeof LEGACY_LABEL]} — they’ll lose access there until those areas move to permissions.
-          </p>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            Areas not enforced yet treat this role as <span className="font-medium text-foreground">{LEGACY_LABEL[legacy]}</span> — the closest built-in role that grants no more than this.
-          </p>
-        )
-      )}
 
       {error && <p className="text-sm text-destructive">{error}</p>}
       {!locked && (
@@ -273,7 +248,7 @@ function ProjectRoleEditor({ role, onDone }: { role: ProjectRoleRow; onDone: () 
         <p className="mb-0.5 text-xs font-medium text-muted-foreground">On the projects where someone holds this role</p>
         <p className="mb-1.5 text-xs text-muted-foreground">Added on top of their workspace role — it can only give more, never less.</p>
         <AreaMatrix<ProjectArea>
-          areas={PROJECT_AREAS} values={perms} enforced={ENFORCED_PROJECT_AREAS}
+          areas={PROJECT_AREAS} values={perms}
           onChange={(k, l) => setPerms(prev => applyProjectDependencies({ ...prev, [k]: l }))}
         />
       </div>

@@ -20,7 +20,6 @@ import type {
   InvoiceStatus,
   InvoiceKind,
   ProposalDetailLevel,
-  UserRole,
   CallSheetStatus,
 } from '@prisma/client'
 
@@ -34,7 +33,6 @@ export type {
   InvoiceStatus,
   InvoiceKind,
   ProposalDetailLevel,
-  UserRole,
   CallSheetStatus,
   CallSheet,
 }

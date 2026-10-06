@@ -37,7 +37,7 @@ async function main() {
   const users = await db.user.findMany({
     select: {
       id: true, clerkId: true, email: true, name: true,
-      role: true, workspaceId: true, onboarded: true, createdAt: true,
+      workspaceId: true, onboarded: true, createdAt: true,
     },
     orderBy: { createdAt: 'asc' },
   })
@@ -46,7 +46,7 @@ async function main() {
     const ws = workspaces.find(w => w.id === u.workspaceId)
     const wsLabel = ws ? `"${ws.name}" (${ws.id})` : `UNKNOWN (${u.workspaceId})`
     console.log(`  ${u.email}  "${u.name ?? ''}"`)
-    console.log(`    role=${u.role}  onboarded=${u.onboarded}`)
+    console.log(`    onboarded=${u.onboarded}`)
     console.log(`    workspaceId → ${wsLabel}`)
     console.log(`    clerkId=${u.clerkId}`)
     console.log()

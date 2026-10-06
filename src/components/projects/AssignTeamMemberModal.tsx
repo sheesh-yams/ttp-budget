@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { X, Search, Shield, User, Eye } from 'lucide-react'
+import { X, Search } from 'lucide-react'
 import {
   listEligibleUsersForProjectTeam,
   addToProjectTeam,
@@ -9,14 +9,6 @@ import {
   type ProjectRoleOption,
   type TeamRow,
 } from '@/server/actions/project-team'
-import type { UserRole } from '@prisma/client'
-
-const WORKSPACE_ROLE_META: Record<UserRole, { label: string; icon: React.ElementType }> = {
-  OWNER:        { label: 'Owner',        icon: Shield },
-  PRODUCER:     { label: 'Producer',     icon: User },
-  COLLABORATOR: { label: 'Collaborator', icon: Eye },
-}
-
 function Avatar({ name, email, avatarUrl, size = 32 }: { name: string | null; email: string; avatarUrl: string | null; size?: number }) {
   const initials = (name ?? email).split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
   if (avatarUrl) {
@@ -134,8 +126,6 @@ export function AssignTeamMemberModal({ projectId, roles, currentRows, onAssigne
           {loading && <p style={{ padding: '20px 20px', fontSize: 13, color: 'hsl(var(--muted-foreground))' }}>Loading…</p>}
           {!loading && filtered.length === 0 && <p style={{ padding: '20px 20px', fontSize: 13, color: 'hsl(var(--muted-foreground))' }}>No members found.</p>}
           {filtered.map((user, i) => {
-            const meta       = WORKSPACE_ROLE_META[user.role]
-            const Icon       = meta.icon
             const held       = heldBy[user.id] ?? []
             const hasThisOne = held.some(r => r.projectRoleId === roleId)
             const busy       = assigning === user.id
@@ -163,8 +153,7 @@ export function AssignTeamMemberModal({ projectId, roles, currentRows, onAssigne
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, flexShrink: 0 }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4, background: 'hsl(var(--muted))', color: 'hsl(var(--muted-foreground))' }}>
-                    <Icon style={{ width: 10, height: 10 }} />
-                    {meta.label}
+                    {user.roleName}
                   </span>
                   {held.length > 0 && (
                     <span style={{

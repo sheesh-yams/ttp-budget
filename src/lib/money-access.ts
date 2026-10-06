@@ -55,7 +55,7 @@ export async function moneyTargetProjectId(target: MoneyTarget, workspaceId: str
 }
 
 /**
- * Gate a money action. Same shape as requireRole's gate, plus the project and
+ * Gate a money action. Same shape as the access.ts gates, plus the project and
  * the caller's ProjectAccess. `also` adds further area requirements (e.g. the
  * wrap report needs Budget margin as well as Actuals).
  */

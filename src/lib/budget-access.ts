@@ -88,7 +88,7 @@ export function canBrowseAllBudgets(access: Awaited<ReturnType<typeof getAccess>
 }
 
 /**
- * Gate a budget action. Same shape as requireRole's gate, plus the project
+ * Gate a budget action. Same shape as the access.ts gates, plus the project
  * and the caller's ProjectAccess for field-level decisions.
  * Targets spanning several projects must pass on every one of them.
  */

@@ -18,13 +18,13 @@ import type { ProjectArea, WorkspaceArea } from '@/lib/permissions'
  * routes, which answer 404 themselves.
  */
 export const checkProjectAccess = cache(async (projectId: string) => {
-  // Roles: whether the project opens follows the workspace role's project
-  // scope (ALL / ASSIGNED) — getProjectAccess — not the legacy role.
+  // Whether the project opens follows the workspace role's project scope
+  // (ALL / ASSIGNED) — getProjectAccess.
   const [workspaceId, user, access] = await Promise.all([getWorkspaceId(), getCurrentUser(), getProjectAccess(projectId)])
   if (!access) return null
   const project = await db.project.findFirst({ where: { id: projectId, workspaceId }, select: { id: true, name: true } })
   if (!project) return null
-  return { project, user, workspaceId, role: user.role }
+  return { project, user, workspaceId }
 })
 
 /** Same check for pages: 404s instead of returning null. */
@@ -32,17 +32,6 @@ export async function requireProjectAccess(projectId: string) {
   const access = await checkProjectAccess(projectId)
   if (!access) notFound()
   return access
-}
-
-/**
- * Owner/Producer-only pages: workspace money (invoices, proposals, clients,
- * actuals, rate library…) and the rolodex. 404 rather than redirect so their
- * existence isn't confirmed to a Collaborator.
- */
-export async function requireProducerPageAccess() {
-  const user = await getCurrentUser()
-  if (user.role === 'COLLABORATOR') notFound()
-  return user
 }
 
 /**

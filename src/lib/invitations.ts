@@ -2,13 +2,6 @@
 // acceptInvitation. Server-only; plain module, not 'use server'.
 
 import { clerkClient } from '@clerk/nextjs/server'
-import type { UserRole } from '@prisma/client'
-
-export const USER_ROLE_LABEL: Record<UserRole, string> = {
-  OWNER:        'Owner',
-  PRODUCER:     'Producer',
-  COLLABORATOR: 'Collaborator',
-}
 
 /**
  * The signed-in person's verified email addresses, lowercased. An invitation

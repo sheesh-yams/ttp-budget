@@ -1,4 +1,4 @@
-import { stripBudgetForRole, stripBudgetForAccess, canSeeFinancials } from '@/lib/budget-visibility'
+import { stripBudgetForAccess } from '@/lib/budget-visibility'
 
 const financialBudget = {
   markupPct: 0.1,
@@ -16,22 +16,18 @@ const financialBudget = {
   }],
 }
 
-describe('canSeeFinancials', () => {
-  it('OWNER and PRODUCER see financials; COLLABORATOR does not', () => {
-    expect(canSeeFinancials('OWNER')).toBe(true)
-    expect(canSeeFinancials('PRODUCER')).toBe(true)
-    expect(canSeeFinancials('COLLABORATOR')).toBe(false)
-  })
-})
+// Without Budget margin (what a Collaborator has), discount and markup are
+// margin data and must not cross the wire.
+const noMargin = { costs: true, margin: false }
 
-describe('stripBudgetForRole — discount is margin data, must not cross the wire', () => {
-  it('passes the budget through unchanged for OWNER/PRODUCER', () => {
-    const result = stripBudgetForRole(financialBudget, 'OWNER')
+describe('stripBudgetForAccess — discount is margin data, must not cross the wire', () => {
+  it('passes the budget through unchanged with costs + margin', () => {
+    const result = stripBudgetForAccess(financialBudget, { costs: true, margin: true })
     expect(result).toBe(financialBudget) // same reference — no stripping performed
   })
 
-  it('nulls the budget-level discount fields for COLLABORATOR', () => {
-    const result = stripBudgetForRole(financialBudget, 'COLLABORATOR')
+  it('nulls the budget-level discount fields without margin', () => {
+    const result = stripBudgetForAccess(financialBudget, noMargin)
     expect(result.discountType).toBeNull()
     expect(result.discountLabel).toBeNull()
     expect(result.discountValueCents).toBeNull()
@@ -39,8 +35,8 @@ describe('stripBudgetForRole — discount is margin data, must not cross the wir
     expect(result.markupPct).toBeNull()
   })
 
-  it('still strips per-line markup/hasMarkup for COLLABORATOR (existing behavior, regression guard)', () => {
-    const result = stripBudgetForRole(financialBudget, 'COLLABORATOR')
+  it('strips per-line markup/hasMarkup without margin (regression guard)', () => {
+    const result = stripBudgetForAccess(financialBudget, noMargin)
     const item = result.phases[0].accounts[0].lineItems[0]
     expect(item.markupPct).toBeNull()
     expect(item.hasMarkup).toBe(false)

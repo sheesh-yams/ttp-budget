@@ -20,7 +20,7 @@ import { getProjectAccess, requireProjectPermission, requireTeamAdmin } from '@/
 import { logAuditEvent } from '@/lib/audit'
 import { checkProjectAccess } from '@/lib/project-access'
 import type { ActionResult } from '@/types'
-import type { Prisma, ProjectTeamRole, UserRole } from '@prisma/client'
+import type { Prisma } from '@prisma/client'
 import { PROJECT_AREA_KEYS, atLeast, readProjectPermissions } from '@/lib/permissions'
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
@@ -29,7 +29,6 @@ export interface TeamUser {
   name:      string | null
   email:     string
   avatarUrl: string | null
-  role:      UserRole
 }
 
 export interface TeamRow {
@@ -51,7 +50,6 @@ export interface ProjectRoleOption {
 export interface TeamMemberHistory {
   id:                 string
   userId:             string
-  role:               ProjectTeamRole | null
   /** Display name of the project role. */
   roleName:           string | null
   assignedAt:         string
@@ -62,7 +60,7 @@ export interface TeamMemberHistory {
   user:               TeamUser
 }
 
-const USER_SELECT = { name: true, email: true, avatarUrl: true, role: true } as const
+const USER_SELECT = { name: true, email: true, avatarUrl: true } as const
 
 /**
  * You can only hand out what you hold: a project role can be given (or taken
@@ -172,7 +170,6 @@ export async function getProjectTeamHistory(
       data: rows.map(row => ({
         id:                 row.id,
         userId:             row.userId,
-        role:               row.role,
         roleName:           row.projectRole?.name ?? null,
         assignedAt:         row.assignedAt.toISOString(),
         assignedByUserId:   row.assignedByUserId,
@@ -194,7 +191,8 @@ export interface EligibleUser {
   name:      string | null
   email:     string
   avatarUrl: string | null
-  role:      UserRole
+  /** Their workspace role's name. */
+  roleName:  string
 }
 
 export async function listEligibleUsersForProjectTeam(projectId: string): Promise<ActionResult<EligibleUser[]>> {
@@ -202,12 +200,14 @@ export async function listEligibleUsersForProjectTeam(projectId: string): Promis
     const gate = await requireProjectPermission(projectId, 'projectTeam', 'EDIT')
     if (!gate.ok) return gate.error
 
-    const users = await db.user.findMany({
+    // Members of this workspace by membership (incl. people whose home
+    // workspace is elsewhere), with their workspace role.
+    const members = await db.workspaceMember.findMany({
       where:   { workspaceId: gate.workspaceId },
-      select:  { id: true, name: true, email: true, avatarUrl: true, role: true },
-      orderBy: { name: 'asc' },
+      select:  { role: { select: { name: true } }, user: { select: { id: true, name: true, email: true, avatarUrl: true } } },
+      orderBy: { user: { name: 'asc' } },
     })
-    return { success: true, data: users }
+    return { success: true, data: members.map(m => ({ ...m.user, roleName: m.role.name })) }
   } catch {
     return { success: false, error: 'Failed to load eligible users' }
   }
@@ -255,7 +255,7 @@ export async function addToProjectTeam(input: {
       await tx.projectTeamMember.create({
         data: {
           workspaceId: gate.workspaceId, projectId, userId,
-          role: null, projectRoleId, assignedByUserId: gate.userId,
+          projectRoleId, assignedByUserId: gate.userId,
         },
       })
       await tx.projectAssignment.createMany({
@@ -328,8 +328,7 @@ export async function setProjectTeamRole(input: { teamRowId: string; projectRole
       if (!redundant) {
         await tx.projectTeamMember.create({
           data: {
-            workspaceId: gate!.workspaceId, projectId: row.projectId, userId: row.userId,
-            role: null, projectRoleId: role.id, assignedByUserId: gate!.userId,
+            workspaceId: gate!.workspaceId, projectId: row.projectId, userId: row.userId, projectRoleId: role.id, assignedByUserId: gate!.userId,
           },
         })
       }
@@ -414,7 +413,7 @@ export async function getActiveProjectRolesForUser(
       data: rows.map(r => ({
         projectId:   r.projectId,
         projectName: r.project.name,
-        role:        r.projectRole?.name ?? r.role ?? 'Team member',
+        role:        r.projectRole?.name ?? 'Team member',
       })),
     }
   } catch {

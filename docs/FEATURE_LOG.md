@@ -13,16 +13,6 @@ Append an entry after every feature or notable fix (see `/feature`, step 9).
 Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
 `/health-check` or when working nearby.
 
-- **Role is per user, not per workspace.** `User.role` follows the user's
-  current home workspace (invites move it), but the active workspace comes
-  from the Clerk org and there's a `WorkspaceSwitcher`. A user in two
-  workspaces gets the same role in both. `WorkspaceMember` (roles Phase 1)
-  records the right role per workspace; it takes effect when Phase 2
-  enforces through `getAccess()`.
-- **`requireRole` returns the *home* workspace id** (`user.workspaceId`), while
-  `getScopedDb()` uses the *active* one. Gates that write with
-  `gate.workspaceId` act on the home workspace when someone has switched.
-  Phase 2's `requirePermission` uses the active workspace.
 - **7 Clerk orgs have no linked workspace** (e.g. "The Third Place Creative",
   "Crossover Productions"). Found by the roles backfill and skipped.
 
@@ -42,9 +32,9 @@ Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
     /proposals and /invoices lists).
   - Workspace pages (clients, rolodex, rates/templates/library, settings,
     projects) shipped in 2b.
-  - Team & roles and the last UI flags shipped in 2c. **Nothing enforces
-    through the legacy `User.role` any more.** What's left is the cleanup
-    slice (see Backlog).
+  - Team & roles and the last UI flags shipped in 2c. The legacy role was
+    removed from the code in the cleanup (`20261005000003_drop_legacy_roles`
+    drops the columns once that deploy is live). **Roles are done.**
 - **Actuals sync runs for view-only users too.** `syncActualSheetEntries`
   runs on every Actuals page load. It adds $0 entries for new budget lines
   (now validated against the sheet's phase) and refreshes deal-memo
@@ -119,9 +109,8 @@ Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
   1. ~~Money~~ (shipped 2026-10-05, roles 2a).
   2. ~~Workspace pages~~ (shipped 2026-10-05, roles 2b).
   3. ~~Team & roles~~ (shipped 2026-10-05, roles 2c).
-  Then cleanup: drop `User.role` and the `ProjectTeamMember.role` slot column
-  (small migration), remove the "Not enforced yet" labels, and add a jest
-  access matrix.
+  ~~Then cleanup~~ (shipped 2026-10-05). The drop SQL runs after that
+  deploy.
   Process per slice: access diff → convert → hide controls → review → ship.
 
 Run each through `/feature`. Check the overlap first:
@@ -136,6 +125,56 @@ Run each through `/feature`. Check the overlap first:
 ---
 
 ## Shipped
+
+### 2026-10-05 — Roles cleanup: the legacy fixed role is gone
+- **Removed from the code and `schema.prisma`:** `User.role`,
+  `WorkspaceInvitation.role`, `ProjectTeamMember.role` (the old team slot)
+  and the `UserRole` / `ProjectTeamRole` enums.
+  - Helpers deleted: `requireRole`, `getCurrentRole`,
+    `requireProducerPageAccess`, `stripBudgetForRole`, `canSeeFinancials`,
+    `legacyRoleFor`, `legacyRoleForInvite`, `legacySlotGrant`,
+    `LEGACY_TEAM_SLOT_KEY`, `ENFORCED_*`, plus the Roles screen's "Not
+    enforced yet" labels and legacy preview.
+  - `SystemRoleKey` replaces `UserRole`.
+  - Membership helpers take `fallback` (a built-in role key) plus an
+    optional `roleId`.
+- **One source of truth:** WorkspaceMember → WorkspaceRole, and
+  ProjectTeamMember → ProjectRole.
+  - With no membership, `getAccess` gives no access. The legacy-role
+    fallback is gone.
+  - The Clerk org role follows the role's `systemKey`: Owner is
+    `org:admin`.
+  - The Team page and project team screens show workspace role names.
+- **Sign-up made atomic:** the Owner membership is written in the same
+  transaction as the new workspace and user (Clerk webhook and the lazy
+  path in `auth.ts`), because it's now the only thing that grants access.
+  The invite-join webhook's membership write throws, so Clerk retries.
+- **Join role is consistent:** an invite whose role was deleted joins as
+  Collaborator in both the webhook and `acceptInvitation`, matching the
+  invite page. Dashboard-added members with no invite still join as
+  Producer, as before.
+- **Tests:** a new jest **access matrix** (`access-matrix.test.ts`):
+  - Owner/Producer/Collaborator × every workspace and project area
+  - project roles on a Collaborator
+  - the custom-role rules (view the budget plus edit deal memos and
+    actuals; dependency caps; actuals needs costs)
+  - Legacy tests were deleted, and budget-visibility tests moved to
+    `stripBudgetForAccess`.
+- **Verified:**
+  - An access snapshot before vs after, 1,732 cells (every member ×
+    workspace and project area): **0 differences**.
+  - A read-only Clerk audit: all 7 org memberships across the 3 linked
+    workspaces have a membership row.
+  - DB checks (sign-up, invite, join, deleted-role join, re-role, team row,
+    atomic sign-up rollback) against today's columns.
+  - tsc, jest 321, lint, `next build` compile.
+- **Obsolete one-off scripts deleted:** `backfill-roles`,
+  `fix-invited-user`, `fix-sara-workspace`.
+- **pitfall-reviewer:** deploy safety confirmed. Its 4 findings (Clerk-only
+  members, non-atomic sign-up membership, inconsistent deleted-role join,
+  stale scripts) are all addressed.
+- **Migration** `20261005000003_drop_legacy_roles` (destructive) drops the
+  three columns and two enums. Run it only after this deploy is live.
 
 ### 2026-10-05 — Roles Phase 2c: Team & roles on permissions (Phase 2 complete)
 - **Team & roles now follows the `team` permission on the ACTIVE

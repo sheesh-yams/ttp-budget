@@ -67,10 +67,9 @@ const AREA_FOR_HREF: Record<string, keyof SidebarAccess> = {
   '/rates': 'library', '/templates': 'library', '/library': 'library', '/settings': 'settings',
 }
 
-export function Sidebar({ workspaceName, logoUrl, role, areas }: {
+export function Sidebar({ workspaceName, logoUrl, areas }: {
   workspaceName: string
   logoUrl?: string | null
-  role: 'OWNER' | 'PRODUCER' | 'COLLABORATOR'
   areas: SidebarAccess
 }) {
   const pathname = usePathname()

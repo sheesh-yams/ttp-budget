@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { SignOutButton } from '@clerk/nextjs'
 import { getInvitationByToken } from '@/server/actions/team'
 import { InviteAcceptClient } from '@/components/team/InviteAcceptClient'
-import { USER_ROLE_LABEL, verifiedEmailsFor } from '@/lib/invitations'
+import { verifiedEmailsFor } from '@/lib/invitations'
 
 export const metadata = { title: 'Accept Invitation' }
 
@@ -81,7 +81,7 @@ export default async function InvitePage({
           </div>
           <div className="flex justify-between border-t border-white/[0.06] py-1 text-white/50">
             <span>Role</span>
-            <span className="text-white/80">{USER_ROLE_LABEL[invitation.role]}</span>
+            <span className="text-white/80">{invitation.workspaceRole?.name ?? 'Collaborator'}</span>
           </div>
         </div>
 

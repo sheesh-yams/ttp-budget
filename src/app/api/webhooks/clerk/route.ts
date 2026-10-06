@@ -4,7 +4,7 @@ import { headers } from 'next/headers'
 import { WebhookEvent, clerkClient } from '@clerk/nextjs/server'
 import { db } from '@/lib/db'
 import { seedWorkspaceFromGlobals } from '@/lib/workspace-seeder'
-import { ensureWorkspaceMembership, legacyRoleForInvite, syncWorkspaceMembership } from '@/lib/roles'
+import { ensureWorkspaceMembership, setWorkspaceMembership } from '@/lib/roles'
 
 export async function POST(req: NextRequest) {
   const WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET
@@ -86,15 +86,15 @@ export async function POST(req: NextRequest) {
             name: displayName,
             avatarUrl: image_url ?? null,
             workspaceId: workspace.id,
-            role: 'OWNER',
             onboarded: false,
           },
         })
         newUserId = user.id
-      })
 
-      // They created this workspace, so they own it.
-      await syncWorkspaceMembership({ userId: newUserId!, workspaceId: newWorkspaceId!, role: 'OWNER' })
+        // They created this workspace, so they own it. In the same transaction:
+        // the membership is what grants access, so it must not fail on its own.
+        await setWorkspaceMembership({ userId: user.id, workspaceId: workspace.id, fallback: 'OWNER' }, tx)
+      })
 
       // Seed global rate cards + templates into the new workspace.
       // Non-blocking: a seeder failure must NOT prevent account creation.
@@ -176,40 +176,41 @@ export async function POST(req: NextRequest) {
     })
     if (!workspace) return NextResponse.json({ received: true })
 
-    // Map Clerk org role → DB role. DB is the source of truth for the finer
-    // OWNER / PRODUCER / COLLABORATOR distinction (Clerk only has admin/member).
-    // org:admin always = OWNER. For org:member we honour the role chosen on the
-    // invitation (PRODUCER or COLLABORATOR), defaulting to PRODUCER if none found.
+    // Their workspace role (WorkspaceMember) comes from the invitation's role;
+    // Clerk only knows admin/member. Membership writes below throw on failure,
+    // so Clerk retries the (idempotent) event rather than leaving the person
+    // without access.
     // Exception below: never downgrade the workspace creator.
     const memberEmail = (public_user_data?.identifier ?? '').toLowerCase()
 
-    let invitedRole: 'PRODUCER' | 'COLLABORATOR' | 'OWNER' | null = null
+    // The role they join with: their invite's workspace role when there is one;
+    // otherwise Owner for a Clerk org admin, Producer for anyone else added in
+    // the Clerk dashboard (as before the legacy role was removed).
     let invitedRoleId: string | null = null
+    let invited = false
     if (clerkRole !== 'org:admin' && memberEmail) {
       const invite = await db.workspaceInvitation.findFirst({
         where: { workspaceId: workspace.id, email: memberEmail },
         orderBy: { createdAt: 'desc' },
-        select: { role: true, roleId: true },
+        select: { roleId: true },
       })
-      // The invited role as it is now (it may have been edited since sending).
-      invitedRole   = invite ? await legacyRoleForInvite(invite, workspace.id) : null
+      invited = !!invite
       invitedRoleId = invite?.roleId ?? null
     }
-    const dbRole = clerkRole === 'org:admin' ? 'OWNER' : (invitedRole ?? 'PRODUCER')
+    // An invite whose role was deleted joins as Collaborator — the same as
+    // acceptInvitation and what the invite page shows.
+    const fallback = clerkRole === 'org:admin' ? 'OWNER' as const : invited ? 'COLLABORATOR' as const : 'PRODUCER' as const
 
     const existingUser = await db.user.findUnique({
       where: { clerkId: memberClerkId },
-      select: { id: true, workspaceId: true, role: true },
+      select: { id: true, workspaceId: true },
     })
 
     if (existingUser?.workspaceId === workspace.id) {
       // Already in the right workspace — this is the org-creator's own membership
       // event. Don't touch their role (they're the OWNER who created this workspace).
       // Create-only: an accepted invite may already have set a custom role.
-      await ensureWorkspaceMembership({
-        userId: existingUser.id, workspaceId: workspace.id,
-        role:   clerkRole === 'org:admin' ? 'OWNER' : existingUser.role,
-      })
+      await ensureWorkspaceMembership({ userId: existingUser.id, workspaceId: workspace.id, fallback, roleId: invitedRoleId })
       return NextResponse.json({ received: true })
     }
 
@@ -218,9 +219,9 @@ export async function POST(req: NextRequest) {
       // Move them to this workspace with the correct role.
       await db.user.update({
         where: { clerkId: memberClerkId },
-        data: { workspaceId: workspace.id, role: dbRole, onboarded: true },
+        data: { workspaceId: workspace.id, onboarded: true },
       })
-      await syncWorkspaceMembership({ userId: existingUser.id, workspaceId: workspace.id, role: dbRole, roleId: invitedRoleId })
+      await setWorkspaceMembership({ userId: existingUser.id, workspaceId: workspace.id, fallback, roleId: invitedRoleId })
     } else {
       // Brand-new user (sign-up + invite completed in one flow).
       const name = [public_user_data?.first_name, public_user_data?.last_name]
@@ -232,11 +233,10 @@ export async function POST(req: NextRequest) {
           name,
           avatarUrl:   public_user_data?.image_url ?? null,
           workspaceId: workspace.id,
-          role:        dbRole,
           onboarded:   true,
         },
       })
-      await syncWorkspaceMembership({ userId: created.id, workspaceId: workspace.id, role: dbRole, roleId: invitedRoleId })
+      await setWorkspaceMembership({ userId: created.id, workspaceId: workspace.id, fallback, roleId: invitedRoleId })
     }
 
     // Auto-mark any matching pending invitation as accepted.

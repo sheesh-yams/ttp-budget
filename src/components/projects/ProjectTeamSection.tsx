@@ -11,13 +11,6 @@ import {
 } from '@/server/actions/project-team'
 import { AssignTeamMemberModal } from './AssignTeamMemberModal'
 import { TeamHistoryList } from './TeamHistoryList'
-import type { UserRole } from '@prisma/client'
-
-const WORKSPACE_ROLE_LABEL: Record<UserRole, string> = {
-  OWNER:        'Owner',
-  PRODUCER:     'Producer',
-  COLLABORATOR: 'Collaborator',
-}
 
 function Avatar({ name, email, avatarUrl }: { name: string | null; email: string; avatarUrl: string | null }) {
   const initials = (name ?? email).split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
@@ -65,7 +58,7 @@ function TeamRowItem({
             {row.user.name ?? row.user.email}
           </p>
           <p style={{ fontSize: 11, color: 'hsl(var(--muted-foreground))' }}>
-            {row.user.name ? `${row.user.email} · ` : ''}{WORKSPACE_ROLE_LABEL[row.user.role]}
+            {row.user.name ? row.user.email : ''}
           </p>
         </div>
         {canEdit ? (

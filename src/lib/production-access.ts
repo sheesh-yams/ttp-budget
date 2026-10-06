@@ -71,7 +71,7 @@ export async function productionTargetProjectIds(target: ProductionTarget, works
 }
 
 /**
- * Gate a production action. Same shape as requireRole's gate, plus the
+ * Gate a production action. Same shape as the access.ts gates, plus the
  * project and the caller's ProjectAccess. Multi-project targets must pass on
  * every project.
  */

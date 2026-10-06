@@ -3,14 +3,6 @@
 import { useState, useEffect } from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { getProjectTeamHistory, type TeamMemberHistory } from '@/server/actions/project-team'
-import type { ProjectTeamRole } from '@prisma/client'
-
-const ROLE_LABEL: Record<ProjectTeamRole, string> = {
-  PROJECT_LEAD:    'PL',
-  ACCOUNT_MANAGER: 'AM',
-  PROJECT_MANAGER: 'PM',
-}
-
 const REASON_LABEL: Record<string, string> = {
   REPLACED:             'Replaced',
   REMOVED:              'Removed',
@@ -92,7 +84,7 @@ export function TeamHistoryList({ projectId }: Props) {
                   {row.user.name ?? row.user.email}
                 </p>
                 <p style={{ fontSize: 10, color: 'hsl(var(--muted-foreground))' }}>
-                  {row.roleName ?? (row.role && ROLE_LABEL[row.role]) ?? 'Team member'} · {REASON_LABEL[row.unassignReason ?? ''] ?? row.unassignReason}
+                  {row.roleName ?? 'Team member'} · {REASON_LABEL[row.unassignReason ?? ''] ?? row.unassignReason}
                   {' · '}
                   {new Date(row.unassignedAt!).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })}
                 </p>

@@ -10,17 +10,17 @@
  *  - System roles can be renamed/edited (except Owner) but not deleted.
  *  - A role in use can't be deleted (members, or project team rows incl. history).
  *  - Always at least one Owner; you can't change your own role.
- *  - A member's legacy User.role follows legacyRoleFor(their role), so checks
- *    not yet converted to permissions never grant more than the role does.
+ *  - Only Owners touch Owners, and a non-Owner can only grant what they have
+ *    (src/lib/owner-rules.ts).
  */
 
 import { clerkClient } from '@clerk/nextjs/server'
-import { Prisma, type UserRole } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { logAuditEvent } from '@/lib/audit'
 import { ensureSystemRoles } from '@/lib/roles'
 import {
-  MAX_ROLES, ROLE_NAME_MAX, legacyRoleFor,
+  MAX_ROLES, ROLE_NAME_MAX,
   normaliseProjectPermissions, normaliseWorkspacePermissions,
   type ProjectPermissions, type ProjectScopeValue, type WorkspacePermissions,
 } from '@/lib/permissions'
@@ -203,19 +203,7 @@ export async function updateWorkspaceRole(
       if (!mine || !roleWithin(mine, { ...next, systemKey: null })) return { success: false, error: BEYOND_OWN_ERROR }
     }
 
-    const updated = await db.$transaction(async tx => {
-      const r = await tx.workspaceRole.update({ where: { id }, data })
-      // Keep members' legacy role in step (checks not yet on permissions).
-      const legacy = legacyRoleFor(r)
-      const members = await tx.workspaceMember.findMany({ where: { roleId: id, workspaceId: g.workspaceId }, select: { userId: true } })
-      if (members.length) {
-        await tx.user.updateMany({
-          where: { id: { in: members.map(m => m.userId) }, workspaceId: g.workspaceId },
-          data:  { role: legacy },
-        })
-      }
-      return r
-    })
+    const updated = await db.workspaceRole.update({ where: { id }, data })
 
     void logAuditEvent({
       workspaceId: g.workspaceId, actorId: g.userId, action: 'role.updated', entityType: 'WorkspaceRole', entityId: id,
@@ -244,7 +232,7 @@ export async function deleteWorkspaceRole(g: Caller, id: string): Promise<Action
     if (!mayEditRole(g.isOwner, await callerHoldsWorkspaceRole(g, id))) return { success: false, error: HELD_ROLE_ERROR }
     if (role._count.members > 0) return { success: false, error: `Move the ${role._count.members} member${role._count.members === 1 ? '' : 's'} with this role to another role first.` }
 
-    // Pending invitations with this role fall back to their legacy role (FK SET NULL).
+    // Pending invitations with this role then join as Collaborator (FK SET NULL).
     await db.workspaceRole.delete({ where: { id } })
     void logAuditEvent({ workspaceId: g.workspaceId, actorId: g.userId, action: 'role.deleted', entityType: 'WorkspaceRole', entityId: id, metadata: { name: role.name } })
     return { success: true, data: undefined }
@@ -360,7 +348,6 @@ export async function assignWorkspaceRole(g: Caller, userId: string, roleId: str
       const mine = await callerRole(g)
       if (!mine || !roleWithin(mine, { ...role, systemKey: null })) return { success: false, error: BEYOND_OWN_ERROR }
     }
-    const legacy: UserRole = legacyRoleFor(role)
 
     await db.$transaction(async tx => {
       const current = await tx.workspaceMember.findFirst({
@@ -384,7 +371,6 @@ export async function assignWorkspaceRole(g: Caller, userId: string, roleId: str
         create: { workspaceId: g.workspaceId, userId, roleId },
         update: { roleId },
       })
-      await tx.user.update({ where: { id: userId }, data: { role: legacy } })
     })
 
     // Best-effort Clerk sync (admin = Owner), as changeMemberRole did.
@@ -393,14 +379,14 @@ export async function assignWorkspaceRole(g: Caller, userId: string, roleId: str
         const clerk = await clerkClient()
         await clerk.organizations.updateOrganizationMembership({
           organizationId: workspace.clerkOrgId, userId: target.clerkId,
-          role: legacy === 'OWNER' ? 'org:admin' : 'org:member',
+          role: role.systemKey === 'OWNER' ? 'org:admin' : 'org:member',
         })
       } catch (e) {
         console.error('[assignWorkspaceRole] Clerk role sync failed (DB updated):', e)
       }
     }
 
-    void logAuditEvent({ workspaceId: g.workspaceId, actorId: g.userId, action: 'member.role_changed', entityType: 'Member', metadata: { userId, roleId, roleName: role.name, legacyRole: legacy } })
+    void logAuditEvent({ workspaceId: g.workspaceId, actorId: g.userId, action: 'member.role_changed', entityType: 'Member', metadata: { userId, roleId, roleName: role.name, systemKey: role.systemKey } })
     return { success: true, data: undefined }
   } catch (err) {
     if (err instanceof Error && err.message === 'LAST_OWNER') return { success: false, error: 'The workspace needs at least one Owner.' }

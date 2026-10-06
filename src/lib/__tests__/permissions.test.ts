@@ -177,31 +177,10 @@ describe('presets', () => {
     expect(Object.values(projectPreset('TEAM_MEMBER').permissions).every(l => l === 'NONE')).toBe(true)
   })
 
-  it('maps every legacy User.role to a preset', () => {
+  it('every built-in role key has a preset', () => {
     for (const r of ['OWNER', 'PRODUCER', 'COLLABORATOR'] as const) {
       expect(workspacePresetFor(r).systemKey).toBe(r)
     }
-  })
-})
-
-describe('legacyRoleFor (custom roles never exceed what they grant)', () => {
-  const { legacyRoleFor } = jest.requireActual('../permissions') as typeof import('../permissions')
-  it('system presets map to themselves', () => {
-    for (const p of WORKSPACE_ROLE_PRESETS) expect(legacyRoleFor(p)).toBe(p.systemKey)
-  })
-  it('a Producer copy with one area lowered is a Collaborator for legacy checks', () => {
-    const p = preset('PRODUCER')
-    expect(legacyRoleFor({ ...p, systemKey: null, workspacePermissions: { ...p.workspacePermissions, invoices: 'VIEW' } })).toBe('COLLABORATOR')
-    expect(legacyRoleFor({ ...p, systemKey: null, projectScope: 'ASSIGNED' })).toBe('COLLABORATOR')
-    expect(legacyRoleFor({ ...p, systemKey: null, projectBaseline: { ...p.projectBaseline, actuals: 'VIEW' } })).toBe('COLLABORATOR')
-  })
-  it('a Producer copy with settings added is still Producer, not Owner', () => {
-    const p = preset('PRODUCER')
-    expect(legacyRoleFor({ ...p, systemKey: null, workspacePermissions: { ...p.workspacePermissions, settings: 'EDIT', team: 'EDIT' } })).toBe('PRODUCER')
-  })
-  it('only the Owner system role is Owner', () => {
-    const o = preset('OWNER')
-    expect(legacyRoleFor({ ...o, systemKey: null })).toBe('PRODUCER')
   })
 })
 
@@ -212,14 +191,4 @@ describe('projects workspace area (roles 2b)', () => {
     expect(preset('COLLABORATOR').workspacePermissions.projects).toBe('NONE')
   })
 
-  it('the projects setting never changes the legacy role (no demotion on save)', () => {
-    const { legacyRoleFor } = jest.requireActual('../permissions') as typeof import('../permissions')
-    const p = preset('PRODUCER')
-    const { projects: _drop, ...withoutKey } = p.workspacePermissions
-    const shape = (wp: object, systemKey: string | null = 'PRODUCER') => ({ systemKey, projectScope: 'ALL' as const, workspacePermissions: wp, projectBaseline: p.projectBaseline })
-    expect(legacyRoleFor(shape(withoutKey))).toBe('PRODUCER')
-    expect(legacyRoleFor(shape({ ...p.workspacePermissions, projects: 'NONE' }))).toBe('PRODUCER')
-    // A custom copy of Producer with Projects off stays Producer too.
-    expect(legacyRoleFor(shape({ ...p.workspacePermissions, projects: 'NONE' }, null))).toBe('PRODUCER')
-  })
 })

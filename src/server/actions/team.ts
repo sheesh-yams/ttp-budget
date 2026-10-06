@@ -6,24 +6,23 @@ import { db } from '@/lib/db'
 import { getWorkspaceId, getCurrentUser, getActiveWorkspace } from '@/lib/auth'
 import { sendInvitationEmail } from '@/lib/email'
 import type { ActionResult } from '@/types'
-import type { UserRole } from '@prisma/client'
 import { logAuditEvent } from '@/lib/audit'
 import { verifiedEmailsFor } from '@/lib/invitations'
-import { legacyRoleForInvite, removeWorkspaceMembership, syncWorkspaceMembership } from '@/lib/roles'
+import { removeWorkspaceMembership, syncWorkspaceMembership } from '@/lib/roles'
 import { requireTeamAdmin, requireTeamViewer } from '@/lib/access'
 import { BEYOND_OWN_ERROR, OWNER_ONLY_ERROR, mayChangeOwnership, roleWithin } from '@/lib/owner-rules'
 import { callerRole } from '@/lib/role-admin'
-import { legacyRoleFor } from '@/lib/permissions'
 
 // WorkspaceInvitation is a new model — types are generated after `prisma generate`.
 // Until then, cast db to include the accessor.
 type InvitationRecord = {
-  id: string; email: string; role: UserRole; roleId: string | null; token: string
+  id: string; email: string; roleId: string | null; token: string
   invitedByName: string | null; expiresAt: Date; acceptedAt: Date | null; createdAt: Date
   workspaceId: string
 }
 type InvitationWithWorkspace = InvitationRecord & {
   workspace: { id: string; name: string; logoUrl: string | null; clerkOrgId: string | null }
+  workspaceRole?: { systemKey: string | null; name: string } | null
 }
 
 const dbi = db as unknown as {
@@ -45,10 +44,11 @@ export type TeamMember = {
   name:      string | null
   email:     string
   avatarUrl: string | null
-  role:      UserRole
   /** Their workspace role here (configurable). */
   roleId:    string | null
   roleName:  string | null
+  /** OWNER / PRODUCER / COLLABORATOR for built-in roles, null for custom ones. */
+  roleSystemKey: string | null
   createdAt: Date
   isCurrentUser: boolean
 }
@@ -56,8 +56,8 @@ export type TeamMember = {
 export type PendingInvitation = {
   id:            string
   email:         string
-  role:          UserRole
   roleName:      string | null
+  roleSystemKey: string | null
   invitedByName: string | null
   expiresAt:     Date
   createdAt:     Date
@@ -83,14 +83,13 @@ export async function listTeamMembers(): Promise<TeamMember[]> {
       name:      true,
       email:     true,
       avatarUrl: true,
-      role:      true,
       createdAt: true,
     },
   })
 
   const memberships = await db.workspaceMember.findMany({
     where:  { workspaceId, userId: { in: users.map(u => u.id) } },
-    select: { userId: true, role: { select: { id: true, name: true } } },
+    select: { userId: true, role: { select: { id: true, name: true, systemKey: true } } },
   })
   const roleBy = new Map(memberships.map(m => [m.userId, m.role]))
 
@@ -98,6 +97,7 @@ export async function listTeamMembers(): Promise<TeamMember[]> {
     ...u,
     roleId:        roleBy.get(u.id)?.id ?? null,
     roleName:      roleBy.get(u.id)?.name ?? null,
+    roleSystemKey: roleBy.get(u.id)?.systemKey ?? null,
     isCurrentUser: u.clerkId === userId,
   }))
 }
@@ -119,14 +119,13 @@ export async function getPendingInvitations(): Promise<PendingInvitation[]> {
     select: {
       id:            true,
       email:         true,
-      role:          true,
       invitedByName: true,
       expiresAt:     true,
       createdAt:     true,
-      workspaceRole: { select: { name: true } },
+      workspaceRole: { select: { name: true, systemKey: true } },
     },
   })
-  return rows.map(({ workspaceRole, ...r }) => ({ ...r, roleName: workspaceRole?.name ?? null }))
+  return rows.map(({ workspaceRole, ...r }) => ({ ...r, roleName: workspaceRole?.name ?? null, roleSystemKey: workspaceRole?.systemKey ?? null }))
 }
 
 // ─── inviteTeamMember ─────────────────────────────────────────────────────────
@@ -152,9 +151,6 @@ export async function inviteTeamMember(
       const mine = await callerRole(gate)
       if (!mine || !roleWithin(mine, { ...chosenRole, systemKey: null })) return { success: false, error: BEYOND_OWN_ERROR }
     }
-    // The legacy role checks not yet on permissions will use.
-    const role = legacyRoleFor(chosenRole)
-
     const normalizedEmail = email.trim().toLowerCase()
 
     // Check: is this person already a member?
@@ -182,7 +178,6 @@ export async function inviteTeamMember(
       data: {
         workspaceId,
         email:         normalizedEmail,
-        role,
         roleId:        chosenRole.id,
         invitedByName: currentUser.name ?? currentUser.email,
         expiresAt,
@@ -197,7 +192,6 @@ export async function inviteTeamMember(
         invitedByName:  currentUser.name ?? currentUser.email,
         invitedByEmail: currentUser.email,
         workspaceName:  workspace.name,
-        role,
         roleName:       chosenRole.name,
         token:          invitation.token,
         expiresAt,
@@ -209,7 +203,7 @@ export async function inviteTeamMember(
         actorId:    currentUser.id,
         action:     'member.invite_email_failed',
         entityType: 'Member',
-        metadata:   { email: normalizedEmail, role, error: emailErr instanceof Error ? emailErr.message : String(emailErr) },
+        metadata:   { email: normalizedEmail, roleName: chosenRole.name, error: emailErr instanceof Error ? emailErr.message : String(emailErr) },
       })
       return { success: false, error: `Invitation email failed to send: ${emailErr instanceof Error ? emailErr.message : 'Unknown error'}` }
     }
@@ -221,7 +215,7 @@ export async function inviteTeamMember(
       actorId:    currentUser.id,
       action:     'member.invited',
       entityType: 'Member',
-      metadata:   { email: normalizedEmail, role, roleId: chosenRole.id, roleName: chosenRole.name },
+      metadata:   { email: normalizedEmail, roleId: chosenRole.id, roleName: chosenRole.name, systemKey: chosenRole.systemKey },
     })
 
     return { success: true, data: undefined }
@@ -242,11 +236,11 @@ export async function revokeInvitation(invitationId: string): Promise<ActionResu
     // Verify the invitation belongs to this workspace before deleting
     const invitation = await db.workspaceInvitation.findFirst({
       where: { id: invitationId, workspaceId },
-      select: { id: true, role: true, workspaceRole: { select: { systemKey: true } } },
+      select: { id: true, workspaceRole: { select: { systemKey: true } } },
     })
     if (!invitation) return { success: false, error: 'Invitation not found.' }
     // An Owner invite is the Owner's to revoke (roles 2c).
-    const invitedAs = invitation.workspaceRole?.systemKey ?? invitation.role
+    const invitedAs = invitation.workspaceRole?.systemKey ?? null
     if (!mayChangeOwnership(gate.isOwner, invitedAs, null)) return { success: false, error: OWNER_ONLY_ERROR }
 
     await dbi.workspaceInvitation.delete({ where: { id: invitationId } })
@@ -275,7 +269,10 @@ export async function acceptInvitation(token: string): Promise<ActionResult<{ wo
 
     const invitation = await dbi.workspaceInvitation.findUnique({
       where: { token },
-      include: { workspace: { select: { id: true, name: true, clerkOrgId: true } } },
+      include: {
+        workspace:     { select: { id: true, name: true, clerkOrgId: true } },
+        workspaceRole: { select: { systemKey: true, name: true } },
+      },
     })
 
     if (!invitation) return { success: false, error: 'Invitation not found or already used.' }
@@ -292,7 +289,9 @@ export async function acceptInvitation(token: string): Promise<ActionResult<{ wo
     if (!workspace.clerkOrgId) return { success: false, error: 'Workspace is not fully set up yet.' }
 
     // Map our role to Clerk's org role slug
-    const clerkRole = invitation.role === 'OWNER' ? 'org:admin' : 'org:member'
+    // Owners are Clerk org admins; everyone else is a member. An invite whose
+    // role was deleted since (roleId SET NULL) joins as Collaborator.
+    const clerkRole = invitation.workspaceRole?.systemKey === 'OWNER' ? 'org:admin' : 'org:member'
 
     // Add user to the Clerk org — this fires organizationMembership.created webhook
     const clerk = await clerkClient()
@@ -331,13 +330,12 @@ export async function acceptInvitation(token: string): Promise<ActionResult<{ wo
       return { success: true, data: { workspaceName: workspace.name, clerkOrgId: workspace.clerkOrgId } }
     }
 
-    const joinedRole = await legacyRoleForInvite(invitation, workspace.id)
     const joined = await db.user.update({
       where: { clerkId: clerkUserId },
-      data:  { workspaceId: workspace.id, role: joinedRole, onboarded: true },
+      data:  { workspaceId: workspace.id, onboarded: true },
       select: { id: true },
     })
-    await syncWorkspaceMembership({ userId: joined.id, workspaceId: workspace.id, role: joinedRole, roleId: invitation.roleId })
+    await syncWorkspaceMembership({ userId: joined.id, workspaceId: workspace.id, fallback: 'COLLABORATOR', roleId: invitation.roleId })
 
     // Mark the invitation as accepted
     await dbi.workspaceInvitation.update({
@@ -350,7 +348,7 @@ export async function acceptInvitation(token: string): Promise<ActionResult<{ wo
       actorId:     null,       // Clerk userId available but not our DB User.id yet
       action:      'member.joined',
       entityType:  'Member',
-      metadata:    { email: invitation.email, role: invitation.role },
+      metadata:    { email: invitation.email, roleId: invitation.roleId, roleName: invitation.workspaceRole?.name ?? null },
     })
 
     return { success: true, data: { workspaceName: workspace.name, clerkOrgId: workspace.clerkOrgId } }
@@ -455,13 +453,13 @@ export async function getInvitationByToken(token: string) {
     select: {
       id:            true,
       email:         true,
-      role:          true,
       invitedByName: true,
       expiresAt:     true,
       acceptedAt:    true,
       workspace: {
         select: { name: true, logoUrl: true },
       },
+      workspaceRole: { select: { name: true, systemKey: true } },
     },
   })
 }

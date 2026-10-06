@@ -218,7 +218,7 @@ export async function createWorkspace(
     })
 
     // The creator owns the new workspace (their role elsewhere is unchanged).
-    await syncWorkspaceMembership({ userId: user.id, workspaceId: newWorkspace.id, role: 'OWNER' })
+    await syncWorkspaceMembership({ userId: user.id, workspaceId: newWorkspace.id, fallback: 'OWNER' })
 
     // Seed global rate cards + templates. Non-blocking — failure here must NOT
     // prevent the workspace from being returned to the client.
@@ -269,8 +269,8 @@ export async function completeOnboarding(
       where:  { workspaceId: user.workspaceId, userId: user.id },
       select: { role: { select: { systemKey: true } } },
     })
-    // No membership row yet (a just-created account): fall back to the legacy role.
-    const isOwner = membership ? membership.role.systemKey === 'OWNER' : user.role === 'OWNER'
+    // Every account gets a membership at sign-up (Owner of their own workspace).
+    const isOwner = membership?.role.systemKey === 'OWNER'
     if (!isOwner) return { success: false, error: 'Only the workspace owner can set up the workspace.' }
 
     // Guard: workspace names must be globally unique (case-insensitive).
