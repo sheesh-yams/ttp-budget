@@ -601,8 +601,11 @@ export async function reorderContractSections(
 
 // ─── Library picker ───────────────────────────────────────────────────────────
 
-export async function listLibraryBlocksForPicker(): Promise<ActionResult<LibraryBlockOption[]>> {
+export async function listLibraryBlocksForPicker(proposalId: string): Promise<ActionResult<LibraryBlockOption[]>> {
   try {
+    // Only for someone editing this proposal's contract.
+    const gate = await requireMoneyPermission({ proposalId }, 'contract', 'EDIT')
+    if (!gate.ok) return gate.error
     const sdb = await getScopedDb()
     const blocks = await (sdb as unknown as {
       contractBlock: { findMany: (a: object) => Promise<LibraryBlockOption[]> }

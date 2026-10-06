@@ -65,3 +65,17 @@ export async function requireWorkspaceArea(area: WorkspaceArea) {
   if (!access.can(area)) notFound()
   return access
 }
+
+/**
+ * Moving a project into or out of ARCHIVED — by any path, including a status
+ * field — needs the workspace Projects permission (roles 2b). Other status
+ * changes are Overview edits.
+ */
+export async function archiveChangeAllowed(projectId: string, nextStatus: string | undefined): Promise<boolean> {
+  if (nextStatus === undefined) return true
+  const workspaceId = await getWorkspaceId()
+  const p = await db.project.findFirst({ where: { id: projectId, workspaceId }, select: { status: true } })
+  if (!p) return true   // the caller's gate already answers not-found
+  const touchesArchive = (nextStatus === 'ARCHIVED') !== (p.status === 'ARCHIVED')
+  return !touchesArchive || (await getAccess()).can('projects', 'EDIT')
+}

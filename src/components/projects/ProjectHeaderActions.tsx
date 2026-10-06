@@ -17,9 +17,13 @@ interface Props {
     shootStartDate: string | null
     shootEndDate: string | null
   }
+  /** Workspace Projects EDIT — archive / restore (roles 2b). */
+  canArchive: boolean
+  /** Project Overview EDIT — edit details. */
+  canEdit: boolean
 }
 
-export function ProjectHeaderActions({ project }: Props) {
+export function ProjectHeaderActions({ project, canArchive, canEdit }: Props) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -49,7 +53,7 @@ export function ProjectHeaderActions({ project }: Props) {
     <>
       {ConfirmDialog}
 
-      {isArchived ? (
+      {isArchived ? (canArchive && (
         <Button
           size="sm"
           variant="outline"
@@ -60,9 +64,9 @@ export function ProjectHeaderActions({ project }: Props) {
           <ArchiveRestore className="mr-1.5 h-3.5 w-3.5" />
           Restore project
         </Button>
-      ) : (
+      )) : (
         <>
-          <Button
+          {canArchive && <Button
             size="sm"
             variant="outline"
             onClick={handleArchive}
@@ -71,9 +75,9 @@ export function ProjectHeaderActions({ project }: Props) {
           >
             <Archive className="mr-1.5 h-3.5 w-3.5" />
             Archive
-          </Button>
+          </Button>}
 
-          <Button
+          {canEdit && <Button
             size="sm"
             variant="outline"
             onClick={() => setOpen(true)}
@@ -81,7 +85,7 @@ export function ProjectHeaderActions({ project }: Props) {
           >
             <Pencil className="mr-1.5 h-3.5 w-3.5" />
             Edit project
-          </Button>
+          </Button>}
         </>
       )}
 
@@ -90,6 +94,7 @@ export function ProjectHeaderActions({ project }: Props) {
         onOpenChange={setOpen}
         project={project}
         onSaved={() => router.refresh()}
+        canArchive={canArchive}
       />
     </>
   )

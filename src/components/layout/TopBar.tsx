@@ -16,7 +16,7 @@ function monthYear() {
 
 const DASHBOARD_ROUTE = '/dashboard'
 
-export function TopBar() {
+export function TopBar({ canCreateProject = true }: { canCreateProject?: boolean }) {
   const pathname = usePathname()
   const router   = useRouter()
   const { user } = useUser()
@@ -51,7 +51,7 @@ export function TopBar() {
           <Search className="h-4 w-4" />
         </button>
 
-        <button
+        {canCreateProject && <button
           type="button"
           onClick={() => router.push('/projects')}
           className="flex items-center gap-1.5 rounded-[6px] px-3 py-1.5 text-[12.5px] font-semibold transition-colors"
@@ -61,7 +61,7 @@ export function TopBar() {
         >
           <Plus className="h-3.5 w-3.5" />
           New project
-        </button>
+        </button>}
       </div>
     </header>
   )

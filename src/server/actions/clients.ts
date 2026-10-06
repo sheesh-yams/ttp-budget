@@ -2,7 +2,9 @@
 
 import { revalidatePath } from 'next/cache'
 import { getScopedDb } from '@/lib/db-scoped'
-import { getCurrentUser, getWorkspaceId, requireRole } from '@/lib/auth'
+import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
+import { requirePermission, requireProjectPermission } from '@/lib/access'
+import { archiveChangeAllowed } from '@/lib/project-access'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import { Prisma } from '@prisma/client'
@@ -46,7 +48,7 @@ export async function upsertClient(
   input: z.infer<typeof clientSchema>
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('clients', 'EDIT')
     if (!gate.ok) return gate.error
 
     const [db] = await Promise.all([getScopedDb(), getCurrentUser()])
@@ -63,7 +65,7 @@ export async function upsertClient(
 
 export async function archiveClient(id: string): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('clients', 'EDIT')
     if (!gate.ok) return gate.error
 
     const db = await getScopedDb()
@@ -91,7 +93,7 @@ export async function getClientLogoUploadUrl(
   byteSize:    number,
 ): Promise<ActionResult<{ uploadUrl: string; publicUrl: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('clients', 'EDIT')
     if (!gate.ok) return gate.error
 
     const [sdb, workspaceId] = await Promise.all([getScopedDb(), getWorkspaceId()])
@@ -128,7 +130,7 @@ export async function updateClientLogo(
   logoUrl:  string,
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('clients', 'EDIT')
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()
@@ -163,8 +165,11 @@ export async function upsertProject(
   input: z.infer<typeof projectSchema>
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await (id ? requireProjectPermission(id, 'overview', 'EDIT') : requirePermission('projects', 'EDIT'))
     if (!gate.ok) return gate.error
+    if (id && !(await archiveChangeAllowed(id, (input as { status?: string })?.status))) {
+      return { success: false, error: 'Archiving or restoring a project needs the Projects permission.' }
+    }
 
     const [db, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const data = projectSchema.parse(input)
@@ -190,11 +195,14 @@ export async function updateProjectStatus(
   status: 'LEAD' | 'ACTIVE' | 'WRAPPED' | 'ARCHIVED'
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProjectPermission(id, 'overview', 'EDIT')
     if (!gate.ok) return gate.error
+    if (!(await archiveChangeAllowed(id, status))) {
+      return { success: false, error: 'Archiving or restoring a project needs the Projects permission.' }
+    }
 
     const db = await getScopedDb()
-    await db.project.update({ where: { id }, data: { status } })
+    await db.project.update({ where: { id }, data: { status, archivedAt: status === 'ARCHIVED' ? new Date() : null } })
     revalidatePath('/dashboard')
     revalidatePath(`/projects/${id}`)
     return { success: true, data: undefined }

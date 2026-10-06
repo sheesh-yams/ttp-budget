@@ -1,11 +1,12 @@
-import { requireProducerPageAccess } from '@/lib/project-access'
+import { requireWorkspaceArea } from '@/lib/project-access'
+import { projectsWithArea } from '@/lib/money-access'
+import { ViewOnly } from '@/components/ui/view-only'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ChevronLeft, Mail, Phone, Instagram, Globe, DollarSign, Calendar, ClipboardList } from 'lucide-react'
 import { getContactById, getContactCallSheets, getCrewRoles } from '@/server/actions/rolodex'
 import { ContactDetailClient } from '@/components/rolodex/ContactDetailClient'
 import { formatMoney } from '@/lib/money'
-import { getCurrentRole } from '@/lib/auth'
 import { getScopedDb } from '@/lib/db-scoped'
 import { STATUS_META as DEAL_MEMO_STATUS, UNIT_SUFFIX } from '@/components/deal-memos/labels'
 
@@ -39,21 +40,23 @@ const PROJECT_STATUS_LABEL: Record<string, string> = {
 }
 
 export default async function ContactDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireProducerPageAccess()
+  // Roles 2b: the workspace rolodex permission.
+  const access = await requireWorkspaceArea('rolodex')
   const { id } = await params
 
-  const [contact, callSheets, crewRoles, role] = await Promise.all([
+  const [contact, callSheets, crewRoles] = await Promise.all([
     getContactById(id),
     getContactCallSheets(id),
     getCrewRoles(),
-    getCurrentRole(),
   ])
 
   if (!contact) notFound()
 
-  // Deal memo history — rate history for bidding. Owner/Producer only.
-  const dealMemos = role === 'COLLABORATOR' ? [] : await (await getScopedDb()).dealMemo.findMany({
-    where:   { contactId: id },
+  // Deal memo history — rate history for bidding (rolodex access covers rates),
+  // limited to projects this person can open.
+  const openable = await projectsWithArea('overview')
+  const dealMemos = await (await getScopedDb()).dealMemo.findMany({
+    where:   { contactId: id, ...(openable ? { projectId: { in: openable } } : {}) },
     orderBy: { updatedAt: 'desc' },
     take:    25,
     select:  {
@@ -89,7 +92,9 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
             ))}
           </div>
         </div>
-        <ContactDetailClient contact={contact} crewRoles={crewRoles} />
+        <ViewOnly readOnly={!access.can('rolodex', 'EDIT')} what="contacts">
+          <ContactDetailClient contact={contact} crewRoles={crewRoles} />
+        </ViewOnly>
       </div>
 
       {/* Info grid */}

@@ -482,6 +482,7 @@ export default async function ProjectsPage({
       metrics={metrics}
       canSeeFinancials={canSeeFin}
       canEditTeam={currentUser.role !== 'COLLABORATOR'}
+      canManageProjects={access.can('projects', 'EDIT')}
       attentionItems={attentionItems}
       upcomingShoots={upcomingShoots}
       statusCounts={statusCounts}

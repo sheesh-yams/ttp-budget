@@ -1,15 +1,15 @@
 import { redirect } from 'next/navigation'
-import { getCurrentRole } from '@/lib/auth'
+import { getAccess, requireTeamAdmin } from '@/lib/access'
 import { SettingsTabs } from '@/components/settings/SettingsTabs'
 
 /**
- * Workspace settings are OWNER-only. Producers and Collaborators are bounced
- * to the dashboard before any settings data is fetched or rendered (server-side
- * gate — not just hidden in the UI).
+ * Workspace settings follow the Settings permission (roles 2b). Everyone else
+ * is bounced to the dashboard before any settings data is fetched. Each page
+ * checks again — layouts don't re-run on sibling navigation.
  */
 export default async function SettingsLayout({ children }: { children: React.ReactNode }) {
-  const role = await getCurrentRole()
-  if (role !== 'OWNER') redirect('/')
+  const [access, teamAdmin] = await Promise.all([getAccess(), requireTeamAdmin()])
+  if (!access.can('settings')) redirect('/')
 
   return (
     <div className="max-w-3xl">
@@ -19,7 +19,7 @@ export default async function SettingsLayout({ children }: { children: React.Rea
           Manage your workspace, branding, and payments.
         </p>
       </div>
-      <SettingsTabs />
+      <SettingsTabs showRoles={teamAdmin.ok} />
       {children}
     </div>
   )

@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
-import { requireProducerPageAccess } from '@/lib/project-access'
+import { requireWorkspaceArea } from '@/lib/project-access'
+import { ViewOnly } from '@/components/ui/view-only'
 import { getWorkspaceId } from '@/lib/auth'
 import { RateCardTable } from '@/components/budget/RateCardTable'
 import { AddRateButton } from '@/components/budget/AddRateButton'
@@ -7,7 +8,8 @@ import { AddRateButton } from '@/components/budget/AddRateButton'
 export const metadata = { title: 'Rate cards' }
 
 export default async function RatesPage() {
-  await requireProducerPageAccess()
+  // Roles 2b: the workspace library permission.
+  const access = await requireWorkspaceArea('library')
   const workspaceId = await getWorkspaceId()
 
   const rateCards = await db.rateCard.findMany({
@@ -24,9 +26,11 @@ export default async function RatesPage() {
             Master rates that auto-populate when you add a line item to a budget.
           </p>
         </div>
-        <AddRateButton />
+        {access.can('library', 'EDIT') && <AddRateButton />}
       </div>
-      <RateCardTable rateCards={rateCards} />
+      <ViewOnly readOnly={!access.can('library', 'EDIT')} what="rate cards">
+        <RateCardTable rateCards={rateCards} />
+      </ViewOnly>
     </div>
   )
 }

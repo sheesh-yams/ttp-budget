@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { requireRole } from '@/lib/auth'
+import { requirePermission } from '@/lib/access'
 import { requireBudgetPermission } from '@/lib/budget-access'
 import { z }              from 'zod'
 import { db }             from '@/lib/db'
@@ -171,7 +171,7 @@ export async function importToTemplate(
   rawData:    unknown
 ): Promise<ActionResult<ImportResult>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('library', 'EDIT')
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()

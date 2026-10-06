@@ -26,6 +26,8 @@ interface Props {
   canEditTeam?: boolean
   /** False for roles without financial access — their payload has no money. */
   showMoney?:   boolean
+  /** Workspace Projects EDIT — archive / restore from the card menu. */
+  canArchive?: boolean
 }
 
 // ── Client avatar (initials in a deterministic colored circle) ─────────────────
@@ -65,7 +67,7 @@ function ClientAvatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md' 
   )
 }
 
-export function ProjectCard({ project, view = 'grid', canEditTeam = false, showMoney = true }: Props) {
+export function ProjectCard({ project, view = 'grid', canEditTeam = false, showMoney = true, canArchive = false }: Props) {
   const router    = useRouter()
   const { confirm, ConfirmDialog } = useConfirm()
   const [menuOpen,    setMenuOpen]    = useState(false)
@@ -224,8 +226,8 @@ export function ProjectCard({ project, view = 'grid', canEditTeam = false, showM
             pos={menuPos}
             projectId={project.id}
             isArchived={isArchived}
-            onArchive={handleArchive}
-            onUnarchive={handleUnarchive}
+            onArchive={canArchive ? handleArchive : undefined}
+            onUnarchive={canArchive ? handleUnarchive : undefined}
             onClose={() => setMenuOpen(false)}
           />,
           document.body,
@@ -394,8 +396,8 @@ export function ProjectCard({ project, view = 'grid', canEditTeam = false, showM
           projectId={project.id}
           isArchived={isArchived}
           canEditTeam={canEditTeam}
-          onArchive={handleArchive}
-          onUnarchive={handleUnarchive}
+          onArchive={canArchive ? handleArchive : undefined}
+          onUnarchive={canArchive ? handleUnarchive : undefined}
           onEditTeam={() => { setMenuOpen(false); setTeamModal(true) }}
           onClose={() => setMenuOpen(false)}
         />,
@@ -528,8 +530,9 @@ const CardMenu = forwardRef<
     projectId: string
     isArchived: boolean
     canEditTeam?: boolean
-    onArchive: () => void
-    onUnarchive: () => void
+    /** Omitted without the workspace Projects permission (roles 2b). */
+    onArchive?: () => void
+    onUnarchive?: () => void
     onEditTeam?: () => void
     onClose: () => void
   }
@@ -561,10 +564,10 @@ const CardMenu = forwardRef<
     >
       {item('Open project', <ExternalLink className="w-4 h-4" />, () => router.push(`/projects/${projectId}`))}
       {canEditTeam && onEditTeam && item('Edit team', <Users className="w-4 h-4" />, onEditTeam)}
-      <div className="h-px bg-gray-100 my-1" />
+      {(isArchived ? onUnarchive : onArchive) && <div className="h-px bg-gray-100 my-1" />}
       {isArchived
-        ? item('Unarchive', <ArchiveRestore className="w-4 h-4" />, onUnarchive)
-        : item('Archive', <Archive className="w-4 h-4" />, onArchive, true)
+        ? onUnarchive && item('Unarchive', <ArchiveRestore className="w-4 h-4" />, onUnarchive)
+        : onArchive && item('Archive', <Archive className="w-4 h-4" />, onArchive, true)
       }
     </div>
   )

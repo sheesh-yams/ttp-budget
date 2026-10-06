@@ -27,6 +27,8 @@ interface Props {
   /** Collaborators are margin-blind — the financial KPI strip is hidden for them. */
   canSeeFinancials?: boolean
   canEditTeam?: boolean
+  /** Workspace Projects EDIT — create, archive and restore (roles 2b). */
+  canManageProjects?: boolean
   attentionItems: AttentionItem[]
   upcomingShoots: UpcomingShoot[]
   statusCounts:  StatusCounts
@@ -48,6 +50,7 @@ export function ProjectsPageClient({
   metrics,
   canSeeFinancials = true,
   canEditTeam = false,
+  canManageProjects = false,
   attentionItems,
   upcomingShoots,
   statusCounts,
@@ -122,10 +125,12 @@ export function ProjectsPageClient({
               {status && status !== 'all' ? ` · ${status.charAt(0).toUpperCase() + status.slice(1)}` : ''}
             </p>
           </div>
-          <Button onClick={() => setModalOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            New project
-          </Button>
+          {canManageProjects && (
+            <Button onClick={() => setModalOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              New project
+            </Button>
+          )}
         </div>
 
         {/* ── Metrics strip (financial KPIs — hidden from Collaborators) ────── */}
@@ -191,18 +196,18 @@ export function ProjectsPageClient({
             {sorted.length === 0 ? (
               <EmptyState
                 isArchived={showArchived}
-                onNewProject={() => setModalOpen(true)}
+                onNewProject={canManageProjects ? () => setModalOpen(true) : undefined}
               />
             ) : view === 'list' ? (
               <div className="flex flex-col gap-2">
                 {sorted.map(p => (
-                  <ProjectCard key={p.id} project={p} view="list" canEditTeam={canEditTeam} showMoney={canSeeFinancials} />
+                  <ProjectCard key={p.id} project={p} view="list" canEditTeam={canEditTeam} showMoney={canSeeFinancials} canArchive={canManageProjects} />
                 ))}
               </div>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {sorted.map(p => (
-                  <ProjectCard key={p.id} project={p} view="grid" canEditTeam={canEditTeam} showMoney={canSeeFinancials} />
+                  <ProjectCard key={p.id} project={p} view="grid" canEditTeam={canEditTeam} showMoney={canSeeFinancials} canArchive={canManageProjects} />
                 ))}
               </div>
             )}
@@ -248,7 +253,7 @@ function EmptyState({
   onNewProject,
 }: {
   isArchived: boolean
-  onNewProject: () => void
+  onNewProject?: () => void
 }) {
   return (
     <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-gray-200 py-24 text-center bg-white">
@@ -269,10 +274,12 @@ function EmptyState({
           <p className="text-sm text-gray-500 mt-1 max-w-xs">
             Create your first project to start tracking proposals, invoices, and call sheets.
           </p>
-          <Button className="mt-5" onClick={onNewProject}>
-            <Plus className="mr-2 h-4 w-4" />
-            New project
-          </Button>
+          {onNewProject && (
+            <Button className="mt-5" onClick={onNewProject}>
+              <Plus className="mr-2 h-4 w-4" />
+              New project
+            </Button>
+          )}
         </>
       )}
     </div>

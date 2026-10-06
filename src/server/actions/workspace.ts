@@ -3,7 +3,8 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { db } from '@/lib/db'
-import { getCurrentUser, getWorkspaceId, requireRole } from '@/lib/auth'
+import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
+import { requireOwner, requirePermission } from '@/lib/access'
 import { auth, clerkClient } from '@clerk/nextjs/server'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
@@ -59,7 +60,7 @@ export async function updateCompanySettings(
   input: z.infer<typeof companySchema>
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER'])
+    const gate = await requirePermission('settings', 'EDIT')
     if (!gate.ok) return gate.error
 
     const workspaceId = await getWorkspaceId()
@@ -105,7 +106,7 @@ export async function updateBrandingSettings(
   input: z.infer<typeof brandingSchema>
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER'])
+    const gate = await requirePermission('settings', 'EDIT')
     if (!gate.ok) return gate.error
 
     const workspaceId = await getWorkspaceId()
@@ -128,7 +129,7 @@ export async function updateInvoiceDefaults(
   input: z.infer<typeof invoiceDefaultsSchema>
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER'])
+    const gate = await requirePermission('settings', 'EDIT')
     if (!gate.ok) return gate.error
 
     const workspaceId = await getWorkspaceId()
@@ -262,6 +263,16 @@ export async function completeOnboarding(
     const user = await getCurrentUser()
     const data = onboardingSchema.parse(input)
 
+    // Only the workspace's Owner sets its name and brand here — an invited
+    // member's workspaceId is the workspace they joined (roles 2b).
+    const membership = await db.workspaceMember.findFirst({
+      where:  { workspaceId: user.workspaceId, userId: user.id },
+      select: { role: { select: { systemKey: true } } },
+    })
+    // No membership row yet (a just-created account): fall back to the legacy role.
+    const isOwner = membership ? membership.role.systemKey === 'OWNER' : user.role === 'OWNER'
+    if (!isOwner) return { success: false, error: 'Only the workspace owner can set up the workspace.' }
+
     // Guard: workspace names must be globally unique (case-insensitive).
     // Exclude the user's own workspace so submitting without changing the name works.
     const duplicate = await db.workspace.findFirst({
@@ -349,9 +360,9 @@ export async function deleteWorkspace(confirmName: string): Promise<ActionResult
     const { orgId } = await auth()
     if (!orgId) return { success: false, error: 'No active workspace' }
 
+    // Server-side guard — the Owner of the active workspace, always (roles 2b).
+    if (!(await requireOwner()).ok) return { success: false, error: 'Only workspace owners can delete a workspace.' }
     const user = await getCurrentUser()
-    // Server-side role guard — this is the authoritative check.
-    if (user.role !== 'OWNER') return { success: false, error: 'Only workspace owners can delete a workspace.' }
 
     const workspace = await db.workspace.findFirst({
       where: { clerkOrgId: orgId, deletedAt: null } as Parameters<typeof db.workspace.findFirst>[0]['where'],
@@ -402,7 +413,7 @@ export async function getLogoUploadUrl(
   variant:     'light' | 'dark',
 ): Promise<ActionResult<{ uploadUrl: string; publicUrl: string }>> {
   try {
-    const gate = await requireRole(['OWNER'])
+    const gate = await requirePermission('settings', 'EDIT')
     if (!gate.ok) return gate.error
 
     const workspaceId = await getWorkspaceId()
@@ -443,7 +454,7 @@ export async function saveWorkspaceLogo(
   variant: 'light' | 'dark',
 ): Promise<ActionResult<{ url: string }>> {
   try {
-    const gate = await requireRole(['OWNER'])
+    const gate = await requirePermission('settings', 'EDIT')
     if (!gate.ok) return gate.error
 
     const workspaceId = await getWorkspaceId()
@@ -466,7 +477,7 @@ export async function removeWorkspaceLogo(
   variant: 'light' | 'dark',
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER'])
+    const gate = await requirePermission('settings', 'EDIT')
     if (!gate.ok) return gate.error
 
     const workspaceId = await getWorkspaceId()
@@ -489,7 +500,7 @@ export async function removeWorkspaceLogo(
 /** Additive re-seed: adds any missing featured globals. Never modifies existing rows. */
 export async function reseedWorkspace(): Promise<ActionResult<{ ratesAdded: number; templatesAdded: number }>> {
   try {
-    const gate = await requireRole(['OWNER'])
+    const gate = await requireOwner()
     if (!gate.ok) return gate.error
 
     const workspaceId = await getWorkspaceId()
@@ -506,7 +517,7 @@ export async function updateProposalDefaults(
   input: z.infer<typeof proposalDefaultsSchema>
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER'])
+    const gate = await requirePermission('settings', 'EDIT')
     if (!gate.ok) return gate.error
 
     const workspaceId = await getWorkspaceId()
@@ -535,7 +546,7 @@ export async function updateProductionSettings(
   input: z.infer<typeof productionSchema>
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER'])
+    const gate = await requirePermission('settings', 'EDIT')
     if (!gate.ok) return gate.error
 
     const workspaceId = await getWorkspaceId()

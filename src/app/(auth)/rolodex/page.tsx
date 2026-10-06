@@ -1,11 +1,13 @@
-import { requireProducerPageAccess } from '@/lib/project-access'
+import { requireWorkspaceArea } from '@/lib/project-access'
+import { ViewOnly } from '@/components/ui/view-only'
 import { getContacts, getCrewRoles } from '@/server/actions/rolodex'
 import { RolodexClient } from '@/components/rolodex/RolodexClient'
 
 export const metadata = { title: 'Rolodex' }
 
 export default async function RolodexPage() {
-  await requireProducerPageAccess()
+  // Roles 2b: the workspace rolodex permission.
+  const access = await requireWorkspaceArea('rolodex')
   const [contacts, crewRoles] = await Promise.all([getContacts(), getCrewRoles()])
 
   return (
@@ -17,7 +19,9 @@ export default async function RolodexPage() {
         </p>
       </div>
 
-      <RolodexClient contacts={contacts} crewRoles={crewRoles} />
+      <ViewOnly readOnly={!access.can('rolodex', 'EDIT')} what="contacts">
+        <RolodexClient contacts={contacts} crewRoles={crewRoles} />
+      </ViewOnly>
     </div>
   )
 }

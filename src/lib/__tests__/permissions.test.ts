@@ -204,3 +204,22 @@ describe('legacyRoleFor (custom roles never exceed what they grant)', () => {
     expect(legacyRoleFor({ ...o, systemKey: null })).toBe('PRODUCER')
   })
 })
+
+describe('projects workspace area (roles 2b)', () => {
+  it('Owner and Producer presets can create projects; Collaborator cannot', () => {
+    expect(preset('OWNER').workspacePermissions.projects).toBe('EDIT')
+    expect(preset('PRODUCER').workspacePermissions.projects).toBe('EDIT')
+    expect(preset('COLLABORATOR').workspacePermissions.projects).toBe('NONE')
+  })
+
+  it('the projects setting never changes the legacy role (no demotion on save)', () => {
+    const { legacyRoleFor } = jest.requireActual('../permissions') as typeof import('../permissions')
+    const p = preset('PRODUCER')
+    const { projects: _drop, ...withoutKey } = p.workspacePermissions
+    const shape = (wp: object, systemKey: string | null = 'PRODUCER') => ({ systemKey, projectScope: 'ALL' as const, workspacePermissions: wp, projectBaseline: p.projectBaseline })
+    expect(legacyRoleFor(shape(withoutKey))).toBe('PRODUCER')
+    expect(legacyRoleFor(shape({ ...p.workspacePermissions, projects: 'NONE' }))).toBe('PRODUCER')
+    // A custom copy of Producer with Projects off stays Producer too.
+    expect(legacyRoleFor(shape({ ...p.workspacePermissions, projects: 'NONE' }, null))).toBe('PRODUCER')
+  })
+})

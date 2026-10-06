@@ -49,6 +49,7 @@ export const WORKSPACE_AREAS = [
   { key: 'clients',        label: 'Clients',           group: 'Data',   hint: 'Client companies and their contact details' },
   { key: 'rolodex',        label: 'Rolodex',           group: 'Data',   hint: 'Crew and vendor contacts, with their rates' },
   { key: 'library',        label: 'Rates & templates', group: 'Data',   hint: 'Rate cards, budget templates and the library' },
+  { key: 'projects',       label: 'Projects',          group: 'Data',   hint: 'Create, archive and restore projects (Edit)' },
   { key: 'settings',       label: 'Settings',          group: 'Admin',  hint: 'Workspace settings, branding, contracts and payments' },
   { key: 'team',           label: 'Team & roles',      group: 'Admin',  hint: 'Invite people, change roles, edit role permissions' },
 ] as const
@@ -259,6 +260,7 @@ export const ENFORCED_PROJECT_AREAS: ReadonlySet<ProjectArea> = new Set<ProjectA
 ])
 export const ENFORCED_WORKSPACE_AREAS: ReadonlySet<WorkspaceArea> = new Set<WorkspaceArea>([
   'dashboardMoney', 'proposals', 'invoices',
+  'clients', 'rolodex', 'library', 'settings', 'projects',
 ])
 
 export interface RoleShape {
@@ -281,7 +283,9 @@ export function legacyRoleFor(role: RoleShape): UserRole {
   const base = readProjectPermissions(role.projectBaseline)
   const atLeastProducer =
     role.projectScope === 'ALL' &&
-    WORKSPACE_AREA_KEYS.every(k => atLeast(ws[k], producer.workspacePermissions[k])) &&
+    // `projects` (roles 2b) postdates the legacy role, which never encoded it —
+    // turning it off must not demote a role to Collaborator.
+    WORKSPACE_AREA_KEYS.every(k => k === 'projects' || atLeast(ws[k], producer.workspacePermissions[k])) &&
     PROJECT_AREA_KEYS.every(k => atLeast(base[k], producer.projectBaseline[k]))
   return atLeastProducer ? 'PRODUCER' : 'COLLABORATOR'
 }

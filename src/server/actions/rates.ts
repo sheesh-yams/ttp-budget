@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { getScopedDb } from '@/lib/db-scoped'
-import { getCurrentUser, requireRole } from '@/lib/auth'
+import { getCurrentUser } from '@/lib/auth'
+import { requirePermission } from '@/lib/access'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import { Prisma } from '@prisma/client'
@@ -21,7 +22,7 @@ export async function upsertRateCard(
   input: z.infer<typeof rateCardSchema>
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('library', 'EDIT')
     if (!gate.ok) return gate.error
 
     const [db, user] = await Promise.all([getScopedDb(), getCurrentUser()])
@@ -40,7 +41,7 @@ export async function upsertRateCard(
 
 export async function toggleFavorite(id: string, isFavorite: boolean): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('library', 'EDIT')
     if (!gate.ok) return gate.error
 
     const db = await getScopedDb()
@@ -54,7 +55,7 @@ export async function toggleFavorite(id: string, isFavorite: boolean): Promise<A
 
 export async function archiveRateCard(id: string): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('library', 'EDIT')
     if (!gate.ok) return gate.error
 
     const db = await getScopedDb()

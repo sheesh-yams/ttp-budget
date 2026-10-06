@@ -49,10 +49,14 @@ export default async function AuthLayout({
           workspaceName={workspace.name}
           logoUrl={workspace.logoUrl ?? null}
           role={user.role}
-          moneyLists={{ proposals: access.can('proposals'), invoices: access.can('invoices') }}
+          areas={{
+            proposals: access.can('proposals'), invoices: access.can('invoices'),
+            clients: access.can('clients'), rolodex: access.can('rolodex'),
+            library: access.can('library'), settings: access.can('settings'),
+          }}
         />
         <div className="flex flex-1 flex-col overflow-hidden">
-          <TopBar />
+          <TopBar canCreateProject={access.can('projects', 'EDIT')} />
           <main className="flex-1 overflow-y-auto p-6 max-w-[1400px] w-full mx-auto">
             {children}
           </main>

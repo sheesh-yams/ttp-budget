@@ -40,18 +40,21 @@ Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
   - Done: budget and overview; crew and deal memos; schedule, call sheets
     and delivery; money (proposals, invoices, actuals, contract, and the
     /proposals and /invoices lists).
-  - Still on the legacy role: settings/team and the workspace pages
-    (clients, rolodex, rates/templates/library). Until an area is converted,
-    a project role can't grant more than the legacy role there.
+  - Workspace pages (clients, rolodex, rates/templates/library, settings,
+    projects) shipped in 2b.
+  - Still on the legacy role: Team & roles (Owner-only),
+    `project-team.ts` / `team.ts`, plus the few UI flags that read
+    `User.role` (`canEditTeam` on /projects, notes `isEditor`, budget
+    `canInsertPackage`). Those are roles 2c.
 - **Actuals sync runs for view-only users too.** `syncActualSheetEntries`
   runs on every Actuals page load. It adds $0 entries for new budget lines
   (now validated against the sheet's phase) and refreshes deal-memo
   prefills, so a View user's page load writes. The writes are idempotent and
   only use server data, but moving the sync into `src/lib` and running it on
   edit would be cleaner.
-- **`listLibraryBlocksForPicker` is ungated** (contract block titles in the
-  workspace). This is low risk; gate it with roles 2b's library/settings
-  areas.
+- **Call-sheet "Sync to Rolodex?" fails silently without Rolodex Edit.**
+  `CrewEditor` and `TalentEditor` ignore `patchContactField`'s result. This
+  was already true before 2b. Hide the prompt, or show the error.
 - **Start from a template needs browse-all.** The budget empty state's picker
   mixes templates and other projects' budgets, so someone with costs EDIT but
   not Producer-level browse can only create a blank budget.
@@ -115,8 +118,7 @@ Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
   remaining areas, which still say "Not enforced yet" and follow the closest
   built-in role:
   1. ~~Money~~ (shipped 2026-10-05, roles 2a).
-  2. Workspace pages: clients, rolodex, rates/templates/library, contract
-     blocks, settings, Stripe, public links, project create/archive (~45).
+  2. ~~Workspace pages~~ (shipped 2026-10-05, roles 2b).
   3. Team & settings access (Owner-only today) and deal-memo defaults.
   Then cleanup: drop `User.role` and the `ProjectTeamMember.role` slot column
   (small migration), remove the "Not enforced yet" labels, and add a jest
@@ -135,6 +137,54 @@ Run each through `/feature`. Check the overlap first:
 ---
 
 ## Shipped
+
+### 2026-10-05 — Roles Phase 2b: workspace pages enforce permissions
+- **Converted:** clients, rolodex management, rates/templates/library
+  (including global library copy and import-to-template), settings
+  (company, branding, defaults, production, contract blocks, deal memo
+  defaults), and the new **Projects** area.
+  - Replaced `requireRole`, `requireProducerPageAccess`, the Owner-only
+    settings layout and the sidebar's `PRODUCER_HREFS`.
+  - Pages use `requireWorkspaceArea`. Settings tabs follow the permission
+    (Roles stays team-admin). The sidebar and the top-bar New project
+    follow per-area flags.
+- **User decisions:**
+  - A new workspace area, **Projects** (create / archive / restore).
+    Editing details and status is project Overview, and moving into or out
+    of Archived by any path needs Projects (`archiveChangeAllowed`).
+  - The **danger zone** stays Owner-only via `requireOwner()`
+    (`getAccess().isOwner`, the ACTIVE workspace): delete workspace, reset
+    demo data, Stripe connect/disconnect. Payments shows non-owners a note
+    instead of the cards.
+  - **Contract blocks and deal memo defaults → Settings.**
+- **Data (user-approved):** added `projects` to all 34 saved
+  WorkspaceRoles. Owner/Producer got EDIT (22) and Collaborator/custom got
+  NONE (12), with a guarded update and an AuditEvent per row
+  (`role.permissions_backfill`). Verified afterwards: no role missing the
+  key, no unexpected values.
+- **`legacyRoleFor` ignores `projects`,** so turning it off never demotes
+  a role's members to Collaborator (pitfall-reviewer, high).
+- **View-only:** `ViewOnly` (a disabled fieldset plus a note) on clients,
+  rolodex, rates, templates, library, and the settings general/contracts
+  pages.
+- **Also fixed:**
+  - `listContractBlocks` and the contract picker were ungated. The picker
+    now takes `proposalId` and needs Contract Edit.
+  - `completeOnboarding` let any member rename and rebrand their workspace.
+    It's now Owner-only.
+  - An ASSIGNED-scope creator is put on the project they create.
+  - Contact deal-memo history is limited to projects the viewer can open.
+- **Access diff (12 members × 5 areas, saved data):** 1 intended change.
+  Skolastika Lupitawina (Producer in The Third Place, Owner of her own
+  workspace) loses The Third Place's Settings. The old check used her
+  home-workspace role, which was a bug.
+- **Verified:**
+  - jest 239, including the projects-area tests and section guard coverage
+    for every workspace page.
+  - tsc, lint, and `next build` compile.
+- **pitfall-reviewer:** 3 issues plus 1 pre-existing and 1 low, all fixed.
+- **Correction:** the "duplicate roles" seen in the preview are separate
+  workspaces with the same name (roles are unique per workspace).
 
 ### 2026-10-05 — Roles Phase 2a: money areas enforce permissions
 - **Goal (user):** someone can **view the budget without editing it** and

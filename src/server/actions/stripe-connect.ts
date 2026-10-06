@@ -4,7 +4,7 @@
  * stripe-connect.ts — Stripe Connect (Standard) OAuth server actions
  *
  * Security constraints:
- *  1. requireRole(['OWNER']) gates both connect and disconnect. Producers and
+ *  1. requireOwner() (Owner of the ACTIVE workspace) gates both connect and disconnect. Producers and
  *     Collaborators cannot touch the workspace's payment provider.
  *  2. The OAuth state token is HMAC-SHA256 signed with STRIPE_SECRET_KEY. The
  *     signature is stored in a short-lived (10 min) HTTP-only cookie alongside
@@ -18,7 +18,7 @@
 
 import { randomBytes } from 'crypto'
 import { cookies } from 'next/headers'
-import { requireRole } from '@/lib/auth'
+import { requireOwner } from '@/lib/access'
 import { getScopedDb } from '@/lib/db-scoped'
 import { logAuditEvent } from '@/lib/audit'
 import { getStripeClient } from '@/lib/payments/stripe'
@@ -33,7 +33,7 @@ const COOKIE_MAX_AGE = 600  // 10 minutes
 // ── getStripeConnectUrl ────────────────────────────────────────────────────
 
 export async function getStripeConnectUrl(): Promise<ActionResult<{ url: string }>> {
-  const gate = await requireRole(['OWNER'])
+  const gate = await requireOwner()
   if (!gate.ok) return gate.error!
 
   const state = randomBytes(32).toString('hex')
@@ -63,7 +63,7 @@ export async function getStripeConnectUrl(): Promise<ActionResult<{ url: string 
 // ── disconnectStripe ───────────────────────────────────────────────────────
 
 export async function disconnectStripe(): Promise<ActionResult<void>> {
-  const gate = await requireRole(['OWNER'])
+  const gate = await requireOwner()
   if (!gate.ok) return gate.error!
 
   const sdb = await getScopedDb()

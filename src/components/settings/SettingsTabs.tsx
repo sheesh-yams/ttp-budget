@@ -11,12 +11,12 @@ const tabs = [
   { label: 'Roles',     href: '/settings/roles' },
 ]
 
-export function SettingsTabs() {
+export function SettingsTabs({ showRoles }: { showRoles: boolean }) {
   const pathname = usePathname()
 
   return (
     <div className="mb-6 flex gap-1 border-b border-border">
-      {tabs.map(({ label, href }) => {
+      {tabs.filter(t => showRoles || t.href !== '/settings/roles').map(({ label, href }) => {
         const active =
           href === '/settings'
             ? pathname === '/settings'

@@ -1,12 +1,14 @@
 import { db } from '@/lib/db'
-import { requireProducerPageAccess } from '@/lib/project-access'
+import { requireWorkspaceArea } from '@/lib/project-access'
+import { ViewOnly } from '@/components/ui/view-only'
 import { getWorkspaceId } from '@/lib/auth'
 import { LibraryPageClient } from '@/components/library/LibraryPageClient'
 
 export const metadata = { title: 'Global Library' }
 
 export default async function LibraryPage() {
-  await requireProducerPageAccess()
+  // Roles 2b: the workspace library permission.
+  const access = await requireWorkspaceArea('library')
   const workspaceId = await getWorkspaceId()
 
   const [globalRates, globalTemplates, workspaceRates, workspaceTemplates] = await Promise.all([
@@ -59,10 +61,12 @@ export default async function LibraryPage() {
         </p>
       </div>
 
-      <LibraryPageClient
-        rates={ratesWithStatus}
-        templates={templatesWithStatus}
-      />
+      <ViewOnly readOnly={!access.can('library', 'EDIT')} what="library items">
+        <LibraryPageClient
+          rates={ratesWithStatus}
+          templates={templatesWithStatus}
+        />
+      </ViewOnly>
     </div>
   )
 }

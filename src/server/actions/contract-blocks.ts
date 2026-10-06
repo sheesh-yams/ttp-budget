@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { getScopedDb } from '@/lib/db-scoped'
-import { getWorkspaceId, requireRole } from '@/lib/auth'
+import { getWorkspaceId } from '@/lib/auth'
+import { requirePermission } from '@/lib/access'
 import type { ActionResult } from '@/types'
 import type { ContractAudience, ContractBlockCategory, TriggerKind } from '@prisma/client'
 
@@ -47,6 +48,9 @@ export async function listContractBlocks(
   audience: ContractAudience = 'CLIENT',
 ): Promise<ActionResult<ContractBlockRow[]>> {
   try {
+    // The clause library is managed under Settings (roles 2b).
+    const gate = await requirePermission('settings', 'VIEW')
+    if (!gate.ok) return gate.error
     const sdb = await getScopedDb()
     const blocks = await sdb.contractBlock.findMany({
       where:   { audience },
@@ -67,7 +71,7 @@ export async function createContractBlock(
   input: ContractBlockInput
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('settings', 'EDIT')
     if (!gate.ok) return gate.error
 
     const workspaceId = await getWorkspaceId()
@@ -113,7 +117,7 @@ export async function updateContractBlock(
   input: ContractBlockInput
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('settings', 'EDIT')
     if (!gate.ok) return gate.error
 
     const workspaceId = await getWorkspaceId()
@@ -155,7 +159,7 @@ export async function toggleContractBlockActive(
   isActive: boolean
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('settings', 'EDIT')
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()
@@ -173,7 +177,7 @@ export async function toggleContractBlockActive(
 
 export async function deleteContractBlock(id: string): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('settings', 'EDIT')
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()
@@ -193,7 +197,7 @@ export async function reorderContractBlocks(
   orderedIds: string[]
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('settings', 'EDIT')
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()

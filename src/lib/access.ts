@@ -170,3 +170,18 @@ export async function requireProjectPermission(
     workspaceId: access.workspaceId,
   }
 }
+
+/**
+ * Account-level danger zone (delete workspace, reset demo data, Stripe payouts):
+ * the Owner of the ACTIVE workspace only, whatever a role is configured to do
+ * (user decision 2026-10-05).
+ */
+export async function requireOwner(): Promise<PermissionGate> {
+  const access = await getAccess()
+  return {
+    ok:          access.isOwner,
+    error:       access.isOwner ? null : { success: false, error: 'UNAUTHORIZED_ROLE' },
+    userId:      access.userId,
+    workspaceId: access.workspaceId,
+  }
+}

@@ -2,7 +2,9 @@
 
 import { revalidatePath } from 'next/cache'
 import { getScopedDb } from '@/lib/db-scoped'
-import { getCurrentUser, requireRole } from '@/lib/auth'
+import { getCurrentUser } from '@/lib/auth'
+import { getAccess, getProjectAccess, requirePermission, requireProjectPermission } from '@/lib/access'
+import { archiveChangeAllowed } from '@/lib/project-access'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import { Prisma } from '@prisma/client'
@@ -21,11 +23,24 @@ const createProjectSchema = z.object({
   templateId: z.string().optional().nullable(),
 })
 
+/**
+ * Archiving / restoring: the workspace Projects permission, on a project the
+ * caller can open (roles 2b). Not exported — 'use server' exports are RPCs.
+ */
+async function requireProjectsAreaOn(projectId: string) {
+  const gate = await requirePermission('projects', 'EDIT')
+  if (!gate.ok) return gate
+  if (typeof projectId !== 'string' || !(await getProjectAccess(projectId))) {
+    return { ...gate, ok: false, error: { success: false as const, error: 'Project not found' } }
+  }
+  return gate
+}
+
 export async function createProjectWithBudget(
   input: z.infer<typeof createProjectSchema>
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('projects', 'EDIT')
     if (!gate.ok) return gate.error
 
     const [db, user] = await Promise.all([getScopedDb(), getCurrentUser()])
@@ -54,8 +69,17 @@ export async function createProjectWithBudget(
       } as unknown as Prisma.ProjectUncheckedCreateInput,
     })
 
-    // Create budget (materialises template if provided)
-    await createBudget(project.id, data.templateId ?? undefined)
+    // A creator whose role only opens assigned projects is put on this one —
+    // otherwise they'd create a project they can't open.
+    const access = await getAccess()
+    if (!access.isOwner && access.projectScope === 'ASSIGNED') {
+      await db.projectAssignment.create({ data: { projectId: project.id, userId: user.id } } as unknown as Parameters<typeof db.projectAssignment.create>[0])
+    }
+
+    // Create budget (materialises template if provided). Needs budget edit
+    // rights; without them the project is created with no budget.
+    const budget = await createBudget(project.id, data.templateId ?? undefined)
+    if (!budget.success) console.warn('[createProjectWithBudget] budget skipped:', (budget as { success: false; error: string }).error)
 
     revalidatePath('/projects')
     revalidatePath('/dashboard')
@@ -86,8 +110,11 @@ export async function updateProject(
   }
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProjectPermission(projectId, 'overview', 'EDIT')
     if (!gate.ok) return gate.error
+    if (!(await archiveChangeAllowed(projectId, input.status))) {
+      return { success: false, error: 'Archiving or restoring a project needs the Projects permission.' }
+    }
 
     const db = await getScopedDb()
     const wantedKeys = [...new Set(input.shootDates)].sort()
@@ -97,6 +124,8 @@ export async function updateProject(
       data: {
         name:           input.name.trim(),
         status:         input.status,
+        // Keep archivedAt in step when the status path archives / restores.
+        ...(input.status === 'ARCHIVED' ? { archivedAt: new Date() } : { archivedAt: null }),
         shootType:      input.shootType,
         shootStartDate: wantedKeys[0] ? new Date(wantedKeys[0]) : null,
         shootEndDate:   wantedKeys.length ? new Date(wantedKeys[wantedKeys.length - 1]) : null,
@@ -157,7 +186,7 @@ export async function listShootDays(projectId: string): Promise<ActionResult<{ i
 
 export async function archiveProject(projectId: string): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProjectsAreaOn(projectId)
     if (!gate.ok) return gate.error
 
     const db = await getScopedDb()
@@ -182,7 +211,7 @@ export async function archiveProject(projectId: string): Promise<ActionResult> {
 
 export async function unarchiveProject(projectId: string): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requireProjectsAreaOn(projectId)
     if (!gate.ok) return gate.error
 
     const db = await getScopedDb()

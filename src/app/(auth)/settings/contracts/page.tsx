@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { requireWorkspaceArea } from '@/lib/project-access'
 import { listContractBlocks } from '@/server/actions/contract-blocks'
 import { getDealMemoDefaults } from '@/server/actions/deal-memos'
 import { ContractBlocksManager } from '@/components/settings/contracts/ContractBlocksManager'
@@ -13,6 +14,9 @@ export default async function ContractsSettingsPage({
 }: {
   searchParams: Promise<{ for?: string }>
 }) {
+  // Roles 2b: the clause library and deal memo defaults are Settings.
+  const access = await requireWorkspaceArea('settings')
+  const canEdit = access.can('settings', 'EDIT')
   const { for: forParam } = await searchParams
   const audience = forParam === 'vendor' ? 'VENDOR' : 'CLIENT'
 
@@ -45,10 +49,17 @@ export default async function ContractsSettingsPage({
         ))}
       </div>
 
-      {audience === 'VENDOR' && <DealMemoDefaultsPanel initial={defaults} />}
+      {!canEdit && (
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          View only — your role can see the clause library but not change it.
+        </p>
+      )}
+      <fieldset disabled={!canEdit} className="contents">
+        {audience === 'VENDOR' && <DealMemoDefaultsPanel initial={defaults} />}
 
-      {/* key forces a fresh manager (and its create dialog) per audience */}
-      <ContractBlocksManager key={audience} blocks={blocks} audience={audience} />
+        {/* key forces a fresh manager (and its create dialog) per audience */}
+        <ContractBlocksManager key={audience} blocks={blocks} audience={audience} />
+      </fieldset>
     </div>
   )
 }

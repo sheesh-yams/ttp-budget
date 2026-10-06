@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
+import { requireWorkspaceArea } from '@/lib/project-access'
 import { StripeConnectCard } from '@/components/settings/payments/StripeConnectCard'
 import { HelcimConnectedCard } from '@/components/settings/payments/HelcimConnectedCard'
 
@@ -18,6 +19,8 @@ export default async function PaymentsPage({
 }: {
   searchParams: Promise<Record<string, string>>
 }) {
+  // Roles 2b: Settings to see this; where payouts go is the Owner's call only.
+  const access = await requireWorkspaceArea('settings')
   const [workspaceId, params] = await Promise.all([getWorkspaceId(), searchParams])
 
   const config = await (db as unknown as {
@@ -60,11 +63,17 @@ export default async function PaymentsPage({
         </div>
       )}
 
-      {helcimFirst && showHelcim && (
+      {!access.isOwner && (
+        <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          Only the workspace Owner can connect or change payment providers.
+        </p>
+      )}
+
+      {access.isOwner && helcimFirst && showHelcim && (
         <HelcimConnectedCard isActiveProvider />
       )}
 
-      {showStripe && (
+      {access.isOwner && showStripe && (
         <StripeConnectCard
           stripeAccountId={config?.stripeAccountId ?? null}
           stripeChargesEnabled={config?.stripeChargesEnabled ?? false}
@@ -72,11 +81,11 @@ export default async function PaymentsPage({
         />
       )}
 
-      {!helcimFirst && showHelcim && (
+      {access.isOwner && !helcimFirst && showHelcim && (
         <HelcimConnectedCard isActiveProvider={activeProvider === 'HELCIM'} />
       )}
 
-      {!showHelcim && !showStripe && (
+      {access.isOwner && !showHelcim && !showStripe && (
         <StripeConnectCard
           stripeAccountId={null}
           stripeChargesEnabled={false}

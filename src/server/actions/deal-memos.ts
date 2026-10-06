@@ -5,8 +5,8 @@ import { z } from 'zod'
 import type { DealMemoStatus } from '@prisma/client'
 import { db } from '@/lib/db'
 import { getScopedDb, type ScopedDb } from '@/lib/db-scoped'
-import { getCurrentUser, getWorkspaceId, requireRole } from '@/lib/auth'
-import { getAccess, getProjectAccess, requireProjectPermission } from '@/lib/access'
+import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
+import { getAccess, getProjectAccess, requirePermission, requireProjectPermission } from '@/lib/access'
 import { logAuditEvent } from '@/lib/audit'
 import type { ActionResult } from '@/types'
 import {
@@ -111,7 +111,7 @@ async function syncAutoOvertime(sdb: ScopedDb, memoId: string) {
 
 export async function getDealMemoDefaults(): Promise<ActionResult<DealMemoDefaults>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('settings', 'VIEW')
     if (!gate.ok) return gate.error
     const workspaceId = await getWorkspaceId()
     const ws = await db.workspace.findUnique({
@@ -126,7 +126,7 @@ export async function getDealMemoDefaults(): Promise<ActionResult<DealMemoDefaul
 
 export async function updateDealMemoDefaults(input: DealMemoDefaults): Promise<ActionResult<DealMemoDefaults>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('settings', 'EDIT')
     if (!gate.ok) return gate.error
     const parsed = dealMemoDefaultsSchema.safeParse(input)
     if (!parsed.success) return { success: false, error: 'Some defaults are invalid — check the highlighted fields.' }

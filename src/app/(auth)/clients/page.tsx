@@ -1,12 +1,14 @@
 import { db } from '@/lib/db'
-import { requireProducerPageAccess } from '@/lib/project-access'
+import { requireWorkspaceArea } from '@/lib/project-access'
+import { ViewOnly } from '@/components/ui/view-only'
 import { getWorkspaceId } from '@/lib/auth'
 import { ClientsPageClient } from '@/components/clients/ClientsPageClient'
 
 export const metadata = { title: 'Clients' }
 
 export default async function ClientsPage() {
-  await requireProducerPageAccess()
+  // Roles 2b: the workspace clients permission.
+  const access = await requireWorkspaceArea('clients')
   const workspaceId = await getWorkspaceId()
 
   const clients = await db.client.findMany({
@@ -94,5 +96,9 @@ export default async function ClientsPage() {
     }
   })
 
-  return <ClientsPageClient clients={enriched} />
+  return (
+    <ViewOnly readOnly={!access.can('clients', 'EDIT')} what="clients">
+      <ClientsPageClient clients={enriched} />
+    </ViewOnly>
+  )
 }

@@ -49,19 +49,31 @@ describe('project page access guards', () => {
   })
 })
 
-// Workspace-level Owner/Producer sections: every page under each one must
-// 404 for Collaborators (the sidebar hiding them is not the barrier).
 const AUTH_DIR = path.join(process.cwd(), 'src/app/(auth)')
-const PRODUCER_SECTIONS = ['clients', 'rates', 'templates', 'library', 'rolodex']
 
-describe('Owner/Producer section guards', () => {
-  const all = PRODUCER_SECTIONS.flatMap(section =>
-    pages(path.join(AUTH_DIR, section)).map(rel => path.join(section, rel)),
+// Workspace sections (roles 2b): every page under each one must check its
+// permission area itself — the sidebar hiding them is not the barrier.
+const WORKSPACE_SECTIONS: [string, string][] = [
+  ['clients', 'clients'], ['rolodex', 'rolodex'],
+  ['rates', 'library'], ['templates', 'library'], ['library', 'library'],
+  ['settings', 'settings'],
+]
+
+describe('workspace section guards', () => {
+  const all = WORKSPACE_SECTIONS.flatMap(([section, area]) =>
+    pages(path.join(AUTH_DIR, section))
+      // Settings → Roles is gated on Team & roles by listRoles (roles 2c).
+      .filter(rel => !(section === 'settings' && rel.startsWith('roles')))
+      .map(rel => [path.join(section, rel), area] as [string, string]),
   )
 
-  it.each(all)('%s is Owner/Producer only', rel => {
+  it('finds the workspace pages', () => {
+    expect(all.length).toBeGreaterThanOrEqual(10)
+  })
+
+  it.each(all)('%s requires the %s area', (rel, area) => {
     const src = fs.readFileSync(path.join(AUTH_DIR, rel), 'utf8')
-    expect(src).toMatch(/await requireProducerPageAccess\(\)/)
+    expect(src).toMatch(new RegExp(`await requireWorkspaceArea\\('${area}'\\)`))
   })
 })
 

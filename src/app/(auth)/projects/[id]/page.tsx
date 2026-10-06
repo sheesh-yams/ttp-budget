@@ -369,7 +369,7 @@ export default async function ProjectDetailPage({
               </Button>
             }
           />
-          <ProjectHeaderActions project={serialisedProject} />
+          <ProjectHeaderActions project={serialisedProject} canArchive={access.can('projects', 'EDIT')} canEdit={can.overview} />
         </div>
       </div>
 

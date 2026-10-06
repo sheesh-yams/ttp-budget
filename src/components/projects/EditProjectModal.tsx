@@ -38,9 +38,11 @@ interface Props {
     shootType: string
   }
   onSaved: () => void
+  /** Workspace Projects EDIT — otherwise Archived isn't offered (roles 2b). */
+  canArchive?: boolean
 }
 
-export function EditProjectModal({ open, onOpenChange, project, onSaved }: Props) {
+export function EditProjectModal({ open, onOpenChange, project, onSaved, canArchive = false }: Props) {
   const [pending, startTransition] = useTransition()
 
   const [name,         setName]         = useState('')
@@ -124,7 +126,7 @@ export function EditProjectModal({ open, onOpenChange, project, onSaved }: Props
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {STATUSES.map(s => (
+                  {STATUSES.filter(st => canArchive || st.value !== 'ARCHIVED' || project.status === 'ARCHIVED').map(s => (
                     <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
                   ))}
                 </SelectContent>

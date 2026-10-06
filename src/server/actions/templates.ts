@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { getScopedDb } from '@/lib/db-scoped'
-import { getCurrentUser, requireRole } from '@/lib/auth'
+import { getCurrentUser } from '@/lib/auth'
+import { requirePermission } from '@/lib/access'
 import { z } from 'zod'
 import type { ActionResult, TemplateKind, TemplateStructure } from '@/types'
 import type { ShootType } from '@prisma/client'
@@ -28,7 +29,7 @@ export async function createTemplate(
   input: z.infer<typeof templateMetaSchema>
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('library', 'EDIT')
     if (!gate.ok) return gate.error
 
     const db = await getScopedDb()
@@ -56,7 +57,7 @@ export async function updateTemplateMeta(
   input: z.infer<typeof templateMetaSchema>
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('library', 'EDIT')
     if (!gate.ok) return gate.error
 
     const db = await getScopedDb()
@@ -84,7 +85,7 @@ export async function saveTemplateStructure(
   structure: TemplateStructure
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('library', 'EDIT')
     if (!gate.ok) return gate.error
 
     const db = await getScopedDb()
@@ -103,7 +104,7 @@ export async function saveTemplateStructure(
 
 export async function deleteTemplate(id: string): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('library', 'EDIT')
     if (!gate.ok) return gate.error
 
     const db = await getScopedDb()
@@ -128,7 +129,7 @@ export async function listPackages(): Promise<ActionResult<Array<{
 }>>> {
   try {
     // Callable directly — Owner/Producer only (client pricing / cost rates).
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('library', 'VIEW')
     if (!gate.ok) return gate.error
     const db = await getScopedDb()
     const whereClause = {

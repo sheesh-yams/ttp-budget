@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
+import { requireWorkspaceArea } from '@/lib/project-access'
 import { getRecentAuditEvents } from '@/lib/audit'
 import { SettingsForm } from '@/components/settings/SettingsForm'
 import { DangerZone } from '@/components/settings/DangerZone'
@@ -9,6 +10,9 @@ import { ActivityFeed } from '@/components/settings/ActivityFeed'
 export const metadata = { title: 'Settings' }
 
 export default async function SettingsPage() {
+  // Roles 2b: the Settings permission; editing needs Edit.
+  const access = await requireWorkspaceArea('settings')
+  const canEdit = access.can('settings', 'EDIT')
   const [user, workspaceId] = await Promise.all([getCurrentUser(), getWorkspaceId()])
   const auditEvents = await getRecentAuditEvents(workspaceId, 10)
 
@@ -53,12 +57,16 @@ export default async function SettingsPage() {
 
   return (
     <div>
-      <SettingsForm
-        workspace={settings}
-        currentUser={{ id: user.id, name: user.name ?? '', avatarUrl: user.avatarUrl ?? null }}
-      />
+      {!canEdit && <ViewOnlyNote />}
+      <fieldset disabled={!canEdit} className="contents">
+        <SettingsForm
+          workspace={settings}
+          currentUser={{ id: user.id, name: user.name ?? '', avatarUrl: user.avatarUrl ?? null }}
+        />
+      </fieldset>
 
-      <WorkspaceDataSection />
+      {/* Resetting demo data is Owner-only (danger zone). */}
+      {access.isOwner && <WorkspaceDataSection />}
 
       <section className="mt-8">
         <h2 className="text-base font-semibold text-foreground mb-1">Recent activity</h2>
@@ -70,8 +78,16 @@ export default async function SettingsPage() {
 
       <DangerZone
         workspaceName={workspace.name}
-        userRole={user.role as string}
+        userRole={access.isOwner ? 'OWNER' : 'MEMBER'}
       />
     </div>
+  )
+}
+
+function ViewOnlyNote() {
+  return (
+    <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+      View only — your role can see settings but not change them.
+    </p>
   )
 }

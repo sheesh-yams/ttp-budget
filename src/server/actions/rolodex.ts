@@ -1,8 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { requireRole } from '@/lib/auth'
-import { getAccess, getProjectAccess } from '@/lib/access'
+import { getAccess, getProjectAccess, requirePermission } from '@/lib/access'
 import { getScopedDb } from '@/lib/db-scoped'
 import { db } from '@/lib/db'
 import { z } from 'zod'
@@ -189,7 +188,7 @@ export async function updateContact(
   projectId?: string,
 ): Promise<ActionResult<{ id: string }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('rolodex', 'EDIT')
     if (!gate.ok) return gate.error
 
     const db   = await getScopedDb()
@@ -215,7 +214,7 @@ export async function updateContact(
 
 export async function archiveContact(id: string): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('rolodex', 'EDIT')
     if (!gate.ok) return gate.error
 
     const db = await getScopedDb()
@@ -342,7 +341,7 @@ export async function mergeContacts(
   duplicateId: string,
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('rolodex', 'EDIT')
     if (!gate.ok) return gate.error
 
     const db = await getScopedDb()
@@ -484,7 +483,7 @@ export async function patchContactField(
   value: string | null,
 ): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('rolodex', 'EDIT')
     if (!gate.ok) return gate.error
 
     const sdb = await getScopedDb()
@@ -654,7 +653,7 @@ export async function bulkImportContacts(
   members: ImportableMember[]
 ): Promise<ActionResult<{ count: number }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('rolodex', 'EDIT')
     if (!gate.ok) return gate.error
 
     const db = await getScopedDb()

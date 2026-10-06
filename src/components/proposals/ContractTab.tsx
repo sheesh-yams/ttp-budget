@@ -230,7 +230,7 @@ function LibraryPicker({ proposalId, onAttached, onClose }: {
   const [filter, setFilter]         = useState('')
 
   useEffect(() => {
-    listLibraryBlocksForPicker().then(r => { if (r.success) setBlocks(r.data) })
+    listLibraryBlocksForPicker(proposalId).then(r => { if (r.success) setBlocks(r.data) })
   }, [])
 
   const filtered = blocks.filter(b => b.title.toLowerCase().includes(filter.toLowerCase()))

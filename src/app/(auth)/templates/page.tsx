@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
-import { requireProducerPageAccess } from '@/lib/project-access'
+import { requireWorkspaceArea } from '@/lib/project-access'
+import { ViewOnly } from '@/components/ui/view-only'
 import { getWorkspaceId } from '@/lib/auth'
 import { TemplatesPageClient } from '@/components/templates/TemplatesPageClient'
 import type { ProposalBranding } from '@/components/proposals/ProposalTemplatePreview'
@@ -7,7 +8,8 @@ import type { ProposalBranding } from '@/components/proposals/ProposalTemplatePr
 export const metadata = { title: 'Document Hub' }
 
 export default async function TemplatesPage() {
-  await requireProducerPageAccess()
+  // Roles 2b: the workspace library permission.
+  const access = await requireWorkspaceArea('library')
   const workspaceId = await getWorkspaceId()
 
   const [templates, workspace] = await Promise.all([
@@ -32,7 +34,9 @@ export default async function TemplatesPage() {
 
   return (
     <div className="space-y-5">
-      <TemplatesPageClient templates={templates} branding={branding} />
+      <ViewOnly readOnly={!access.can('library', 'EDIT')} what="templates">
+        <TemplatesPageClient templates={templates} branding={branding} />
+      </ViewOnly>
     </div>
   )
 }

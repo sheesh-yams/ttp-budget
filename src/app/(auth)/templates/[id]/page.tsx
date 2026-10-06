@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
-import { requireProducerPageAccess } from '@/lib/project-access'
+import { requireWorkspaceArea } from '@/lib/project-access'
+import { ViewOnly } from '@/components/ui/view-only'
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { TemplateDetailClient } from '@/components/templates/TemplateDetailClient'
@@ -16,7 +17,8 @@ export async function generateMetadata({ params }: Props) {
 }
 
 export default async function TemplateDetailPage({ params }: Props) {
-  await requireProducerPageAccess()
+  // Roles 2b: the workspace library permission.
+  const access = await requireWorkspaceArea('library')
   const { id } = await params
   const workspaceId = await getWorkspaceId()
 
@@ -28,7 +30,9 @@ export default async function TemplateDetailPage({ params }: Props) {
 
   return (
     <div className="max-w-4xl">
-      <TemplateDetailClient template={template} />
+      <ViewOnly readOnly={!access.can('library', 'EDIT')} what="templates">
+        <TemplateDetailClient template={template} />
+      </ViewOnly>
     </div>
   )
 }

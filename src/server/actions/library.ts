@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
-import { getWorkspaceId, requireRole } from '@/lib/auth'
+import { getWorkspaceId } from '@/lib/auth'
+import { requirePermission } from '@/lib/access'
 import type { ActionResult } from '@/types'
 import type { RateCategory, RateUnit, ShootType, TemplateKind } from '@prisma/client'
 import { toJsonSafe } from '@/lib/json-safe'
@@ -15,7 +16,7 @@ export async function copyGlobalRateCardToWorkspace(
   globalId: string
 ): Promise<ActionResult<{ id: string; alreadyExists: boolean }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('library', 'EDIT')
     if (!gate.ok) return gate.error
 
     const workspaceId = await getWorkspaceId()
@@ -62,7 +63,7 @@ export async function copyGlobalTemplateToWorkspace(
   globalId: string
 ): Promise<ActionResult<{ id: string; alreadyExists: boolean }>> {
   try {
-    const gate = await requireRole(['OWNER', 'PRODUCER'])
+    const gate = await requirePermission('library', 'EDIT')
     if (!gate.ok) return gate.error
 
     const workspaceId = await getWorkspaceId()
