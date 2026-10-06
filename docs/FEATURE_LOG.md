@@ -126,6 +126,21 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-06 — Removing a member who's already gone from Clerk
+- **Bug (user report):** removing "Ashish TEST" (darkustigrus@gmail.com)
+  failed with "Failed to remove member from workspace."
+  - The account had already been removed from the Clerk org in the
+    dashboard, so `deleteOrganizationMembership` threw and the removal
+    stopped before deleting the SlateSuite membership.
+- **Fix:** when the Clerk removal fails, re-check real org membership
+  (`stillInClerkOrg`). If they're already out, finish the removal.
+- **Related, open:** Anjali is now in the Clerk org but has no DB user and
+  her invite is unaccepted. Neither her `user.created` nor her
+  `organizationMembership.created` webhook created her, so Clerk webhooks
+  may not be reaching the app. Check the Clerk → Webhooks message attempts
+  and Railway logs. Re-opening the invite link now completes the join (the
+  accept upserts the user).
+
 ### 2026-10-06 — Invites: clear "member limit" errors; accepting works without the sign-up webhook
 - **Bug (user report):** Anjali's invite to The Third Place said "Failed to
   accept invitation".

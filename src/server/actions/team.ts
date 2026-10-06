@@ -57,6 +57,18 @@ async function clerkOrgIsFull(
   }
 }
 
+/** Whether this Clerk user is still in the org. A deleted account counts as not. */
+async function stillInClerkOrg(orgId: string, clerkUserId: string): Promise<boolean> {
+  try {
+    const clerk = await clerkClient()
+    const list = await clerk.organizations.getOrganizationMembershipList({ organizationId: orgId, limit: 100 })
+    return list.data.some(m => m.publicUserData?.userId === clerkUserId)
+  } catch (err) {
+    console.error('[stillInClerkOrg] check failed — assuming still a member:', err)
+    return true
+  }
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type TeamMember = {
@@ -463,11 +475,16 @@ export async function removeWorkspaceMember(
           userId:         target.clerkId,
         })
       } catch (e) {
-        console.error('[removeWorkspaceMember] Clerk removal failed:', e)
-        return { success: false, error: 'Failed to remove member from workspace.' }
+        // Already out of the Clerk org (removed in the Clerk dashboard, or the
+        // account was deleted) — nothing left to do there; finish the removal
+        // here. Re-check real membership rather than parsing the error.
+        if (await stillInClerkOrg(workspace.clerkOrgId, target.clerkId)) {
+          console.error('[removeWorkspaceMember] Clerk removal failed:', e)
+          return { success: false, error: 'Failed to remove member from workspace.' }
+        }
       }
     }
-    // Mirror only — Clerk removal already succeeded.
+    // Mirror only — they're out of the Clerk org now.
     await removeWorkspaceMembership({ userId, workspaceId: gate.workspaceId })
       .catch(err => console.error('[removeWorkspaceMember] membership cleanup failed (non-fatal):', err))
 
