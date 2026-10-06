@@ -8,7 +8,7 @@ import { sendInvitationEmail } from '@/lib/email'
 import type { ActionResult } from '@/types'
 import { logAuditEvent } from '@/lib/audit'
 import { verifiedEmailsFor } from '@/lib/invitations'
-import { removeWorkspaceMembership, syncWorkspaceMembership } from '@/lib/roles'
+import { removeWorkspaceMembership, setWorkspaceMembership } from '@/lib/roles'
 import { requireTeamAdmin, requireTeamViewer } from '@/lib/access'
 import { BEYOND_OWN_ERROR, OWNER_ONLY_ERROR, mayChangeOwnership, roleWithin } from '@/lib/owner-rules'
 import { callerRole } from '@/lib/role-admin'
@@ -33,6 +33,27 @@ const dbi = db as unknown as {
     create:     (args: object) => Promise<InvitationRecord>
     update:     (args: object) => Promise<InvitationRecord>
     delete:     (args: object) => Promise<InvitationRecord>
+  }
+}
+
+/**
+ * Whether the Clerk org is at its member cap (maxAllowedMemberships; 0 means
+ * unlimited). `exceptUserId` already a member doesn't need a new seat.
+ * Not exported — 'use server' exports are endpoints.
+ */
+async function clerkOrgIsFull(
+  clerk: Awaited<ReturnType<typeof clerkClient>>, orgId: string, exceptUserId?: string,
+): Promise<boolean> {
+  try {
+    const org = await clerk.organizations.getOrganization({ organizationId: orgId })
+    const max = org.maxAllowedMemberships ?? 0
+    if (!max) return false
+    const members = await clerk.organizations.getOrganizationMembershipList({ organizationId: orgId, limit: 100 })
+    if (exceptUserId && members.data.some(m => m.publicUserData?.userId === exceptUserId)) return false
+    return members.totalCount >= max
+  } catch (err) {
+    console.error('[clerkOrgIsFull] check failed (letting Clerk decide):', err)
+    return false
   }
 }
 
@@ -159,6 +180,14 @@ export async function inviteTeamMember(
       select: { id: true },
     })
     if (existing) return { success: false, error: 'This person is already a member of your workspace.' }
+
+    // Check: does the workspace have room? (Clerk caps org members.)
+    if (workspace.clerkOrgId) {
+      const clerk = await clerkClient()
+      if (await clerkOrgIsFull(clerk, workspace.clerkOrgId)) {
+        return { success: false, error: `${workspace.name} has reached its member limit, so this person couldn't join. Raise the limit (or remove someone) first.` }
+      }
+    }
 
     // Check: is there already a pending invite?
     const pendingInvite = await dbi.workspaceInvitation.findFirst({
@@ -295,6 +324,11 @@ export async function acceptInvitation(token: string): Promise<ActionResult<{ wo
 
     // Add user to the Clerk org — this fires organizationMembership.created webhook
     const clerk = await clerkClient()
+    // A Clerk org has a member cap (maxAllowedMemberships); a full org refuses
+    // the add. Say so plainly rather than a generic failure.
+    if (await clerkOrgIsFull(clerk, workspace.clerkOrgId, clerkUserId)) {
+      return { success: false, error: `${workspace.name} has reached its member limit. Ask the workspace Owner to raise it, then try again.` }
+    }
     try {
       await clerk.organizations.createOrganizationMembership({
         organizationId: workspace.clerkOrgId,
@@ -330,12 +364,22 @@ export async function acceptInvitation(token: string): Promise<ActionResult<{ wo
       return { success: true, data: { workspaceName: workspace.name, clerkOrgId: workspace.clerkOrgId } }
     }
 
-    const joined = await db.user.update({
-      where: { clerkId: clerkUserId },
-      data:  { workspaceId: workspace.id, onboarded: true },
+    // Their DB user normally comes from the user.created webhook; if that
+    // hasn't run (or failed), create them here, straight into this workspace,
+    // rather than failing the accept.
+    const clerkUser = await clerk.users.getUser(clerkUserId)
+    const name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ') || null
+    const joined = await db.user.upsert({
+      where:  { clerkId: clerkUserId },
+      update: { workspaceId: workspace.id, onboarded: true },
+      create: {
+        clerkId: clerkUserId, email: invitation.email.toLowerCase(), name,
+        avatarUrl: clerkUser.imageUrl ?? null, workspaceId: workspace.id, onboarded: true,
+      },
       select: { id: true },
     })
-    await syncWorkspaceMembership({ userId: joined.id, workspaceId: workspace.id, fallback: 'COLLABORATOR', roleId: invitation.roleId })
+    // Throws on failure — the membership is what grants access.
+    await setWorkspaceMembership({ userId: joined.id, workspaceId: workspace.id, fallback: 'COLLABORATOR', roleId: invitation.roleId })
 
     // Mark the invitation as accepted
     await dbi.workspaceInvitation.update({

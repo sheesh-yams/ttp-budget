@@ -126,6 +126,25 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-06 — Invites: clear "member limit" errors; accepting works without the sign-up webhook
+- **Bug (user report):** Anjali's invite to The Third Place said "Failed to
+  accept invitation".
+  - **Root cause:** the Clerk org has `maxAllowedMemberships = 5` and
+    already had 5 members, so `createOrganizationMembership` was refused
+    and the generic error was shown.
+  - **A second gap:** she had no DB `User`. Her `user.created` webhook
+    hadn't created one (no personal org exists in Clerk either), so the
+    accept's `user.update` would have failed next.
+- **Fix:**
+  - Invite and accept check the org's member cap first (`clerkOrgIsFull`)
+    and say "has reached its member limit" plainly.
+  - Accept upserts the DB user (from Clerk) straight into the invited
+    workspace when missing, then writes the membership. The membership
+    write now throws instead of swallowing errors.
+- **Open:** raising the org's member limit is a Clerk setting (the user's
+  call). The reason her `user.created` webhook didn't run needs the Railway
+  logs or Clerk webhook attempts.
+
 ### 2026-10-05 — Roles cleanup: the legacy fixed role is gone
 - **Removed from the code and `schema.prisma`:** `User.role`,
   `WorkspaceInvitation.role`, `ProjectTeamMember.role` (the old team slot)
