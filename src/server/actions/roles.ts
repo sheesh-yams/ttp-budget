@@ -8,7 +8,7 @@
  */
 
 import { revalidatePath } from 'next/cache'
-import { requireTeamAdmin } from '@/lib/access'
+import { requireTeamAdmin, requireTeamViewer } from '@/lib/access'
 import * as admin from '@/lib/role-admin'
 import type { ProjectScopeValue } from '@/lib/permissions'
 import type { ActionResult } from '@/types'
@@ -18,16 +18,17 @@ export type { WorkspaceRoleRow, ProjectRoleRow } from '@/lib/role-admin'
 async function run<T>(fn: (g: admin.Caller) => Promise<ActionResult<T>>): Promise<ActionResult<T>> {
   const g = await requireTeamAdmin()
   if (!g.ok) return g.error
-  const res = await fn({ userId: g.userId, workspaceId: g.workspaceId })
+  const res = await fn({ userId: g.userId, workspaceId: g.workspaceId, isOwner: g.isOwner })
   if (res.success) { revalidatePath('/settings/roles'); revalidatePath('/team') }
   return res
 }
 
 export async function listRoles() {
   // A read — called during render, where revalidatePath isn't allowed.
-  const g = await requireTeamAdmin()
+  // Team & roles VIEW is enough to see them (roles 2c).
+  const g = await requireTeamViewer()
   if (!g.ok) return g.error
-  return admin.listRoles({ userId: g.userId, workspaceId: g.workspaceId })
+  return admin.listRoles({ userId: g.userId, workspaceId: g.workspaceId, isOwner: g.isOwner })
 }
 
 export async function createWorkspaceRole(input: { name: string; copyFromId: string }) {

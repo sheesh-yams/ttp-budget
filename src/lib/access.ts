@@ -141,19 +141,33 @@ export async function requirePermission(area: WorkspaceArea, level: Level): Prom
 }
 
 /**
- * Managing people and roles (Team page, Settings → Roles, invites). `team`
- * EDIT — and, until the workspace pages move to permissions, also the legacy
- * Owner role, so the Team page, Settings and the nav (all still Owner-gated)
- * agree on who that is.
+ * Managing people and roles (Team page, Settings → Roles, invites): Team &
+ * roles EDIT on the ACTIVE workspace (roles 2c). `isOwner` lets callers apply
+ * "only Owners touch Owners" (src/lib/owner-rules.ts).
  */
-export async function requireTeamAdmin(): Promise<PermissionGate> {
-  const [access, user] = await Promise.all([getAccess(), getCurrentUser()])
-  const ok = access.can('team', 'EDIT') && user.role === 'OWNER'
+export async function requireTeamAdmin(): Promise<PermissionGate & { isOwner: boolean }> {
+  const access = await getAccess()
+  const ok = access.can('team', 'EDIT')
   return {
     ok,
     error: ok ? null : { success: false, error: 'UNAUTHORIZED_ROLE' },
     userId:      access.userId,
     workspaceId: access.workspaceId,
+    isOwner:     access.isOwner,
+  }
+}
+
+/** Seeing the team and roles read-only: Team & roles VIEW (roles 2c). */
+export async function requireTeamViewer(): Promise<PermissionGate & { isOwner: boolean; canEdit: boolean }> {
+  const access = await getAccess()
+  const ok = access.can('team')
+  return {
+    ok,
+    error: ok ? null : { success: false, error: 'UNAUTHORIZED_ROLE' },
+    userId:      access.userId,
+    workspaceId: access.workspaceId,
+    isOwner:     access.isOwner,
+    canEdit:     access.can('team', 'EDIT'),
   }
 }
 

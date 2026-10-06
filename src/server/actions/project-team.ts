@@ -16,8 +16,7 @@
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
 import { getScopedDb } from '@/lib/db-scoped'
-import { requireRole } from '@/lib/auth'
-import { getProjectAccess, requireProjectPermission } from '@/lib/access'
+import { getProjectAccess, requireProjectPermission, requireTeamAdmin } from '@/lib/access'
 import { logAuditEvent } from '@/lib/audit'
 import { checkProjectAccess } from '@/lib/project-access'
 import type { ActionResult } from '@/types'
@@ -399,7 +398,9 @@ export async function getActiveProjectRolesForUser(
   userId: string,
 ): Promise<ActionResult<ActiveProjectRole[]>> {
   try {
-    const gate = await requireRole(['OWNER'])
+    // Shown on the Team page before removing someone — that's a Team & roles
+    // EDIT action, and it lists project names across the workspace.
+    const gate = await requireTeamAdmin()
     if (!gate.ok) return gate.error
 
     const rows = await db.projectTeamMember.findMany({

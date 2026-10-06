@@ -2,15 +2,16 @@ import { redirect } from 'next/navigation'
 import { listTeamMembers, getPendingInvitations } from '@/server/actions/team'
 import { TeamPageClient } from '@/components/team/TeamPageClient'
 import { getActiveWorkspace } from '@/lib/auth'
-import { requireTeamAdmin } from '@/lib/access'
+import { requireTeamViewer } from '@/lib/access'
 import { listRoles } from '@/server/actions/roles'
 
 export const metadata = { title: 'Team' }
 
 export default async function TeamPage() {
-  // Member management (requireTeamAdmin: Team & roles EDIT, and Owner while the
-  // workspace pages are on the legacy role) — server-side, not just hidden.
-  if (!(await requireTeamAdmin()).ok) redirect('/')
+  // Team & roles (roles 2c): View to see the team, Edit to manage it —
+  // server-side, not just hidden. Only Owners touch Owners.
+  const gate = await requireTeamViewer()
+  if (!gate.ok) redirect('/')
 
   const [members, pending, workspace, rolesRes] = await Promise.all([
     listTeamMembers(),
@@ -38,7 +39,8 @@ export default async function TeamPage() {
           expiresAt: p.expiresAt.toISOString(),
           createdAt: p.createdAt.toISOString(),
         }))}
-        isOwner={true}
+        isOwner={gate.canEdit}
+        callerIsOwner={gate.isOwner}
         roles={roles}
       />
     </div>

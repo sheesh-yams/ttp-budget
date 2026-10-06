@@ -89,3 +89,12 @@ describe('workspace money section guards', () => {
     expect(src).toMatch(new RegExp(`await requireWorkspaceArea\\('${area}'\\)|requireMoneyPermission\\(\\{ \\w+Id: id \\}, '${area}', 'VIEW'\\)`))
   })
 })
+
+// Team & roles (roles 2c): the Team page and Settings → Roles check the team
+// permission themselves (the sidebar hiding them is not the barrier).
+describe('team & roles page guards', () => {
+  it.each(['team/page.tsx', 'settings/roles/page.tsx'])('%s calls requireTeamViewer', rel => {
+    const src = fs.readFileSync(path.join(AUTH_DIR, rel), 'utf8')
+    expect(src).toMatch(/await requireTeamViewer\(\)/)
+  })
+})

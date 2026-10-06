@@ -260,7 +260,7 @@ export const ENFORCED_PROJECT_AREAS: ReadonlySet<ProjectArea> = new Set<ProjectA
 ])
 export const ENFORCED_WORKSPACE_AREAS: ReadonlySet<WorkspaceArea> = new Set<WorkspaceArea>([
   'dashboardMoney', 'proposals', 'invoices',
-  'clients', 'rolodex', 'library', 'settings', 'projects',
+  'clients', 'rolodex', 'library', 'settings', 'projects', 'team',
 ])
 
 export interface RoleShape {

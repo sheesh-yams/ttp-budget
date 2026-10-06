@@ -3,14 +3,16 @@
 import { revalidatePath } from 'next/cache'
 import { auth, clerkClient } from '@clerk/nextjs/server'
 import { db } from '@/lib/db'
-import { getWorkspaceId, getCurrentUser, getActiveWorkspace, requireRole } from '@/lib/auth'
+import { getWorkspaceId, getCurrentUser, getActiveWorkspace } from '@/lib/auth'
 import { sendInvitationEmail } from '@/lib/email'
 import type { ActionResult } from '@/types'
 import type { UserRole } from '@prisma/client'
 import { logAuditEvent } from '@/lib/audit'
 import { verifiedEmailsFor } from '@/lib/invitations'
 import { legacyRoleForInvite, removeWorkspaceMembership, syncWorkspaceMembership } from '@/lib/roles'
-import { requireTeamAdmin } from '@/lib/access'
+import { requireTeamAdmin, requireTeamViewer } from '@/lib/access'
+import { BEYOND_OWN_ERROR, OWNER_ONLY_ERROR, mayChangeOwnership, roleWithin } from '@/lib/owner-rules'
+import { callerRole } from '@/lib/role-admin'
 import { legacyRoleFor } from '@/lib/permissions'
 
 // WorkspaceInvitation is a new model — types are generated after `prisma generate`.
@@ -65,13 +67,15 @@ export type PendingInvitation = {
 
 export async function listTeamMembers(): Promise<TeamMember[]> {
   // Exported = callable: member emails are for people who manage the team.
-  const gate = await requireTeamAdmin()
+  const gate = await requireTeamViewer()
   if (!gate.ok) return []
   const { userId } = await auth()
   const workspaceId = await getWorkspaceId()
 
+  // Members of the ACTIVE workspace by membership (not home workspace), so
+  // people who joined from elsewhere are listed and manageable.
   const users = await db.user.findMany({
-    where:   { workspaceId },
+    where:   { workspaceMemberships: { some: { workspaceId } } },
     orderBy: { createdAt: 'asc' },
     select: {
       id:        true,
@@ -101,7 +105,7 @@ export async function listTeamMembers(): Promise<TeamMember[]> {
 // ─── getPendingInvitations ────────────────────────────────────────────────────
 
 export async function getPendingInvitations(): Promise<PendingInvitation[]> {
-  const gate = await requireTeamAdmin()
+  const gate = await requireTeamViewer()
   if (!gate.ok) return []
   const workspaceId = await getWorkspaceId()
 
@@ -141,6 +145,13 @@ export async function inviteTeamMember(
     ])
     const chosenRole = await db.workspaceRole.findFirst({ where: { id: roleId, workspaceId } })
     if (!chosenRole) return { success: false, error: 'Choose a role for this person.' }
+    // Only Owners make someone Owner (roles 2c).
+    if (!mayChangeOwnership(gate.isOwner, null, chosenRole.systemKey)) return { success: false, error: OWNER_ONLY_ERROR }
+    // …and never invite into a role bigger than your own (second-account trick).
+    if (!gate.isOwner) {
+      const mine = await callerRole(gate)
+      if (!mine || !roleWithin(mine, { ...chosenRole, systemKey: null })) return { success: false, error: BEYOND_OWN_ERROR }
+    }
     // The legacy role checks not yet on permissions will use.
     const role = legacyRoleFor(chosenRole)
 
@@ -224,16 +235,19 @@ export async function inviteTeamMember(
 
 export async function revokeInvitation(invitationId: string): Promise<ActionResult<void>> {
   try {
-    const gate = await requireRole(['OWNER'])
+    const gate = await requireTeamAdmin()
     if (!gate.ok) return gate.error
-    const workspaceId = await getWorkspaceId()
+    const workspaceId = gate.workspaceId
 
     // Verify the invitation belongs to this workspace before deleting
-    const invitation = await dbi.workspaceInvitation.findFirst({
+    const invitation = await db.workspaceInvitation.findFirst({
       where: { id: invitationId, workspaceId },
-      select: { id: true },
+      select: { id: true, role: true, workspaceRole: { select: { systemKey: true } } },
     })
     if (!invitation) return { success: false, error: 'Invitation not found.' }
+    // An Owner invite is the Owner's to revoke (roles 2c).
+    const invitedAs = invitation.workspaceRole?.systemKey ?? invitation.role
+    if (!mayChangeOwnership(gate.isOwner, invitedAs, null)) return { success: false, error: OWNER_ONLY_ERROR }
 
     await dbi.workspaceInvitation.delete({ where: { id: invitationId } })
 
@@ -305,6 +319,18 @@ export async function acceptInvitation(token: string): Promise<ActionResult<{ wo
     // or a previous webhook delivery failed) there's no second event to
     // catch us up, and they'd be stuck on their throwaway personal workspace.
     // The invited role as it is now — it may have been edited since sending.
+    // Already a member here (e.g. invited at another address): keep their
+    // current role — accepting an invite never changes an existing member's
+    // role, so it can't promote anyone or demote an Owner (roles 2c).
+    const existingMember = await db.workspaceMember.findFirst({
+      where:  { workspaceId: workspace.id, user: { clerkId: clerkUserId } },
+      select: { id: true },
+    })
+    if (existingMember) {
+      await dbi.workspaceInvitation.update({ where: { token }, data: { acceptedAt: new Date() } })
+      return { success: true, data: { workspaceName: workspace.name, clerkOrgId: workspace.clerkOrgId } }
+    }
+
     const joinedRole = await legacyRoleForInvite(invitation, workspace.id)
     const joined = await db.user.update({
       where: { clerkId: clerkUserId },
@@ -347,7 +373,7 @@ export async function removeWorkspaceMember(
   userId: string,
 ): Promise<ActionResult> {
   try {
-    const gate = await requireRole(['OWNER'])
+    const gate = await requireTeamAdmin()
     if (!gate.ok) return gate.error
 
     if (userId === gate.userId) {
@@ -356,12 +382,16 @@ export async function removeWorkspaceMember(
 
     const workspace = await getActiveWorkspace()
 
-    // Verify target belongs to this workspace.
-    const target = await db.user.findFirst({
-      where:  { id: userId, workspaceId: gate.workspaceId },
-      select: { id: true, clerkId: true, name: true, email: true },
+    // Verify target is a member of this (active) workspace — by membership,
+    // not their home workspace, so members who joined from elsewhere count.
+    const membership = await db.workspaceMember.findFirst({
+      where:  { workspaceId: gate.workspaceId, userId },
+      select: { role: { select: { systemKey: true } }, user: { select: { id: true, clerkId: true, name: true, email: true } } },
     })
-    if (!target) return { success: false, error: 'Member not found.' }
+    if (!membership) return { success: false, error: 'Member not found.' }
+    const target = membership.user
+    // Removing an Owner is the Owner's call (roles 2c).
+    if (!mayChangeOwnership(gate.isOwner, membership.role.systemKey, null)) return { success: false, error: OWNER_ONLY_ERROR }
 
     // Atomically vacate all active project team roles and their access to
     // this workspace's projects.

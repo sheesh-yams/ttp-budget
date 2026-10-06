@@ -52,7 +52,10 @@ export default async function AuthLayout({
           areas={{
             proposals: access.can('proposals'), invoices: access.can('invoices'),
             clients: access.can('clients'), rolodex: access.can('rolodex'),
-            library: access.can('library'), settings: access.can('settings'),
+            library: access.can('library'),
+            // Settings opens on Roles alone for Team & roles without Settings.
+            settings: access.can('settings') || access.can('team'),
+            team: access.can('team'),
           }}
         />
         <div className="flex flex-1 flex-col overflow-hidden">

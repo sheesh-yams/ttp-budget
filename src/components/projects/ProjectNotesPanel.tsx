@@ -23,7 +23,9 @@ interface Client {
 interface ProjectNotesPanelProps {
   projectId: string
   client:    Client
-  isEditor:  boolean  // OWNER or PRODUCER — can assign/replace/remove
+  isEditor:  boolean  // projectTeam EDIT — can assign/replace/remove (roles 2c)
+  /** Clients EDIT — the Edit Client button. */
+  canEditClient?: boolean
   trigger:   React.ReactNode
 }
 
@@ -63,7 +65,7 @@ function InfoRow({
   )
 }
 
-export function ProjectNotesPanel({ projectId, client, isEditor, trigger }: ProjectNotesPanelProps) {
+export function ProjectNotesPanel({ projectId, client, isEditor, canEditClient = false, trigger }: ProjectNotesPanelProps) {
   const router = useRouter()
   const [open,           setOpen]           = useState(false)
   const [editClientOpen, setEditClientOpen] = useState(false)
@@ -172,7 +174,7 @@ export function ProjectNotesPanel({ projectId, client, isEditor, trigger }: Proj
                 }}>
                   Contact Info
                 </p>
-                {isEditor && (
+                {canEditClient && (
                   <button
                     onClick={() => setEditClientOpen(true)}
                     style={{

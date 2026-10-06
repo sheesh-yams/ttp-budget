@@ -25,6 +25,7 @@ import {
   type ProjectPermissions, type ProjectScopeValue, type WorkspacePermissions,
 } from '@/lib/permissions'
 import type { ActionResult } from '@/types'
+import { BEYOND_OWN_ERROR, HELD_ROLE_ERROR, OWNER_ONLY_ERROR, mayChangeOwnership, mayEditRole, projectPermsWithin, roleWithin } from '@/lib/owner-rules'
 
 export interface WorkspaceRoleRow {
   id:                   string
@@ -49,7 +50,24 @@ export interface ProjectRoleRow {
   everUsed:    boolean
 }
 
-export type Caller = { userId: string; workspaceId: string }
+export type Caller = { userId: string; workspaceId: string; isOwner: boolean }
+
+/** The caller's own workspace role — what a non-Owner may grant up to (roles 2c). */
+export async function callerRole(g: { userId: string; workspaceId: string }) {
+  const m = await db.workspaceMember.findFirst({
+    where:  { workspaceId: g.workspaceId, userId: g.userId },
+    select: { role: { select: { systemKey: true, projectScope: true, workspacePermissions: true, projectBaseline: true } } },
+  })
+  return m?.role ?? null
+}
+
+/** Whether the caller holds this workspace role, or this project role on any project. */
+async function callerHoldsWorkspaceRole(g: Caller, roleId: string): Promise<boolean> {
+  return !!(await db.workspaceMember.findFirst({ where: { workspaceId: g.workspaceId, userId: g.userId, roleId }, select: { id: true } }))
+}
+async function callerHoldsProjectRole(g: Caller, projectRoleId: string): Promise<boolean> {
+  return !!(await db.projectTeamMember.findFirst({ where: { workspaceId: g.workspaceId, userId: g.userId, projectRoleId, unassignedAt: null }, select: { id: true } }))
+}
 
 function cleanName(name: unknown): string | null {
   const n = typeof name === 'string' ? name.trim().replace(/\s+/g, ' ') : ''
@@ -122,6 +140,12 @@ export async function createWorkspaceRole(g: Caller, input: { name: string; copy
     ])
     if (count >= MAX_ROLES) return { success: false, error: `A workspace can have up to ${MAX_ROLES} roles.` }
     if (!source) return { success: false, error: 'Role to copy from not found.' }
+    // A full-access copy of Owner is the Owner's call (roles 2c).
+    if (source.systemKey === 'OWNER' && !g.isOwner) return { success: false, error: 'Only an Owner can copy the Owner role.' }
+    if (!g.isOwner) {
+      const mine = await callerRole(g)
+      if (!mine || !roleWithin(mine, { ...source, systemKey: null })) return { success: false, error: BEYOND_OWN_ERROR }
+    }
 
     // A copy of Owner is a full-access custom role — it isn't Owner (that's locked).
     const created = await db.workspaceRole.create({
@@ -154,6 +178,7 @@ export async function updateWorkspaceRole(
     const role = await db.workspaceRole.findFirst({ where: { id, workspaceId: g.workspaceId } })
     if (!role) return { success: false, error: 'Role not found.' }
     if (role.systemKey === 'OWNER') return { success: false, error: 'The Owner role always has full access and can’t be changed.' }
+    if (!mayEditRole(g.isOwner, await callerHoldsWorkspaceRole(g, id))) return { success: false, error: HELD_ROLE_ERROR }
 
     const data: Prisma.WorkspaceRoleUpdateInput = {}
     if (input.name !== undefined) {
@@ -167,6 +192,16 @@ export async function updateWorkspaceRole(
     }
     if (input.workspacePermissions !== undefined) data.workspacePermissions = normaliseWorkspacePermissions(input.workspacePermissions)
     if (input.projectBaseline !== undefined)      data.projectBaseline      = normaliseProjectPermissions(input.projectBaseline)
+    if (!g.isOwner) {
+      const mine = await callerRole(g)
+      const next = {
+        systemKey:            role.systemKey,
+        projectScope:         (data.projectScope as ProjectScopeValue | undefined) ?? role.projectScope,
+        workspacePermissions: data.workspacePermissions ?? role.workspacePermissions,
+        projectBaseline:      data.projectBaseline ?? role.projectBaseline,
+      }
+      if (!mine || !roleWithin(mine, { ...next, systemKey: null })) return { success: false, error: BEYOND_OWN_ERROR }
+    }
 
     const updated = await db.$transaction(async tx => {
       const r = await tx.workspaceRole.update({ where: { id }, data })
@@ -206,6 +241,7 @@ export async function deleteWorkspaceRole(g: Caller, id: string): Promise<Action
     })
     if (!role) return { success: false, error: 'Role not found.' }
     if (role.systemKey) return { success: false, error: 'Built-in roles can’t be deleted.' }
+    if (!mayEditRole(g.isOwner, await callerHoldsWorkspaceRole(g, id))) return { success: false, error: HELD_ROLE_ERROR }
     if (role._count.members > 0) return { success: false, error: `Move the ${role._count.members} member${role._count.members === 1 ? '' : 's'} with this role to another role first.` }
 
     // Pending invitations with this role fall back to their legacy role (FK SET NULL).
@@ -231,6 +267,10 @@ export async function createProjectRole(g: Caller, input: { name: string; copyFr
     ])
     if (count >= MAX_ROLES) return { success: false, error: `A workspace can have up to ${MAX_ROLES} project roles.` }
     if (input.copyFromId && !source) return { success: false, error: 'Role to copy from not found.' }
+    if (!g.isOwner && source) {
+      const mine = await callerRole(g)
+      if (!mine || !projectPermsWithin(mine, source.permissions)) return { success: false, error: BEYOND_OWN_ERROR }
+    }
 
     const created = await db.projectRole.create({
       data: {
@@ -239,6 +279,7 @@ export async function createProjectRole(g: Caller, input: { name: string; copyFr
         systemKey:   null,
         order:       count,
         permissions: normaliseProjectPermissions(source?.permissions ?? {}),
+        // (cap checked above for non-Owners)
       },
       select: { id: true },
     })
@@ -255,6 +296,7 @@ export async function updateProjectRole(g: Caller, id: string, input: { name?: s
   try {
     const role = await db.projectRole.findFirst({ where: { id, workspaceId: g.workspaceId } })
     if (!role) return { success: false, error: 'Project role not found.' }
+    if (!mayEditRole(g.isOwner, await callerHoldsProjectRole(g, id))) return { success: false, error: HELD_ROLE_ERROR }
 
     const data: Prisma.ProjectRoleUpdateInput = {}
     if (input.name !== undefined) {
@@ -263,6 +305,10 @@ export async function updateProjectRole(g: Caller, id: string, input: { name?: s
       data.name = name
     }
     if (input.permissions !== undefined) data.permissions = normaliseProjectPermissions(input.permissions)
+    if (!g.isOwner && input.permissions !== undefined) {
+      const mine = await callerRole(g)
+      if (!mine || !projectPermsWithin(mine, data.permissions)) return { success: false, error: BEYOND_OWN_ERROR }
+    }
 
     await db.projectRole.update({ where: { id }, data })
     void logAuditEvent({
@@ -285,6 +331,7 @@ export async function deleteProjectRole(g: Caller, id: string): Promise<ActionRe
     })
     if (!role) return { success: false, error: 'Project role not found.' }
     if (role.systemKey) return { success: false, error: 'Built-in project roles can’t be deleted — rename or change them instead.' }
+    if (!mayEditRole(g.isOwner, await callerHoldsProjectRole(g, id))) return { success: false, error: HELD_ROLE_ERROR }
     if (role._count.teamMembers > 0) return { success: false, error: 'This role has been used on a project (team history keeps it), so it can’t be deleted. Rename it or change its permissions instead.' }
 
     await db.projectRole.delete({ where: { id } })
@@ -303,18 +350,24 @@ export async function assignWorkspaceRole(g: Caller, userId: string, roleId: str
     if (userId === g.userId) return { success: false, error: 'You can’t change your own role.' }
 
     const [target, role, workspace] = await Promise.all([
-      db.user.findFirst({ where: { id: userId, workspaceId: g.workspaceId }, select: { id: true, clerkId: true } }),
+      db.user.findFirst({ where: { id: userId, workspaceMemberships: { some: { workspaceId: g.workspaceId } } }, select: { id: true, clerkId: true } }),
       db.workspaceRole.findFirst({ where: { id: roleId, workspaceId: g.workspaceId } }),
       db.workspace.findUnique({ where: { id: g.workspaceId }, select: { clerkOrgId: true } }),
     ])
     if (!target) return { success: false, error: 'Member not found.' }
     if (!role)   return { success: false, error: 'Role not found.' }
+    if (!g.isOwner && role.systemKey !== 'OWNER') {
+      const mine = await callerRole(g)
+      if (!mine || !roleWithin(mine, { ...role, systemKey: null })) return { success: false, error: BEYOND_OWN_ERROR }
+    }
     const legacy: UserRole = legacyRoleFor(role)
 
     await db.$transaction(async tx => {
       const current = await tx.workspaceMember.findFirst({
         where: { workspaceId: g.workspaceId, userId }, include: { role: { select: { systemKey: true } } },
       })
+      // Only Owners make someone Owner or change an existing Owner (roles 2c).
+      if (!mayChangeOwnership(g.isOwner, current?.role.systemKey, role.systemKey)) throw new Error('OWNER_ONLY')
       // Never leave the workspace without an Owner. FOR UPDATE locks the Owner
       // memberships, so two Owners demoting each other at once serialise and
       // the second sees the first's change.
@@ -351,6 +404,7 @@ export async function assignWorkspaceRole(g: Caller, userId: string, roleId: str
     return { success: true, data: undefined }
   } catch (err) {
     if (err instanceof Error && err.message === 'LAST_OWNER') return { success: false, error: 'The workspace needs at least one Owner.' }
+    if (err instanceof Error && err.message === 'OWNER_ONLY') return { success: false, error: OWNER_ONLY_ERROR }
     console.error('[assignWorkspaceRole]', err)
     return { success: false, error: 'Failed to change role' }
   }

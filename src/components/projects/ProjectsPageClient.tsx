@@ -26,7 +26,8 @@ interface Props {
   metrics:       ProjectMetrics
   /** Collaborators are margin-blind — the financial KPI strip is hidden for them. */
   canSeeFinancials?: boolean
-  canEditTeam?: boolean
+  /** Projects whose team this person may edit (projectTeam EDIT); null = all (roles 2c). */
+  teamEditableIds?: string[] | null
   /** Workspace Projects EDIT — create, archive and restore (roles 2b). */
   canManageProjects?: boolean
   attentionItems: AttentionItem[]
@@ -49,7 +50,7 @@ export function ProjectsPageClient({
   projects,
   metrics,
   canSeeFinancials = true,
-  canEditTeam = false,
+  teamEditableIds = [],
   canManageProjects = false,
   attentionItems,
   upcomingShoots,
@@ -201,13 +202,13 @@ export function ProjectsPageClient({
             ) : view === 'list' ? (
               <div className="flex flex-col gap-2">
                 {sorted.map(p => (
-                  <ProjectCard key={p.id} project={p} view="list" canEditTeam={canEditTeam} showMoney={canSeeFinancials} canArchive={canManageProjects} />
+                  <ProjectCard key={p.id} project={p} view="list" canEditTeam={teamEditableIds === null || teamEditableIds.includes(p.id)} showMoney={canSeeFinancials} canArchive={canManageProjects} />
                 ))}
               </div>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {sorted.map(p => (
-                  <ProjectCard key={p.id} project={p} view="grid" canEditTeam={canEditTeam} showMoney={canSeeFinancials} canArchive={canManageProjects} />
+                  <ProjectCard key={p.id} project={p} view="grid" canEditTeam={teamEditableIds === null || teamEditableIds.includes(p.id)} showMoney={canSeeFinancials} canArchive={canManageProjects} />
                 ))}
               </div>
             )}

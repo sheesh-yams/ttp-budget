@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import { requireProjectAccess } from '@/lib/project-access'
 import { db } from '@/lib/db'
-import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
+import { getWorkspaceId } from '@/lib/auth'
 import { getAccess, getProjectAccess } from '@/lib/access'
 import { canBrowseAllBudgets } from '@/lib/budget-access'
 import { stripBudgetForAccess } from '@/lib/budget-visibility'
@@ -44,8 +44,8 @@ export default async function BudgetPage({
   await requireProjectAccess(projectId)
   const { budgetId: qBudgetId } = await searchParams
 
-  const [workspaceId, projectAccess, access, currentUser] = await Promise.all([
-    getWorkspaceId(), getProjectAccess(projectId), getAccess(), getCurrentUser(),
+  const [workspaceId, projectAccess, access] = await Promise.all([
+    getWorkspaceId(), getProjectAccess(projectId), getAccess(),
   ])
   // budget.lines VIEW to open the budget at all; costs / margin decide what's in it.
   if (!projectAccess || !projectAccess.can('budget.lines')) notFound()
@@ -61,7 +61,8 @@ export default async function BudgetPage({
   const capabilities = {
     canEditProposals: projectAccess.can('proposals', 'EDIT'),
     canClone:         canBrowseAllBudgets(access),
-    canInsertPackage: can.costsEdit && currentUser.role !== 'COLLABORATOR',
+    // Packages come from the template library (roles 2c: no legacy role).
+    canInsertPackage: can.costsEdit && access.can('library'),
     canImport:        can.costsEdit,
   }
 

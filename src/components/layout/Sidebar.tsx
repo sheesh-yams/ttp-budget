@@ -60,6 +60,7 @@ const navGroups = [
 export interface SidebarAccess {
   proposals: boolean; invoices: boolean
   clients: boolean; rolodex: boolean; library: boolean; settings: boolean
+  team: boolean
 }
 const AREA_FOR_HREF: Record<string, keyof SidebarAccess> = {
   '/proposals': 'proposals', '/invoices': 'invoices', '/clients': 'clients', '/rolodex': 'rolodex',
@@ -78,8 +79,7 @@ export function Sidebar({ workspaceName, logoUrl, role, areas }: {
       ...g,
       items: g.items.filter(item =>
         !(item.href in AREA_FOR_HREF && !areas[AREA_FOR_HREF[item.href]]) &&
-        // Team is Owner-only until roles 2c.
-        !(item.href === '/team' && role !== 'OWNER'),
+        !(item.href === '/team' && !areas.team),
       ),
     }))
     .filter(g => g.items.length > 0)

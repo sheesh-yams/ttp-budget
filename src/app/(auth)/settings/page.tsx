@@ -1,6 +1,8 @@
 import { db } from '@/lib/db'
 import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
 import { requireWorkspaceArea } from '@/lib/project-access'
+import { getAccess } from '@/lib/access'
+import { redirect } from 'next/navigation'
 import { getRecentAuditEvents } from '@/lib/audit'
 import { SettingsForm } from '@/components/settings/SettingsForm'
 import { DangerZone } from '@/components/settings/DangerZone'
@@ -10,7 +12,10 @@ import { ActivityFeed } from '@/components/settings/ActivityFeed'
 export const metadata = { title: 'Settings' }
 
 export default async function SettingsPage() {
-  // Roles 2b: the Settings permission; editing needs Edit.
+  // Roles 2b: the Settings permission; editing needs Edit. Team & roles
+  // without Settings lands on the Roles tab instead.
+  const pre = await getAccess()
+  if (!pre.can('settings') && pre.can('team')) redirect('/settings/roles')
   const access = await requireWorkspaceArea('settings')
   const canEdit = access.can('settings', 'EDIT')
   const [user, workspaceId] = await Promise.all([getCurrentUser(), getWorkspaceId()])

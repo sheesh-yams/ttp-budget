@@ -68,7 +68,10 @@ interface RemoveCandidate {
 interface Props {
   members:            Member[]
   pendingInvitations: PendingInvite[]
+  /** Team & roles EDIT — member and invite controls (roles 2c). */
   isOwner:            boolean
+  /** The viewer is an Owner — only Owners touch Owners (owner-rules.ts). */
+  callerIsOwner?:     boolean
   roles:              RoleOption[]
 }
 
@@ -103,8 +106,8 @@ function RoleBadge({ name, systemKey }: { name: string; systemKey: string | null
   )
 }
 
-// Owner-only inline role editor for an existing member. The whole Team page is
-// already OWNER-gated, so every viewer here may reassign others' roles.
+// Inline role editor for an existing member (Team & roles EDIT). `roles` is
+// already filtered: non-Owners never see the Owner role here.
 function MemberRoleSelect({ userId, roleId, roles }: { userId: string; roleId: string | null; roles: RoleOption[] }) {
   const router = useRouter()
   const [value, setValue]  = useState<string>(roleId ?? '')
@@ -151,7 +154,12 @@ const ROLE_LABEL: Record<string, string> = {
   PROJECT_MANAGER: 'Project Manager',
 }
 
-export function TeamPageClient({ members, pendingInvitations, isOwner, roles }: Props) {
+export function TeamPageClient({ members, pendingInvitations, isOwner, callerIsOwner = true, roles: allRoles }: Props) {
+  // Non-Owner team admins can't grant Owner, or change / remove an Owner.
+  const roles = callerIsOwner ? allRoles : allRoles.filter(r => r.systemKey !== 'OWNER')
+  const ownerRoleId = allRoles.find(r => r.systemKey === 'OWNER')?.id ?? null
+  const locked = (m: { roleId: string | null; role: string }) =>
+    !callerIsOwner && (m.roleId ? m.roleId === ownerRoleId : m.role === 'OWNER')
   const router = useRouter()
   const [inviteEmail, setInviteEmail]   = useState('')
   const [inviteRoleId, setInviteRoleId] = useState<string>(
@@ -247,7 +255,7 @@ export function TeamPageClient({ members, pendingInvitations, isOwner, roles }: 
                   <p className="text-xs text-muted-foreground truncate">{member.email}</p>
                 )}
               </div>
-              {member.isCurrentUser
+              {member.isCurrentUser || !isOwner || locked(member)
                 ? <RoleBadge name={member.roleName ?? ROLE_META[member.role].label} systemKey={roles.find(r => r.id === member.roleId)?.systemKey ?? member.role} />
                 : (
                   <div className="flex items-center gap-2">
@@ -292,14 +300,14 @@ export function TeamPageClient({ members, pendingInvitations, isOwner, roles }: 
                   </p>
                 </div>
                 <RoleBadge name={invite.roleName ?? ROLE_META[invite.role].label} systemKey={invite.roleName ? (roles.find(r => r.name === invite.roleName)?.systemKey ?? null) : invite.role} />
-                <button
+                {isOwner && (callerIsOwner || (invite.roleName ? allRoles.find(r => r.name === invite.roleName)?.systemKey : invite.role) !== 'OWNER') && <button
                   onClick={() => handleRevoke(invite.id)}
                   disabled={revoking === invite.id}
                   className="ml-2 flex-shrink-0 rounded p-1 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
                   title="Revoke invitation"
                 >
                   <X className="h-4 w-4" />
-                </button>
+                </button>}
               </div>
             ))}
           </div>
@@ -307,7 +315,7 @@ export function TeamPageClient({ members, pendingInvitations, isOwner, roles }: 
       )}
 
       {/* ── Invite form ───────────────────────────────────────────────────── */}
-      <section>
+      {isOwner && <section>
         <h2 className="mb-3 text-sm font-semibold text-foreground flex items-center gap-2">
           <UserPlus className="h-4 w-4" />
           Invite someone
@@ -372,7 +380,7 @@ export function TeamPageClient({ members, pendingInvitations, isOwner, roles }: 
             </Button>
           </form>
         </div>
-      </section>
+      </section>}
 
       {/* ── Remove member confirmation ─────────────────────────────────────── */}
       {removeCandidate && (

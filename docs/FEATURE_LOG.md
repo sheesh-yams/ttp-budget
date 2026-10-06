@@ -42,10 +42,9 @@ Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
     /proposals and /invoices lists).
   - Workspace pages (clients, rolodex, rates/templates/library, settings,
     projects) shipped in 2b.
-  - Still on the legacy role: Team & roles (Owner-only),
-    `project-team.ts` / `team.ts`, plus the few UI flags that read
-    `User.role` (`canEditTeam` on /projects, notes `isEditor`, budget
-    `canInsertPackage`). Those are roles 2c.
+  - Team & roles and the last UI flags shipped in 2c. **Nothing enforces
+    through the legacy `User.role` any more.** What's left is the cleanup
+    slice (see Backlog).
 - **Actuals sync runs for view-only users too.** `syncActualSheetEntries`
   runs on every Actuals page load. It adds $0 entries for new budget lines
   (now validated against the sheet's phase) and refreshes deal-memo
@@ -119,7 +118,7 @@ Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
   built-in role:
   1. ~~Money~~ (shipped 2026-10-05, roles 2a).
   2. ~~Workspace pages~~ (shipped 2026-10-05, roles 2b).
-  3. Team & settings access (Owner-only today) and deal-memo defaults.
+  3. ~~Team & roles~~ (shipped 2026-10-05, roles 2c).
   Then cleanup: drop `User.role` and the `ProjectTeamMember.role` slot column
   (small migration), remove the "Not enforced yet" labels, and add a jest
   access matrix.
@@ -137,6 +136,46 @@ Run each through `/feature`. Check the overlap first:
 ---
 
 ## Shipped
+
+### 2026-10-05 — Roles Phase 2c: Team & roles on permissions (Phase 2 complete)
+- **Team & roles now follows the `team` permission on the ACTIVE
+  workspace.** Before, `requireTeamAdmin` also required the legacy
+  home-workspace Owner role.
+  - View (`requireTeamViewer`) lists members, invites and roles. Edit
+    manages them.
+  - `/team` and Settings → Roles are read-only for View. The sidebar Team
+    link and the Roles tab follow the permission, and Settings opens on
+    Roles for someone with Team but no Settings.
+- **"Only Owners touch Owners"** (user decision, `src/lib/owner-rules.ts`).
+  A non-Owner team admin can't do any of these:
+  - invite as Owner, or revoke an Owner invite
+  - assign into or out of Owner, or remove an Owner
+  - copy the Owner role
+  - edit or delete a role they hold
+- **A non-Owner can only grant what they have** (pitfall-reviewer, high:
+  the second-account self-promotion). Creating, editing, assigning or
+  inviting with a role bigger than their own is refused (`roleWithin`,
+  `projectPermsWithin`).
+  - Accepting an invite never changes an existing member's role, so it
+    can't promote anyone or demote an Owner.
+- **Membership-based lookups:** members are listed, re-roled and removed by
+  `WorkspaceMember` in the active workspace (not `User.workspaceId`), so
+  people who joined from another home workspace are manageable.
+  - Revoke and remove moved off `requireRole(['OWNER'])`.
+- **UI flags off the legacy role:**
+  - /projects "Edit team" follows Project team Edit for each project.
+  - The project notes team controls follow Project team Edit, and "Edit
+    client" follows Clients Edit.
+  - Budget "insert package" needs Costs Edit and Rates & templates.
+- `team` is added to `ENFORCED_WORKSPACE_AREAS`. No saved non-Owner role
+  granted it, so nothing changed for anyone.
+- **Access diff:** 12 members, 0 team-access changes.
+- **Verified:**
+  - jest 250, including owner rules, the grant cap and team page guards.
+  - A DB script on a throwaway workspace (12 checks): Owner-touching
+    changes refused, a bigger role refused, raising a role above your own
+    refused, held-role edits refused, members from another home workspace
+    re-roled, Owners uncapped.
 
 ### 2026-10-05 — Roles Phase 2b: workspace pages enforce permissions
 - **Converted:** clients, rolodex management, rates/templates/library

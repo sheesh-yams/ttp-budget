@@ -343,7 +343,8 @@ export default async function ProjectDetailPage({
           )}
           <ProjectNotesPanel
             projectId={project.id}
-            isEditor={currentUser.role === 'OWNER' || currentUser.role === 'PRODUCER'}
+            isEditor={projectAccess.can('projectTeam', 'EDIT')}
+            canEditClient={access.can('clients', 'EDIT')}
             // Client contact details are CRM data — name and logo only for
             // roles without financial access.
             client={can.clientInfo ? {

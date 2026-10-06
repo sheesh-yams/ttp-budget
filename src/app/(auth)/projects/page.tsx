@@ -1,3 +1,4 @@
+import { projectsWithArea } from '@/lib/money-access'
 import { getScopedDb } from '@/lib/db-scoped'
 import { db } from '@/lib/db'
 import { getWorkspaceId, getCurrentUser } from '@/lib/auth'
@@ -481,7 +482,7 @@ export default async function ProjectsPage({
       projects={allProjectsForClient as unknown as ProjectForCard[]}
       metrics={metrics}
       canSeeFinancials={canSeeFin}
-      canEditTeam={currentUser.role !== 'COLLABORATOR'}
+      teamEditableIds={await projectsWithArea('projectTeam', 'EDIT')}
       canManageProjects={access.can('projects', 'EDIT')}
       attentionItems={attentionItems}
       upcomingShoots={upcomingShoots}

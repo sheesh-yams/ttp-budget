@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { getAccess, requireTeamAdmin } from '@/lib/access'
+import { getAccess, requireTeamViewer } from '@/lib/access'
 import { SettingsTabs } from '@/components/settings/SettingsTabs'
 
 /**
@@ -8,8 +8,9 @@ import { SettingsTabs } from '@/components/settings/SettingsTabs'
  * checks again — layouts don't re-run on sibling navigation.
  */
 export default async function SettingsLayout({ children }: { children: React.ReactNode }) {
-  const [access, teamAdmin] = await Promise.all([getAccess(), requireTeamAdmin()])
-  if (!access.can('settings')) redirect('/')
+  const [access, teamViewer] = await Promise.all([getAccess(), requireTeamViewer()])
+  // Open with Settings, or with Team & roles for the Roles tab alone.
+  if (!access.can('settings') && !teamViewer.ok) redirect('/')
 
   return (
     <div className="max-w-3xl">
@@ -19,7 +20,7 @@ export default async function SettingsLayout({ children }: { children: React.Rea
           Manage your workspace, branding, and payments.
         </p>
       </div>
-      <SettingsTabs showRoles={teamAdmin.ok} />
+      <SettingsTabs showRoles={teamViewer.ok} showSettings={access.can('settings')} />
       {children}
     </div>
   )
