@@ -165,7 +165,8 @@ export function BudgetReadOnly({
             ? <ChevronDown  size={13} style={{ color: MUTED, flexShrink: 0 }} />
             : <ChevronRight size={13} style={{ color: MUTED, flexShrink: 0 }} />
           }
-          <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: BODY }}>
+          {/* minWidth 0 lets a long account name wrap instead of pushing the total off a phone screen. */}
+          <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: BODY }}>
             {account.code && (
               <span style={{ fontFamily: 'var(--font-mono,monospace)', fontSize: 11, color: MUTED, marginRight: 8 }}>
                 {account.code}
@@ -183,7 +184,7 @@ export function BudgetReadOnly({
           )}
         </button>
         {isOpen && (
-          <div style={{ background: CANVAS, borderBottom: `0.5px solid ${BORDER}` }}>
+          <div style={{ background: CANVAS, borderBottom: `0.5px solid ${BORDER}`, overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: `0.5px solid ${BORDER}` }}>

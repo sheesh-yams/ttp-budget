@@ -160,8 +160,8 @@ export function ProjectInvoices({ invoices, projectId, allowEdit = true }: Props
               <th className="px-4 py-2.5 text-left">Invoice</th>
               <th className="px-3 py-2.5 text-left w-28">Status</th>
               <th className="px-3 py-2.5 text-right w-28">Total</th>
-              <th className="px-3 py-2.5 text-right w-28">Paid</th>
-              <th className="px-3 py-2.5 text-left w-32">Due</th>
+              <th className="hidden md:table-cell px-3 py-2.5 text-right w-28">Paid</th>
+              <th className="hidden md:table-cell px-3 py-2.5 text-left w-32">Due</th>
               <th className="w-36" />
             </tr>
           </thead>
@@ -185,10 +185,13 @@ export function ProjectInvoices({ invoices, projectId, allowEdit = true }: Props
               return (
                 <tr key={inv.id} className={`border-b last:border-0 hover:bg-muted/30 ${isBusy ? 'opacity-50' : inv.archivedAt ? 'opacity-60' : ''}`}>
                   <td className="px-4 py-2.5">
-                    <p className="font-medium text-foreground font-mono text-xs">{inv.number}{inv.isScopeAddition && <ScopeAdditionTag />}{inv.archivedAt && <ArchivedTag />}</p>
+                    <p className="font-medium text-foreground font-mono text-xs whitespace-nowrap">{inv.number}{inv.isScopeAddition && <ScopeAdditionTag />}{inv.archivedAt && <ArchivedTag />}</p>
                     {inv.title && (
                       <p className="text-xs text-muted-foreground mt-0.5">{inv.title}</p>
                     )}
+                    <p className="mt-0.5 text-[11px] text-muted-foreground md:hidden">
+                      Due {new Date(inv.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </p>
                   </td>
 
                   <td className="px-3 py-2.5">
@@ -201,20 +204,20 @@ export function ProjectInvoices({ invoices, projectId, allowEdit = true }: Props
                     {formatMoney(inv.totalCents)}
                   </td>
 
-                  <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">
+                  <td className="hidden md:table-cell px-3 py-2.5 text-right tabular-nums text-muted-foreground">
                     {inv.amountPaidCents > 0 ? (
                       <span className="text-green-600 font-medium">{formatMoney(inv.amountPaidCents)}</span>
                     ) : '—'}
                   </td>
 
-                  <td className="px-3 py-2.5 text-muted-foreground text-xs">
+                  <td className="hidden md:table-cell px-3 py-2.5 text-muted-foreground text-xs">
                     {new Date(inv.dueDate).toLocaleDateString('en-US', {
                       month: 'short', day: 'numeric', year: 'numeric',
                     })}
                   </td>
 
                   <td className="px-2 py-2.5">
-                    <div className="flex items-center gap-0.5 justify-end">
+                    <div className="flex flex-wrap items-center gap-0.5 justify-end">
 
                       {/* Preview */}
                       <PreviewPanel invoiceId={inv.id} invoiceNumber={inv.number} />

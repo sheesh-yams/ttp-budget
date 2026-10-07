@@ -198,9 +198,9 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
               <tr className="border-b bg-muted/50 text-xs font-medium text-muted-foreground">
                 <th className="px-4 py-2.5 text-left">Title</th>
                 <th className="px-3 py-2.5 text-left w-28">Status</th>
-                <th className="px-3 py-2.5 text-left w-32">Created</th>
-                <th className="px-3 py-2.5 text-left w-36">Valid through</th>
-                <th className="px-3 py-2.5 text-left w-40">Signed by</th>
+                <th className="hidden md:table-cell px-3 py-2.5 text-left w-32">Created</th>
+                <th className="hidden md:table-cell px-3 py-2.5 text-left w-36">Valid through</th>
+                <th className="hidden md:table-cell px-3 py-2.5 text-left w-40">Signed by</th>
                 <th className="w-20" />
               </tr>
             </thead>
@@ -247,19 +247,19 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
                         </div>
                       )}
                     </td>
-                    <td className="px-3 py-2.5 text-muted-foreground">
+                    <td className="hidden md:table-cell px-3 py-2.5 text-muted-foreground">
                       {new Date(p.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                     </td>
-                    <td className="px-3 py-2.5 text-muted-foreground">
+                    <td className="hidden md:table-cell px-3 py-2.5 text-muted-foreground">
                       {p.expiresAt
                         ? new Date(p.expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                         : '—'}
                     </td>
-                    <td className="px-3 py-2.5 text-muted-foreground">
+                    <td className="hidden md:table-cell px-3 py-2.5 text-muted-foreground">
                       {p.signatureName ?? '—'}
                     </td>
                     <td className="px-2 py-2.5">
-                      <div className="flex items-center gap-0.5 justify-end">
+                      <div className="flex flex-wrap items-center gap-0.5 justify-end">
                         {/* Edit DRAFT in-place */}
                         {canEdit && (
                           <button

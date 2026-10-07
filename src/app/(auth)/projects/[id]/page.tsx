@@ -301,7 +301,7 @@ export default async function ProjectDetailPage({
             </span>
             <span className="text-xs text-muted-foreground">{SHOOT_LABELS[project.shootType] ?? project.shootType}</span>
           </div>
-          <h1 className="text-2xl font-semibold text-foreground">{project.name}</h1>
+          <h1 className="text-xl md:text-2xl font-semibold text-foreground">{project.name}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
             <span className="flex items-center gap-1">
               <User className="h-3.5 w-3.5" />
@@ -323,7 +323,7 @@ export default async function ProjectDetailPage({
           </div>
         </div>
 
-        <div className="flex items-start gap-3">
+        <div className="flex flex-wrap items-start gap-3">
           {can.invoices && project.status === 'ACTIVE' && budget && !actualsSummary && (
             <div className="rounded-xl border bg-card shadow-sm overflow-hidden text-right">
               <ActiveFinancialStat
@@ -384,8 +384,10 @@ export default async function ProjectDetailPage({
       {actualsSummary && (
         <section className="mb-6">
           <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
-            <div className="grid grid-cols-5 divide-x">
+            {/* Phones: Project total across, then two a row. */}
+            <div className="grid grid-cols-2 md:grid-cols-5 md:divide-x">
               <ActualsStat
+                className="col-span-2 md:col-span-1"
                 label="Project Total"
                 value={formatMoney(actualsSummary.projectTotalCents)}
                 sub={null}
@@ -416,7 +418,7 @@ export default async function ProjectDetailPage({
                 color={marginColor(actualsSummary.marginPct)}
               />
             </div>
-            <div className="border-t px-4 py-2 flex items-center justify-between bg-muted/30">
+            <div className="border-t px-4 py-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 bg-muted/30">
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <TrendingUp className="h-3.5 w-3.5" />
                 Actuals are being tracked for this project
@@ -548,16 +550,18 @@ function ActualsStat({
   value,
   sub,
   color,
+  className = '',
 }: {
   label: string
   value: string
   sub:   string | null
   color: string
+  className?: string
 }) {
   return (
-    <div className="px-5 py-4">
+    <div className={`min-w-0 px-4 py-3 md:px-5 md:py-4 ${className}`}>
       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">{label}</p>
-      <p className={`text-xl font-semibold tabular ${color}`}>{value}</p>
+      <p className={`text-lg md:text-xl font-semibold tabular ${color}`}>{value}</p>
       {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
     </div>
   )

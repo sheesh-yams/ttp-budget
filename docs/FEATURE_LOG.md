@@ -126,6 +126,31 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-07 — Mobile: project overview fits a phone
+- **Reported:** on a phone, the overview's five money figures ran into each
+  other and the proposals table was squeezed.
+- **Money figures:** below md, Project total spans the full width, then
+  Billed / Spent and Profit / Margin sit two to a row. They're five across
+  from md as before.
+- **Header:** the action buttons wrap, and the title is smaller on phones.
+- **Proposals:** below md the table keeps Title, Status and actions. Created,
+  Valid through and Signed by are hidden.
+- **Invoices:** below md the table keeps Invoice, Status, Total and actions.
+  The due date moves under the title, and Paid is hidden. The invoice number
+  no longer breaks across lines.
+- **`BudgetReadOnly`** (overview breakdown and public proposal):
+  - Long account names wrap instead of pushing totals past the card edge.
+  - The expanded line-item table scrolls sideways inside its own box.
+- **Verified:**
+  - tsc, jest, lint, and build up to the known Resend step.
+  - A throwaway copy of the overview page, with stubbed access and deleted
+    afterwards, rendered Daadi's real data at 375×812. Nothing overflows
+    the screen, apart from the closed off-screen notes drawer.
+- **Follow-up:** the overview passes Prisma `Decimal` line quantities to
+  `BudgetBreakdown` (a client component). Dev logs "Only plain objects…"
+  for each line. This was already the case and works in production;
+  serialize the quantities to numbers to silence it.
+
 ### 2026-10-07 — Mobile, phase 2: project tab bar, and fixes from the first phone test
 - **Reported** (screenshots from a phone):
   - KPI numbers overflowed their cards on the dashboard and on Projects.
