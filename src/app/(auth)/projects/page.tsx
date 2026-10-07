@@ -7,6 +7,7 @@ import type { Prisma } from '@prisma/client'
 import { ProjectsPageClient } from '@/components/projects/ProjectsPageClient'
 import type { ProjectForCard, ProjectMetrics, AttentionItem, UpcomingShoot, StatusCounts } from '@/components/projects/projects-types'
 import { calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
+import { addedScopeCents } from '@/lib/project-value'
 
 export const metadata = { title: 'Projects' }
 
@@ -36,6 +37,7 @@ const PROJECT_INCLUDES = {
       dueDate: true,
       paidAt: true,
       issueDate: true,
+      isScopeAddition: true,
     },
   },
   callSheets: {
@@ -113,6 +115,8 @@ export default async function ProjectsPage({
     actualsSheets,
     primaryPhases,
     pipelineProposals,
+    scopeThisQ,
+    scopeLastQ,
   ] = await Promise.all([
 
     // ── All non-archived projects with rich includes ──────────────────────────
@@ -215,6 +219,17 @@ export default async function ProjectsPage({
         projectId: true,
       },
     }),
+
+    // ── Added scope billed this / last quarter (invoice-first) ────────────────
+    // Won on top of an approved proposal, so it counts as won when invoiced.
+    sdb.invoice.aggregate({
+      where: { isScopeAddition: true, status: { not: 'VOID' }, issueDate: { gte: qStart, lte: qEnd }, project: { status: { not: 'ARCHIVED' } } },
+      _sum: { totalCents: true },
+    }),
+    sdb.invoice.aggregate({
+      where: { isScopeAddition: true, status: { not: 'VOID' }, issueDate: { gte: prevQStart, lte: prevQEnd }, project: { status: { not: 'ARCHIVED' } } },
+      _sum: { totalCents: true },
+    }),
   ])
 
   // ── Pipeline: deduplicate to one proposal per project (latest sent) ──────────
@@ -285,6 +300,7 @@ export default async function ProjectsPage({
         ...p,
         actualSpentCents: actualSpentByProject.get(p.id) ?? 0,
         budgetTotalCents: budgetTotalByProject.get(p.id) ?? 0,
+        addedScopeCents:  addedScopeCents(p.invoices),
         teamMembers: chips(p.teamMembers),
       }
     : {
@@ -293,6 +309,7 @@ export default async function ProjectsPage({
         invoices:  p.invoices.map(inv => ({ ...inv, totalCents: 0, amountPaidCents: 0 })),
         actualSpentCents: 0,
         budgetTotalCents: 0,
+        addedScopeCents:  0,
         teamMembers: chips(p.teamMembers),
       }
   const projectsWithBurn = allProjects.map(withCardMoney)
@@ -322,16 +339,17 @@ export default async function ProjectsPage({
 
   // Outstanding = money owed but not yet collected.
   //
-  // • WON projects: expected gross (live budgetTotalCents) minus all payments made so far.
-  //   This captures approved-but-not-yet-invoiced amounts automatically.
+  // • WON projects: expected gross (live budgetTotalCents, plus added scope) minus all
+  //   payments made so far. This captures approved-but-not-yet-invoiced amounts automatically.
   // • Non-WON projects: sum of unpaid balances on open (non-void, non-paid) invoices.
   let outstandingCents = 0
   for (const project of projectsWithBurn) {
     const wonProposal = project.proposals.find(p => p.status === 'APPROVED')
     if (wonProposal) {
-      const expectedCents  = project.budgetTotalCents > 0
+      const expectedCents  = (project.budgetTotalCents > 0
         ? project.budgetTotalCents
         : (wonProposal.approvedTotalCents ?? 0)
+      ) + project.addedScopeCents
       const collectedCents = project.invoices.reduce((s, inv) => s + inv.amountPaidCents, 0)
       outstandingCents += Math.max(0, expectedCents - collectedCents)
     } else {
@@ -362,8 +380,8 @@ export default async function ProjectsPage({
     upcomingShootCount,
     outstandingCents:         canSeeFin ? outstandingCents : 0,
     overdueCount,
-    wonThisQuarterCents:      canSeeFin ? (wonThisQ._sum.approvedTotalCents ?? 0) : 0,
-    wonLastQuarterCents:      canSeeFin ? (wonLastQ._sum.approvedTotalCents ?? 0) : 0,
+    wonThisQuarterCents:      canSeeFin ? (wonThisQ._sum.approvedTotalCents ?? 0) + (scopeThisQ._sum.totalCents ?? 0) : 0,
+    wonLastQuarterCents:      canSeeFin ? (wonLastQ._sum.approvedTotalCents ?? 0) + (scopeLastQ._sum.totalCents ?? 0) : 0,
     thisWeekProposalsSent,
     thisWeekInvoicesIssued,
     thisWeekProjectsCreated,

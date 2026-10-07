@@ -25,7 +25,9 @@ export function calcInvoiceTotals(args: {
   const subtotalCents = args.lineTotalsCents.reduce((s, c) => s + (Number.isFinite(c) ? Math.round(c) : 0), 0)
   const discountCents = Math.min(Math.max(0, Math.round(args.discountCents ?? 0)), Math.max(0, subtotalCents))
   const taxPct        = Number.isFinite(args.taxPct) ? Math.max(0, args.taxPct as number) : 0
-  const taxCents      = Math.round((subtotalCents - discountCents) * taxPct / 100)
+  // taxPct carries up to 4 decimals — scale to an integer so a tax landing
+  // exactly on half a cent rounds up, the same as calcBudgetTotals.
+  const taxCents      = Math.round((subtotalCents - discountCents) * Math.round(taxPct * 10_000) / 1_000_000)
   return { subtotalCents, discountCents, taxCents, totalCents: subtotalCents - discountCents + taxCents }
 }
 

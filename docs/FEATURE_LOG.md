@@ -126,6 +126,74 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-06 — Invoice-first billing: new project from an invoice, or bill added scope
+- **Before:** an invoice needed a project, a budget and a proposal first. A
+  last-minute job already done took five steps, and there was no way to bill
+  extra scope on a won project.
+- **New invoice** (on /invoices and on a project's Invoices page),
+  `NewStandaloneInvoiceModal` → `createInvoiceFirst`
+  (`src/server/actions/invoice-first.ts`):
+  - **New project:** in one transaction, creates the client (if new), an
+    ACTIVE project, a budget built from the invoice lines, an APPROVED
+    proposal at the invoice total (dated the invoice date, one 100% "Full
+    payment" milestone), and the invoice. Then the usual won effects.
+    - The budget has a 0% fee and the invoice's tax and flat discount, so
+      the project's value equals the invoice. The action refuses to commit
+      if the two totals differ.
+    - New-project tax allows at most 2 decimals (the budget stores tax to
+      4 decimals as a fraction).
+    - Needs Projects edit plus Budget costs, Proposals and Invoices edit on
+      a new project (`canCreateProjectFromInvoice`). Owners always qualify.
+  - **Existing project:** any project you can invoice, including ones
+    without a proposal. On a won project the invoice is **added scope**
+    (`Invoice.isScopeAddition`). There's an opt-out checkbox for re-issuing
+    part of the agreed total.
+  - **Create & send** opens the usual send dialog.
+- **Added scope counts toward the project's value:**
+  - `src/lib/project-value.ts`.
+  - Where: project cards ("Total"), outstanding, Won this/last quarter, the
+    dashboard value, the project's "Approved Amount" and the project
+    invoices header.
+  - It's tagged "Added scope" in the three invoice lists.
+  - Milestone amounts and the actuals burn stay on the budget alone.
+- **Exact tax rounding at half cents:**
+  - `calcBudgetTotals` and `calcInvoiceTotals` now round tax in integer
+    basis points.
+  - Before, $30.00 at 7.25% came to 217¢ in the budget but 218¢ on the
+    invoice, a float error (found in review).
+  - No existing budget or invoice has tax, so no stored or displayed number
+    changed.
+- **Also:**
+  - A single-milestone payment schedule now matches its invoice; before, a
+    100% milestone never matched because its kind is FINAL.
+  - Shared builders: `buildBudgetSnapshot` / `buildProposalContent`
+    (`proposal-snapshot.ts`), `buildInvoiceCreateData`
+    (`invoice-create.ts`), and the invoice line editor (`InvoiceLineRows`).
+    `generateInvoiceNumber` takes a transaction client, so a rolled-back
+    create doesn't burn a number.
+- **Migration:** `20261006000001_invoice_scope_addition` (one boolean,
+  default false).
+- **Verified:**
+  - jest: value math, budget equals invoice across rates and amounts, and
+    the permission rule.
+  - A real-DB run on temporary workspaces, all cleaned up, covering:
+    - the new-project golden path
+    - added scope and voiding it
+    - a project that isn't won
+    - another workspace's client or project returning Not found with
+      nothing created
+    - rollback mid-transaction
+    - an assigned-only creator
+    - the re-issue opt-out
+  - pitfall-reviewer: 4 findings, all fixed.
+- **Follow-ups:**
+  - Editing an invoice-first invoice's amount doesn't update the budget or
+    the approved total. That matches how other invoices relate to their
+    budget, but here the value was meant to equal the invoice.
+  - `createInvoice` (from a proposal) doesn't check that `clientId` belongs
+    to the project. The client always passes the project's own client
+    today.
+
 ### 2026-10-06 — Removing a member who's already gone from Clerk
 - **Bug (user report):** removing "Ashish TEST" (darkustigrus@gmail.com)
   failed with "Failed to remove member from workspace."

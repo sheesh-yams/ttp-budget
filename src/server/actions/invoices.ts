@@ -9,24 +9,11 @@ import { generateInvoiceNumber } from '@/lib/invoice-numbering'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import { logAuditEvent } from '@/lib/audit'
-import { generatePublicToken } from '@/lib/secure-token'
 import { normalizeRecipientEmails, buildCcList } from '@/lib/email'
 import { calcInvoiceTotals, calendarDateToStored } from '@/lib/invoice-totals'
 import { formatMoney } from '@/lib/money'
+import { buildInvoiceCreateData, deriveInvoicePaymentTerms, invoiceLineItemSchema, resolveInvoiceDates } from '@/lib/invoice-create'
 import { deleteNeedsTypedConfirm, matchesInvoiceNumber, paymentInProgress } from '@/lib/invoice-delete'
-
-// ─── Payment terms label ────────────────────────────────────────────────────
-// Derived from the actual gap between issue date and due date, rather than a
-// fixed workspace default — a workspace-wide "Net 30" default is wrong for
-// any invoice whose due date was picked custom instead of using that default.
-const COMMON_TERM_DAYS = [15, 30, 45, 60, 90]
-
-function deriveInvoicePaymentTerms(issueDate: Date, dueDate: Date): string | null {
-  const days = Math.round((dueDate.getTime() - issueDate.getTime()) / (24 * 60 * 60 * 1000))
-  if (days <= 0) return 'Due on Receipt'
-  if (COMMON_TERM_DAYS.includes(days)) return `Net ${days}`
-  return null
-}
 
 const createSchema = z.object({
   projectId: z.string(),
@@ -37,15 +24,7 @@ const createSchema = z.object({
   /** YYYY-MM-DD; defaults to today. Can be backdated (a client asks for a date). */
   issueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   dueDate: z.string(),
-  lineItems: z.array(z.object({
-    id: z.string(),
-    description: z.string(),
-    quantity: z.number(),
-    unit: z.string(),
-    rateCents: z.number().int(),
-    lineTotalCents: z.number().int(),
-    notes: z.string().optional(),
-  })),
+  lineItems: z.array(invoiceLineItemSchema),
   subtotalCents: z.number().int(),
   taxPct: z.number(),
   taxCents: z.number().int(),
@@ -71,11 +50,8 @@ export async function createInvoice(
     ])
     const data = createSchema.parse(input)
 
-    // Calendar dates stored at midday UTC (see calendarDateToStored).
-    const issueDate = data.issueDate ? calendarDateToStored(data.issueDate) : new Date()
-    const dueDate   = calendarDateToStored(data.dueDate.slice(0, 10))
-    if (!issueDate || !dueDate) return { success: false, error: 'Invalid date' }
-    if (data.issueDate && dueDate < issueDate) return { success: false, error: 'The due date can’t be before the invoice date.' }
+    const dates = resolveInvoiceDates(data.issueDate, data.dueDate)
+    if ('error' in dates) return { success: false, error: dates.error }
 
     // Only take a number once the invoice is going to be created (no gaps).
     const number = await generateInvoiceNumber(workspaceId)
@@ -83,36 +59,27 @@ export async function createInvoice(
       where: { id: workspaceId },
       select: { defaultInvoiceTerms: true },
     })
-    // Recompute — never trust totals sent by the client.
-    const totals = calcInvoiceTotals({
-      lineTotalsCents: data.lineItems.map(li => li.lineTotalCents),
-      discountCents:   data.discountCents ?? 0,
-      taxPct:          data.taxPct,
-    })
 
     const invoice = await scopedDb.invoice.create({
-      data: {
-        projectId: data.projectId,
-        clientId: data.clientId,
-        budgetId: data.budgetId ?? null,
+      data: buildInvoiceCreateData({
+        projectId:     data.projectId,
+        clientId:      data.clientId,
+        budgetId:      data.budgetId ?? null,
         number,
-        publicToken: generatePublicToken(),
-        kind: data.kind,
-        title: data.title,
-        issueDate,
-        dueDate,
-        lineItems: data.lineItems as object[],
-        subtotalCents: totals.subtotalCents,
-        taxPct: data.taxPct,
-        taxCents: totals.taxCents,
-        discountCents: totals.discountCents,
-        totalCents: totals.totalCents,
-        notes:         data.notes ?? null,
-        terms:         data.terms ?? workspace?.defaultInvoiceTerms ?? null,
-        paymentTerms:  data.paymentTerms ?? deriveInvoicePaymentTerms(issueDate, dueDate),
-        poNumber:      data.poNumber ?? null,
-        createdById: user.id,
-      } as unknown as Parameters<typeof scopedDb.invoice.create>[0]['data'],
+        kind:          data.kind,
+        title:         data.title,
+        issueDate:     dates.issueDate,
+        dueDate:       dates.dueDate,
+        lineItems:     data.lineItems,
+        taxPct:        data.taxPct,
+        discountCents: data.discountCents,
+        notes:         data.notes,
+        terms:         data.terms,
+        defaultTerms:  workspace?.defaultInvoiceTerms,
+        paymentTerms:  data.paymentTerms,
+        poNumber:      data.poNumber,
+        createdById:   user.id,
+      }) as unknown as Parameters<typeof scopedDb.invoice.create>[0]['data'],
     })
 
     revalidatePath(`/projects/${data.projectId}`)

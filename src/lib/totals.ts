@@ -75,7 +75,9 @@ export function calcBudgetTotals(
   }
 
   const afterDiscount = preTax - discountCents
-  const taxCents = Math.round(afterDiscount * taxPct)
+  // Exact at half cents: 3000¢ × 7.25% is 217.5¢ → 218¢, where float
+  // 3000 × 0.0725 = 217.4999… would round down (and disagree with the invoice).
+  const taxCents = Math.round(afterDiscount * Math.round(taxPct * 10_000) / 10_000)
   const grandTotalCents = afterDiscount + taxCents
 
   return { subtotalCents, markupCents, discountCents, discountLabel, taxCents, grandTotalCents }

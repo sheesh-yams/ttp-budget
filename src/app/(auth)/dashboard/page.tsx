@@ -20,7 +20,7 @@ export default async function DashboardPage() {
   // ── Parallel fetches ─────────────────────────────────────────────────────────
   // invoicesAll  → lightweight, no relations, used for metric calculations
   // invoicesWidget → includes relations, limited to 5, used for the tracker widget
-  const [projectsRaw, invoicesAll, invoicesWidget, proposals, primaryPhases] = await Promise.all([
+  const [projectsRaw, invoicesAll, invoicesWidget, proposals, primaryPhases, scopeByProject] = await Promise.all([
     db.project.findMany({
       where:   {
         workspaceId, archivedAt: null,
@@ -87,9 +87,17 @@ export default async function DashboardPage() {
         },
       },
     }),
+
+    // ── Added scope billed on top of each project's budget (invoice-first) ──
+    isCollaborator ? Promise.resolve([]) : db.invoice.groupBy({
+      by:    ['projectId'],
+      where: { workspaceId, isScopeAddition: true, status: { not: 'VOID' } },
+      _sum:  { totalCents: true },
+    }),
   ])
 
-  // budgetTotalCents: GROSS total (net + markup + tax) from each project's primary phase.
+  // budgetTotalCents: GROSS total (net + markup + tax) from each project's primary
+  // phase, plus any added scope invoiced on top — the project's value.
   const budgetTotalByProject = new Map<string, number>()
   for (const phase of primaryPhases) {
     const projectId = phase.budget?.projectId
@@ -109,6 +117,10 @@ export default async function DashboardPage() {
       discountConfig,
     )
     budgetTotalByProject.set(projectId, grandTotalCents)
+  }
+  // Project value = budget + added scope (src/lib/project-value.ts).
+  for (const row of scopeByProject) {
+    budgetTotalByProject.set(row.projectId, (budgetTotalByProject.get(row.projectId) ?? 0) + (row._sum.totalCents ?? 0))
   }
 
   // Sort by most recent activity across the project + all related models

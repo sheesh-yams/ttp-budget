@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,60 +11,7 @@ import { createInvoice } from '@/server/actions/invoices'
 import { formatMoney } from '@/lib/money'
 import { calcInvoiceTotals, autoInvoiceDiscount, localISODate, addDaysISO } from '@/lib/invoice-totals'
 import type { ProposalContent, PaymentMilestone, InvoiceLineItem } from '@/types'
-
-// ─── Line-item row types ───────────────────────────────────────────────────────
-
-const UNITS = ['FLAT', 'HOUR', 'HALF_DAY', 'DAY', 'WEEK', 'EACH', 'MILE'] as const
-type Unit = typeof UNITS[number]
-
-const UNIT_LABELS: Record<Unit, string> = {
-  FLAT: 'Flat', HOUR: 'Hour', HALF_DAY: 'Half day',
-  DAY: 'Day', WEEK: 'Week', EACH: 'Each', MILE: 'Mile',
-}
-
-interface Row {
-  id:          string
-  description: string
-  quantity:    string
-  unit:        Unit
-  rate:        string   // display dollars
-  notes:       string
-}
-
-function rowToCents(row: Row): number {
-  const qty  = parseFloat(row.quantity) || 0
-  const rate = Math.round((parseFloat(row.rate) || 0) * 100)
-  return Math.round(qty * rate)
-}
-
-function liToRow(li: InvoiceLineItem): Row {
-  return {
-    id:          li.id,
-    description: li.description,
-    quantity:    String(li.quantity),
-    unit:        li.unit as Unit,
-    rate:        (li.rateCents / 100).toFixed(2),
-    notes:       (li as unknown as { notes?: string }).notes ?? '',
-  }
-}
-
-function blankRow(): Row {
-  return { id: crypto.randomUUID(), description: '', quantity: '1', unit: 'FLAT', rate: '', notes: '' }
-}
-
-function rowToLineItem(row: Row): InvoiceLineItem {
-  const qty       = parseFloat(row.quantity) || 0
-  const rateCents = Math.round((parseFloat(row.rate) || 0) * 100)
-  return {
-    id:             row.id,
-    description:    row.description,
-    quantity:       qty,
-    unit:           row.unit,
-    rateCents,
-    lineTotalCents: Math.round(qty * rateCents),
-    ...(row.notes ? { notes: row.notes } : {}),
-  } as InvoiceLineItem
-}
+import { InvoiceLineRowsEditor, blankRow, liToRow, rowToCents, rowToLineItem, rowsError, type Row } from '@/components/invoices/InvoiceLineRows'
 
 // ─── Budget snapshot types ─────────────────────────────────────────────────────
 
@@ -306,17 +253,9 @@ export function NewInvoiceModal({
 
   const selected      = options[selectedIdx] ?? options[0]
 
-  function updateRow(idx: number, patch: Partial<Row>) {
-    setRows(prev => prev.map((r, i) => i === idx ? { ...r, ...patch } : r))
-  }
-
   function addRow() {
     setRows(prev => [...prev, blankRow()])
     setShowLineItems(true)
-  }
-
-  function removeRow(idx: number) {
-    setRows(prev => prev.filter((_, i) => i !== idx))
   }
 
   // ── Derived totals (always from rows) ────────────────────────────────────────
@@ -363,11 +302,8 @@ export function NewInvoiceModal({
     if (!dueDate) { setError('Due date is required'); return }
     if (!issueDate) { setError('Invoice date is required'); return }
     if (dueDate < issueDate) { setError('The due date can’t be before the invoice date.'); return }
-    if (rows.length === 0) { setError('At least one line item is required'); return }
-    const emptyDesc = rows.some(r => !r.description.trim())
-    if (emptyDesc) { setError('All line items need a description.'); return }
-    const badRate = rows.some(r => (parseFloat(r.rate) || 0) <= 0)
-    if (badRate) { setError('All line items need a rate greater than zero.'); return }
+    const rowsProblem = rowsError(rows)
+    if (rowsProblem) { setError(rowsProblem); return }
 
     setSubmitting(true)
     try {
@@ -474,84 +410,7 @@ export function NewInvoiceModal({
               </button>
             </div>
 
-            {showLineItems && (
-              <div className="rounded-lg border bg-muted/20 p-3 space-y-2">
-                {/* Header */}
-                <div
-                  className="grid gap-2 text-[11px] font-medium text-muted-foreground uppercase tracking-wide"
-                  style={{ gridTemplateColumns: '1fr 60px 90px 100px 80px 24px' }}
-                >
-                  <span>Description</span>
-                  <span>Qty</span>
-                  <span>Unit</span>
-                  <span className="text-right">Rate ($)</span>
-                  <span className="text-right">Total</span>
-                  <span />
-                </div>
-
-                {rows.map((row, idx) => (
-                  <div key={row.id}>
-                    <div
-                      className="grid gap-2 items-center"
-                      style={{ gridTemplateColumns: '1fr 60px 90px 100px 80px 24px' }}
-                    >
-                      <Input
-                        value={row.description}
-                        onChange={e => updateRow(idx, { description: e.target.value })}
-                        placeholder="e.g. Deposit, Overtime…"
-                        className="h-7 text-xs"
-                      />
-                      <Input
-                        type="number"
-                        min={0}
-                        step={0.5}
-                        value={row.quantity}
-                        onChange={e => updateRow(idx, { quantity: e.target.value })}
-                        className="h-7 text-xs text-right"
-                      />
-                      <select
-                        value={row.unit}
-                        onChange={e => updateRow(idx, { unit: e.target.value as Unit })}
-                        className="h-7 rounded-md border border-input bg-background px-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-                      >
-                        {UNITS.map(u => (
-                          <option key={u} value={u}>{UNIT_LABELS[u]}</option>
-                        ))}
-                      </select>
-                      <Input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={row.rate}
-                        onChange={e => updateRow(idx, { rate: e.target.value })}
-                        placeholder="0.00"
-                        className="h-7 text-xs text-right"
-                      />
-                      <div className="text-right text-xs font-medium tabular-nums text-foreground pr-1">
-                        {rowToCents(row) > 0 ? formatMoney(rowToCents(row)) : '—'}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => removeRow(idx)}
-                        disabled={rows.length === 1}
-                        className="flex items-center justify-center rounded p-0.5 text-muted-foreground hover:text-red-500 hover:bg-red-50 disabled:opacity-25 disabled:cursor-not-allowed"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </button>
-                    </div>
-
-                    {/* Per-item notes */}
-                    <input
-                      type="text"
-                      value={row.notes}
-                      onChange={e => updateRow(idx, { notes: e.target.value })}
-                      placeholder={`Notes for "${row.description || 'item'}" (optional)`}
-                      className="mt-1 w-full h-6 rounded border border-input bg-background px-2 text-[11px] text-muted-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
+            {showLineItems && <InvoiceLineRowsEditor rows={rows} onChange={setRows} />}
           </div>
 
           {/* Title */}

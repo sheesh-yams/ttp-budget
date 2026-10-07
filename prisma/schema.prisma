@@ -741,6 +741,10 @@ model Invoice {
   archivedAt    DateTime?
   archivedById  String?
 
+  // Billed on top of a won project's agreed total (scope increase). Counted
+  // in the project's value (src/lib/project-value.ts); the budget is untouched.
+  isScopeAddition Boolean @default(false)
+
   createdById   String?
   createdBy     User?    @relation("InvoiceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt     DateTime @default(now())

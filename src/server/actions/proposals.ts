@@ -12,7 +12,7 @@ import { logAuditEvent } from '@/lib/audit'
 import { generatePublicToken } from '@/lib/secure-token'
 import { syncDeliverablesFromProposal } from './delivery'
 import { sendProposalEmail, normalizeRecipientEmails, buildCcList } from '@/lib/email'
-import { PHASE_TREE_INCLUDE, captureSinglePhaseSnapshot, type SnapshotPhase } from '@/lib/proposal-snapshot'
+import { PHASE_TREE_INCLUDE, BUDGET_SNAPSHOT_SELECT, buildBudgetSnapshot, buildProposalContent, type SnapshotPhase } from '@/lib/proposal-snapshot'
 import { applyProposalWonEffects } from '@/lib/proposal-won'
 
 function uid() { return crypto.randomUUID().slice(0, 8) }
@@ -44,75 +44,22 @@ async function resolveProposalEmailContext(sdb: ScopedDb, projectId: string) {
 // ─── Capture a frozen snapshot of budget line items ───────────────────────────
 // Internal helper — always called from exported functions that have already
 // validated workspace ownership via getScopedDb(). Accepts sdb so all reads
-// remain scoped to the active workspace.
-//
-// A budget can have more than one phase flagged showAsProposalOption — those
-// appear as client-facing tabs alongside the (always-included) primary phase.
-// This resolves every visible phase, snapshots each one independently, and
-// returns the primary phase's data at the top level (unchanged shape — every
-// existing consumer of content.budgetSnapshot/content.sections keeps working
-// untouched) plus the full list under `proposalOptions`, primary first.
+// remain scoped to the active workspace. The shaping is buildBudgetSnapshot
+// (src/lib/proposal-snapshot.ts).
 
 async function captureBudgetSnapshot(sdb: ScopedDb, budgetId: string) {
   // sdb.budget.findFirst auto-scopes — safe even if budgetId comes from user input.
   const budget = await sdb.budget.findFirst({
     where: { id: budgetId },
-    select: {
-      markupPct: true, taxPct: true,
-      discountType: true, discountLabel: true, discountValueCents: true, discountValuePct: true,
-    },
+    select: BUDGET_SNAPSHOT_SELECT,
   })
-  const budgetMarkupPct = budget?.markupPct != null ? Number(budget.markupPct) : 0
-  const budgetTaxPct    = budget?.taxPct    != null ? Number(budget.taxPct)    : 0
-  const discountConfig: BudgetDiscountConfig | null = budget?.discountType ? {
-    type:       budget.discountType as 'flat' | 'pct',
-    label:      budget.discountLabel,
-    valueCents: budget.discountValueCents,
-    valuePct:   budget.discountValuePct != null ? Number(budget.discountValuePct) : null,
-  } : null
-
   // sdb.phase.findMany auto-scopes — blocks foreign budgetId cross-workspace reads.
   const allPhases = await sdb.phase.findMany({
     where: { budgetId },
     orderBy: { order: 'asc' },
     include: PHASE_TREE_INCLUDE,
   }) as unknown as SnapshotPhase[]
-
-  const primaryPhase = allPhases.find(p => (p as unknown as { isPrimary: boolean }).isPrimary) ?? allPhases[0]
-
-  // Primary always first, then any other phase explicitly flagged visible —
-  // off by default, so a plain single-phase budget yields exactly one entry.
-  const extraPhases = allPhases.filter(p =>
-    p.id !== primaryPhase?.id && (p as unknown as { showAsProposalOption?: boolean }).showAsProposalOption
-  )
-  const visiblePhases = primaryPhase ? [primaryPhase, ...extraPhases] : []
-
-  const proposalOptions = visiblePhases.map(phase => ({
-    phaseId:      phase.id,
-    phaseName:    (phase as unknown as { name: string }).name,
-    isPrimary:    phase.id === primaryPhase?.id,
-    overview:     phase.overview ?? '',
-    about:        phase.description ?? '',
-    deliverables: (phase.deliverables as { title: string; description: string; sectionIds?: string[] }[] | null) ?? [],
-    budgetSnapshot: captureSinglePhaseSnapshot(phase, budgetMarkupPct, budgetTaxPct, discountConfig),
-  }))
-
-  const primaryOption = proposalOptions[0]
-
-  return {
-    // budgetSnapshot keeps its exact existing flat shape — every current
-    // consumer (ProposalPublicView, ProposalPDF, the invoice/actuals content
-    // readers) goes on reading content.budgetSnapshot exactly as before.
-    budgetSnapshot: primaryOption?.budgetSnapshot ?? {
-      accounts: [], sections: [], pageBreakBetweenAccounts: false, productionCents: 0,
-      budgetMarkupPct, budgetTaxPct, discountCents: 0, discountLabel: '', totalCents: 0,
-    },
-    overview:     primaryOption?.overview ?? '',
-    about:        primaryOption?.about ?? '',
-    deliverables: primaryOption?.deliverables ?? [],
-    // Only present when there's actually more than one visible phase.
-    proposalOptions: proposalOptions.length > 1 ? proposalOptions : undefined,
-  }
+  return buildBudgetSnapshot(budget, allPhases)
 }
 
 // ─── Create proposal from a budget ───────────────────────────────────────────
@@ -339,7 +286,7 @@ export async function createSentProposal(input: {
     // Resolves the primary phase's content AND (when flagged) any other
     // visible phases in one pass — see captureBudgetSnapshot above.
     const snapshot = await captureBudgetSnapshot(sdb, input.budgetId)
-    const content = buildContent({ ...input, overview: snapshot.overview, about: snapshot.about, deliverables: snapshot.deliverables })
+    const content = buildProposalContent({ ...input, overview: snapshot.overview, about: snapshot.about, deliverables: snapshot.deliverables })
     const recipientEmails = normalizeRecipientEmails(input.recipientEmails)
     const fullContent = {
       ...content,
@@ -466,7 +413,7 @@ export async function createDraftProposal(input: {
     const phaseAbout = primaryPhase?.description ?? ''
     const phaseDeliverables = (primaryPhase?.deliverables as { title: string; description: string; sectionIds?: string[] }[] | null) ?? []
 
-    const content = buildContent({ ...input, overview: phaseOverview, about: phaseAbout, deliverables: phaseDeliverables })
+    const content = buildProposalContent({ ...input, overview: phaseOverview, about: phaseAbout, deliverables: phaseDeliverables })
 
     const maxVersion = await sdb.proposal.aggregate({
       where: { projectId: input.projectId },
@@ -530,7 +477,7 @@ export async function updateDraftProposal(
     const phaseOverview = (primaryPhase as unknown as { overview?: string | null })?.overview ?? ''
     const phaseAbout = primaryPhase?.description ?? ''
     const phaseDeliverables = (primaryPhase?.deliverables as { title: string; description: string; sectionIds?: string[] }[] | null) ?? []
-    const content = buildContent({ ...input, overview: phaseOverview, about: phaseAbout, deliverables: phaseDeliverables })
+    const content = buildProposalContent({ ...input, overview: phaseOverview, about: phaseAbout, deliverables: phaseDeliverables })
     const proposal = await sdb.proposal.update({
       where: { id: proposalId },
       data: {
@@ -723,40 +670,6 @@ export async function createProposalRevision(
   } catch (err) {
     console.error(err)
     return { success: false, error: 'Failed to create revision' }
-  }
-}
-
-// ─── Shared content builder ───────────────────────────────────────────────────
-
-function buildContent(input: {
-  overview: string
-  about: string
-  deliverables: { title: string; description: string; sectionIds?: string[] }[]
-  milestones: { id: string; name: string; percentPct: number; trigger: string; customDate?: string }[]
-  totalCents: number
-}) {
-  return {
-    totalCents: input.totalCents,
-    sections: [
-      { type: 'about', title: 'The project', overview: input.overview, body: input.about },
-      {
-        type: 'scope',
-        title: 'Deliverables',
-        items: input.deliverables.map((d, i) => ({
-          number:     String(i + 1).padStart(2, '0'),
-          title:      d.title,
-          description: d.description,
-          ...(d.sectionIds?.length ? { sectionIds: d.sectionIds } : {}),
-        })),
-      },
-      { type: 'budget', detailLevel: 'SUMMARY' },
-      {
-        type: 'terms',
-        title: 'Payment terms',
-        body: '',
-        milestones: input.milestones,
-      },
-    ],
   }
 }
 

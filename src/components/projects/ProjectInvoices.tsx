@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { formatMoney } from '@/lib/money'
 import { voidInvoice } from '@/server/actions/invoices'
-import { ArchiveInvoiceButton, ArchivedTag, DeleteInvoiceDialog, ShowArchivedToggle } from '@/components/invoices/InvoiceArchiveDelete'
+import { ArchiveInvoiceButton, ArchivedTag, DeleteInvoiceDialog, ScopeAdditionTag, ShowArchivedToggle } from '@/components/invoices/InvoiceArchiveDelete'
 import { SendInvoiceSplitButton } from '@/components/invoice/SendInvoiceSplitButton'
 import { PreviewPanel } from '@/components/invoice/PreviewPanel'
 import { EditInvoiceModal } from '@/components/invoice/EditInvoiceModal'
@@ -34,6 +34,7 @@ export interface InvoiceRow {
   issueDate?: Date | string
   discountCents?: number
   archivedAt?: Date | string | null
+  isScopeAddition?: boolean
 }
 
 interface Props {
@@ -184,7 +185,7 @@ export function ProjectInvoices({ invoices, projectId, allowEdit = true }: Props
               return (
                 <tr key={inv.id} className={`border-b last:border-0 hover:bg-muted/30 ${isBusy ? 'opacity-50' : inv.archivedAt ? 'opacity-60' : ''}`}>
                   <td className="px-4 py-2.5">
-                    <p className="font-medium text-foreground font-mono text-xs">{inv.number}{inv.archivedAt && <ArchivedTag />}</p>
+                    <p className="font-medium text-foreground font-mono text-xs">{inv.number}{inv.isScopeAddition && <ScopeAdditionTag />}{inv.archivedAt && <ArchivedTag />}</p>
                     {inv.title && (
                       <p className="text-xs text-muted-foreground mt-0.5">{inv.title}</p>
                     )}

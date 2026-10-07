@@ -138,3 +138,8 @@ export function ShowArchivedToggle({ count, value, onChange }: { count: number; 
 export function ArchivedTag() {
   return <span className="ml-1.5 rounded bg-muted px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Archived</span>
 }
+
+/** Small tag on an invoice billed as added scope on top of a won project (invoice-first). */
+export function ScopeAdditionTag() {
+  return <span className="ml-1.5 rounded bg-blue-50 px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-blue-700" title="Billed on top of the agreed total">Added scope</span>
+}

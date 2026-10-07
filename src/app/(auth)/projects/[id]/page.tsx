@@ -16,6 +16,7 @@ import { ProposalOverview } from '@/components/projects/ProposalOverview'
 import { Button } from '@/components/ui/button'
 import { formatMoney } from '@/lib/money'
 import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
+import { addedScopeCents } from '@/lib/project-value'
 import { parseLocalDate } from '@/lib/time-format'
 import { captureSinglePhaseSnapshot, type SnapshotPhase } from '@/lib/proposal-snapshot'
 
@@ -137,6 +138,7 @@ export default async function ProjectDetailPage({
           number:          true,
           title:           true,
           status:          true,
+          isScopeAddition: true,
           kind:            true,
           totalCents:      true,
           amountPaidCents: true,
@@ -226,6 +228,10 @@ export default async function ProjectDetailPage({
   const clientTotalCents = (can.proposalsEdit || can.invoicesEdit)
     ? primaryGrandTotal((project.budgets[0] ?? null) as unknown as typeof budget)
     : grandTotalCents
+
+  // Approved amount = the budget plus any added scope invoiced on top of it
+  // (src/lib/project-value.ts). Invoices are only loaded with Invoices access.
+  const approvedValueCents = grossTotalCents + addedScopeCents(project.invoices)
 
   // Billed from invoices: sum of SENT / VIEWED / OVERDUE / PAID (not DRAFT, not VOID)
   const billedFromInvoicesCents = project.invoices
@@ -322,8 +328,8 @@ export default async function ProjectDetailPage({
             <div className="rounded-xl border bg-card shadow-sm overflow-hidden text-right">
               <ActiveFinancialStat
                 label="Approved Amount"
-                valueCents={grossTotalCents}
-                todo={grossTotalCents === 0}
+                valueCents={approvedValueCents}
+                todo={approvedValueCents === 0}
                 todoMsg="Set up a budget"
               />
               <div className="border-t" />

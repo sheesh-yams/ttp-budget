@@ -9,7 +9,8 @@
  *   2. All Invoices table — scrollable list of every invoice for this project.
  *
  * NewInvoiceModal is opened from both the Generate buttons AND the + New Invoice
- * button in the header.
+ * button in the header. Without a proposal — or for added scope on a won
+ * project — NewInvoiceButton opens the invoice-first modal for this project.
  */
 
 import { useState } from 'react'
@@ -25,7 +26,9 @@ import { RecordPaymentModal } from '@/components/invoice/RecordPaymentModal'
 import { formatMoney } from '@/lib/money'
 import { voidInvoice } from '@/server/actions/invoices'
 import { useTransition } from 'react'
-import { ArchiveInvoiceButton, ArchivedTag, DeleteInvoiceDialog, ShowArchivedToggle } from '@/components/invoices/InvoiceArchiveDelete'
+import { ArchiveInvoiceButton, ArchivedTag, DeleteInvoiceDialog, ScopeAdditionTag, ShowArchivedToggle } from '@/components/invoices/InvoiceArchiveDelete'
+import { NewInvoiceButton } from '@/components/invoices/NewInvoiceButton'
+import { addedScopeCents } from '@/lib/project-value'
 import type { ProposalContent, PaymentMilestone, MilestoneTrigger, InvoiceLineItem } from '@/types'
 import type { InvoiceStatus } from '@/types'
 
@@ -35,6 +38,7 @@ interface Project {
   id: string
   name: string
   clientId: string
+  clientName: string
 }
 
 interface InvoiceRow {
@@ -54,6 +58,7 @@ interface InvoiceRow {
   notes: string | null
   issueDate?: Date | string
   discountCents?: number
+  isScopeAddition?: boolean
 }
 
 interface ProposalRef {
@@ -189,6 +194,11 @@ export function ProjectInvoicesPage({
 
   const totalPaid = invoices.reduce((s, i) => s + i.amountPaidCents, 0)
 
+  // Project value = budget + added scope invoiced on top (src/lib/project-value.ts).
+  const valueCents = budgetTotalCents + addedScopeCents(invoices)
+  const isWon      = proposal?.status === 'APPROVED'
+  const billHere   = { id: project.id, name: project.name, clientName: project.clientName, won: isWon }
+
   // Match invoices to milestones by order of KIND_ORDER (best-effort)
   // DEPOSIT → 0%, PROGRESS → middle, FINAL → last
   const sortedByKind = [...invoices].sort((a, b) =>
@@ -201,19 +211,27 @@ export function ProjectInvoicesPage({
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Invoices</h1>
-          {budgetTotalCents > 0 && (
+          {valueCents > 0 && (
             <p className="mt-1 text-sm text-muted-foreground">
               {formatMoney(totalInvoiced)} invoiced
               {totalPaid > 0 && ` · ${formatMoney(totalPaid)} paid`}
-              {' '}of {formatMoney(budgetTotalCents)} total
+              {' '}of {formatMoney(valueCents)} total
+              {valueCents !== budgetTotalCents && ` (incl. ${formatMoney(valueCents - budgetTotalCents)} added scope)`}
             </p>
           )}
         </div>
-        {allowEdit && budget && proposal && (
-          <Button size="sm" onClick={() => openNewInvoice()}>
-            <Plus className="mr-1.5 h-3.5 w-3.5" />
-            New Invoice
-          </Button>
+        {allowEdit && (
+          <div className="flex items-center gap-2">
+            {isWon && <NewInvoiceButton label="Bill added scope" variant="outline" lockedProject={billHere} invoiceExpiryDays={invoiceExpiryDays} />}
+            {budget && proposal ? (
+              <Button size="sm" onClick={() => openNewInvoice()}>
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                New Invoice
+              </Button>
+            ) : (
+              <NewInvoiceButton lockedProject={billHere} invoiceExpiryDays={invoiceExpiryDays} />
+            )}
+          </div>
         )}
       </div>
 
@@ -231,13 +249,17 @@ export function ProjectInvoicesPage({
             {milestones.map((m, idx) => {
               const milestoneAmount = Math.round(budgetTotalCents * m.percentPct)
 
-              // Try to find a matching invoice — rough match by position/kind
+              // Try to find a matching invoice — rough match by position/kind.
+              // A single 100% milestone is matched by any invoice (its kind is
+              // FINAL from the proposal modal, STANDALONE from invoice-first).
+              // Added-scope invoices never pay a milestone.
               const kindForIdx =
-                idx === 0 ? 'DEPOSIT'
+                milestones.length === 1 ? null
+                : idx === 0 ? 'DEPOSIT'
                 : idx === milestones.length - 1 ? 'FINAL'
                 : 'PROGRESS'
               const matchedInv = sortedByKind.find(inv =>
-                !['VOID'].includes(inv.status) && inv.kind === kindForIdx
+                !['VOID'].includes(inv.status) && !inv.isScopeAddition && (kindForIdx === null || inv.kind === kindForIdx)
               )
 
               const isLast = idx === milestones.length - 1
@@ -340,9 +362,9 @@ export function ProjectInvoicesPage({
                 Create First Invoice
               </Button>
             ) : (
-              <p className="mt-1 text-xs text-muted-foreground">
-                {!budget ? 'Add a budget first.' : 'Create a proposal before invoicing.'}
-              </p>
+              <div className="mt-4 flex justify-center">
+                <NewInvoiceButton label="Create First Invoice" lockedProject={billHere} invoiceExpiryDays={invoiceExpiryDays} />
+              </div>
             )}
           </div>
         ) : (
@@ -378,7 +400,7 @@ export function ProjectInvoicesPage({
                   return (
                     <tr key={inv.id} className={`border-b last:border-0 hover:bg-muted/30 ${isBusy ? 'opacity-50' : inv.archivedAt ? 'opacity-60' : ''}`}>
                       <td className="px-4 py-2.5">
-                        <p className="font-mono text-xs font-medium text-foreground">{inv.number}{inv.archivedAt && <ArchivedTag />}</p>
+                        <p className="font-mono text-xs font-medium text-foreground">{inv.number}{inv.isScopeAddition && <ScopeAdditionTag />}{inv.archivedAt && <ArchivedTag />}</p>
                         {inv.title && <p className="mt-0.5 text-xs text-muted-foreground">{inv.title}</p>}
                       </td>
 

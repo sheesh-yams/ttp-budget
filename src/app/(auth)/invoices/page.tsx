@@ -6,6 +6,9 @@ import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { formatMoney } from '@/lib/money'
 import { InvoicesTable } from '@/components/invoices/InvoicesTable'
+import { NewInvoiceButton } from '@/components/invoices/NewInvoiceButton'
+import { getAccess } from '@/lib/access'
+import { canCreateProjectFromInvoice } from '@/lib/invoice-first'
 
 export const metadata = { title: 'Invoices' }
 
@@ -15,7 +18,34 @@ export default async function InvoicesPage() {
   // Roles Phase 2a: the workspace Invoices list, limited to projects where the
   // person has Invoices access (metrics below are over these rows only).
   await requireWorkspaceArea('invoices')
-  const [workspaceId, visible, editable] = await Promise.all([getWorkspaceId(), projectsWithArea('invoices'), projectsWithArea('invoices', 'EDIT')])
+  const [workspaceId, visible, editable, access] = await Promise.all([getWorkspaceId(), projectsWithArea('invoices'), projectsWithArea('invoices', 'EDIT'), getAccess()])
+  const canCreateProject = canCreateProjectFromInvoice(access)
+
+  // Invoice-first: projects this person can bill, and clients for a new project.
+  const [billable, clients, workspace] = await Promise.all([
+    db.project.findMany({
+      where:   { workspaceId, archivedAt: null, status: { not: 'ARCHIVED' }, ...(editable ? { id: { in: editable } } : {}) },
+      orderBy: { updatedAt: 'desc' },
+      select:  {
+        id: true, name: true,
+        client:    { select: { name: true } },
+        proposals: { where: { status: 'APPROVED' }, select: { id: true }, take: 1 },
+      },
+    }),
+    canCreateProject
+      ? db.client.findMany({ where: { workspaceId, archivedAt: null }, orderBy: { name: 'asc' }, select: { id: true, name: true } })
+      : Promise.resolve([]),
+    db.workspace.findUnique({ where: { id: workspaceId }, select: { invoiceExpiryDays: true } }),
+  ])
+  const billableProjects = billable.map(p => ({ id: p.id, name: p.name, clientName: p.client.name, won: p.proposals.length > 0 }))
+  const newInvoice = (canCreateProject || billableProjects.length > 0) && (
+    <NewInvoiceButton
+      projects={billableProjects}
+      clients={clients}
+      canCreateProject={canCreateProject}
+      invoiceExpiryDays={workspace?.invoiceExpiryDays ?? 30}
+    />
+  )
 
   const invoices = await db.invoice.findMany({
     where: { workspaceId, ...(visible ? { projectId: { in: visible } } : {}) },
@@ -33,6 +63,7 @@ export default async function InvoicesPage() {
       publicToken: true,
       sentAt: true,
       archivedAt: true,
+      isScopeAddition: true,
       paidAt: true,
       lineItems: true,
       taxPct: true,
@@ -72,6 +103,7 @@ export default async function InvoicesPage() {
             {archivedListCount > 0 && ` · ${archivedListCount} archived`}
           </p>
         </div>
+        {invoices.length > 0 && newInvoice}
       </div>
 
       {/* ── Summary cards ── */}
@@ -99,14 +131,18 @@ export default async function InvoicesPage() {
           <Receipt className="mb-3 h-8 w-8 text-muted-foreground/40" />
           <p className="font-medium text-foreground">No invoices yet</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Open a project, create a proposal, and use the invoice button to get started.
+            Start an invoice here — for a new project or one you already have.
           </p>
-          <Link
-            href="/projects"
-            className="mt-4 inline-flex items-center rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            Go to Projects
-          </Link>
+          <div className="mt-4">
+            {newInvoice || (
+              <Link
+                href="/projects"
+                className="inline-flex items-center rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+              >
+                Go to Projects
+              </Link>
+            )}
+          </div>
         </div>
       ) : (
           <InvoicesTable invoices={invoices.map(inv => ({

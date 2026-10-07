@@ -133,7 +133,12 @@ export function ProjectCard({ project, view = 'grid', canEditTeam = false, showM
   const paidTotal          = project.invoices
     .filter(i => i.status === 'PAID')
     .reduce((s, i) => s + i.totalCents, 0)
-  const isPaidInFull       = project.budgetTotalCents > 0 && paidTotal >= project.budgetTotalCents
+  // Value = the budget plus any added scope billed on top (src/lib/project-value.ts).
+  // The burn bar stays on the budget alone — actuals compare to costs.
+  const addedScope         = project.addedScopeCents ?? 0
+  const valueCents         = project.budgetTotalCents + addedScope
+  const valueLabel         = addedScope > 0 ? 'Total ' : 'Budget '
+  const isPaidInFull       = valueCents > 0 && paidTotal >= valueCents
   const callSheetCount     = project.callSheets.length
   const hasSentCallSheet   = project.callSheets.some(cs => cs.status === 'SENT' || cs.status === 'FINAL')
   const shootDate          = parseLocalDate(project.shootStartDate)
@@ -189,9 +194,9 @@ export function ProjectCard({ project, view = 'grid', canEditTeam = false, showM
           {isActive ? (
             <div className="text-xs leading-snug">
               <div>
-                <span className="text-gray-400">Budget </span>
+                <span className="text-gray-400" title={addedScope > 0 ? `Includes ${formatMoney(addedScope)} added scope` : undefined}>{valueLabel}</span>
                 <span className="font-semibold text-gray-900">
-                  {project.budgetTotalCents > 0 ? formatMoney(project.budgetTotalCents) : '—'}
+                  {valueCents > 0 ? formatMoney(valueCents) : '—'}
                 </span>
               </div>
               <div className="flex items-center justify-end gap-1">
@@ -327,9 +332,9 @@ export function ProjectCard({ project, view = 'grid', canEditTeam = false, showM
           {isActive ? (
             <>
               <div>
-                <span className="text-gray-400">Budget </span>
+                <span className="text-gray-400" title={addedScope > 0 ? `Includes ${formatMoney(addedScope)} added scope` : undefined}>{valueLabel}</span>
                 <span className="font-semibold text-gray-900">
-                  {project.budgetTotalCents > 0 ? formatMoney(project.budgetTotalCents) : '—'}
+                  {valueCents > 0 ? formatMoney(valueCents) : '—'}
                 </span>
               </div>
               <div className="flex items-center gap-1">

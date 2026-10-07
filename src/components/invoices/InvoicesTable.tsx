@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { formatMoney } from '@/lib/money'
 import { voidInvoice } from '@/server/actions/invoices'
-import { ArchiveInvoiceButton, ArchivedTag, DeleteInvoiceDialog, ShowArchivedToggle } from '@/components/invoices/InvoiceArchiveDelete'
+import { ArchiveInvoiceButton, ArchivedTag, DeleteInvoiceDialog, ScopeAdditionTag, ShowArchivedToggle } from '@/components/invoices/InvoiceArchiveDelete'
 import { SendInvoiceSplitButton } from '@/components/invoice/SendInvoiceSplitButton'
 import { PreviewPanel } from '@/components/invoice/PreviewPanel'
 import { EditInvoiceModal } from '@/components/invoice/EditInvoiceModal'
@@ -34,6 +34,7 @@ export interface InvoiceListRow {
   discountCents?: number
   sentAt?: Date | string | null
   archivedAt?: Date | string | null
+  isScopeAddition?: boolean
   project: {
     id: string
     name: string
@@ -151,7 +152,7 @@ export function InvoicesTable({ invoices, editableProjectIds = null }: {
 
                   {/* Invoice # */}
                   <td className="px-4 py-2.5">
-                    <p className="font-mono text-xs font-medium text-foreground">{inv.number}{inv.archivedAt && <ArchivedTag />}</p>
+                    <p className="font-mono text-xs font-medium text-foreground">{inv.number}{inv.isScopeAddition && <ScopeAdditionTag />}{inv.archivedAt && <ArchivedTag />}</p>
                     {inv.title && <p className="mt-0.5 text-xs text-muted-foreground">{inv.title}</p>}
                   </td>
 

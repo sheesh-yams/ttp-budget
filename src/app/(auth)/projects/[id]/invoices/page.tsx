@@ -104,6 +104,7 @@ export default async function InvoicesSubPage({ params }: Props) {
           discountCents:   true,
           issueDate:       true,
           notes:           true,
+          isScopeAddition: true,
         },
       },
     },
@@ -161,8 +162,9 @@ export default async function InvoicesSubPage({ params }: Props) {
     <ProjectInvoicesPage
       project={{
         id:       project.id,
-        name:     project.name,
-        clientId: project.clientId,
+        name:       project.name,
+        clientId:   project.clientId,
+        clientName: project.client.name,
       }}
       budget={budget ? { id: budget.id, name: budget.name } : null}
       proposal={proposal ? {

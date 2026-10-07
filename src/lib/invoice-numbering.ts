@@ -14,11 +14,17 @@ import { db } from '@/lib/db'
  *
  * The Invoice table has @@unique([workspaceId, number]) as a hard backstop in
  * case something unexpected produces the same number.
+ *
+ * Pass a transaction client to take the number inside that transaction — if
+ * the transaction rolls back, the counter does too (no gap).
  */
-export async function generateInvoiceNumber(workspaceId: string): Promise<string> {
+export async function generateInvoiceNumber(
+  workspaceId: string,
+  client: Pick<typeof db, '$queryRaw'> = db,
+): Promise<string> {
   const currentYear = new Date().getFullYear()
 
-  const rows = await db.$queryRaw<
+  const rows = await client.$queryRaw<
     Array<{ invoiceNumberSeq: number; invoiceNumberPrefix: string }>
   >`
     UPDATE "Workspace"

@@ -23,6 +23,7 @@ export interface ProjectInvoiceSnap {
   dueDate: string
   paidAt: string | null
   issueDate: string
+  isScopeAddition?: boolean
 }
 
 export interface ProjectCallSheetSnap {
@@ -49,6 +50,8 @@ export interface ProjectForCard {
   // F1: actuals burn bar (0 if no actuals sheet)
   actualSpentCents: number
   budgetTotalCents: number
+  /** Non-void invoices billed as added scope on top of the budget (0 if none). */
+  addedScopeCents: number
   teamMembers: {
     role: string
     user: { name: string | null; email: string; avatarUrl: string | null }
