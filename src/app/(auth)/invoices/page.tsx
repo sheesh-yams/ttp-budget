@@ -14,12 +14,13 @@ export const metadata = { title: 'Invoices' }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default async function InvoicesPage() {
+export default async function InvoicesPage({ searchParams }: { searchParams: Promise<{ new?: string }> }) {
   // Roles Phase 2a: the workspace Invoices list, limited to projects where the
   // person has Invoices access (metrics below are over these rows only).
   await requireWorkspaceArea('invoices')
   const [workspaceId, visible, editable, access] = await Promise.all([getWorkspaceId(), projectsWithArea('invoices'), projectsWithArea('invoices', 'EDIT'), getAccess()])
   const canCreateProject = canCreateProjectFromInvoice(access)
+  const autoOpenNew      = (await searchParams).new === '1'
 
   // Invoice-first: projects this person can bill, and clients for a new project.
   const [billable, clients, workspace] = await Promise.all([
@@ -44,6 +45,7 @@ export default async function InvoicesPage() {
       clients={clients}
       canCreateProject={canCreateProject}
       invoiceExpiryDays={workspace?.invoiceExpiryDays ?? 30}
+      autoOpen={autoOpenNew}
     />
   )
 

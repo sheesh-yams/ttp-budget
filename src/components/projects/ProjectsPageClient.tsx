@@ -9,7 +9,7 @@ import { ProjectMetricsStrip } from './ProjectMetricsStrip'
 import { ProjectStatusPills } from './ProjectStatusPills'
 import { ProjectCard } from './ProjectCard'
 import { ProjectsAttentionSidebar } from './ProjectsAttentionSidebar'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type {
   ProjectForCard,
   ProjectMetrics,
@@ -71,6 +71,17 @@ export function ProjectsPageClient({
   const status = initialStatus
   const view   = initialView
   const sort   = initialSort as SortKey
+
+  // ?new=1 (top bar "New project", mobile "+" sheet) opens the new-project modal.
+  const wantsNew = searchParams.get('new') === '1'
+  useEffect(() => {
+    if (!wantsNew) return
+    if (canManageProjects) setModalOpen(true)
+    const params = new URLSearchParams(searchParams.toString())
+    params.delete('new')
+    router.replace(params.size ? `${pathname}?${params}` : pathname, { scroll: false })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantsNew])
 
   const navigate = useCallback(
     (updates: Record<string, string | null>) => {

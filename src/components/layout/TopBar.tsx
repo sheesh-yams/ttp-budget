@@ -25,7 +25,8 @@ export function TopBar({ canCreateProject = true }: { canCreateProject?: boolean
   const isDashboard = pathname === DASHBOARD_ROUTE
 
   return (
-    <header className="flex h-[52px] flex-shrink-0 items-center justify-between border-b px-6"
+    // Desktop only — phones get MobileTopBar.
+    <header className="hidden md:flex h-[52px] flex-shrink-0 items-center justify-between border-b px-6"
       style={{ borderColor: '#E8E0F0', background: '#F7F4FA' }}
     >
       {/* Left: greeting on dashboard, page breadcrumb elsewhere */}
@@ -53,7 +54,7 @@ export function TopBar({ canCreateProject = true }: { canCreateProject?: boolean
 
         {canCreateProject && <button
           type="button"
-          onClick={() => router.push('/projects')}
+          onClick={() => router.push('/projects?new=1')}
           className="flex items-center gap-1.5 rounded-[6px] px-3 py-1.5 text-[12.5px] font-semibold transition-colors"
           style={{ background: '#04FFCC', color: '#003D31' }}
           onMouseEnter={e => (e.currentTarget.style.background = '#00D9A8')}

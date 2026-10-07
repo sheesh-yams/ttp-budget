@@ -803,9 +803,9 @@ export function CallSheetEditor({
 
       </div>
 
-      {/* Floating save (visible when dirty + not locked) */}
+      {/* Floating save (visible when dirty + not locked) — on phones, above the mobile tab bar */}
       {dirty && !isLocked && (
-        <div className="fixed bottom-6 right-6 z-50">
+        <div className="fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom))] right-4 md:bottom-6 md:right-6 z-50">
           <Button onClick={handleSave} disabled={pending} className="shadow-lg">
             {pending ? 'Saving…' : 'Save changes'}
           </Button>

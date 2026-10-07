@@ -126,6 +126,53 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-07 — Mobile, phase 1: the shell (no sidebar on phones)
+- **Before:** on a phone the 200px sidebar took about half the screen on
+  every page.
+- **Below md (768px)** (`src/components/layout/MobileNav.tsx`):
+  - The sidebar and the desktop top bar are hidden.
+  - **Top bar:** a slim dark bar with the workspace switcher.
+  - **Bottom tab bar:** Home · Projects · **+** · Money · More.
+    - Money opens Invoices, or Proposals for a role with only Proposals.
+    - The Money tab is hidden for roles with neither.
+  - **"+" sheet:** create a deal memo, call sheet or receipt on the project
+    you last opened. It's remembered per workspace in localStorage by
+    `RememberProject`, together with the Edit rights there, and only those
+    rows are offered. Also:
+    - Invoice → `/invoices?new=1`, which opens the invoice-first modal.
+    - Project → `/projects?new=1`, which opens the new-project modal.
+  - **More:** slides up from the bar with the rest of the sidebar links,
+    filtered by the shared `visibleNavGroups`, plus the user and sign-out.
+- **Layout details:**
+  - The auth layout exports `viewport` (`viewport-fit=cover`) for
+    safe-area padding.
+  - Height is `100dvh`.
+  - Padding is `p-4` on phones with room for the tab bar, and `p-6` from md.
+  - The project layout and schedule editor margins were updated to match.
+- **Fixed-position bars moved above the tab bar on phones:** the budget
+  totals bar (it was offset 200px for the sidebar) and the call sheet's
+  "Save changes" button.
+- **Desktop is unchanged,** apart from the top bar's "New project", which
+  now opens the modal instead of only going to /projects.
+- **Decisions:**
+  - Option B for project pages, a project-level tab bar, comes in phase 2.
+  - The desktop deal memo editor stays as it is; phase 3 adds a phone draft
+    flow.
+  - The mockups are in `docs/mockups/mobile.html`.
+- **Verified:**
+  - tsc, jest, lint, and build up to the known Resend step.
+  - A throwaway public preview route of the shell at 375×812, deleted
+    afterwards: tab bar, "+" sheet with and without a remembered project,
+    More sheet.
+  - pitfall-reviewer: 4 findings, all fixed. Rows hidden without
+    permission, sheets close on same-page links, Invoice shown only to
+    those who can create one, fixed bars offset.
+- **Follow-ups:**
+  - If the remembered project is deleted or access is lost, the "+" rows
+    404 until another project is opened.
+  - The project sub-nav still shows as a side column on phones until
+    phase 2.
+
 ### 2026-10-06 — Invoice-first billing: new project from an invoice, or bill added scope
 - **Before:** an invoice needed a project, a budget and a proposal first. A
   last-minute job already done took five steps, and there was no way to bill

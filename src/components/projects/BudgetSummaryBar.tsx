@@ -161,6 +161,11 @@ interface Props {
 }
 
 /** Fixed sticky bar anchored to the bottom of the content area (sidebar-aware). */
+// Fixed to the bottom of the content column: md:left-[200px] clears the
+// desktop sidebar (w-[200px] in AuthLayout); on phones it sits full-width just
+// above the mobile tab bar.
+const BAR_CLASS = 'fixed right-0 left-0 md:left-[200px] bottom-[calc(4.25rem+env(safe-area-inset-bottom))] md:bottom-0 z-30 md:z-40 border-t border-border bg-background/85 backdrop-blur-md shadow-[0_-4px_24px_-4px_rgba(0,0,0,0.08)]'
+
 export function BudgetSummaryBar({ accounts, budgetMarkupPct, budgetTaxPct, discountConfig = null, canSeeFinancials = true }: Props) {
   const b = computeBreakdown(accounts, budgetMarkupPct, budgetTaxPct, discountConfig)
 
@@ -173,8 +178,7 @@ export function BudgetSummaryBar({ accounts, budgetMarkupPct, budgetTaxPct, disc
   if (!canSeeFinancials) {
     return (
       <div
-        className="fixed bottom-0 right-0 z-40 border-t border-border bg-background/85 backdrop-blur-md shadow-[0_-4px_24px_-4px_rgba(0,0,0,0.08)]"
-        style={{ left: 200 }}
+        className={BAR_CLASS}
       >
         <div className="mx-auto flex max-w-[1400px] items-center px-6 py-3">
           <SummaryCol label="Subtotal" value={formatCents(b.netSubtotalCents)} />
@@ -184,10 +188,8 @@ export function BudgetSummaryBar({ accounts, budgetMarkupPct, budgetTaxPct, disc
   }
 
   return (
-    /* left: 200px matches the sidebar w-[200px] in AuthLayout */
     <div
-      className="fixed bottom-0 right-0 z-40 border-t border-border bg-background/85 backdrop-blur-md shadow-[0_-4px_24px_-4px_rgba(0,0,0,0.08)]"
-      style={{ left: 200 }}
+      className={BAR_CLASS}
     >
       <div className="mx-auto flex max-w-[1400px] items-stretch gap-0 px-6 py-3">
 

@@ -67,13 +67,9 @@ const AREA_FOR_HREF: Record<string, keyof SidebarAccess> = {
   '/rates': 'library', '/templates': 'library', '/library': 'library', '/settings': 'settings',
 }
 
-export function Sidebar({ workspaceName, logoUrl, areas }: {
-  workspaceName: string
-  logoUrl?: string | null
-  areas: SidebarAccess
-}) {
-  const pathname = usePathname()
-  const visibleGroups = navGroups
+/** The nav groups this person may see — shared by the sidebar and the mobile More menu. */
+export function visibleNavGroups(areas: SidebarAccess) {
+  return navGroups
     .map(g => ({
       ...g,
       items: g.items.filter(item =>
@@ -82,10 +78,20 @@ export function Sidebar({ workspaceName, logoUrl, areas }: {
       ),
     }))
     .filter(g => g.items.length > 0)
+}
+
+export function Sidebar({ workspaceName, logoUrl, areas }: {
+  workspaceName: string
+  logoUrl?: string | null
+  areas: SidebarAccess
+}) {
+  const pathname = usePathname()
+  const visibleGroups = visibleNavGroups(areas)
 
   return (
+    // Desktop only — phones get MobileTopBar + MobileTabBar (src/components/layout/MobileNav.tsx).
     <aside
-      className="flex w-[200px] flex-shrink-0 flex-col"
+      className="hidden md:flex w-[200px] flex-shrink-0 flex-col"
       style={{ background: '#0A0612' }}
     >
       {/* ── Workspace switcher ── */}
@@ -142,7 +148,7 @@ export function Sidebar({ workspaceName, logoUrl, areas }: {
 // WorkspaceSwitcher
 // =============================================================================
 
-function WorkspaceSwitcher({ fallbackName, logoUrl }: { fallbackName: string; logoUrl?: string | null }) {
+export function WorkspaceSwitcher({ fallbackName, logoUrl }: { fallbackName: string; logoUrl?: string | null }) {
   const { organization } = useOrganization()
   const { userMemberships, setActive, isLoaded: listLoaded } = useOrganizationList({
     userMemberships: { infinite: true },
@@ -376,7 +382,7 @@ function CreateWorkspaceDialog({
 // UserFooter
 // =============================================================================
 
-function UserFooter() {
+export function UserFooter() {
   const { user } = useUser()
   const { signOut } = useClerk()
   const router = useRouter()

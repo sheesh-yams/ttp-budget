@@ -4,6 +4,7 @@ import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { getProjectAccess } from '@/lib/access'
 import { ProjectSubNav, type ProjectTabKey } from '@/components/projects/ProjectSubNav'
+import { RememberProject } from '@/components/projects/RememberProject'
 
 export default async function ProjectLayout({
   children,
@@ -48,9 +49,13 @@ export default async function ProjectLayout({
   if (!project) notFound()
 
   return (
-    // -mx-6 -my-6 escapes the auth layout's p-6 padding so the sidebar can run
-    // flush to the edges of the main scroll container.
-    <div className="flex -mx-6 -my-6 min-h-[calc(100vh-52px)]">
+    // The negative margins escape the auth layout's padding (p-4 on phones,
+    // p-6 from md) so the sidebar can run flush to the main scroll container.
+    <div className="flex -mx-4 -mt-4 md:-mx-6 md:-my-6 min-h-[calc(100vh-52px)]">
+      <RememberProject
+        workspaceId={workspaceId} id={project.id} name={project.name}
+        can={{ dealMemos: projectAccess.can('dealMemos', 'EDIT'), callSheets: projectAccess.can('callSheets', 'EDIT'), receipts: projectAccess.can('actuals', 'EDIT') }}
+      />
       {/* ── Secondary sidebar ───────────────────────────────────────────────── */}
       <aside
         className="w-44 shrink-0 border-r border-foreground/8 sticky top-0 self-start h-[calc(100vh-52px)] overflow-y-auto"
@@ -65,7 +70,7 @@ export default async function ProjectLayout({
       </aside>
 
       {/* ── Page content ────────────────────────────────────────────────────── */}
-      <div className="flex-1 min-w-0 p-6">
+      <div className="flex-1 min-w-0 p-4 md:p-6">
         {children}
       </div>
     </div>
