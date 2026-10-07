@@ -95,7 +95,7 @@ export function DashboardMetrics({ projects, invoices, proposals }: Props) {
   ]
 
   return (
-    <div className="grid grid-cols-4 gap-3">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
       {metrics.map((m) => (
         <MetricTile key={m.label} {...m} />
       ))}
@@ -119,7 +119,7 @@ function MetricTile({
         {label}
       </p>
       <p
-        className="mt-2 text-[26px] font-semibold leading-none tabular-nums"
+        className="mt-2 text-[22px] md:text-[26px] font-semibold leading-none tabular-nums break-words"
         style={{ color: valueColor }}
       >
         {value}
@@ -134,7 +134,7 @@ function MetricTile({
     return (
       <Link
         href={href}
-        className="block rounded-[10px] bg-white px-4 py-4 transition-colors hover:bg-muted/40"
+        className="block min-w-0 rounded-[10px] bg-white px-3.5 py-3.5 md:px-4 md:py-4 transition-colors hover:bg-muted/40"
         style={{ border: '0.5px solid #E8E0F0' }}
       >
         {content}
@@ -143,7 +143,7 @@ function MetricTile({
   }
 
   return (
-    <div className="rounded-[10px] bg-white px-4 py-4" style={{ border: '0.5px solid #E8E0F0' }}>
+    <div className="min-w-0 rounded-[10px] bg-white px-3.5 py-3.5 md:px-4 md:py-4" style={{ border: '0.5px solid #E8E0F0' }}>
       {content}
     </div>
   )

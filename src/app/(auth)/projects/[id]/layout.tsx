@@ -5,6 +5,7 @@ import { getWorkspaceId } from '@/lib/auth'
 import { getProjectAccess } from '@/lib/access'
 import { ProjectSubNav, type ProjectTabKey } from '@/components/projects/ProjectSubNav'
 import { RememberProject } from '@/components/projects/RememberProject'
+import { ProjectMobileHeader, ProjectMobileNav } from '@/components/projects/ProjectMobileNav'
 
 export default async function ProjectLayout({
   children,
@@ -48,17 +49,25 @@ export default async function ProjectLayout({
 
   if (!project) notFound()
 
+  // What this person may create here — the phone "+" sheets offer only these.
+  const canCreate = {
+    dealMemos:  projectAccess.can('dealMemos', 'EDIT'),
+    callSheets: projectAccess.can('callSheets', 'EDIT'),
+    receipts:   projectAccess.can('actuals', 'EDIT'),
+  }
+
   return (
     // The negative margins escape the auth layout's padding (p-4 on phones,
     // p-6 from md) so the sidebar can run flush to the main scroll container.
     <div className="flex -mx-4 -mt-4 md:-mx-6 md:-my-6 min-h-[calc(100vh-52px)]">
       <RememberProject
         workspaceId={workspaceId} id={project.id} name={project.name}
-        can={{ dealMemos: projectAccess.can('dealMemos', 'EDIT'), callSheets: projectAccess.can('callSheets', 'EDIT'), receipts: projectAccess.can('actuals', 'EDIT') }}
+        can={canCreate}
       />
       {/* ── Secondary sidebar ───────────────────────────────────────────────── */}
+      {/* Desktop only — phones get ProjectMobileHeader + ProjectMobileNav. */}
       <aside
-        className="w-44 shrink-0 border-r border-foreground/8 sticky top-0 self-start h-[calc(100vh-52px)] overflow-y-auto"
+        className="hidden md:block w-44 shrink-0 border-r border-foreground/8 sticky top-0 self-start h-[calc(100vh-52px)] overflow-y-auto"
         style={{ background: 'hsl(270 40% 97%)' }}
       >
         <ProjectSubNav
@@ -71,8 +80,10 @@ export default async function ProjectLayout({
 
       {/* ── Page content ────────────────────────────────────────────────────── */}
       <div className="flex-1 min-w-0 p-4 md:p-6">
+        <ProjectMobileHeader projectName={project.name} clientName={project.client.name} />
         {children}
       </div>
+      <ProjectMobileNav projectId={project.id} tabs={tabs} can={canCreate} />
     </div>
   )
 }

@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation'
 import { ChevronLeft, LayoutDashboard, DollarSign, FileText, Users, Receipt, ScanLine, Globe, Package, FileSpreadsheet, Clapperboard, ScrollText, Handshake } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-interface NavItem {
+export interface NavItem {
   label: string
   href: string
   icon: ElementType
@@ -14,7 +14,7 @@ interface NavItem {
   exact?: boolean
 }
 
-interface NavSection {
+export interface NavSection {
   title: string
   items: NavItem[]
 }
@@ -44,9 +44,9 @@ function tabKey(projectId: string, href: string): ProjectTabKey | null {
   return map[rest] ?? null
 }
 
-export function ProjectSubNav({ projectId, projectName, clientName, tabs }: Props) {
-  const pathname = usePathname()
-
+/** The project's sections and tabs this viewer may open — shared by the
+ *  desktop side column and the phone tab bar (ProjectMobileNav). */
+export function projectNavSections(projectId: string, tabs: Record<ProjectTabKey, boolean>): NavSection[] {
   const sections: NavSection[] = [
     {
       title: 'SALES',
@@ -124,7 +124,7 @@ export function ProjectSubNav({ projectId, projectName, clientName, tabs }: Prop
     },
   ]
 
-  const visibleSections = sections
+  return sections
     .map(sec => ({
       ...sec,
       items: sec.items.filter(item => {
@@ -133,13 +133,17 @@ export function ProjectSubNav({ projectId, projectName, clientName, tabs }: Prop
       }),
     }))
     .filter(sec => sec.items.length > 0)
+}
 
-  function isActive(item: NavItem): boolean {
-    if (item.exact) {
-      return pathname === item.href
-    }
-    return pathname === item.href || pathname.startsWith(item.href + '/')
-  }
+export function isProjectNavActive(pathname: string, item: NavItem): boolean {
+  if (item.exact) return pathname === item.href
+  return pathname === item.href || pathname.startsWith(item.href + '/')
+}
+
+export function ProjectSubNav({ projectId, projectName, clientName, tabs }: Props) {
+  const pathname = usePathname()
+  const visibleSections = projectNavSections(projectId, tabs)
+  const isActive = (item: NavItem) => isProjectNavActive(pathname, item)
 
   return (
     <div className="flex h-full flex-col">

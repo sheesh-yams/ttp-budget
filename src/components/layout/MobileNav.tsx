@@ -16,7 +16,7 @@ import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { WorkspaceSwitcher, UserFooter, visibleNavGroups, type SidebarAccess } from '@/components/layout/Sidebar'
 import { readLastProject, type LastProject } from '@/lib/last-project'
 
-const NIGHT = '#0A0612'
+export const NIGHT = '#0A0612'
 
 // ─── Top bar ─────────────────────────────────────────────────────────────────
 
@@ -45,6 +45,9 @@ export function MobileTabBar({ workspaceId, areas, canCreateProject, canCreateIn
 
   // Any navigation closes an open sheet.
   useEffect(() => { setSheet(null) }, [pathname])
+
+  // Inside a project the project's own bar takes over (ProjectMobileNav).
+  if (/^\/projects\/[^/]+/.test(pathname)) return null
 
   const moneyHref = areas.invoices ? '/invoices' : areas.proposals ? '/proposals' : null
   const isMoney   = pathname.startsWith('/invoices') || pathname.startsWith('/proposals')
@@ -85,7 +88,7 @@ export function MobileTabBar({ workspaceId, areas, canCreateProject, canCreateIn
   )
 }
 
-function TabLink({ href, label, icon: Icon, active }: { href: string; label: string; icon: typeof Home; active: boolean }) {
+export function TabLink({ href, label, icon: Icon, active }: { href: string; label: string; icon: typeof Home; active: boolean }) {
   return (
     <Link
       href={href}
@@ -99,7 +102,7 @@ function TabLink({ href, label, icon: Icon, active }: { href: string; label: str
   )
 }
 
-function TabButton({ label, icon: Icon, active, onClick }: { label: string; icon: typeof Home; active: boolean; onClick: () => void }) {
+export function TabButton({ label, icon: Icon, active, onClick }: { label: string; icon: typeof Home; active: boolean; onClick: () => void }) {
   return (
     <button
       type="button"
@@ -117,16 +120,16 @@ function TabButton({ label, icon: Icon, active, onClick }: { label: string; icon
 
 /** Close the sheet when any link inside it is tapped — a link to the page
  *  you're on (or one that only adds ?new=1) doesn't change the pathname. */
-function closeOnLink(close: () => void) {
+export function closeOnLink(close: () => void) {
   return (e: React.MouseEvent) => { if ((e.target as HTMLElement).closest('a')) close() }
 }
 
-const SHEET_CLASS = cn(
+export const SHEET_CLASS = cn(
   'md:hidden rounded-t-3xl border-0 text-white px-0 pt-2 max-h-[85dvh] overflow-y-auto',
   '[&>button]:text-white/60 [&>button]:top-5',
 )
 
-function Grab() {
+export function Grab() {
   return <div className="mx-auto mb-2 h-1.5 w-10 rounded-full bg-white/20" />
 }
 
@@ -167,7 +170,7 @@ function CreateSheet({ open, onOpenChange, workspaceId, canInvoice, canCreatePro
   )
 }
 
-function CreateRow({ href, icon: Icon, title, hint, accent }: { href: string; icon: typeof Home; title: string; hint: string; accent?: boolean }) {
+export function CreateRow({ href, icon: Icon, title, hint, accent }: { href: string; icon: typeof Home; title: string; hint: string; accent?: boolean }) {
   return (
     <Link href={href} className="flex items-center gap-3 rounded-2xl px-2 py-2.5 active:bg-white/[0.06]">
       <span

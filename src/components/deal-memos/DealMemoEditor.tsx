@@ -184,8 +184,8 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
       </Link>
 
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold text-foreground">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <h1 className="text-xl md:text-2xl font-semibold text-foreground">
             {memo.contact?.name ?? 'No contact'} <span className="font-normal text-muted-foreground">— {memo.roleLabel}</span>
           </h1>
           {stage ? (
@@ -199,7 +199,7 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
             <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${meta.className}`}>{meta.label}</span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {canEdit && memo.status === 'BID' && (
             <>
               <Button variant="outline" size="sm" disabled={isPending} onClick={() => run(() => setDealMemoStatus(memo.id, 'NOT_SELECTED'))}>Not selected</Button>
@@ -255,9 +255,10 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
       )}
       {error && <p className="mb-4 text-sm text-destructive">{error}</p>}
 
-      <div className="grid gap-5 lg:grid-cols-[300px_1fr]">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[300px_1fr]">
         {/* ── Internal ───────────────────────────────────────────────────── */}
-        <aside className="h-fit space-y-4 rounded-xl border border-dashed border-violet-300 bg-violet-50/40 p-4">
+        {/* Phones: after the memo itself, so the fields you fill in come first. */}
+        <aside className="order-last md:order-none h-fit space-y-4 rounded-xl border border-dashed border-violet-300 bg-violet-50/40 p-4">
           <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-violet-700">
             <Lock className="h-3 w-3" /> Internal — never shown to the vendor
           </p>
@@ -304,10 +305,10 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
         </aside>
 
         {/* ── The deal memo document ─────────────────────────────────────── */}
-        <div className="space-y-5">
-          <section className="rounded-xl border bg-card p-5">
-            <div className="grid gap-4 sm:grid-cols-[2fr_1fr_1fr_90px]">
-              <div className="space-y-1.5">
+        <div className="min-w-0 space-y-5">
+          <section className="rounded-xl border bg-card p-4 sm:p-5">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-[2fr_1fr_1fr_90px]">
+              <div className="col-span-2 space-y-1.5 sm:col-span-1">
                 <Label htmlFor="dm-position">Role (shown to the vendor)</Label>
                 <Input
                   id="dm-position" disabled={readOnly} defaultValue={memo.position}
@@ -332,7 +333,7 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
               </div>
             </div>
 
-            <div className="mt-4 flex flex-wrap items-end gap-4 border-t pt-4">
+            <div className="mt-4 flex flex-wrap items-end gap-3 sm:gap-4 border-t pt-4">
               <div className="space-y-1.5">
                 <Label>Work day</Label>
                 <div className="flex gap-1">
@@ -354,7 +355,7 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
 
           {/* Fees */}
           <section className="rounded-xl border bg-card">
-            <div className="flex items-center justify-between border-b px-5 py-3">
+            <div className="flex items-center justify-between border-b px-4 py-3 sm:px-5">
               <h2 className="text-sm font-semibold text-foreground">Fee structure</h2>
               <span className="text-sm text-muted-foreground">Total <span className="ml-1 font-semibold tabular-nums text-foreground">{formatMoney(expected)}</span></span>
             </div>
@@ -378,7 +379,7 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
 
           {/* Terms */}
           <section className="rounded-xl border bg-card">
-            <div className="flex items-center justify-between border-b px-5 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3 sm:px-5">
               <h2 className="text-sm font-semibold text-foreground">Terms</h2>
               {!readOnly && (
                 <div className="flex items-center gap-2">
@@ -478,9 +479,10 @@ function FeeRow({ fee, lines, termsCtx, disabled, onSave, onRemove }: {
   const expected = feeExpectedCents({ rateCents: rateToCents(rate), quantity: unit === 'FLAT' ? 1 : Number(qty) || 0 })
 
   return (
-    <div className="group/fee px-5 py-3">
-      <div className="grid items-center gap-2 sm:grid-cols-[1.4fr_110px_120px_80px_90px_24px]">
-        <Input value={label} disabled={disabled} onChange={e => setLabel(e.target.value)} onBlur={() => commit()} aria-label="Fee name" />
+    <div className="group/fee px-4 py-3 sm:px-5">
+      {/* Phones: name across, then rate + unit, then quantity + total. */}
+      <div className="grid grid-cols-2 items-center gap-2 sm:grid-cols-[1.4fr_110px_120px_80px_90px_24px]">
+        <Input value={label} disabled={disabled} onChange={e => setLabel(e.target.value)} onBlur={() => commit()} aria-label="Fee name" className="col-span-2 sm:col-span-1" />
         <div className="relative">
           <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
           <Input className="pl-5 tabular-nums" inputMode="decimal" value={rate} disabled={disabled}
@@ -498,12 +500,13 @@ function FeeRow({ fee, lines, termsCtx, disabled, onSave, onRemove }: {
         <Input type="number" min="0" step="0.5" value={qty} disabled={disabled || unit === 'FLAT'}
           onChange={e => setQty(e.target.value)} onBlur={() => commit()} aria-label="Quantity" title="Expected quantity" />
         <span className="text-right text-sm tabular-nums text-muted-foreground">{expected > 0 ? formatMoney(expected) : '—'}</span>
-        <button type="button" title="Remove fee" disabled={disabled} onClick={onRemove}
-          className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover/fee:opacity-100">
-          <X className="h-3.5 w-3.5" />
-        </button>
+        {/* No hover on touch screens: always visible on phones (when editable). */}
+        {disabled ? <span className="hidden sm:block" /> : <button type="button" title="Remove fee" onClick={onRemove}
+          className="col-span-2 inline-flex items-center gap-1 justify-self-end rounded p-0.5 text-xs text-muted-foreground transition-opacity hover:text-destructive sm:col-span-1 sm:opacity-0 sm:group-hover/fee:opacity-100">
+          <X className="h-3.5 w-3.5" /><span className="sm:hidden">Remove fee</span>
+        </button>}
       </div>
-      <div className="mt-2 grid items-center gap-2 sm:grid-cols-[1.4fr_1fr]">
+      <div className="mt-2 grid grid-cols-1 items-center gap-2 sm:grid-cols-[1.4fr_1fr]">
         <Input value={terms} disabled={disabled} placeholder="Details & terms (shown to the vendor)"
           onChange={e => setTerms(e.target.value)} onBlur={() => commit()} className="text-[13px]" />
         <div className="flex items-center gap-2">
@@ -589,8 +592,9 @@ function SectionEditor({ section, disabled, isFirst, isLast, onSave, onReset, on
   const inputTone = review ? 'border-blue-200 focus-visible:ring-blue-400' : ''
   return (
     <div className={`space-y-2 rounded-lg border px-4 py-3 ${review ? 'border-blue-300 bg-blue-50/40' : 'border-violet-200'}`}>
-      <div className="flex items-center gap-2">
-        <Input value={title} disabled={disabled} onChange={e => setTitle(e.target.value)} onBlur={commit} className={`font-medium ${inputTone}`} aria-label="Section title" />
+      {/* Phones: the title gets its own line; badges and controls wrap below. */}
+      <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+        <Input value={title} disabled={disabled} onChange={e => setTitle(e.target.value)} onBlur={commit} className={`basis-full font-medium sm:basis-auto ${inputTone}`} aria-label="Section title" />
         {review && <span className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700" title="Tailor this section for the job">{reviewLabel} — review</span>}
         {section.editedFromSource && <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">Edited</span>}
         {section.sourceBlockId && section.editedFromSource && (

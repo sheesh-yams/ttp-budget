@@ -98,10 +98,12 @@ function MetricCard({
   iconColor: string
 }) {
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-4">
+    // Phones: no icon, and labels/values wrap instead of truncating — two
+    // cards a row leaves ~150px each.
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3.5 sm:p-4 flex items-center gap-4">
       {/* Icon circle */}
       <div
-        className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+        className="hidden sm:flex w-12 h-12 rounded-xl items-center justify-center flex-shrink-0"
         style={{ background: iconBg, color: iconColor }}
       >
         {icon}
@@ -109,14 +111,14 @@ function MetricCard({
 
       {/* Text */}
       <div className="min-w-0">
-        <p className="text-xs font-medium text-gray-400 uppercase tracking-wider truncate">{label}</p>
-        <p className="text-xl font-bold text-gray-900 tracking-tight mt-0.5 truncate">{value}</p>
-        <div className="flex items-center gap-1 mt-0.5">
+        <p className="text-[11px] sm:text-xs font-medium text-gray-400 uppercase tracking-wider sm:truncate">{label}</p>
+        <p className="text-lg sm:text-xl font-bold text-gray-900 tracking-tight mt-0.5 tabular-nums sm:truncate">{value}</p>
+        <div className="flex items-start sm:items-center gap-1 mt-0.5">
           {trend !== null && trend !== undefined && (
             <TrendIcon trend={trend} />
           )}
           <span
-            className="text-xs truncate"
+            className="text-xs sm:truncate"
             style={{ color: subAlert ? '#ef4444' : '#9ca3af' }}
           >
             {sub}

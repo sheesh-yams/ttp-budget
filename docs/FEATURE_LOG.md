@@ -126,6 +126,54 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-07 — Mobile, phase 2: project tab bar, and fixes from the first phone test
+- **Reported** (screenshots from a phone):
+  - KPI numbers overflowed their cards on the dashboard and on Projects.
+  - Inside a project, the side menu still took half the screen.
+  - The deal memo editor was still unusable.
+- **Stat cards:**
+  - Dashboard KPIs are 2-up on phones, with smaller numbers.
+  - The Recent projects table becomes cards: name with client and type,
+    value and status.
+  - The Projects metrics hide their icon below sm, and labels wrap instead
+    of truncating.
+- **Project tab bar (Option B)** (`ProjectMobileNav.tsx`):
+  - Below md the project side column is hidden.
+  - A dark header strip shows "‹ Projects" with the client and project
+    name.
+  - A bottom bar has Overview · Pre-prod · + · Money · Delivery.
+    - Each group opens a sheet with its sections.
+    - "+" creates a deal memo, call sheet or receipt on this project,
+      offering only what this person can edit.
+  - The app's own tab bar steps aside on `/projects/[id]/*`.
+  - `projectNavSections` / `isProjectNavActive` are shared with the desktop
+    `ProjectSubNav`, so permission filtering is identical.
+- **Deal memos on phones:**
+  - **Board:** one card per bid (rate · expected · vs budget, status,
+    actions) instead of the table. The role headers stack.
+  - **Editor:** the base grid is `grid-cols-1`. Before, a long "Actuals"
+    option widened the page to 503px on a 375px phone.
+  - **Editor layout:**
+    - The memo comes before the internal panel on phones.
+    - Dates sit two to a row.
+    - Fee rows are two-column.
+    - Section headers wrap.
+    - Remove-fee is always visible on touch screens, unless read-only.
+- **Desktop:** unchanged at md and wider.
+- **Verified:**
+  - tsc, jest, lint, and build up to the known Resend step.
+  - A throwaway public preview route, deleted afterwards, rendered the real
+    Daadi deal memo board and editor (read-only) at 375×812. Scroll width
+    went from 503px to 375px.
+  - The editor was also checked at 1280px.
+  - pitfall-reviewer: 3 low findings, all fixed. Desktop row gap, the
+    internal panel reordering only below md, and no remove-fee for
+    read-only viewers.
+- **Next (phase 3):**
+  - The phone draft flow for deal memos.
+  - Phone layouts for the remaining project pages: overview, schedule,
+    call sheets, budget.
+
 ### 2026-10-07 — Mobile, phase 1: the shell (no sidebar on phones)
 - **Before:** on a phone the 200px sidebar took about half the screen on
   every page.
