@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { getAccess, getProjectAccess, requireProjectPermission } from '@/lib/access'
 import { getScopedDb } from '@/lib/db-scoped'
 import { toJsonSafe } from '@/lib/json-safe'
+import { normalizeDietaryTags } from '@/lib/dietary'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import type { CrewDept, TalentMember } from './call-sheets'
@@ -49,14 +50,17 @@ async function requireMemberPermission(memberId: string, projectId: string) {
  * Never overrides what the caller sent.
  */
 async function fillFromContact(sdb: Awaited<ReturnType<typeof getScopedDb>>, data: MemberFormData, opts: { rate: boolean }) {
-  // Only for callers who got the names-only search; with the rolodex the
-  // form already carried the details, and a blank is deliberate.
-  if (!data.contactId || (await getAccess()).can('rolodex')) return
+  if (!data.contactId) return
+  // Scoped lookup: a contact id from another workspace is dropped, so a crew
+  // row can never link to (and display data from) someone else's Rolodex.
   const c = await sdb.contact.findFirst({
     where:  { id: data.contactId },
     select: { email: true, phone: true, defaultRateCents: true, defaultRateUnit: true },
   })
-  if (!c) return
+  if (!c) { data.contactId = null; return }
+  // Only for callers who got the names-only search; with the rolodex the
+  // form already carried the details, and a blank is deliberate.
+  if ((await getAccess()).can('rolodex')) return
   if (!data.email) data.email = c.email
   if (!data.phone) data.phone = c.phone
   // Rate only when adding — on an edit an empty rate may be deliberate.
@@ -113,6 +117,45 @@ export async function getProjectMembers(projectId: string) {
 }
 
 export type ProjectMemberRow = Awaited<ReturnType<typeof getProjectMembers>>[number]
+
+// ── Dietary (saved on the linked Rolodex contact) ─────────────────────────────
+
+/**
+ * Set a crew member's dietary restrictions from the Crew page. They live on
+ * the person's Rolodex contact — the same fields the Rolodex form edits — so
+ * the latest edit from either place wins everywhere. Needs crew edit on this
+ * project (not Rolodex access) and touches only the dietary fields of the
+ * contact linked to this project's crew row.
+ */
+export async function setCrewMemberDietary(
+  projectId: string,
+  memberId:  string,
+  input: { tags: string[]; notes: string | null },
+): Promise<ActionResult<{ tags: string[]; notes: string | null }>> {
+  try {
+    const gate = await requireProjectPermission(projectId, 'crew', 'EDIT')
+    if (!gate.ok) return gate.error
+    const parsed = z.object({ tags: z.array(z.string()).max(20), notes: z.string().max(1000).nullable() }).safeParse(input)
+    if (!parsed.success) return { success: false, error: 'Check the dietary details.' }
+
+    const sdb = await getScopedDb()
+    const member = await sdb.projectMember.findFirst({ where: { id: memberId, projectId }, select: { contactId: true } })
+    if (!member) return { success: false, error: 'Crew member not found.' }
+    if (!member.contactId) return { success: false, error: 'Link them to a Rolodex contact to add dietary info.' }
+
+    const tags  = normalizeDietaryTags(parsed.data.tags)
+    const notes = parsed.data.notes?.trim() || null
+    const res = await sdb.contact.updateMany({ where: { id: member.contactId }, data: { dietaryTags: tags, dietaryNotes: notes } })
+    if (res.count === 0) return { success: false, error: 'Rolodex contact not found.' }
+
+    revalidatePath(`/projects/${projectId}/crew`)
+    revalidatePath('/rolodex')
+    revalidatePath(`/rolodex/${member.contactId}`)
+    return { success: true, data: { tags, notes } }
+  } catch {
+    return { success: false, error: 'Failed to save dietary info.' }
+  }
+}
 
 // ── Write ──────────────────────────────────────────────────────────────────────
 

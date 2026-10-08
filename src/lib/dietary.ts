@@ -35,6 +35,12 @@ export function normalizeDietaryTags(tags: unknown): DietaryTag[] {
 
 export interface Dietary { tags: string[]; notes: string | null }
 
+/** Same tags (any order) and same trimmed note — used to send dietary only when it changed. */
+export function sameDietary(a: Dietary, b: Dietary): boolean {
+  const at = new Set(a.tags), bt = new Set(b.tags)
+  return at.size === bt.size && [...at].every(t => bt.has(t)) && (a.notes?.trim() || null) === (b.notes?.trim() || null)
+}
+
 export function hasDietary(d: Dietary | null | undefined): boolean {
   return !!d && (d.tags.length > 0 || !!d.notes?.trim())
 }

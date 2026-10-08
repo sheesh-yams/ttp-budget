@@ -126,6 +126,45 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-08 — Dietary editable from the Crew page too (latest edit wins)
+- **Asked:** dietary showed only in the Rolodex. It should be editable from
+  either the Rolodex or the Crew page, with the most recent edit winning.
+- **How:**
+  - Both places write the same `Contact.dietaryTags` / `dietaryNotes`, so
+    there is a single copy and the latest save wins everywhere.
+  - The Crew page edit card has the same chips and note as the Rolodex form
+    (shared `DietaryPicker`).
+  - New action `setCrewMemberDietary`:
+    - Needs crew Edit on the project, not Rolodex access.
+    - Finds the row scoped by member id and project.
+    - Writes only the two dietary fields of the linked contact.
+  - The new values show at once on every crew row linked to that person.
+  - Unlinked rows show "Link to a Rolodex contact to add dietary".
+  - Right after a relink, the card waits for the new person's dietary to
+    load before offering edits.
+- **Review fixes:**
+  - **Send only what changed.** Both the Rolodex form and the crew card now
+    send dietary only when it changed (`sameDietary`). Saving a phone number
+    in a Rolodex form that was already open can't undo an allergy added on
+    the Crew page in the meantime.
+  - **Workspace check on links.** Crew add/edit now drops a `contactId`
+    that isn't in the caller's workspace (`fillFromContact`'s scoped
+    lookup). Before, a leaked id from another workspace could be linked and
+    its dietary displayed.
+- **Known, by design:** a crew editor can link a row to any contact in the
+  workspace (the names-only search), so they can set dietary for any
+  contact. Only the dietary fields; nothing else on the contact.
+- **Verified:**
+  - tsc, jest (364), lint and the build.
+  - DB round trip: a Crew-side save is normalised, a Rolodex-side save then
+    wins, and the write is blocked from another workspace and for a wrong
+    project id.
+  - pitfall-reviewer.
+- **Manual pass:**
+  - Edit a linked crew member's dietary and check the Rolodex shows it.
+  - Edit it in the Rolodex and check the Crew page.
+  - Relink a row and reopen its card.
+
 ### 2026-10-08 — Dietary restrictions on Rolodex contacts (Crew page + call sheet editor)
 - **Asked:** a dietary restriction field on Rolodex contacts and crew, shown
   on call sheets and the Crew page so planners can plan food.

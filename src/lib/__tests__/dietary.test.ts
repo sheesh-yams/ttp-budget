@@ -1,4 +1,4 @@
-import { normalizeDietaryTags, summarizeDietary, hasDietary, dietaryLabel } from '@/lib/dietary'
+import { normalizeDietaryTags, summarizeDietary, hasDietary, dietaryLabel, sameDietary } from '@/lib/dietary'
 
 describe('dietary', () => {
   it('keeps known tags only, de-duplicated, in the standard order', () => {
@@ -18,5 +18,12 @@ describe('dietary', () => {
     expect(hasDietary({ tags: [], notes: ' ' })).toBe(false)
     expect(hasDietary({ tags: ['HALAL'], notes: null })).toBe(true)
     expect(dietaryLabel('SHELLFISH')).toBe('Shellfish allergy')
+  })
+
+  it('sameDietary ignores tag order and note whitespace, catches real changes', () => {
+    expect(sameDietary({ tags: ['VEGAN', 'HALAL'], notes: ' EpiPen ' }, { tags: ['HALAL', 'VEGAN'], notes: 'EpiPen' })).toBe(true)
+    expect(sameDietary({ tags: [], notes: '' }, { tags: [], notes: null })).toBe(true)
+    expect(sameDietary({ tags: ['VEGAN'], notes: null }, { tags: ['VEGAN', 'HALAL'], notes: null })).toBe(false)
+    expect(sameDietary({ tags: ['VEGAN'], notes: null }, { tags: ['VEGAN'], notes: 'nuts' })).toBe(false)
   })
 })

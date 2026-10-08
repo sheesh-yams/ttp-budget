@@ -2,6 +2,8 @@
 
 import { useState, useTransition, useRef, useEffect } from 'react'
 import { DietaryBadges, DietarySummary } from '@/components/crew/DietaryBadges'
+import { DietaryPicker } from '@/components/crew/DietaryPicker'
+import { sameDietary } from '@/lib/dietary'
 import {
   Plus, Mail, Phone, Clock, Edit2, Trash2,
   BookUser, FileText, Search, X, UserPlus, AlertTriangle, CheckCircle2,
@@ -12,6 +14,7 @@ import { createPortal } from 'react-dom'
 import {
   removeProjectMember,
   updateProjectMember,
+  setCrewMemberDietary,
   dismissMismatch,
   type ProjectMemberRow,
   type MemberFormData,
@@ -124,12 +127,19 @@ export function ProjectTeam({ projectId, members: initial, seedProposalTitle, ti
 
   function handleAdded() { window.location.reload() }
   function handleRemoved(id: string) { setMembers(prev => prev.filter(m => m.id !== id)) }
-  function handleUpdated(updated: ProjectMemberRow) {
-    // Dietary comes from the linked contact: kept while the link is unchanged;
-    // cleared if the row now points at someone else (the refresh brings theirs).
-    setMembers(prev => prev.map(m => m.id === updated.id
-      ? { ...updated, contact: updated.contactId === m.contactId ? m.contact : null }
-      : m))
+  function handleUpdated(updated: ProjectMemberRow, relinked: boolean) {
+    // Dietary comes from the linked contact. Same person: the card's copy is
+    // current, and shows on every row linked to them. Relinked: keep whatever
+    // the page refresh already loaded for the new person, else nothing until
+    // it arrives (the card won't offer dietary editing meanwhile).
+    setMembers(prev => prev.map(m => {
+      if (m.id === updated.id) {
+        if (!relinked) return updated
+        return { ...updated, contact: m.contactId === updated.contactId ? m.contact : null }
+      }
+      if (!relinked && updated.contactId && m.contactId === updated.contactId) return { ...m, contact: updated.contact }
+      return m
+    }))
   }
   function handleMismatchDismissed(id: string) {
     setMembers(prev => prev.map(m => m.id === id ? { ...m, mismatchFlag: false } : m))
@@ -221,7 +231,7 @@ export function ProjectTeam({ projectId, members: initial, seedProposalTitle, ti
                       <EditCard
                         member={member}
                         projectId={projectId}
-                        onSaved={(updated) => { handleUpdated(updated); setEditingId(null) }}
+                        onSaved={(updated, relinked) => { handleUpdated(updated, relinked); setEditingId(null) }}
                         onCancel={() => setEditingId(null)}
                       />
                     </div>
@@ -549,7 +559,7 @@ function EditCard({
 }: {
   member:    ProjectMemberRow
   projectId: string
-  onSaved:   (updated: ProjectMemberRow) => void
+  onSaved:   (updated: ProjectMemberRow, relinked: boolean) => void
   onCancel:  () => void
 }) {
   const { canSetRates } = useCrewPermissions()
@@ -567,6 +577,13 @@ function EditCard({
   const [rateUnit, setRateUnit] = useState<MemberFormData['rateUnit']>(
     (member.rateUnit as MemberFormData['rateUnit']) ?? 'DAY'
   )
+  // Dietary lives on the linked Rolodex contact — editable here only while the
+  // row stays linked to the same person (a newly picked contact brings theirs).
+  const [dietTags,  setDietTags]  = useState<string[]>(member.contact?.dietaryTags ?? [])
+  const [dietNotes, setDietNotes] = useState(member.contact?.dietaryNotes ?? '')
+  const [saveError, setSaveError] = useState<string | null>(null)
+  // contact is null only until the refresh after a relink loads the new person's.
+  const dietEditable = !!member.contactId && contactId === member.contactId && !!member.contact
 
   // Rolodex name search
   const [nameResults,  setNameResults]  = useState<ContactSearchResult[]>([])
@@ -635,9 +652,23 @@ function EditCard({
         rateUnit,
         order:      member.order,
       }
-      await updateProjectMember(member.id, projectId, data)
+      setSaveError(null)
+      const res = await updateProjectMember(member.id, projectId, data)
+      if (!res.success) { setSaveError((res as { success: false; error: string }).error); return }
+
+      const relinked = (data.contactId ?? null) !== (member.contactId ?? null)
+      let contact = member.contact
+      const dietChanged = dietEditable && !sameDietary(
+        { tags: dietTags, notes: dietNotes },
+        { tags: member.contact?.dietaryTags ?? [], notes: member.contact?.dietaryNotes ?? null },
+      )
+      if (dietChanged) {
+        const d = await setCrewMemberDietary(projectId, member.id, { tags: dietTags, notes: dietNotes.trim() || null })
+        if (!d.success) { setSaveError((d as { success: false; error: string }).error); return }
+        contact = { dietaryTags: d.data.tags, dietaryNotes: d.data.notes }
+      }
       // Without rate access the server kept the stored rate (we never had it).
-      onSaved({ ...member, ...data, rateCents: canSetRates ? (data.rateCents ?? null) : member.rateCents } as ProjectMemberRow)
+      onSaved({ ...member, ...data, contact, rateCents: canSetRates ? (data.rateCents ?? null) : member.rateCents } as ProjectMemberRow, relinked)
     })
   }
 
@@ -804,6 +835,29 @@ function EditCard({
           />
         </div>
       </div>
+
+      {/* Dietary — saved on the person's Rolodex contact; the latest edit wins */}
+      <div className="mt-3">
+        <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Dietary</label>
+        {dietEditable ? (
+          <>
+            <DietaryPicker tags={dietTags} notes={dietNotes} onTags={setDietTags} onNotes={setDietNotes} />
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Saved to their Rolodex contact — also editable there; the latest edit wins. Internal only, never on the sent call sheet.
+            </p>
+          </>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {!contactId
+              ? 'Link to a Rolodex contact to add dietary.'
+              : contactId !== member.contactId
+                ? 'Save first — then dietary for the newly linked contact can be edited here.'
+                : 'Loading their dietary from the Rolodex — reopen in a moment.'}
+          </p>
+        )}
+      </div>
+
+      {saveError && <p className="mt-3 text-xs text-destructive">{saveError}</p>}
 
       <div className="mt-4 flex gap-2">
         <button
