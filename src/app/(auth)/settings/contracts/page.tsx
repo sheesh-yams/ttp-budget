@@ -3,11 +3,13 @@ import { requireWorkspaceArea } from '@/lib/project-access'
 import { listContractBlocks } from '@/server/actions/contract-blocks'
 import { getDealMemoDefaults } from '@/server/actions/deal-memos'
 import { ContractBlocksManager } from '@/components/settings/contracts/ContractBlocksManager'
+import { ContractTemplatesManager } from '@/components/settings/contracts/ContractTemplatesManager'
+import { listContractTemplates } from '@/server/actions/contract-templates'
 import { DealMemoDefaultsPanel } from '@/components/settings/contracts/DealMemoDefaultsPanel'
 import { BUILT_IN_DEAL_MEMO_DEFAULTS } from '@/lib/deal-memo-defaults'
 import { cn } from '@/lib/utils'
 
-export const metadata = { title: 'Contract Blocks' }
+export const metadata = { title: 'Contracts' }
 
 export default async function ContractsSettingsPage({
   searchParams,
@@ -20,11 +22,14 @@ export default async function ContractsSettingsPage({
   const { for: forParam } = await searchParams
   const audience = forParam === 'vendor' ? 'VENDOR' : 'CLIENT'
 
-  const [blocksRes, defaultsRes] = await Promise.all([
+  const [blocksRes, defaultsRes, templatesRes] = await Promise.all([
     listContractBlocks(audience),
     audience === 'VENDOR' ? getDealMemoDefaults() : Promise.resolve(null),
+    listContractTemplates(audience),
   ])
   const blocks = blocksRes.success ? blocksRes.data : []
+  const templates = templatesRes.success ? templatesRes.data : []
+  const hasDefaultTemplate = templates.some(t => t.isDefault)
   const defaults = defaultsRes && defaultsRes.success ? defaultsRes.data : BUILT_IN_DEAL_MEMO_DEFAULTS
 
   const tabs = [
@@ -57,8 +62,11 @@ export default async function ContractsSettingsPage({
       <fieldset disabled={!canEdit} className="contents">
         {audience === 'VENDOR' && <DealMemoDefaultsPanel initial={defaults} />}
 
+        <ContractTemplatesManager key={`t-${audience}`} audience={audience} templates={templates} blocks={blocks} />
+
+        <h2 className="mb-1 text-base font-semibold text-foreground">Block library</h2>
         {/* key forces a fresh manager (and its create dialog) per audience */}
-        <ContractBlocksManager key={audience} blocks={blocks} audience={audience} />
+        <ContractBlocksManager key={audience} blocks={blocks} audience={audience} hasDefaultTemplate={hasDefaultTemplate} />
       </fieldset>
     </div>
   )

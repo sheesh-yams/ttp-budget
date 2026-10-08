@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { searchContacts, createContact, type ContactSearchResult } from '@/server/actions/rolodex'
 import { createDealMemo } from '@/server/actions/deal-memos'
+import { listContractTemplateOptions, type ContractTemplateOption } from '@/server/actions/contract-templates'
 import { formatMoney } from '@/lib/money'
 import { UNIT_SUFFIX } from './labels'
 
@@ -35,6 +36,19 @@ export function AddBidDialog({ projectId, open, onClose, lineItemId, roleLabel }
   const [newName, setNewName]   = useState('')
   const [newEmail, setNewEmail] = useState('')
   const [error, setError]       = useState<string | null>(null)
+  // Contract template for the memo's terms — the default one pre-selected.
+  const [templates, setTemplates] = useState<ContractTemplateOption[]>([])
+  const [templateId, setTemplateId] = useState('')
+  useEffect(() => {
+    if (!open) return
+    listContractTemplateOptions('VENDOR').then(r => {
+      if (!r.success) return
+      setTemplates(r.data)
+      // '' = no template: the server uses the default template, or (none set)
+      // the blocks marked "attach by default".
+      setTemplateId(r.data.find(t => t.isDefault)?.id ?? '')
+    }).catch(() => {})
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -58,6 +72,7 @@ export function AddBidDialog({ projectId, open, onClose, lineItemId, roleLabel }
     startTransition(async () => {
       const res = await createDealMemo({
         projectId, lineItemId, contactId, roleLabel: lineItemId ? undefined : roleName,
+        templateId: templateId || null,
       })
       if (!res.success) { setError((res as { success: false; error: string }).error); return }
       reset()
@@ -92,6 +107,21 @@ export function AddBidDialog({ projectId, open, onClose, lineItemId, roleLabel }
           <div className="space-y-1.5">
             <Label htmlFor="bid-role">Role</Label>
             <Input id="bid-role" value={roleName} onChange={e => setRoleName(e.target.value)} placeholder="e.g. Production Assistant" />
+          </div>
+        )}
+
+        {templates.length > 0 && (
+          <div className="space-y-1.5">
+            <Label htmlFor="bid-template">Contract template</Label>
+            <select
+              id="bid-template" value={templateId} onChange={e => setTemplateId(e.target.value)}
+              className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
+            >
+              {!templates.some(t => t.isDefault) && <option value="">Blocks marked default</option>}
+              {templates.map(t => (
+                <option key={t.id} value={t.id}>{t.name}{t.isDefault ? ' (default)' : ''} · {t.blockCount} block{t.blockCount === 1 ? '' : 's'}</option>
+              ))}
+            </select>
           </div>
         )}
 

@@ -126,6 +126,67 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-08 — Contract Builder: contract templates made of blocks
+- **Asked:** group blocks into contract templates, e.g. SOW – Social vs
+  SOW – Brand, or a Talent memo that includes the Usage block. Build them
+  in Settings → Contracts → **Contract Builder**.
+- **Decisions (user):**
+  - Templates on both sides (deal memos and proposals).
+  - A template is the full ordered list, with one default per side.
+  - Add bid has a template dropdown with the default pre-selected.
+  - Applying a template adds only what's missing.
+- **Model** (`20261008000001_contract_templates`, additive):
+  - `ContractTemplate` (audience, name, description, isDefault, orderIndex),
+    with a partial unique index allowing one default per workspace and
+    audience.
+  - `ContractTemplateBlock` (template ↔ block, ordered). Deleting a template
+    or a block cascades.
+  - Both are in `SCOPED_MODELS`.
+- **`resolveTemplateBlocks`** (`src/lib/contract-templates.ts`) picks, in
+  order:
+  1. The chosen template's active blocks of the same audience.
+  2. Otherwise the default template.
+  3. Otherwise the blocks marked "attach by default" (unchanged until a
+     template exists).
+
+  It's used by `createDealMemo` (new optional `templateId`) and the
+  proposal `attachDefaultBlocks`.
+- **"Use template"** in the deal memo Terms header and the proposal
+  Contract tab:
+  - Adds missing blocks after the current sections, in template order
+    (`mergeTemplateSections`, unit-tested).
+  - Refused on signed or cancelled memos and won proposals.
+  - The memo editor saves pending edits first.
+- **Settings:**
+  - The Contract Builder sits above the block library, with template cards
+    and a builder dialog: library checkboxes grouped by category on the
+    left, the ordered list with up/down/remove on the right.
+  - A new template starts from the blocks marked default.
+  - Template CRUD is gated by Settings Edit. Block ids are checked against
+    the workspace and the audience; create and update run in a transaction
+    that moves the default flag atomically.
+- **Add bid:** a "Contract template" dropdown. When no template is the
+  default, it offers "Blocks marked default".
+- **Verified:**
+  - tsc, jest (358, including the merge tests), lint, `audit:scoping`, and
+    build up to the known Resend step.
+  - **Real DB, temporary workspaces:**
+    - The fallback with no templates.
+    - One default per side, also enforced by the database.
+    - Cross-audience and other-workspace block ids rejected.
+    - A chosen template creates the memo in order and skips inactive
+      blocks; with none chosen, the default template is used.
+    - Apply adds only what's missing and keeps edits; it's refused on a
+      cancelled memo and a won proposal; a vendor template can't go on a
+      proposal.
+    - Deleting a block removes it from templates.
+  - Browser: the builder dialog rendered with the real vendor library.
+  - pitfall-reviewer: 2 findings (Add bid forcing the first template when
+    none is the default; block counts including inactive blocks). Both
+    fixed.
+- **Data:** creating "Standard" templates from today's default blocks waits
+  for the user's OK.
+
 ### 2026-10-07 — Batched autosave, ship 2: budget lines save in the background
 - **Before:** a budget line pop-up waited for `upsertLineItem` (5–6
   database round trips), then `router.refresh()` re-rendered the whole

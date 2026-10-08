@@ -21,10 +21,11 @@ import { parseLocalDate } from '@/lib/time-format'
 import type { VendorDealMemo } from '@/lib/deal-memo-vendor-view'
 import type { PhaseLine } from '@/lib/deal-memo-queries'
 import {
-  addDealMemoSection, awardDealMemo, deleteDealMemoFee, moveDealMemoSection, removeDealMemoSection,
+  addDealMemoSection, applyContractTemplateToDealMemo, awardDealMemo, deleteDealMemoFee, moveDealMemoSection, removeDealMemoSection,
   resetDealMemoSection, setDealMemoStatus, updateDealMemo, updateDealMemoSection, upsertDealMemoFee,
 } from '@/server/actions/deal-memos'
 import { SaveGeneration, SaveScope, SaveStatusLine, useSaveQueue, useSaveScope } from '@/components/autosave/SaveScope'
+import { UseTemplateMenu } from '@/components/contracts/UseTemplateMenu'
 import { DealMemoDocument } from './DealMemoDocument'
 import { FEE_KIND_LABEL, STATUS_META, UNIT_OPTIONS, UNIT_SUFFIX, VENDOR_STAGE_META, vendorStage } from './labels'
 import { DealMemoVendorActions, type VendorLinkInfo } from './DealMemoVendorActions'
@@ -419,7 +420,9 @@ function DealMemoEditorInner({ projectId, memo, lines, library, vendorView, show
             <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3 sm:px-5">
               <h2 className="text-sm font-semibold text-foreground">Terms</h2>
               {!readOnly && (
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <UseTemplateMenu audience="VENDOR" disabled={isPending}
+                    onApply={templateId => run(() => applyContractTemplateToDealMemo(memo.id, templateId))} />
                   {library.length > 0 && (
                     <TermsPicker
                       library={library} sections={memo.sections} disabled={isPending}

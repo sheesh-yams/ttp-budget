@@ -5,6 +5,7 @@ import { getScopedDb } from '@/lib/db-scoped'
 import { getWorkspaceId } from '@/lib/auth'
 import { requireMoneyPermission } from '@/lib/money-access'
 import { evaluateContractTriggers } from '@/lib/contract-triggers'
+import { mergeTemplateSections, resolveTemplateBlocks } from '@/lib/contract-templates'
 import type { ActionResult } from '@/types'
 import type { ScopeItem, ProposalContent } from '@/types'
 import type { AttachSource, ContractBlockCategory } from '@prisma/client'
@@ -306,9 +307,9 @@ export async function attachDefaultBlocks(
     })
     if (existing) return { success: true, data: undefined }
 
-    const defaults = await sdbAny.contractBlock.findMany({
-      where: { isDefault: true, isActive: true, audience: 'CLIENT' }, orderBy: { orderIndex: 'asc' },
-    })
+    // The default contract template's blocks, else (no templates yet) the
+    // blocks marked "attach by default".
+    const defaults = (await resolveTemplateBlocks(sdb, 'CLIENT')) ?? []
     if (defaults.length === 0) return { success: true, data: undefined }
 
     await sdbAny.proposalContractSection.createMany({
@@ -383,6 +384,43 @@ export async function attachContractBlock(
     return { success: true, data: { id: section.id } }
   } catch {
     return { success: false, error: 'Failed to attach block.' }
+  }
+}
+
+// ─── Use a contract template ───────────────────────────────────────────────────
+// Adds the template's blocks that aren't already on the proposal, after the
+// current sections, in template order. Never removes or overwrites a section.
+
+export async function applyContractTemplateToProposal(
+  proposalId: string, templateId: string,
+): Promise<ActionResult<{ added: number }>> {
+  try {
+    const gate = await requireMoneyPermission({ proposalId }, 'contract', 'EDIT')
+    if (!gate.ok) return gate.error
+    const workspaceId = await getWorkspaceId()
+    const sdb = await getScopedDb()
+
+    const locked = await isProposalLocked(sdb, proposalId)
+    if (locked === null) return { success: false, error: 'Proposal not found.' }
+    if (locked) return { success: false, error: CONTRACT_LOCKED_ERROR }
+
+    const blocks = await resolveTemplateBlocks(sdb, 'CLIENT', templateId)
+    if (!blocks) return { success: false, error: 'That contract template isn’t in your client library.' }
+    const existing = await sdb.proposalContractSection.findMany({ where: { proposalId }, select: { sourceBlockId: true, orderIndex: true } })
+    const toAdd = mergeTemplateSections(existing.map(e => e.sourceBlockId), blocks)
+    if (toAdd.length) {
+      const start = existing.reduce((m, e) => Math.max(m, e.orderIndex), 0)
+      await sdb.proposalContractSection.createMany({
+        data: toAdd.map((b, i) => ({
+          workspaceId, proposalId, sourceBlockId: b.id, title: b.title, body: b.body,
+          orderIndex: start + (i + 1) * 10, attachedBy: 'MANUAL' as const, editedFromSource: false,
+        })),
+      })
+    }
+    revalidatePath('/projects')
+    return { success: true, data: { added: toAdd.length } }
+  } catch {
+    return { success: false, error: 'Failed to apply the template.' }
   }
 }
 

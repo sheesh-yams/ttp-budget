@@ -10,9 +10,11 @@ import type { ContractAudience } from '@prisma/client'
 type Props = {
   blocks:    ContractBlockRow[]
   audience?: ContractAudience
+  /** A default contract template decides what new memos/proposals start with. */
+  hasDefaultTemplate?: boolean
 }
 
-export function ContractBlocksManager({ blocks, audience = 'CLIENT' }: Props) {
+export function ContractBlocksManager({ blocks, audience = 'CLIENT', hasDefaultTemplate = false }: Props) {
   const isVendor = audience === 'VENDOR'
   const [createOpen, setCreateOpen] = useState(false)
 
@@ -25,7 +27,9 @@ export function ContractBlocksManager({ blocks, audience = 'CLIENT' }: Props) {
       <div className="flex items-center justify-between mb-6">
         <div>
           <p className="text-sm text-muted-foreground">
-            {isVendor
+            {hasDefaultTemplate
+              ? `The blocks your templates are built from. New ${isVendor ? 'deal memos' : 'proposals'} start with the default template above.`
+              : isVendor
               ? 'Terms for crew and talent deal memos. Default blocks attach to every new deal memo, and you can edit them per memo.'
               : 'Reusable contract clauses. Default blocks attach to every proposal; triggered blocks are suggested automatically based on deliverables.'}
           </p>
@@ -52,7 +56,7 @@ export function ContractBlocksManager({ blocks, audience = 'CLIENT' }: Props) {
           {defaultBlocks.length > 0 && (
             <section>
               <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                Always attached
+                {hasDefaultTemplate ? 'Marked default (used only if there’s no default template)' : 'Always attached'}
               </h2>
               <div className="space-y-3">
                 {defaultBlocks.map(b => <ContractBlockCard key={b.id} block={b} />)}
@@ -86,6 +90,7 @@ export function ContractBlocksManager({ blocks, audience = 'CLIENT' }: Props) {
 
       <ContractBlockDialog
         audience={audience}
+        hasDefaultTemplate={hasDefaultTemplate}
         open={createOpen}
         onClose={() => setCreateOpen(false)}
       />

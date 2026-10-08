@@ -80,6 +80,9 @@ export const SCOPED_MODELS = new Set([
   'DealMemo',
   'DealMemoFee',
   'DealMemoSection',
+  // Contract Builder — templates (named groups of contract blocks)
+  'ContractTemplate',
+  'ContractTemplateBlock',
   // Roles & permissions — configurable workspace roles, memberships, project roles
   'WorkspaceRole',
   'WorkspaceMember',

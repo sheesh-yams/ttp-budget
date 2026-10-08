@@ -26,6 +26,7 @@ import {
   moveInOrder,
 } from '@/lib/deal-memo-core'
 import { applyDealMemoAwardEffects } from '@/lib/deal-memo-effects'
+import { mergeTemplateSections, resolveTemplateBlocks } from '@/lib/contract-templates'
 import { Prisma } from '@prisma/client'
 import { generatePublicToken } from '@/lib/secure-token'
 import { toJsonSafe } from '@/lib/json-safe'
@@ -152,6 +153,8 @@ const createSchema = z.object({
   lineItemId: z.string().min(1).nullable().optional(),
   contactId:  z.string().min(1),
   roleLabel:  z.string().trim().max(200).optional(),
+  /** Contract template for the terms; omitted = the default template. */
+  templateId: z.string().min(1).nullable().optional(),
 })
 
 export async function createDealMemo(input: z.infer<typeof createSchema>): Promise<ActionResult<{ id: string }>> {
@@ -186,11 +189,10 @@ export async function createDealMemo(input: z.infer<typeof createSchema>): Promi
       line: line && !canSeeCosts ? { ...line, rateCents: 0 } : line,
       contact, roleLabel, project,
     })
-    const defaultBlocks = await sdb.contractBlock.findMany({
-      where:   { audience: 'VENDOR', isActive: true, isDefault: true },
-      orderBy: { orderIndex: 'asc' },
-      select:  { id: true, title: true, body: true },
-    })
+    // The chosen contract template's blocks, else the default template's,
+    // else (no templates yet) the blocks marked "attach by default".
+    const defaultBlocks = await resolveTemplateBlocks(sdb, 'VENDOR', parsed.data.templateId)
+    if (!defaultBlocks) return { success: false, error: 'That contract template isn’t in your crew & vendor library.' }
 
     const { fees, ...memoFields } = prefill
     const memo = await sdb.$transaction(async tx => {
@@ -391,6 +393,37 @@ export async function addDealMemoSection(
     return { success: true, data: { id: created.id } }
   } catch {
     return { success: false, error: 'Failed to add the section.' }
+  }
+}
+
+/**
+ * Use a contract template on an existing memo: adds the template's blocks that
+ * aren't already on it, after the current sections, in template order. Never
+ * removes or overwrites a section.
+ */
+export async function applyContractTemplateToDealMemo(memoId: string, templateId: string): Promise<ActionResult<{ added: number }>> {
+  try {
+    const gate = await requireMemoPermission(memoId)
+    if (!gate.ok) return gate.error
+    const sdb = await getScopedDb()
+    const loaded = await loadEditableMemo(sdb, memoId)
+    if ('error' in loaded) return { success: false, error: loaded.error as string }
+
+    const blocks = await resolveTemplateBlocks(sdb, 'VENDOR', templateId)
+    if (!blocks) return { success: false, error: 'That contract template isn’t in your crew & vendor library.' }
+    const existing = await sdb.dealMemoSection.findMany({ where: { dealMemoId: memoId }, select: { sourceBlockId: true } })
+    const toAdd = mergeTemplateSections(existing.map(e => e.sourceBlockId), blocks)
+    if (toAdd.length) {
+      const workspaceId = await getWorkspaceId()
+      const start = await nextSectionIndex(sdb, memoId)
+      await sdb.dealMemoSection.createMany({
+        data: toAdd.map((b, i) => ({ workspaceId, dealMemoId: memoId, sourceBlockId: b.id, title: b.title, body: b.body, orderIndex: start + i })),
+      })
+    }
+    revalidateMemo(loaded.memo.projectId, memoId)
+    return { success: true, data: { added: toAdd.length } }
+  } catch {
+    return { success: false, error: 'Failed to apply the template.' }
   }
 }
 

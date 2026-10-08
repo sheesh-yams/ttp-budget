@@ -100,6 +100,7 @@ model Workspace {
   paymentConfig            WorkspacePaymentConfig?
   receipts                 Receipt[]
   contractBlocks           ContractBlock[]
+  contractTemplates        ContractTemplate[]
   dealMemos                DealMemo[]
   workspaceRoles           WorkspaceRole[]
   workspaceMembers         WorkspaceMember[]
@@ -1673,10 +1674,46 @@ model ContractBlock {
   isActive    Boolean                @default(true)
   orderIndex  Int                    @default(0)
   triggers    ContractBlockTrigger[]
+  templateItems ContractTemplateBlock[]
   createdAt   DateTime               @default(now())
   updatedAt   DateTime               @updatedAt
 
   @@index([workspaceId, isActive])
+}
+
+// A named, ordered group of blocks (Settings → Contracts → Contract Builder):
+// e.g. "Talent" = the standard crew terms + Usage. One template per audience
+// may be the default — used when a memo/proposal starts without one chosen.
+// (One default per workspace + audience is enforced by a partial unique index
+// in the migration.)
+model ContractTemplate {
+  id          String                  @id @default(cuid())
+  workspaceId String
+  workspace   Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  audience    ContractAudience
+  name        String
+  description String?
+  isDefault   Boolean                 @default(false)
+  orderIndex  Int                     @default(0)
+  blocks      ContractTemplateBlock[]
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+
+  @@index([workspaceId, audience])
+}
+
+model ContractTemplateBlock {
+  id          String           @id @default(cuid())
+  workspaceId String
+  templateId  String
+  template    ContractTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  blockId     String
+  block       ContractBlock    @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  orderIndex  Int              @default(0)
+
+  @@unique([templateId, blockId])
+  @@index([blockId])
+  @@index([workspaceId])
 }
 
 model ContractBlockTrigger {

@@ -5,6 +5,7 @@ import { Eye, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { UseTemplateMenu } from '@/components/contracts/UseTemplateMenu'
 import { SmartTextEditor } from '@/components/delivery/SmartTextEditor'
 import { renderSmartText } from '@/lib/smart-text'
 import { resolveMergeTags, unresolvedTagNames, type MergeTagContext } from '@/lib/merge-tags'
@@ -19,6 +20,7 @@ import {
   resetContractSection,
   removeContractSection,
   listLibraryBlocksForPicker,
+  applyContractTemplateToProposal,
   setContractEnabled,
   getMergeTagContext,
   type ContractSectionRow,
@@ -431,6 +433,18 @@ export function ContractTab({
 
   const isLoading = loading || initPending
 
+  // "Use template": adds the template's blocks that aren't on the proposal yet.
+  const [templateError, setTemplateError] = useState<string | null>(null)
+  const [applyingTemplate, startApplyTemplate] = useTransition()
+  function applyTemplate(templateId: string) {
+    setTemplateError(null)
+    startApplyTemplate(async () => {
+      const res = await applyContractTemplateToProposal(proposalId, templateId)
+      if (!res.success) { setTemplateError((res as { success: false; error: string }).error); return }
+      await load()
+    })
+  }
+
   // Merge tags that won't resolve with the current client/workspace/proposal
   // data — warn the producer here so a client never sees a blank or stray tag.
   const unresolved = Array.from(
@@ -449,6 +463,9 @@ export function ContractTab({
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {enabled && !isLoading && canEdit && (
+            <UseTemplateMenu audience="CLIENT" disabled={applyingTemplate} onApply={applyTemplate} />
+          )}
           {/* Preview toggle — only shown when contract is enabled and loaded */}
           {enabled && !isLoading && (
             <button
@@ -513,6 +530,7 @@ export function ContractTab({
               </div>
             ) : (
               <>
+                {templateError && <p className="text-xs text-destructive">{templateError}</p>}
                 {canEdit && suggestions.length > 0 && (
                   <SuggestionBanner
                     suggestions={suggestions}

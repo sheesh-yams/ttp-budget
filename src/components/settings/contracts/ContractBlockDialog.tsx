@@ -44,9 +44,11 @@ type Props = {
   editing?: ContractBlockRow
   /** For new blocks; an existing block keeps its own audience. */
   audience?: ContractAudience
+  /** A default contract template decides what new memos/proposals start with. */
+  hasDefaultTemplate?: boolean
 }
 
-export function ContractBlockDialog({ open, onClose, editing, audience: audienceProp }: Props) {
+export function ContractBlockDialog({ open, onClose, editing, audience: audienceProp, hasDefaultTemplate = false }: Props) {
   const audience: ContractAudience = editing?.audience ?? audienceProp ?? 'CLIENT'
   const isVendor = audience === 'VENDOR'
   const [isPending, startTransition] = useTransition()
@@ -144,8 +146,9 @@ export function ContractBlockDialog({ open, onClose, editing, audience: audience
                 onChange={e => setIsDefault(e.target.checked)}
                 className="h-4 w-4 rounded border-border accent-primary"
               />
-              <Label htmlFor="cb-default" className="cursor-pointer">
+              <Label htmlFor="cb-default" className="cursor-pointer" title={hasDefaultTemplate ? 'Your default contract template decides what new ones start with — this applies only if there isn’t one.' : undefined}>
                 {isVendor ? 'Attach to every deal memo by default' : 'Attach to every proposal by default'}
+                {hasDefaultTemplate && <span className="block text-[11px] font-normal text-muted-foreground">Only used if there’s no default template</span>}
               </Label>
             </div>
           </div>
