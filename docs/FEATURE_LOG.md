@@ -126,6 +126,44 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-07 — Deal memo terms: style toolbar + merge tags
+- **Asked:** the deal memo's terms sections should have the same editor as
+  the contract blocks in Settings: styles plus inserting tags.
+- **Shipped:** each terms section body now uses `SmartTextEditor`:
+  - bold, italic, underline, bullet and numbered lists, paragraph breaks,
+    and links
+  - the **Tags** menu with the vendor set: vendor name, role, dates, hours,
+    OT and double-time, zone, company and project
+- **Rendering:** no change was needed. The vendor page renders smart text,
+  and the PDF draws its lists and drops the bold, italic and underline
+  markers, the same as proposal PDFs.
+- **`SmartTextEditor` gained four props:**
+  - `readOnly` hides the toolbar (signed, cancelled or view-only memos).
+  - `disabled` greys the toolbar while saving, without moving the layout.
+  - `onBlur`, so a section still saves when you leave it.
+  - `frameClassName` keeps the blue border on sections marked for review.
+
+  Other callers are unchanged.
+- **Fixed in review:**
+  - Clicking Link mid-edit no longer saves and reloads the section before
+    the link lands. The prompt's blur is ignored.
+  - On phones the Tags menu spans the toolbar instead of running off the
+    screen.
+  - Links with underscores in the URL rendered with `<em>` inside the href.
+    `renderSmartText` now parks links before applying bold, italic and
+    underline, and the PDF strips links first. This affected proposals too.
+- **Verified:**
+  - tsc, jest (including new smart-text tests), lint, and build up to the
+    known Resend step.
+  - A throwaway preview of the real Daadi memo at 375px showed the toolbar
+    and Tags menu.
+  - pitfall-reviewer: 1 medium and 3 low findings, all fixed.
+- **Follow-ups:**
+  - The PDF doesn't show bold or italic (react-pdf plain text). This
+    matches proposals.
+  - If a section title has unsaved edits when Link is clicked, the title's
+    blur can still save first.
+
 ### 2026-10-07 — Mobile: project overview fits a phone
 - **Reported:** on a phone, the overview's five money figures ran into each
   other and the proposals table was squeezed.

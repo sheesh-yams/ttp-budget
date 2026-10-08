@@ -141,10 +141,11 @@ export function parsePdfLines(raw: string): PdfLine[] {
 
 function stripInline(s: string): string {
   return s
+    // Links first, so an underscore in a URL can't pair with italic markers.
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
     .replace(/\*\*([\s\S]+?)\*\*/g, '$1')
     .replace(/_([\s\S]+?)_/g, '$1')
     .replace(/\+\+([\s\S]+?)\+\+/g, '$1')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────

@@ -39,13 +39,29 @@ interface Props {
   showMergeTags?: boolean
   /** Which tag set the Tags menu offers — vendor for crew & vendor terms. */
   mergeTagSet?:   'client' | 'vendor'
+  /** Read-only: the toolbar is hidden and the text can't be edited. */
+  readOnly?:      boolean
+  /** Temporarily not editable (e.g. while saving) — the toolbar stays put. */
+  disabled?:      boolean
+  /** Fires when the text area loses focus — for editors that save on blur. */
+  onBlur?:        () => void
+  /** Extra classes on the bordered frame (e.g. a tone for review sections). */
+  frameClassName?: string
+  /** Hide the help line under the editor. */
+  hideHint?:      boolean
 }
 
-export function SmartTextEditor({ value, onChange, placeholder, rows = 3, label, showMergeTags = false, mergeTagSet = 'client' }: Props) {
+export function SmartTextEditor({
+  value, onChange, placeholder, rows = 3, label, showMergeTags = false, mergeTagSet = 'client',
+  readOnly = false, disabled = false, onBlur, frameClassName = '', hideHint = false,
+}: Props) {
   const mergeTags = mergeTagSet === 'vendor' ? VENDOR_MERGE_TAGS : CLIENT_MERGE_TAGS
   const ref        = useRef<HTMLTextAreaElement>(null)
   const tagMenuRef = useRef<HTMLDivElement>(null)
   const [tagMenuOpen, setTagMenuOpen] = useState(false)
+  // The Link prompt takes focus from the text area; that blur mustn't fire
+  // onBlur (a save-on-blur editor would save and reload before the link lands).
+  const promptOpen = useRef(false)
 
   // Close tag menu on outside click
   useEffect(() => {
@@ -132,10 +148,13 @@ export function SmartTextEditor({ value, onChange, placeholder, rows = 3, label,
     if (!el) return
     const { selectionStart: s, selectionEnd: e, value: v } = el
     const selected = v.slice(s, e) || 'link text'
+    promptOpen.current = true
     const url = prompt('Link URL:', 'https://')
+    promptOpen.current = false
     if (!url?.trim()) return
     const next = v.slice(0, s) + `[${selected}](${url.trim()})` + v.slice(e)
     onChange(next)
+    // Back into the text area, so the next blur saves the text with the link.
     setTimeout(() => el.focus(), 0)
   }
 
@@ -148,9 +167,10 @@ export function SmartTextEditor({ value, onChange, placeholder, rows = 3, label,
           {label}
         </label>
       )}
-      <div className="rounded-md border border-input shadow-sm focus-within:ring-1 focus-within:ring-ring">
+      <div className={`rounded-md border border-input shadow-sm focus-within:ring-1 focus-within:ring-ring ${frameClassName}`}>
         {/* Toolbar */}
-        <div className="flex items-center gap-0.5 border-b border-input bg-muted/30 px-2 py-1 rounded-t-md flex-wrap">
+        {/* relative: on phones the Tags menu spans the toolbar instead of hanging off the Tags button */}
+        {!readOnly && <div className={`relative flex items-center gap-0.5 border-b border-input bg-muted/30 px-2 py-1 rounded-t-md flex-wrap ${disabled ? 'pointer-events-none opacity-50' : ''}`}>
           <button
             type="button"
             onMouseDown={e => { e.preventDefault(); handleBold() }}
@@ -218,7 +238,7 @@ export function SmartTextEditor({ value, onChange, placeholder, rows = 3, label,
           {showMergeTags && (
             <>
               <div className="w-px h-4 bg-border mx-0.5" />
-              <div ref={tagMenuRef} className="relative">
+              <div ref={tagMenuRef} className="sm:relative">
                 <button
                   type="button"
                   onMouseDown={e => { e.preventDefault(); setTagMenuOpen(v => !v) }}
@@ -234,7 +254,8 @@ export function SmartTextEditor({ value, onChange, placeholder, rows = 3, label,
                 </button>
 
                 {tagMenuOpen && (
-                  <div className="absolute top-full left-0 mt-1 z-50 min-w-[200px] rounded-md border border-border bg-popover shadow-md py-1">
+                  // Phones: full toolbar width. From sm: under the Tags button. Scrolls when long.
+                  <div className="absolute top-full inset-x-0 sm:inset-x-auto sm:left-0 mt-1 z-50 sm:min-w-[200px] max-h-72 overflow-y-auto rounded-md border border-border bg-popover shadow-md py-1">
                     {mergeTags.map(({ label: tLabel, tag, group }) => (
                       <button
                         key={tag}
@@ -244,7 +265,7 @@ export function SmartTextEditor({ value, onChange, placeholder, rows = 3, label,
                       >
                         <span className="text-muted-foreground text-[10px] uppercase tracking-wide block leading-none mb-0.5">{group}</span>
                         <span className="font-medium text-foreground">{tLabel}</span>
-                        <span className="ml-1.5 text-[10px] font-mono text-muted-foreground">{tag}</span>
+                        <span className="ml-1.5 text-[10px] font-mono text-muted-foreground break-all">{tag}</span>
                       </button>
                     ))}
                   </div>
@@ -252,24 +273,26 @@ export function SmartTextEditor({ value, onChange, placeholder, rows = 3, label,
               </div>
             </>
           )}
-        </div>
+        </div>}
 
         {/* Textarea */}
         <textarea
           ref={ref}
           rows={rows}
           value={value}
+          disabled={disabled || readOnly}
           onChange={e => onChange(e.target.value)}
+          onBlur={() => { if (!promptOpen.current) onBlur?.() }}
           placeholder={placeholder}
-          className="w-full rounded-b-md bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none resize-y"
+          className="w-full rounded-md bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none resize-y disabled:cursor-not-allowed disabled:opacity-70"
         />
       </div>
-      <p className="text-[10px] text-muted-foreground/50">
+      {!hideHint && !readOnly && <p className="text-[10px] text-muted-foreground/50">
         Select text then click a button, or click to insert at cursor.
         {showMergeTags && (mergeTagSet === 'vendor'
           ? ' Use Tags to insert dynamic values like the vendor’s name or role.'
           : ' Use Tags to insert dynamic values like company or client name.')}
-      </p>
+      </p>}
     </div>
   )
 }

@@ -28,21 +28,30 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;')
 }
 
-function applyInline(s: string): string {
+function formatInline(s: string): string {
   // Bold — must be processed before italic to avoid partial matches on ***
   s = s.replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
   // Italic
   s = s.replace(/_([\s\S]+?)_/g, '<em>$1</em>')
   // Underline
   s = s.replace(/\+\+([\s\S]+?)\+\+/g, '<u>$1</u>')
-  // Links — only allow http(s) URLs
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => {
+  return s
+}
+
+function applyInline(s: string): string {
+  // Links first, parked behind placeholders, so bold/italic/underline never
+  // reach inside a URL (an underscore in a link used to become <em> in the href).
+  // Only http(s) URLs become links.
+  const links: string[] = []
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text: string, url: string) => {
     const trimmed = url.trim()
     if (!/^https?:\/\//i.test(trimmed)) return text
     const safeUrl = trimmed.replace(/&quot;/g, '%22')
-    return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline;text-underline-offset:2px">${text}</a>`
+    links.push(`<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline;text-underline-offset:2px">${formatInline(text)}</a>`)
+    return `\u0000${links.length - 1}\u0000`
   })
-  return s
+  s = formatInline(s)
+  return s.replace(/\u0000(\d+)\u0000/g, (_, i: string) => links[Number(i)])
 }
 
 export function renderSmartText(raw: string): string {

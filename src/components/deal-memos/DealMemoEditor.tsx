@@ -7,8 +7,9 @@ import { ArrowDown, ArrowLeft, ArrowUp, Eye, ListChecks, Lock, Plus, RotateCcw, 
 import type { ContractBlockCategory, DealMemoFeeKind, DealMemoStatus, RateUnit } from '@prisma/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { SmartTextEditor } from '@/components/delivery/SmartTextEditor'
+import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -403,7 +404,7 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
             ) : (
               <div className="space-y-3 p-4">
                 {memo.sections.map((s, i) => (
-                  <SectionEditor key={`${s.id}:${s.version}`} section={s} disabled={readOnly || isPending}
+                  <SectionEditor key={`${s.id}:${s.version}`} section={s} disabled={readOnly || isPending} locked={readOnly}
                     isFirst={i === 0} isLast={i === memo.sections.length - 1}
                     onSave={v => run(() => updateDealMemoSection(memo.id, s.id, v))}
                     onReset={() => run(() => resetDealMemoSection(memo.id, s.id))}
@@ -578,8 +579,11 @@ function TermsPicker({ library, sections, disabled, onAdd, onRemove }: {
   )
 }
 
-function SectionEditor({ section, disabled, isFirst, isLast, onSave, onReset, onMove, onRemove }: {
-  section: EditorMemo['sections'][number]; disabled: boolean; isFirst: boolean; isLast: boolean
+function SectionEditor({ section, disabled, locked, isFirst, isLast, onSave, onReset, onMove, onRemove }: {
+  section: EditorMemo['sections'][number]; disabled: boolean
+  /** Signed / cancelled / view-only — no toolbar at all (disabled alone is also "saving"). */
+  locked: boolean
+  isFirst: boolean; isLast: boolean
   onSave: (v: { title: string; body: string }) => void; onReset: () => void
   onMove: (dir: 'up' | 'down') => void; onRemove: () => void
 }) {
@@ -612,7 +616,12 @@ function SectionEditor({ section, disabled, isFirst, isLast, onSave, onReset, on
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
-      <Textarea rows={4} value={body} disabled={disabled} onChange={e => setBody(e.target.value)} onBlur={commit} className={`text-[13px] ${inputTone}`} aria-label="Section text" />
+      {/* Same editor as the library blocks in Settings: styles + vendor merge tags. */}
+      <SmartTextEditor
+        value={body} onChange={setBody} onBlur={commit} disabled={disabled} readOnly={locked}
+        rows={5} showMergeTags mergeTagSet="vendor" hideHint
+        frameClassName={review ? 'border-blue-200 bg-white' : 'bg-white'}
+      />
     </div>
   )
 }
