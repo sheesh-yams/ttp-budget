@@ -20,7 +20,7 @@ export interface ContractTemplateRow {
   name:        string
   description: string | null
   isDefault:   boolean
-  blocks:      { id: string; title: string; category: ContractBlockCategory; isActive: boolean }[]
+  blocks:      { id: string; title: string; internalName: string | null; category: ContractBlockCategory; isActive: boolean }[]
 }
 
 /** Names only — what the "Use template" / Add bid pickers need. */
@@ -44,7 +44,7 @@ export async function listContractTemplates(audience: ContractAudience): Promise
       orderBy: [{ isDefault: 'desc' }, { orderIndex: 'asc' }, { createdAt: 'asc' }],
       select:  {
         id: true, audience: true, name: true, description: true, isDefault: true,
-        blocks: { orderBy: { orderIndex: 'asc' }, select: { block: { select: { id: true, title: true, category: true, isActive: true } } } },
+        blocks: { orderBy: { orderIndex: 'asc' }, select: { block: { select: { id: true, title: true, internalName: true, category: true, isActive: true } } } },
       },
     })
     return { success: true, data: rows.map(r => ({ ...r, blocks: r.blocks.map(b => b.block) })) }

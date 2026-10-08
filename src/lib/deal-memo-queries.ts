@@ -142,17 +142,18 @@ export async function loadDealMemoEditor(sdb: ScopedDb, projectId: string, memoI
     sdb.contractBlock.findMany({
       where:   { audience: 'VENDOR', isActive: true },
       orderBy: [{ orderIndex: 'asc' }, { title: 'asc' }],
-      select:  { id: true, title: true, isDefault: true, category: true },
+      select:  { id: true, title: true, internalName: true, isDefault: true, category: true },
     }),
   ])
 
-  // Category of each section's source block (inactive blocks included) —
-  // SOW / Custom sections are flagged for review in the editor.
+  // Category + library name of each section's source block (inactive blocks
+  // included) — review colours and the "from SOW – Talent" label.
   const sourceIds = [...new Set(memo.sections.map(s => s.sourceBlockId).filter((id): id is string => !!id))]
   const sourceBlocks = sourceIds.length
-    ? await sdb.contractBlock.findMany({ where: { id: { in: sourceIds } }, select: { id: true, category: true } })
+    ? await sdb.contractBlock.findMany({ where: { id: { in: sourceIds } }, select: { id: true, category: true, internalName: true } })
     : []
   const sectionCategories = new Map(sourceBlocks.map(b => [b.id, b.category]))
+  const sectionSourceNames = new Map(sourceBlocks.map(b => [b.id, b.internalName?.trim() || null]))
 
-  return { memo, lines, library, tracked, sectionCategories }
+  return { memo, lines, library, tracked, sectionCategories, sectionSourceNames }
 }

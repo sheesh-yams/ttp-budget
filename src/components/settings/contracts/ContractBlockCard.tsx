@@ -8,7 +8,7 @@ import { renderSmartText, stripSmartText } from '@/lib/smart-text'
 import { toggleContractBlockActive, deleteContractBlock } from '@/server/actions/contract-blocks'
 import type { ContractBlockRow } from '@/server/actions/contract-blocks'
 import type { ContractBlockCategory, TriggerKind } from '@prisma/client'
-import { CONTRACT_CATEGORY_LABEL as CATEGORY_LABELS, categoryNeedsReview } from '@/lib/contract-categories'
+import { CONTRACT_CATEGORY_LABEL as CATEGORY_LABELS, REVIEW_TONE_CLASS, blockLabel, categoryTone } from '@/lib/contract-categories'
 
 const CATEGORY_COLORS: Record<ContractBlockCategory, string> = {
   SOW:        'bg-blue-500/10 text-blue-700 dark:text-blue-400',
@@ -44,7 +44,7 @@ export function ContractBlockCard({ block }: Props) {
   }
 
   function handleDelete() {
-    if (!confirm(`Delete "${block.title}"? This cannot be undone.`)) return
+    if (!confirm(`Delete "${blockLabel(block)}"? This cannot be undone.`)) return
     setError(null)
     startTransition(async () => {
       const result = await deleteContractBlock(block.id)
@@ -52,6 +52,8 @@ export function ContractBlockCard({ block }: Props) {
     })
   }
 
+  const tone = categoryTone(block.category)
+  const label = blockLabel(block)
   const bodyPreview = stripSmartText(block.body)
     .replace(/\s+/g, ' ')
     .trim()
@@ -62,8 +64,8 @@ export function ContractBlockCard({ block }: Props) {
       <div
         className={cn(
           'rounded-xl border border-border bg-card p-5 shadow-sm transition-opacity',
-          // SOW / Custom blocks are templates to tailor per job — blue, not the default border.
-          categoryNeedsReview(block.category) && 'border-blue-300 bg-blue-50/40 dark:border-blue-500/50 dark:bg-blue-500/5',
+          // Blocks to tailor per job: SOW / Custom blue, IP & usage rights orange.
+          tone && cn(REVIEW_TONE_CLASS[tone].border, REVIEW_TONE_CLASS[tone].tint),
           !block.isActive && 'opacity-60',
         )}
       >
@@ -71,7 +73,7 @@ export function ContractBlockCard({ block }: Props) {
         <div className="flex items-start gap-3">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="text-sm font-semibold text-foreground truncate">{block.title}</h3>
+              <h3 className="text-sm font-semibold text-foreground truncate">{label}</h3>
 
               <span className={cn(
                 'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
@@ -92,6 +94,11 @@ export function ContractBlockCard({ block }: Props) {
                 </span>
               )}
             </div>
+
+            {/* The public heading, when the library name differs. */}
+            {label !== block.title && (
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">On the contract: <span className="font-medium text-foreground/80">{block.title}</span></p>
+            )}
 
             {/* Triggers */}
             {block.triggers.length > 0 && (

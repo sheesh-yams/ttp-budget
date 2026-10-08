@@ -24,11 +24,16 @@ export interface ContractSectionRow {
   editedFromSource: boolean
   createdAt:        Date
   updatedAt:        Date
+  /** The source block's internal (library) name and category — editor only. */
+  sourceName?:      string | null
+  sourceCategory?:  ContractBlockCategory | null
 }
 
 export interface SuggestedBlock {
   blockId:    string
   blockTitle: string
+  /** Library name (internal name, else title) — editor only. */
+  blockLabel: string
   category:   ContractBlockCategory
   matchedBy:  string
 }
@@ -41,6 +46,7 @@ export interface EvaluateResult {
 export interface LibraryBlockOption {
   id:        string
   title:     string
+  internalName: string | null
   category:  ContractBlockCategory
   isDefault: boolean
 }
@@ -216,7 +222,17 @@ export async function listContractSections(
       where:   { proposalId },
       orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
     })
-    return { success: true, data: rows }
+    // Library name + category of each source block, for the editor's
+    // "From SOW – Social" label and review colours (never sent to the client).
+    const sourceIds = [...new Set(rows.map(r => r.sourceBlockId).filter((id): id is string => !!id))]
+    const sources = sourceIds.length
+      ? await sdb.contractBlock.findMany({ where: { id: { in: sourceIds } }, select: { id: true, internalName: true, category: true } })
+      : []
+    const byId = new Map(sources.map(b => [b.id, b]))
+    return { success: true, data: rows.map(r => {
+      const src = r.sourceBlockId ? byId.get(r.sourceBlockId) : undefined
+      return { ...r, sourceName: src?.internalName?.trim() || null, sourceCategory: src?.category ?? null }
+    }) }
   } catch {
     return { success: false, error: 'Failed to load contract sections.' }
   }
@@ -233,7 +249,7 @@ export async function evaluateProposalContractTriggers(
     const sdb = await getScopedDb()
 
     type BlockRow = {
-      id: string; title: string; category: string; isDefault: boolean; isActive: boolean
+      id: string; title: string; internalName: string | null; category: string; isDefault: boolean; isActive: boolean
       triggers: { kind: 'KEYWORD' | 'DELIVERABLE_TYPE' | 'BUDGET_ACCOUNT'; matchValue: string }[]
     }
     type AttachedRow = { id: string; sourceBlockId: string | null; attachedBy: string }
@@ -261,6 +277,7 @@ export async function evaluateProposalContractTriggers(
       .map(m => ({
         blockId:    m.blockId,
         blockTitle: m.blockTitle,
+        blockLabel: m.blockLabel,
         category:   m.category as ContractBlockCategory,
         matchedBy:  m.matchedBy,
       }))
@@ -650,7 +667,7 @@ export async function listLibraryBlocksForPicker(proposalId: string): Promise<Ac
     }).contractBlock.findMany({
       where:   { isActive: true, audience: 'CLIENT' },
       orderBy: [{ orderIndex: 'asc' }, { title: 'asc' }],
-      select:  { id: true, title: true, category: true, isDefault: true },
+      select:  { id: true, title: true, internalName: true, category: true, isDefault: true },
     })
     return { success: true, data: blocks }
   } catch {

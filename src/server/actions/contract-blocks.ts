@@ -16,6 +16,8 @@ export type ContractBlockInput = {
   // Only read on create — a block's audience never changes afterwards.
   audience?: ContractAudience
   title:     string
+  /** Library-only name (e.g. "SOW – Talent"); the public heading is `title`. */
+  internalName?: string | null
   category:  ContractBlockCategory
   body:      string
   isDefault: boolean
@@ -26,6 +28,7 @@ export type ContractBlockRow = {
   id:         string
   audience:   ContractAudience
   title:      string
+  internalName: string | null
   category:   ContractBlockCategory
   body:       string
   isDefault:  boolean
@@ -84,6 +87,7 @@ export async function createContractBlock(
       data: {
         audience:   input.audience ?? 'CLIENT',
         title:      input.title.trim(),
+        internalName: input.internalName?.trim() || null,
         category:   input.category,
         body:       input.body,
         isDefault:  input.isDefault,
@@ -127,6 +131,7 @@ export async function updateContractBlock(
       where: { id },
       data: {
         title:     input.title.trim(),
+        internalName: input.internalName?.trim() || null,
         category:  input.category,
         body:      input.body,
         isDefault: input.isDefault,

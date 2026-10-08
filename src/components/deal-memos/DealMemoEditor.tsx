@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { CONTRACT_CATEGORY_LABEL, categoryNeedsReview } from '@/lib/contract-categories'
+import { CONTRACT_CATEGORY_LABEL, REVIEW_TONE_CLASS, blockLabel, categoryTone, type ReviewTone } from '@/lib/contract-categories'
 import { centsToRate, formatMoney, rateToCents } from '@/lib/money'
 import { feeExpectedCents, lineHeadcountAndDays, memoExpectedCents } from '@/lib/deal-memo-core'
 import { resolveMergeTagsPlain, type MergeTagContext } from '@/lib/merge-tags'
@@ -49,6 +49,8 @@ export interface EditorMemo {
     id: string; title: string; body: string; sourceBlockId: string | null
     /** The source block's category; null for blank sections or a deleted block. */
     category: ContractBlockCategory | null
+    /** The source block's internal (library) name, if it has one — never shown to the vendor. */
+    sourceName?: string | null
     editedFromSource: boolean; version: string
   }[]
 }
@@ -57,7 +59,7 @@ interface Props {
   projectId:  string
   memo:       EditorMemo
   lines:      PhaseLine[]
-  library:    { id: string; title: string; isDefault: boolean; category: ContractBlockCategory }[]
+  library:    { id: string; title: string; internalName?: string | null; isDefault: boolean; category: ContractBlockCategory }[]
   vendorView: VendorDealMemo
   /** budget.costs VIEW — the budget rate, budgeted amount and over/under */
   showBudget?: boolean
@@ -629,9 +631,10 @@ function TermsPicker({ library, sections, disabled, onAdd, onRemove }: {
                   onChange={() => (copies ? onRemove(copies) : onAdd(b.id))}
                 />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-foreground">{b.title}</span>
-                  <span className={`text-[11px] ${categoryNeedsReview(b.category) ? 'text-blue-700' : 'text-muted-foreground'}`}>
+                  <span className="block truncate text-sm font-medium text-foreground">{blockLabel(b)}</span>
+                  <span className={`text-[11px] ${(() => { const t = categoryTone(b.category); return t ? REVIEW_TONE_CLASS[t].text : 'text-muted-foreground' })()}`}>
                     {CONTRACT_CATEGORY_LABEL[b.category]}{b.isDefault ? ' · Default' : ''}
+                    {blockLabel(b) !== b.title && <span className="text-muted-foreground"> · “{b.title}”</span>}
                   </span>
                 </span>
               </label>
@@ -673,17 +676,24 @@ function SectionEditor({ memoId, section, disabled, actionsDisabled, dirty, isFi
     dirty.add(section.id)
     queue.queue({ title: v.title.trim() ? v.title : section.title, body: v.body })
   }
-  // SOW / Custom library blocks and blank sections are templates to tailor — blue.
-  const review = !section.sourceBlockId || categoryNeedsReview(section.category)
-  const reviewLabel = section.category === 'SOW' ? 'Scope of work' : 'Custom'
-  const inputTone = review ? 'border-blue-200 focus-visible:ring-blue-400' : ''
+  // Sections to tailor for the job: SOW / Custom library blocks and blank
+  // sections are blue, IP & usage rights orange.
+  const tone: ReviewTone | null = section.sourceBlockId ? categoryTone(section.category) : 'blue'
+  const review = tone !== null
+  const reviewLabel = section.category ? CONTRACT_CATEGORY_LABEL[section.category] : 'Custom'
+  const toneClass = tone ? REVIEW_TONE_CLASS[tone] : null
+  const inputTone = tone === 'blue' ? 'border-blue-200 focus-visible:ring-blue-400' : tone === 'orange' ? 'border-orange-200 focus-visible:ring-orange-400' : ''
   return (
-    <div className={`space-y-2 rounded-lg border px-4 py-3 ${review ? 'border-blue-300 bg-blue-50/40' : 'border-violet-200'}`}>
+    <div className={`space-y-2 rounded-lg border px-4 py-3 ${toneClass ? `${toneClass.border} ${toneClass.tint}` : 'border-violet-200'}`}>
+      {/* The library block it came from (internal name — never shown to the vendor). */}
+      {section.sourceName && section.sourceName !== title.trim() && (
+        <p className="text-[11px] text-muted-foreground">From <span className="font-medium text-foreground/70">{section.sourceName}</span></p>
+      )}
       {/* Phones: the title gets its own line; badges and controls wrap below. */}
       <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
         <Input value={title} disabled={disabled} onChange={e => { setTitle(e.target.value); edit({ title: e.target.value, body }) }}
           onBlur={() => { if (!title.trim()) setTitle(section.title) }} className={`basis-full font-medium sm:basis-auto ${inputTone}`} aria-label="Section title" />
-        {review && <span className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700" title="Tailor this section for the job">{reviewLabel} — review</span>}
+        {review && toneClass && <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${toneClass.badge}`} title="Tailor this section for the job">{reviewLabel} — review</span>}
         {section.editedFromSource && <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">Edited</span>}
         {section.sourceBlockId && section.editedFromSource && (
           <button type="button" disabled={actionsDisabled} onClick={onReset} title="Reset to the library version" className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground">
@@ -704,7 +714,7 @@ function SectionEditor({ memoId, section, disabled, actionsDisabled, dirty, isFi
       <SmartTextEditor
         value={body} onChange={v => { setBody(v); edit({ title, body: v }) }} readOnly={disabled}
         rows={5} showMergeTags mergeTagSet="vendor" hideHint
-        frameClassName={review ? 'border-blue-200 bg-white' : 'bg-white'}
+        frameClassName={tone === 'blue' ? 'border-blue-200 bg-white' : tone === 'orange' ? 'border-orange-200 bg-white' : 'bg-white'}
       />
     </div>
   )

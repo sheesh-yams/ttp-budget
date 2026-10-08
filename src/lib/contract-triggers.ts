@@ -20,6 +20,8 @@ import type { ScopeItem } from '@/types'
 export interface BlockForEval {
   id:       string
   title:    string
+  /** Library-only name ("SOW – Social"); shown in the suggestions, never to the client. */
+  internalName?: string | null
   category: string
   isDefault: boolean
   isActive:  boolean
@@ -32,6 +34,8 @@ export interface BlockForEval {
 export interface TriggerMatch {
   blockId:    string
   blockTitle: string
+  /** How the block is named in the library (internal name, else title). */
+  blockLabel: string
   category:   string
   matchedBy:  string  // human-readable, e.g. "keyword: video"
 }
@@ -78,6 +82,7 @@ export function evaluateContractTriggers(
         results.push({
           blockId:    block.id,
           blockTitle: block.title,
+          blockLabel: block.internalName?.trim() || block.title,
           category:   block.category,
           matchedBy,
         })

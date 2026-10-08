@@ -55,6 +55,7 @@ export function ContractBlockDialog({ open, onClose, editing, audience: audience
   const [error, setError] = useState<string | null>(null)
 
   const [title,     setTitle]     = useState(editing?.title     ?? '')
+  const [internalName, setInternalName] = useState(editing?.internalName ?? '')
   const [category,  setCategory]  = useState<ContractBlockCategory>(editing?.category ?? 'CUSTOM')
   const [body,      setBody]      = useState(editing?.body      ?? '')
   const [isDefault, setIsDefault] = useState(editing?.isDefault ?? false)
@@ -88,7 +89,7 @@ export function ContractBlockDialog({ open, onClose, editing, audience: audience
 
     startTransition(async () => {
       // Triggers match proposal deliverables — meaningless for vendor terms.
-      const input = { audience, title, category, body, isDefault, triggers: isVendor ? [] : triggers }
+      const input = { audience, title, internalName: internalName.trim() || null, category, body, isDefault, triggers: isVendor ? [] : triggers }
       const result = editing
         ? await updateContractBlock(editing.id, input)
         : await createContractBlock(input)
@@ -111,15 +112,28 @@ export function ContractBlockDialog({ open, onClose, editing, audience: audience
         </DialogHeader>
 
         <div className="space-y-5 py-2">
-          {/* Title */}
-          <div className="space-y-1.5">
-            <Label htmlFor="cb-title">Title</Label>
-            <Input
-              id="cb-title"
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              placeholder={isVendor ? 'e.g. Independent Contractor Status' : 'e.g. Video Production — Scope of Work'}
-            />
+          {/* Internal name (library only) + public title */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="cb-internal">Internal name <span className="font-normal text-muted-foreground">(only you see it)</span></Label>
+              <Input
+                id="cb-internal"
+                value={internalName}
+                onChange={e => setInternalName(e.target.value)}
+                placeholder={isVendor ? 'e.g. SOW – Talent' : 'e.g. SOW – Social'}
+              />
+              <p className="text-[11px] text-muted-foreground">How it’s listed in your library and the Contract Builder. Optional.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="cb-title">Title <span className="font-normal text-muted-foreground">(on the contract)</span></Label>
+              <Input
+                id="cb-title"
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                placeholder={isVendor ? 'e.g. PROJECT & SCOPE OF WORK' : 'e.g. Video Production — Scope of Work'}
+              />
+              <p className="text-[11px] text-muted-foreground">The heading {isVendor ? 'vendors' : 'clients'} see.</p>
+            </div>
           </div>
 
           {/* Category + isDefault row */}

@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
-import { CONTRACT_CATEGORY_LABEL, categoryNeedsReview } from '@/lib/contract-categories'
+import { CONTRACT_CATEGORY_LABEL, REVIEW_TONE_CLASS, blockLabel, categoryTone } from '@/lib/contract-categories'
 import {
   createContractTemplate, deleteContractTemplate, updateContractTemplate, type ContractTemplateRow,
 } from '@/server/actions/contract-templates'
@@ -84,7 +84,7 @@ export function ContractTemplatesManager({ audience, templates, blocks }: {
               <ol className="mt-3 space-y-0.5 text-xs text-muted-foreground">
                 {t.blocks.map((b, i) => (
                   <li key={b.id} className={cn('truncate', !b.isActive && 'line-through opacity-60')}>
-                    {i + 1}. {b.title}{categoryNeedsReview(b.category) && <span className="ml-1 text-blue-700">· {CONTRACT_CATEGORY_LABEL[b.category]}</span>}
+                    {i + 1}. {blockLabel(b)}{(() => { const tone = categoryTone(b.category); return tone && <span className={cn('ml-1', REVIEW_TONE_CLASS[tone].text)}>· {CONTRACT_CATEGORY_LABEL[b.category]}</span> })()}
                   </li>
                 ))}
                 {t.blocks.length === 0 && <li className="italic">No blocks</li>}
@@ -187,16 +187,16 @@ function ContractTemplateDialog({ audience, template, blocks, onClose }: {
                   <div className="space-y-1">
                     {g.items.map(b => {
                       const on = selected.includes(b.id)
-                      const review = categoryNeedsReview(b.category)
+                      const tone = categoryTone(b.category)
                       return (
                         <label key={b.id} className={cn(
                           'flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm',
-                          review ? 'border-blue-200 bg-blue-50/40' : 'border-border',
-                          on && (review ? 'border-blue-400' : 'border-primary/50 bg-primary/5'),
+                          tone ? cn(REVIEW_TONE_CLASS[tone].border, REVIEW_TONE_CLASS[tone].tint) : 'border-border',
+                          on && (tone ? REVIEW_TONE_CLASS[tone].strong : 'border-primary/50 bg-primary/5'),
                           !b.isActive && 'opacity-60',
                         )}>
                           <input type="checkbox" checked={on} onChange={() => toggle(b.id)} className="h-4 w-4 shrink-0 accent-primary" />
-                          <span className="min-w-0 flex-1 truncate">{b.title}</span>
+                          <span className="min-w-0 flex-1 truncate" title={b.title}>{blockLabel(b)}</span>
                           {!b.isActive && <span className="text-[10px] uppercase text-muted-foreground">inactive</span>}
                         </label>
                       )
@@ -218,9 +218,9 @@ function ContractTemplateDialog({ audience, template, blocks, onClose }: {
                   const b = byId.get(id)
                   if (!b) return null
                   return (
-                    <li key={id} className={cn('flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm', categoryNeedsReview(b.category) && 'border-blue-300')}>
+                    <li key={id} className={cn('flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm', (() => { const tone = categoryTone(b.category); return tone && REVIEW_TONE_CLASS[tone].border })())}>
                       <span className="w-5 shrink-0 text-xs tabular-nums text-muted-foreground">{i + 1}.</span>
-                      <span className="min-w-0 flex-1 truncate">{b.title}</span>
+                      <span className="min-w-0 flex-1 truncate" title={`On the contract: ${b.title}`}>{blockLabel(b)}</span>
                       <button type="button" disabled={i === 0} onClick={() => move(i, -1)} className="rounded p-1 text-muted-foreground hover:text-foreground disabled:opacity-30" title="Move up"><ArrowUp className="h-3.5 w-3.5" /></button>
                       <button type="button" disabled={i === selected.length - 1} onClick={() => move(i, 1)} className="rounded p-1 text-muted-foreground hover:text-foreground disabled:opacity-30" title="Move down"><ArrowDown className="h-3.5 w-3.5" /></button>
                       <button type="button" onClick={() => toggle(id)} className="rounded p-1 text-muted-foreground hover:text-destructive" title="Remove"><X className="h-3.5 w-3.5" /></button>

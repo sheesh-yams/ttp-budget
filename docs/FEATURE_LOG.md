@@ -126,6 +126,40 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-08 — Contract blocks: internal names + orange for IP & usage rights
+- **Asked:**
+  - A library-only name for blocks, so "SOW – Talent" and "SOW – Crew" can
+    both show "PROJECT & SCOPE OF WORK" on the contract.
+  - IP & usage rights blocks highlighted orange (like SOW in blue), since
+    they need tailoring.
+- **Model:** `ContractBlock.internalName` (optional; migration
+  `20261008000002_contract_block_internal_name`). `title` stays the public
+  heading.
+- **`blockLabel()`** = internal name, else title. It's used in:
+  - Settings block cards, which also show "On the contract: <title>"
+  - the Contract Builder
+  - the deal memo "Choose terms" picker
+  - the proposal library picker and suggestions banner
+  - memo and proposal section editors, which show "From <internal name>"
+- **Never public:** a review traced every public path (proposal and sign
+  pages, vendor page, all PDFs, emails, snapshots). Sections copy only the
+  block's `title`, and section rows have no relation to the block, so the
+  internal name can't be loaded there.
+- **Colours:** `categoryTone()` / `REVIEW_TONE_CLASS` in
+  `src/lib/contract-categories.ts`.
+  - SOW, Custom and blank sections are blue; IP & Rights are orange.
+  - Applied in the library, the builder, the pickers, deal memo sections and
+    (new) proposal sections.
+  - `tailwind.config.ts` content now includes `src/lib`. Class maps there
+    weren't generated before; caught in the browser preview.
+- **Verified:**
+  - tsc, jest (360, including `contract-categories` tests), lint, and the
+    build.
+  - Browser with the real vendor library: sample internal names, blue SOW
+    and orange IP borders confirmed through computed styles.
+  - pitfall-reviewer: the leak trace passes; 2 low findings (suggestions
+    banner label, ad-hoc proposal sections not blue), both fixed.
+
 ### 2026-10-08 — Contract Builder: contract templates made of blocks
 - **Asked:** group blocks into contract templates, e.g. SOW – Social vs
   SOW – Brand, or a Talent memo that includes the Usage block. Build them

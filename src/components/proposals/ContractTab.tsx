@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { UseTemplateMenu } from '@/components/contracts/UseTemplateMenu'
+import { REVIEW_TONE_CLASS, blockLabel, categoryTone } from '@/lib/contract-categories'
 import { SmartTextEditor } from '@/components/delivery/SmartTextEditor'
 import { renderSmartText } from '@/lib/smart-text'
 import { resolveMergeTags, unresolvedTagNames, type MergeTagContext } from '@/lib/merge-tags'
@@ -55,6 +56,9 @@ function SectionCard({
 }) {
   const [isPending, startTransition] = useTransition()
   const [editTitle, setEditTitle]    = useState(section.title)
+  // Sections to tailor for the job: SOW / Custom library blocks and blank
+  // (ad-hoc) sections blue, IP & usage rights orange — same as deal memos.
+  const tone = section.sourceBlockId ? categoryTone(section.sourceCategory) : 'blue'
   const [editBody,  setEditBody]     = useState(section.body)
   const [error,     setError]        = useState<string | null>(null)
   const { confirm, ConfirmDialog }   = useConfirm()
@@ -101,7 +105,7 @@ function SectionCard({
   return (
     <>
     {ConfirmDialog}
-    <div className={cn('rounded-lg border bg-card transition-all', isPending && 'opacity-60', isActive && 'ring-1 ring-primary/40 border-primary/30')}>
+    <div className={cn('rounded-lg border bg-card transition-all', tone && cn(REVIEW_TONE_CLASS[tone].border, REVIEW_TONE_CLASS[tone].tint), isPending && 'opacity-60', isActive && 'ring-1 ring-primary/40 border-primary/30')}>
       {/* Header */}
       <button
         type="button"
@@ -110,6 +114,9 @@ function SectionCard({
       >
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
+            {section.sourceName && section.sourceName !== section.title && (
+              <p className="text-[10px] text-muted-foreground">From <span className="font-medium">{section.sourceName}</span></p>
+            )}
             <p className="text-sm font-medium text-foreground truncate">{section.title}</p>
             {!isActive && (
               <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{preview || '—'}</p>
@@ -207,7 +214,7 @@ function SuggestionBanner({
             }}
             className="h-3 w-3 rounded accent-primary"
           />
-          <span className="text-xs text-blue-900 dark:text-blue-200 flex-1 truncate">{s.blockTitle}</span>
+          <span className="text-xs text-blue-900 dark:text-blue-200 flex-1 truncate" title={`On the contract: ${s.blockTitle}`}>{s.blockLabel}</span>
         </label>
       ))}
       <div className="flex items-center gap-2">
@@ -235,7 +242,7 @@ function LibraryPicker({ proposalId, onAttached, onClose }: {
     listLibraryBlocksForPicker(proposalId).then(r => { if (r.success) setBlocks(r.data) })
   }, [proposalId])
 
-  const filtered = blocks.filter(b => b.title.toLowerCase().includes(filter.toLowerCase()))
+  const filtered = blocks.filter(b => `${blockLabel(b)} ${b.title}`.toLowerCase().includes(filter.toLowerCase()))
 
   function handlePick(blockId: string) {
     startTransition(async () => {
@@ -262,7 +269,10 @@ function LibraryPicker({ proposalId, onAttached, onClose }: {
                 onClick={() => handlePick(b.id)}
                 disabled={isPending}
               >
-                <span className="flex-1 text-foreground">{b.title}</span>
+                <span className="flex-1 text-foreground">
+                  {blockLabel(b)}
+                  {blockLabel(b) !== b.title && <span className="ml-1 text-muted-foreground">· “{b.title}”</span>}
+                </span>
                 {b.isDefault && <span className="text-muted-foreground text-[10px]">Default</span>}
               </button>
             ))}

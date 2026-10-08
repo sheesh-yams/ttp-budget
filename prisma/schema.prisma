@@ -1667,7 +1667,9 @@ model ContractBlock {
   workspaceId String
   workspace   Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   audience    ContractAudience       @default(CLIENT)
-  title       String
+  title       String                 // the public heading on contracts
+  // Library-only name (e.g. "SOW – Talent"); never shown to clients/vendors.
+  internalName String?
   category    ContractBlockCategory  @default(CUSTOM)
   body        String                 @db.Text
   isDefault   Boolean                @default(false)
