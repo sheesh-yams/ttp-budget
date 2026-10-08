@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowDown, ArrowLeft, ArrowUp, Eye, ListChecks, Lock, Plus, RotateCcw, X } from 'lucide-react'
@@ -24,6 +24,7 @@ import {
   addDealMemoSection, awardDealMemo, deleteDealMemoFee, moveDealMemoSection, removeDealMemoSection,
   resetDealMemoSection, setDealMemoStatus, updateDealMemo, updateDealMemoSection, upsertDealMemoFee,
 } from '@/server/actions/deal-memos'
+import { SaveGeneration, SaveScope, SaveStatusLine, useSaveQueue, useSaveScope } from '@/components/autosave/SaveScope'
 import { DealMemoDocument } from './DealMemoDocument'
 import { FEE_KIND_LABEL, STATUS_META, UNIT_OPTIONS, UNIT_SUFFIX, VENDOR_STAGE_META, vendorStage } from './labels'
 import { DealMemoVendorActions, type VendorLinkInfo } from './DealMemoVendorActions'
@@ -31,7 +32,7 @@ import { DealMemoVendorActions, type VendorLinkInfo } from './DealMemoVendorActi
 export interface EditorFee {
   id: string; kind: DealMemoFeeKind; label: string; rateCents: number; unit: RateUnit
   quantity: number; termsText: string | null; budgetLineItemId: string | null; isAutoRate: boolean
-  /** updatedAt — remounts the row when the server changes it (e.g. auto OT). */
+  /** updatedAt — the row re-reads server values (e.g. auto OT) when it has no unsaved edits. */
   version: string
 }
 
@@ -75,8 +76,22 @@ interface Props {
 
 const toDateInput = (iso: string | null) => (iso ? iso.slice(0, 10) : '')
 
-export function DealMemoEditor({ projectId, memo, lines, library, vendorView, showBudget = true, canEdit = true, vendor }: Props) {
+/**
+ * Edits autosave in batches: a burst of changes saves once, ~2.5s after the
+ * last one (SaveScope). Actions that read saved data — send, award, preview,
+ * add/remove/move — save everything first.
+ */
+export function DealMemoEditor(props: Props) {
+  return <SaveScope><SaveGeneration><DealMemoEditorInner {...props} /></SaveGeneration></SaveScope>
+}
+
+function DealMemoEditorInner({ projectId, memo, lines, library, vendorView, showBudget = true, canEdit = true, vendor }: Props) {
   const router = useRouter()
+  const { flushAll, discardFailed } = useSaveScope()
+  // Latest on-screen values of each fee row / which sections have unsaved
+  // edits — so parent actions use what's typed, not the last saved copy.
+  const feeDrafts = useRef(new Map<string, FeePatch>())
+  const dirtySections = useRef(new Set<string>())
   const [isPending, startTransition] = useTransition()
   const { confirm, ConfirmDialog } = useConfirm()
   const [error, setError] = useState<string | null>(null)
@@ -113,31 +128,47 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
       endDate:              fmtDate(memo.endDate),
     },
   }
-  // Remount fee rows when any value their terms depend on changes.
-  const termsKey = [memo.workDayHours, memo.otMultiplier, memo.doubleTimeAfterHours,
-    memo.doubleTimeMultiplier, memo.productionZoneMiles, memo.position, memo.startDate, memo.endDate].join('|')
-
+  // Explicit actions save every pending edit first, so they act on (and the
+  // vendor receives) what's on screen.
   function run(fn: () => Promise<{ success: boolean }>) {
     setError(null)
     startTransition(async () => {
+      if (!(await flushAll())) {
+        // A save that can't succeed must not block every action — offer to
+        // drop those edits and carry on.
+        const discard = await confirm('Some changes couldn’t be saved. Discard them and continue?', { title: 'Unsaved changes', confirmLabel: 'Discard and continue' })
+        if (!discard) { setError('Some changes couldn’t be saved — retry or discard them first.'); return }
+        discardFailed()
+      }
       const res = await fn()
       if (!res.success) setError((res as unknown as { error: string }).error)
       router.refresh()
     })
   }
 
-  const save = (patch: Parameters<typeof updateDealMemo>[1]) => run(() => updateDealMemo(memo.id, patch))
+  // Memo fields batch into one updateDealMemo patch.
+  const memoQueue = useSaveQueue<Parameters<typeof updateDealMemo>[1]>(patch => updateDealMemo(memo.id, patch))
+  const save = (patch: Parameters<typeof updateDealMemo>[1]) => memoQueue.queue(patch)
+  // The work-day toggle shows the choice at once (the save follows in a moment).
+  const [workDay, setWorkDay] = useState(memo.workDayHours)
+  useEffect(() => { if (!memoQueue.busy) setWorkDay(memo.workDayHours) }, [memo.workDayHours, memoQueue])
+
+  async function openPreview() {
+    await flushAll()
+    router.refresh()
+    setShowPreview(true)
+  }
 
   // Removing an edited library section loses those edits — ask first.
   async function removeSection(s: EditorMemo['sections'][number]) {
-    if (s.editedFromSource && !(await confirm(`Remove “${s.title}”? Your edits to it will be lost.`, { title: 'Remove section', confirmLabel: 'Remove' }))) return
+    if ((s.editedFromSource || dirtySections.current.has(s.id)) && !(await confirm(`Remove “${s.title}”? Your edits to it will be lost.`, { title: 'Remove section', confirmLabel: 'Remove' }))) return
     run(() => removeDealMemoSection(memo.id, s.id))
   }
 
   // Unticking a library block removes every copy of it on the memo (older
   // memos could add a block twice). Ask first if any copy was edited.
   async function removeBlock(copies: EditorMemo['sections']) {
-    const edited = copies.some(c => c.editedFromSource)
+    const edited = copies.some(c => c.editedFromSource || dirtySections.current.has(c.id))
     if (edited || copies.length > 1) {
       const msg = copies.length > 1
         ? `Remove all ${copies.length} “${copies[0].title}” sections from this memo?${edited ? ' Your edits will be lost.' : ''}`
@@ -160,10 +191,14 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
   function applyBudgetRate() {
     if (!roleLine || !dayFee) return
     const { days } = lineHeadcountAndDays(roleLine)
+    // Start from what's on screen in the row (label/terms typed moments ago).
+    const draft = feeDrafts.current.get(dayFee.id)
     run(() => upsertDealMemoFee(memo.id, {
-      id: dayFee.id, kind: dayFee.kind, label: dayFee.label, rateCents: roleLine.rateCents, unit: roleLine.unit,
-      quantity: roleLine.unit === 'FLAT' ? 1 : days, termsText: dayFee.termsText ?? '',
-      budgetLineItemId: dayFee.budgetLineItemId, isAutoRate: false,
+      id: dayFee.id, kind: dayFee.kind, label: draft?.label ?? dayFee.label,
+      termsText: draft?.termsText ?? dayFee.termsText ?? '',
+      budgetLineItemId: draft ? draft.budgetLineItemId : dayFee.budgetLineItemId,
+      rateCents: roleLine.rateCents, unit: roleLine.unit,
+      quantity: roleLine.unit === 'FLAT' ? 1 : days, isAutoRate: false,
     }))
   }
 
@@ -189,6 +224,7 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
           <h1 className="text-xl md:text-2xl font-semibold text-foreground">
             {memo.contact?.name ?? 'No contact'} <span className="font-normal text-muted-foreground">— {memo.roleLabel}</span>
           </h1>
+          <SaveStatusLine />
           {stage ? (
             <>
               <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${VENDOR_STAGE_META[stage].className}`}>{VENDOR_STAGE_META[stage].label}</span>
@@ -215,7 +251,7 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
               memoId={memo.id} vendorName={memo.contact?.name ?? 'the vendor'} roleLabel={memo.roleLabel} link={vendor}
             />
           )}
-          <Button variant="outline" size="sm" onClick={() => setShowPreview(true)}>
+          <Button variant="outline" size="sm" onClick={() => void openPreview()}>
             <Eye className="mr-1.5 h-3.5 w-3.5" /> Preview as vendor
           </Button>
         </div>
@@ -300,7 +336,7 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
             <Textarea
               id="dm-notes" rows={4} disabled={readOnly} defaultValue={memo.internalNotes ?? ''}
               placeholder="Negotiation notes, availability, references…"
-              onBlur={e => { if (e.target.value !== (memo.internalNotes ?? '')) save({ internalNotes: e.target.value || null }) }}
+              onChange={e => save({ internalNotes: e.target.value || null })}
             />
           </div>
         </aside>
@@ -314,23 +350,24 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
                 <Input
                   id="dm-position" disabled={readOnly} defaultValue={memo.position}
                   placeholder="e.g. 1st Assistant Camera" title={`Budget line: ${memo.roleLabel}`}
-                  onBlur={e => { const v = e.target.value.trim(); if (v && v !== memo.position) save({ position: v }) }}
+                  onChange={e => { const v = e.target.value.trim(); save({ position: v || memo.position }) }}
+                  onBlur={e => { if (!e.target.value.trim()) e.target.value = memo.position }}
                 />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="dm-start">Start</Label>
                 <Input id="dm-start" type="date" disabled={readOnly} defaultValue={toDateInput(memo.startDate)}
-                  onBlur={e => { if (e.target.value !== toDateInput(memo.startDate)) save({ startDate: e.target.value || null }) }} />
+                  onChange={e => save({ startDate: e.target.value || null })} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="dm-end">End</Label>
                 <Input id="dm-end" type="date" disabled={readOnly} defaultValue={toDateInput(memo.endDate)}
-                  onBlur={e => { if (e.target.value !== toDateInput(memo.endDate)) save({ endDate: e.target.value || null }) }} />
+                  onChange={e => save({ endDate: e.target.value || null })} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="dm-days">Days</Label>
                 <Input id="dm-days" type="number" min="0" step="0.5" disabled={readOnly} defaultValue={memo.days}
-                  onBlur={e => { const n = Number(e.target.value); if (!Number.isNaN(n) && n !== memo.days) save({ days: n }) }} />
+                  onChange={e => { const n = Number(e.target.value); if (e.target.value !== '' && !Number.isNaN(n)) save({ days: n }) }} />
               </div>
             </div>
 
@@ -339,9 +376,9 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
                 <Label>Work day</Label>
                 <div className="flex gap-1">
                   {([10, 12] as const).map(h => (
-                    <button key={h} type="button" disabled={readOnly || isPending}
-                      onClick={() => { if (memo.workDayHours !== h) save({ workDayHours: h }) }}
-                      className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${memo.workDayHours === h ? 'border-primary bg-primary/10 font-medium text-primary' : 'border-input text-muted-foreground hover:bg-muted/60'}`}>
+                    <button key={h} type="button" disabled={readOnly}
+                      onClick={() => { setWorkDay(h); save({ workDayHours: h }) }}
+                      className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${workDay === h ? 'border-primary bg-primary/10 font-medium text-primary' : 'border-input text-muted-foreground hover:bg-muted/60'}`}>
                       {h}-hour
                     </button>
                   ))}
@@ -362,8 +399,7 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
             </div>
             <div className="divide-y">
               {memo.fees.map(fee => (
-                <FeeRow key={`${fee.id}:${fee.version}:${termsKey}`} fee={fee} lines={lines} termsCtx={termsCtx} disabled={readOnly || isPending}
-                  onSave={f => run(() => upsertDealMemoFee(memo.id, f))}
+                <FeeRow key={fee.id} memoId={memo.id} fee={fee} lines={lines} termsCtx={termsCtx} disabled={readOnly} drafts={feeDrafts.current}
                   onRemove={() => run(() => deleteDealMemoFee(memo.id, fee.id))} />
               ))}
             </div>
@@ -404,9 +440,8 @@ export function DealMemoEditor({ projectId, memo, lines, library, vendorView, sh
             ) : (
               <div className="space-y-3 p-4">
                 {memo.sections.map((s, i) => (
-                  <SectionEditor key={`${s.id}:${s.version}`} section={s} disabled={readOnly || isPending} locked={readOnly}
+                  <SectionEditor key={s.id} memoId={memo.id} section={s} disabled={readOnly} actionsDisabled={readOnly || isPending} dirty={dirtySections.current}
                     isFirst={i === 0} isLast={i === memo.sections.length - 1}
-                    onSave={v => run(() => updateDealMemoSection(memo.id, s.id, v))}
                     onReset={() => run(() => resetDealMemoSection(memo.id, s.id))}
                     onMove={dir => run(() => moveDealMemoSection(memo.id, s.id, dir))}
                     onRemove={() => removeSection(s)} />
@@ -439,42 +474,67 @@ function NumberField({ label, value, step, disabled, onSave }: {
     <div className="w-28 space-y-1.5">
       <Label className="text-xs">{label}</Label>
       <Input type="number" step={step} min="0" disabled={disabled} defaultValue={value}
-        onBlur={e => { const n = Number(e.target.value); if (e.target.value !== '' && !Number.isNaN(n) && n !== value) onSave(n) }} />
+        onChange={e => { const n = Number(e.target.value); if (e.target.value !== '' && !Number.isNaN(n)) onSave(n) }} />
     </div>
   )
 }
 
-function FeeRow({ fee, lines, termsCtx, disabled, onSave, onRemove }: {
-  fee: EditorFee; lines: PhaseLine[]; termsCtx: MergeTagContext; disabled: boolean
-  onSave: (f: Parameters<typeof upsertDealMemoFee>[1]) => void; onRemove: () => void
+type FeePatch = Parameters<typeof upsertDealMemoFee>[1]
+
+function FeeRow({ memoId, fee, lines, termsCtx, disabled, drafts, onRemove }: {
+  memoId: string; fee: EditorFee; lines: PhaseLine[]; termsCtx: MergeTagContext; disabled: boolean
+  /** The parent's registry of on-screen values (used by "Use the budget rate"). */
+  drafts: Map<string, FeePatch>
+  onRemove: () => void
 }) {
   const [label, setLabel] = useState(fee.label)
   const [rate, setRate]   = useState(centsToRate(fee.rateCents))
   const [unit, setUnit]   = useState<RateUnit>(fee.unit)
   const [qty, setQty]     = useState(String(fee.quantity))
-  // Shown filled in; the stored template is only replaced if the text is edited.
+  // Terms are a template ("{{dealMemo.workDayHours}}-hour day") until the
+  // user types in them: until then the box always shows the live filled-in
+  // text and saves keep the template, so they keep following the memo.
   const resolvedTerms = resolveMergeTagsPlain(fee.termsText ?? '', termsCtx)
-  const [terms, setTerms] = useState(resolvedTerms)
+  const [termsDraft, setTermsDraft] = useState<string | null>(null)
+  const terms = termsDraft ?? resolvedTerms
   const [lineId, setLineId] = useState(fee.budgetLineItemId ?? '')
+  // OT: typing a rate takes it off auto; the "auto" link puts it back.
+  const [autoRate, setAutoRate] = useState(fee.isAutoRate)
 
-  function commit(overrides: Partial<{ unit: RateUnit; lineId: string; isAutoRate: boolean }> = {}) {
-    const rateCents = rateToCents(rate)
-    const nextUnit = overrides.unit ?? unit
-    const nextLine = overrides.lineId ?? lineId
-    const nextQty  = nextUnit === 'FLAT' ? 1 : Number(qty) || 0
-    const rateChanged = rateCents !== fee.rateCents
-    const termsChanged = terms !== resolvedTerms
-    const changed = label.trim() !== fee.label || rateChanged || nextUnit !== fee.unit ||
-      nextQty !== fee.quantity || termsChanged ||
-      nextLine !== (fee.budgetLineItemId ?? '') || overrides.isAutoRate !== undefined
-    if (!changed || !label.trim()) return
-    onSave({
-      id: fee.id, kind: fee.kind, label: label.trim(), rateCents, unit: nextUnit,
-      // Unedited terms keep their template so they keep following the memo.
-      quantity: nextQty, termsText: termsChanged ? terms : (fee.termsText ?? ''), budgetLineItemId: nextLine || null,
-      // Typing an OT rate by hand takes it off auto; the "auto" link puts it back.
-      isAutoRate: overrides.isAutoRate ?? (fee.isAutoRate && !rateChanged),
-    })
+  const queue = useSaveQueue<FeePatch>(f => upsertDealMemoFee(memoId, f))
+  useEffect(() => () => { drafts.delete(fee.id) }, [drafts, fee.id])
+
+  // Adopt the server's values when they change (auto OT, another save) — but
+  // only fields that actually mean something different from what's typed, so
+  // a half-typed "1." or a cleared rate is never rewritten under the cursor.
+  useEffect(() => {
+    if (queue.busy) return
+    if (label.trim() !== fee.label) setLabel(fee.label)
+    if (rateToCents(rate) !== fee.rateCents) setRate(centsToRate(fee.rateCents))
+    if (unit !== fee.unit) setUnit(fee.unit)
+    if ((Number(qty) || 0) !== fee.quantity) setQty(String(fee.quantity))
+    if (lineId !== (fee.budgetLineItemId ?? '')) setLineId(fee.budgetLineItemId ?? '')
+    if (autoRate !== fee.isAutoRate) setAutoRate(fee.isAutoRate)
+    if (termsDraft !== null && termsDraft === resolvedTerms) setTermsDraft(null)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fee.version, fee.label, fee.rateCents, fee.unit, fee.quantity, fee.budgetLineItemId, fee.isAutoRate, resolvedTerms])
+
+  // Every change queues the whole row (the latest wins); one save after a pause.
+  function commit(next: Partial<{ label: string; rate: string; unit: RateUnit; qty: string; termsDraft: string | null; lineId: string; autoRate: boolean }>) {
+    const v = { label, rate, unit, qty, termsDraft, lineId, autoRate, ...next }
+    const patch: FeePatch = {
+      id: fee.id, kind: fee.kind,
+      // A blanked-out name saves as the last saved one (never a stray letter).
+      label: v.label.trim() || fee.label,
+      rateCents: rateToCents(v.rate), unit: v.unit,
+      quantity: v.unit === 'FLAT' ? 1 : Number(v.qty) || 0,
+      // Typed text that matches the filled-in template is still the template.
+      termsText: v.termsDraft !== null && v.termsDraft !== resolvedTerms ? v.termsDraft : (fee.termsText ?? ''),
+      budgetLineItemId: v.lineId || null,
+      isAutoRate: v.autoRate,
+    }
+    drafts.set(fee.id, patch)
+    queue.queue(patch)
   }
 
   const expected = feeExpectedCents({ rateCents: rateToCents(rate), quantity: unit === 'FLAT' ? 1 : Number(qty) || 0 })
@@ -483,23 +543,24 @@ function FeeRow({ fee, lines, termsCtx, disabled, onSave, onRemove }: {
     <div className="group/fee px-4 py-3 sm:px-5">
       {/* Phones: name across, then rate + unit, then quantity + total. */}
       <div className="grid grid-cols-2 items-center gap-2 sm:grid-cols-[1.4fr_110px_120px_80px_90px_24px]">
-        <Input value={label} disabled={disabled} onChange={e => setLabel(e.target.value)} onBlur={() => commit()} aria-label="Fee name" className="col-span-2 sm:col-span-1" />
+        <Input value={label} disabled={disabled} onChange={e => { setLabel(e.target.value); commit({ label: e.target.value }) }}
+          onBlur={() => { if (!label.trim()) setLabel(fee.label) }} aria-label="Fee name" className="col-span-2 sm:col-span-1" />
         <div className="relative">
           <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
           <Input className="pl-5 tabular-nums" inputMode="decimal" value={rate} disabled={disabled}
-            onChange={e => setRate(e.target.value)} onBlur={() => commit()} aria-label="Rate" />
+            onChange={e => { setRate(e.target.value); setAutoRate(false); commit({ rate: e.target.value, autoRate: false }) }} aria-label="Rate" />
         </div>
         <select value={unit} disabled={disabled} onChange={e => {
             const next = e.target.value as RateUnit
             setUnit(next)
             if (next === 'FLAT') setQty('1')
-            commit({ unit: next })
+            commit({ unit: next, ...(next === 'FLAT' ? { qty: '1' } : {}) })
           }}
           className="h-9 rounded-md border border-input bg-transparent px-2 text-sm" aria-label="Unit">
           {UNIT_OPTIONS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)}
         </select>
         <Input type="number" min="0" step="0.5" value={qty} disabled={disabled || unit === 'FLAT'}
-          onChange={e => setQty(e.target.value)} onBlur={() => commit()} aria-label="Quantity" title="Expected quantity" />
+          onChange={e => { setQty(e.target.value); commit({ qty: e.target.value }) }} aria-label="Quantity" title="Expected quantity" />
         <span className="text-right text-sm tabular-nums text-muted-foreground">{expected > 0 ? formatMoney(expected) : '—'}</span>
         {/* No hover on touch screens: always visible on phones (when editable). */}
         {disabled ? <span className="hidden sm:block" /> : <button type="button" title="Remove fee" onClick={onRemove}
@@ -509,7 +570,7 @@ function FeeRow({ fee, lines, termsCtx, disabled, onSave, onRemove }: {
       </div>
       <div className="mt-2 grid grid-cols-1 items-center gap-2 sm:grid-cols-[1.4fr_1fr]">
         <Input value={terms} disabled={disabled} placeholder="Details & terms (shown to the vendor)"
-          onChange={e => setTerms(e.target.value)} onBlur={() => commit()} className="text-[13px]" />
+          onChange={e => { setTermsDraft(e.target.value); commit({ termsDraft: e.target.value }) }} className="text-[13px]" />
         <div className="flex items-center gap-2">
           <span className="shrink-0 text-[11px] font-medium text-violet-700" title="Internal only">Actuals →</span>
           <select value={lineId} disabled={disabled}
@@ -523,9 +584,9 @@ function FeeRow({ fee, lines, termsCtx, disabled, onSave, onRemove }: {
       <p className="mt-1 text-[11px] text-muted-foreground">
         {FEE_KIND_LABEL[fee.kind]}
         {fee.kind === 'OVERTIME' && (
-          fee.isAutoRate
+          autoRate
             ? ' · auto from day rate'
-            : <> · set by hand · <button type="button" disabled={disabled} className="inline-flex items-center gap-0.5 text-primary hover:underline" onClick={() => commit({ isAutoRate: true })}><RotateCcw className="h-2.5 w-2.5" /> auto</button></>
+            : <> · set by hand · <button type="button" disabled={disabled} className="inline-flex items-center gap-0.5 text-primary hover:underline" onClick={() => { setAutoRate(true); commit({ autoRate: true }) }}><RotateCcw className="h-2.5 w-2.5" /> auto</button></>
         )}
       </p>
     </div>
@@ -579,17 +640,36 @@ function TermsPicker({ library, sections, disabled, onAdd, onRemove }: {
   )
 }
 
-function SectionEditor({ section, disabled, locked, isFirst, isLast, onSave, onReset, onMove, onRemove }: {
-  section: EditorMemo['sections'][number]; disabled: boolean
-  /** Signed / cancelled / view-only — no toolbar at all (disabled alone is also "saving"). */
-  locked: boolean
+function SectionEditor({ memoId, section, disabled, actionsDisabled, dirty, isFirst, isLast, onReset, onMove, onRemove }: {
+  memoId: string; section: EditorMemo['sections'][number]
+  /** The parent's set of sections with unsaved edits (remove asks first). */
+  dirty: Set<string>
+  /** Signed / cancelled / view-only — not editable, no toolbar. */
+  disabled: boolean
+  /** Reset / move / remove — also off while an action runs. */
+  actionsDisabled: boolean
   isFirst: boolean; isLast: boolean
-  onSave: (v: { title: string; body: string }) => void; onReset: () => void
+  onReset: () => void
   onMove: (dir: 'up' | 'down') => void; onRemove: () => void
 }) {
   const [title, setTitle] = useState(section.title)
   const [body, setBody]   = useState(section.body)
-  const commit = () => { if (title.trim() && (title !== section.title || body !== section.body)) onSave({ title, body }) }
+  const queue = useSaveQueue<{ title: string; body: string }>(v => updateDealMemoSection(memoId, section.id, v))
+  // Re-read the server copy (e.g. after Reset) unless edits are on their way —
+  // and leave text alone that only differs by the server trimming it.
+  useEffect(() => {
+    if (queue.busy) return
+    dirty.delete(section.id)
+    if (title.trim() !== section.title) setTitle(section.title)
+    if (body !== section.body) setBody(section.body)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section.version, section.title, section.body])
+  useEffect(() => () => { dirty.delete(section.id) }, [dirty, section.id])
+  // A blanked-out title saves as the last saved one.
+  const edit = (v: { title: string; body: string }) => {
+    dirty.add(section.id)
+    queue.queue({ title: v.title.trim() ? v.title : section.title, body: v.body })
+  }
   // SOW / Custom library blocks and blank sections are templates to tailor — blue.
   const review = !section.sourceBlockId || categoryNeedsReview(section.category)
   const reviewLabel = section.category === 'SOW' ? 'Scope of work' : 'Custom'
@@ -598,27 +678,28 @@ function SectionEditor({ section, disabled, locked, isFirst, isLast, onSave, onR
     <div className={`space-y-2 rounded-lg border px-4 py-3 ${review ? 'border-blue-300 bg-blue-50/40' : 'border-violet-200'}`}>
       {/* Phones: the title gets its own line; badges and controls wrap below. */}
       <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
-        <Input value={title} disabled={disabled} onChange={e => setTitle(e.target.value)} onBlur={commit} className={`basis-full font-medium sm:basis-auto ${inputTone}`} aria-label="Section title" />
+        <Input value={title} disabled={disabled} onChange={e => { setTitle(e.target.value); edit({ title: e.target.value, body }) }}
+          onBlur={() => { if (!title.trim()) setTitle(section.title) }} className={`basis-full font-medium sm:basis-auto ${inputTone}`} aria-label="Section title" />
         {review && <span className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700" title="Tailor this section for the job">{reviewLabel} — review</span>}
         {section.editedFromSource && <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">Edited</span>}
         {section.sourceBlockId && section.editedFromSource && (
-          <button type="button" disabled={disabled} onClick={onReset} title="Reset to the library version" className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground">
+          <button type="button" disabled={actionsDisabled} onClick={onReset} title="Reset to the library version" className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground">
             <RotateCcw className="h-3.5 w-3.5" />
           </button>
         )}
-        <button type="button" disabled={disabled || isFirst} onClick={() => onMove('up')} title="Move up" className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground disabled:opacity-30">
+        <button type="button" disabled={actionsDisabled || isFirst} onClick={() => onMove('up')} title="Move up" className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground disabled:opacity-30">
           <ArrowUp className="h-3.5 w-3.5" />
         </button>
-        <button type="button" disabled={disabled || isLast} onClick={() => onMove('down')} title="Move down" className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground disabled:opacity-30">
+        <button type="button" disabled={actionsDisabled || isLast} onClick={() => onMove('down')} title="Move down" className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground disabled:opacity-30">
           <ArrowDown className="h-3.5 w-3.5" />
         </button>
-        <button type="button" disabled={disabled} onClick={onRemove} title="Remove section" className="shrink-0 rounded p-1 text-muted-foreground hover:text-destructive">
+        <button type="button" disabled={actionsDisabled} onClick={onRemove} title="Remove section" className="shrink-0 rounded p-1 text-muted-foreground hover:text-destructive">
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
       {/* Same editor as the library blocks in Settings: styles + vendor merge tags. */}
       <SmartTextEditor
-        value={body} onChange={setBody} onBlur={commit} disabled={disabled} readOnly={locked}
+        value={body} onChange={v => { setBody(v); edit({ title, body: v }) }} readOnly={disabled}
         rows={5} showMergeTags mergeTagSet="vendor" hideHint
         frameClassName={review ? 'border-blue-200 bg-white' : 'bg-white'}
       />

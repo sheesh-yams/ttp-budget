@@ -126,6 +126,67 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-07 — Batched autosave, ship 1: shared queue + deal memo editor
+- **Asked:** wait 2–3s, combine a burst of edits and save once, everywhere,
+  instead of freezing after each change. Confirm the architecture is safe
+  first.
+- **Audit:** each page had a different cause.
+  - **Deal memo editor:** each blur did save → `router.refresh`, and
+    *everything* was disabled while pending. Then fee rows and sections
+    remounted (keyed by version / `termsKey`).
+  - **Budget:** each line-item save waits for the action, then refreshes the
+    whole budget page. That's ship 2.
+  - **Actuals:** one request per cell. That's ship 3.
+  - Call sheets and the save-on-close modals are fine as they are.
+- **`SaveQueue`** (`src/lib/save-queue.ts`, unit-tested):
+  - Patches merge, and one save goes out about 2.5s after the last edit.
+  - One save is in flight at a time; edits made meanwhile go out after it,
+    so the last edit wins.
+  - A failed patch is kept, under any newer edits, for Retry.
+  - `flush()` saves now.
+  - An optional `exclusive` lock serialises saves across queues.
+- **`SaveScope`** (`src/components/autosave/SaveScope.tsx`):
+  - `flushAll()` before actions.
+  - Flushes on hide, `pagehide` and unmount.
+  - A `beforeunload` warning while anything is unsaved, saving or failed.
+  - One coalesced `router.refresh` after a pause, held back while anything
+    is unsaved.
+  - A page-wide save lock.
+  - `discardFailed()`, which drops failed edits and remounts the editor
+    from the saved values (`SaveGeneration`).
+  - `SaveStatusLine`: "Unsaved changes / Saving… / All changes saved /
+    Couldn't save — Retry · Discard".
+- **Deal memo editor:**
+  - Memo fields batch into one `updateDealMemo` patch, saved on change.
+  - Each fee row and section has its own queue and is keyed by id. It adopts
+    server values only when they differ in meaning and nothing is unsaved.
+  - Fields are never disabled while saving.
+  - Fee terms stay a template until edited away from it.
+  - Blanking a name or title saves the last saved value.
+  - "Use the budget rate" starts from the row's on-screen values.
+  - Remove asks first when a section has unsaved edits.
+  - Send, Award, Not selected, Reopen, Cancel, Preview, Add or remove a fee,
+    move, reset, terms and the budget rate all save everything first. If a
+    save can't succeed, they offer "Discard and continue".
+- **Verified:**
+  - tsc, jest (348, including 8 queue tests), lint, and build up to the
+    known Resend step.
+  - **Real database, temporary workspace:**
+    - Five rapid memo edits made one `updateDealMemo` call, the last values
+      won, and auto OT recomputed ($90 → $120).
+    - Four rapid fee edits made one upsert with the final values.
+    - A rejected save was kept.
+  - **Browser:**
+    - Inside the window: "Unsaved changes" with 0 of 37 fields disabled.
+    - A failed save showed "Couldn't save — Retry", with the edits kept.
+  - pitfall-reviewer, two rounds: 6 findings (stale terms, normalised
+    values rewritten under the cursor, budget-rate clobber, parallel memo
+    and fee saves vs auto OT, a stuck save blocking actions, blank-field
+    and remove-prompt edges), then 2 regressions (Discard leaving values on
+    screen, terms freezing). All fixed.
+- **Next:** ship 2 (budget: the line pop-up closes instantly and refreshes
+  are coalesced), then ship 3 (actuals).
+
 ### 2026-10-07 — Deal memo terms: style toolbar + merge tags
 - **Asked:** the deal memo's terms sections should have the same editor as
   the contract blocks in Settings: styles plus inserting tags.

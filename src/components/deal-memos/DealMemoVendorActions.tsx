@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { sendDealMemo } from '@/server/actions/deal-memos'
+import { useSaveScope } from '@/components/autosave/SaveScope'
 import { CancelDealMemoDialog } from './CancelDealMemoDialog'
 
 export interface VendorLinkInfo {
@@ -27,6 +28,9 @@ export function DealMemoVendorActions({
   memoId: string; vendorName: string; roleLabel: string; link: VendorLinkInfo
 }) {
   const router = useRouter()
+  // Rendered inside the editor's SaveScope: pending edits are saved before
+  // sending, so the vendor's frozen copy is what's on screen.
+  const { flushAll } = useSaveScope()
   const [sendOpen, setSendOpen]     = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [email, setEmail]           = useState(link.sentToEmail ?? link.contactEmail ?? '')
@@ -39,6 +43,7 @@ export function DealMemoVendorActions({
   function send() {
     setError(null)
     start(async () => {
+      if (!(await flushAll())) { setError('Some changes couldn’t be saved. Retry them before sending.'); return }
       const res = await sendDealMemo(memoId, { email })
       if (!res.success) { setError((res as { success: false; error: string }).error); router.refresh(); return }
       setSendOpen(false)
@@ -66,7 +71,7 @@ export function DealMemoVendorActions({
           {copied ? 'Copied' : 'Copy link'}
         </Button>
       )}
-      <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => setCancelOpen(true)}>
+      <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => { void flushAll(); setCancelOpen(true) }}>
         Cancel
       </Button>
 
