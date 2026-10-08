@@ -3,6 +3,7 @@
 import { useState, useTransition, useRef, useEffect } from 'react'
 import { X, Briefcase } from 'lucide-react'
 import { createContact, updateContact, type ContactFormData } from '@/server/actions/rolodex'
+import { ALLERGY_TAGS, DIETARY_TAGS } from '@/lib/dietary'
 import { ImageUploader } from '@/components/ui/ImageUploader'
 
 const RATE_UNITS = [
@@ -32,6 +33,9 @@ export interface ContactModalContact {
   hasKit?:          boolean
   kitRateCents?:    number | null
   kitName?:         string | null
+  /** Omitted by a caller that didn't load them — then saving leaves them unchanged. */
+  dietaryTags?:     string[]
+  dietaryNotes?:    string | null
 }
 
 interface Props {
@@ -73,6 +77,12 @@ export function ContactModal({ contact, crewRoles = [], projectId, onClose, onSa
   )
 
   // ── Secondary roles — chip input ──────────────────────────────────────────
+  // Dietary — internal planning info (Crew page + call sheet editor only).
+  // Only sent when known: a caller that didn't load them can't wipe them.
+  const dietaryKnown = !contact || contact.dietaryTags !== undefined
+  const [dietaryTags,  setDietaryTags]  = useState<string[]>(contact?.dietaryTags ?? [])
+  const [dietaryNotes, setDietaryNotes] = useState(contact?.dietaryNotes ?? '')
+
   const [secondaryRoles, setSecondaryRoles] = useState<string[]>(
     Array.isArray(contact?.secondaryRoles) ? contact.secondaryRoles as string[] : []
   )
@@ -135,6 +145,7 @@ export function ContactModal({ contact, crewRoles = [], projectId, onClose, onSa
         ? Math.round(parseFloat(kitRateDollars) * 100)
         : null,
       kitName: hasKit && kitName.trim() ? kitName.trim() : null,
+      ...(dietaryKnown ? { dietaryTags, dietaryNotes: dietaryNotes.trim() || null } : {}),
     }
 
     setError('')
@@ -404,6 +415,39 @@ export function ContactModal({ contact, crewRoles = [], projectId, onClose, onSa
               </div>
             )}
           </div>
+
+          {/* Dietary */}
+          {dietaryKnown && (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground uppercase tracking-wide">Dietary</label>
+              <div className="flex flex-wrap gap-1.5">
+                {DIETARY_TAGS.map(t => {
+                  const on = dietaryTags.includes(t.key)
+                  return (
+                    <button
+                      key={t.key} type="button"
+                      onClick={() => setDietaryTags(prev => (on ? prev.filter(x => x !== t.key) : [...prev, t.key]))}
+                      className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${on
+                        ? (ALLERGY_TAGS.has(t.key) ? 'border-red-300 bg-red-50 text-red-700' : 'border-emerald-300 bg-emerald-50 text-emerald-700')
+                        : 'border-border text-muted-foreground hover:bg-muted/60'}`}
+                      aria-pressed={on}
+                    >
+                      {t.label}
+                    </button>
+                  )
+                })}
+              </div>
+              <input
+                type="text"
+                value={dietaryNotes}
+                onChange={e => setDietaryNotes(e.target.value)}
+                placeholder="Anything else — e.g. severe peanut, carries EpiPen"
+                maxLength={1000}
+                className="mt-2 w-full rounded-lg border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-primary/40"
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground/70">Shown to your team on the Crew page and in the call sheet editor — never on the call sheet sent to crew.</p>
+            </div>
+          )}
 
           {/* Notes */}
           <div>

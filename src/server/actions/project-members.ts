@@ -96,6 +96,9 @@ export async function getProjectMembers(projectId: string) {
       callTime:     true,
       mismatchFlag: true,
       order:        true,
+      // Dietary lives on the Rolodex contact (kept current there) — for
+      // whoever plans food; crew VIEW already gates this list.
+      contact:      { select: { dietaryTags: true, dietaryNotes: true } },
     },
   })
   // Crew rates are vendor pay (awarded deal memos write the day rate here) —

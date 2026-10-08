@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { Search, LayoutGrid, List, Plus, Users, Download, ChevronDown, GitMerge } from 'lucide-react'
 import { ContactCard } from './ContactCard'
@@ -27,6 +27,9 @@ interface Props {
 
 export function RolodexClient({ contacts: initial, crewRoles }: Props) {
   const [contacts,   setContacts]   = useState(initial)
+  // Fresh server rows after a save (revalidated) — otherwise reopening a
+  // contact would prefill, and save back, the values from before the edit.
+  useEffect(() => { setContacts(initial) }, [initial])
   const [view,       setView]       = useState<'grid' | 'list'>('grid')
   const [query,      setQuery]      = useState('')
   const [roleFilter, setRoleFilter] = useState('')

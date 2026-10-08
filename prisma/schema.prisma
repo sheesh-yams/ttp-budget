@@ -996,6 +996,11 @@ model Contact {
   kitRateCents Int?     // day-rate for the kit, in cents
   kitName      String?  // e.g. "Sony FX3 Package"; defaults to "{name}'s Kit" if null
 
+  // Dietary restrictions — quick-pick tags (src/lib/dietary.ts) + a note.
+  // Internal: Crew page and call sheet editor only, never the sent call sheet.
+  dietaryTags  String[] @default([])
+  dietaryNotes String?
+
   archivedAt   DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt

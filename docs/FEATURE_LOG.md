@@ -126,6 +126,48 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-08 — Dietary restrictions on Rolodex contacts (Crew page + call sheet editor)
+- **Asked:** a dietary restriction field on Rolodex contacts and crew, shown
+  on call sheets and the Crew page so planners can plan food.
+- **Decisions (user):**
+  - **Internal only:** never on the call sheet sent to crew.
+  - Quick picks plus a note.
+- **Model:** `Contact.dietaryTags` (text[], default empty) and
+  `dietaryNotes` (migration `20261008000003_contact_dietary`).
+- **`src/lib/dietary.ts`:**
+  - The tags: Vegetarian, Vegan, Pescatarian, Gluten-free, Dairy-free, Nut
+    allergy, Shellfish allergy, Halal, Kosher. Allergies show in red.
+  - Normalise and summarise ("2 Vegetarian · 1 Nut allergy · 1 other
+    note").
+- **Rolodex contact form:**
+  - A Dietary section with toggle chips and a note.
+  - It only sends dietary when the contact it opened with included it, so a
+    caller that didn't load it can't wipe it.
+  - Merging contacts keeps both records' dietary info.
+- **Crew page:**
+  - Badges on each member linked to a contact.
+  - A summary counted per person (someone in two positions counts once).
+  - The list re-syncs after a refresh.
+- **Call sheet editor:**
+  - A "Dietary needs — internal" panel under Catering: everyone linked on
+    the sheet with restrictions, plus the count line.
+  - The page loads dietary for contacts linked on the sheet and on the
+    project crew (for anyone with call sheet access), plus the full Rolodex
+    list for users who have Rolodex access.
+- **Never public:** the review confirmed nothing reaches `/cs/[token]`, call
+  sheet emails or PDFs, or any client/vendor surface. Picking a contact on a
+  call sheet copies only name, role, phone, email and contactId into the
+  stored sheet.
+- **Verified:**
+  - tsc, jest (363, including dietary tests), lint, and the build.
+  - Browser with sample data: the contact form chips, the call sheet panel
+    (people with nothing on file are left out) and the crew badges.
+  - pitfall-reviewer: no leak; 4 findings (merge dropped dietary, crew
+    count by position, stale badges after re-linking, stale Rolodex list
+    re-saving old values). All fixed.
+- **Limit:** crew typed in by hand (not linked to a Rolodex contact) carry
+  no dietary info.
+
 ### 2026-10-08 — Contract blocks: internal names + orange for IP & usage rights
 - **Asked:**
   - A library-only name for blocks, so "SOW – Talent" and "SOW – Crew" can

@@ -63,7 +63,7 @@ export default async function CallSheetPage({
     // workspace contact list.
     !(await getAccess()).can('rolodex') ? Promise.resolve([]) : db.contact.findMany({
       where: { workspaceId, archivedAt: null },
-      select: { id: true, name: true, primaryRole: true, email: true, phone: true },
+      select: { id: true, name: true, primaryRole: true, email: true, phone: true, dietaryTags: true, dietaryNotes: true },
       orderBy: { name: 'asc' },
     }),
     db.workspace.findUnique({
@@ -73,6 +73,24 @@ export default async function CallSheetPage({
   ])
 
   if (!cs || !project) notFound()
+
+  // Dietary needs for the people on this sheet (and the project's crew), from
+  // their Rolodex contacts — internal planning info for the editor only; the
+  // sent call sheet never shows it. Anyone who can open this call sheet sees
+  // these, Rolodex access or not.
+  const sheetContactIds = [
+    ...((cs.crew as unknown as CrewDept[]) ?? []).flatMap(d => d.members ?? []).map(m => m.contactId),
+    ...((cs.talent as unknown as TalentMember[]) ?? []).map(t => t.contactId),
+  ].filter((id): id is string => typeof id === 'string' && id.length > 0)
+  const crewContactIds = (await db.projectMember.findMany({
+    where: { projectId, workspaceId, contactId: { not: null } }, select: { contactId: true },
+  })).map(m => m.contactId as string)
+  const linked = await db.contact.findMany({
+    where:  { workspaceId, id: { in: [...new Set([...sheetContactIds, ...crewContactIds])] } },
+    select: { id: true, dietaryTags: true, dietaryNotes: true },
+  })
+  const dietary: Record<string, { tags: string[]; notes: string | null }> = {}
+  for (const c of [...linked, ...rolodexContacts]) dietary[c.id] = { tags: c.dietaryTags, notes: c.dietaryNotes }
 
   // Detect drift between the call sheet's last-synced schedule snapshot and the
   // stripboard's current state, so the editor can prompt for a re-sync.
@@ -132,7 +150,7 @@ export default async function CallSheetPage({
 
   return (
     <div className="pb-24">
-      <CallSheetEditor initial={initial} rolodexContacts={rolodexContacts} timeFormat={timeFormat} readOnly={!projectAccess.can('callSheets', 'EDIT')} />
+      <CallSheetEditor initial={initial} rolodexContacts={rolodexContacts} dietary={dietary} timeFormat={timeFormat} readOnly={!projectAccess.can('callSheets', 'EDIT')} />
     </div>
   )
 }

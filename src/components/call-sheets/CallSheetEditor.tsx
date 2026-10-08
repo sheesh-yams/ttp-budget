@@ -1,5 +1,7 @@
 'use client'
 
+import { DietaryNeedsPanel } from './DietaryNeedsPanel'
+import type { Dietary } from '@/lib/dietary'
 import { useState, useTransition, useCallback } from 'react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { useRouter } from 'next/navigation'
@@ -90,11 +92,14 @@ const STATUS_CONFIG: Record<CallSheetStatus, { label: string; color: string }> =
 export function CallSheetEditor({
   initial,
   rolodexContacts = [],
+  dietary = {},
   timeFormat = '12H',
   readOnly = false,
 }: {
   initial: CallSheetData
   rolodexContacts?: RolodexContact[]
+  /** Rolodex contact id → dietary needs (internal; never on the sent sheet). */
+  dietary?: Record<string, Dietary>
   timeFormat?: import('@/lib/time-format').TimeFormat
   /** callSheets VIEW only — every field and button is disabled */
   readOnly?: boolean
@@ -785,6 +790,7 @@ export function CallSheetEditor({
                 onChange={e => field(setCateringInfo)(e.target.value)}
                 className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-60"
               />
+              <DietaryNeedsPanel crew={crew} talent={talent} dietary={dietary} />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="cs-notes">Additional notes</Label>

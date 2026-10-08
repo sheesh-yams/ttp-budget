@@ -7,6 +7,7 @@ import { db } from '@/lib/db'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import { Prisma } from '@prisma/client'
+import { normalizeDietaryTags } from '@/lib/dietary'
 
 // ── Schema ─────────────────────────────────────────────────────────────────────
 
@@ -27,9 +28,13 @@ const contactSchema = z.object({
   hasKit:       z.boolean().default(false),
   kitRateCents: z.number().int().min(0).optional().nullable(),
   kitName:      z.string().max(200).optional().nullable(),
+  // Dietary restrictions (internal planning info). Omitted = left unchanged.
+  dietaryTags:  z.array(z.string()).max(20).optional().transform(t => (t === undefined ? undefined : normalizeDietaryTags(t))),
+  dietaryNotes: z.string().max(1000).optional().nullable().transform(n => (n === undefined ? undefined : n?.trim() || null)),
 })
 
-export type ContactFormData = z.infer<typeof contactSchema>
+// What callers send (pre-transform: dietary tags are plain strings, cleaned server-side).
+export type ContactFormData = z.input<typeof contactSchema>
 
 // ── Read ───────────────────────────────────────────────────────────────────────
 
@@ -82,6 +87,8 @@ export async function getContacts() {
       hasKit:           true,
       kitRateCents:     true,
       kitName:          true,
+      dietaryTags:      true,
+      dietaryNotes:     true,
       createdAt:        true,
       // count of projects via ProjectMember
       projectMembers: {
@@ -374,6 +381,11 @@ export async function mergeContacts(
       avatarUrl:        primary.avatarUrl        || duplicate.avatarUrl,
       defaultRateCents: primary.defaultRateCents ?? duplicate.defaultRateCents,
       secondaryRoles:   mergedSecondaryRoles as unknown as Prisma.InputJsonValue,
+      // Dietary: keep everything either record knew — an allergy must survive a merge.
+      dietaryTags:      normalizeDietaryTags([...primary.dietaryTags, ...duplicate.dietaryTags]),
+      dietaryNotes:     primary.dietaryNotes && duplicate.dietaryNotes && primary.dietaryNotes !== duplicate.dietaryNotes
+                          ? `${primary.dietaryNotes} · ${duplicate.dietaryNotes}`
+                          : (primary.dietaryNotes || duplicate.dietaryNotes),
     }
 
     await db.contact.update({
@@ -424,6 +436,8 @@ export async function getContactById(id: string) {
       hasKit:           true,
       kitRateCents:     true,
       kitName:          true,
+      dietaryTags:      true,
+      dietaryNotes:     true,
       createdAt:        true,
       projectMembers: {
         select: {
@@ -469,6 +483,8 @@ export async function getContactForModal(id: string) {
       hasKit:           true,
       kitRateCents:     true,
       kitName:          true,
+      dietaryTags:      true,
+      dietaryNotes:     true,
     },
   })
 }

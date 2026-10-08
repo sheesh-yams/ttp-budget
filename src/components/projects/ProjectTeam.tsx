@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition, useRef, useEffect } from 'react'
+import { DietaryBadges, DietarySummary } from '@/components/crew/DietaryBadges'
 import {
   Plus, Mail, Phone, Clock, Edit2, Trash2,
   BookUser, FileText, Search, X, UserPlus, AlertTriangle, CheckCircle2,
@@ -111,6 +112,9 @@ interface Props {
 
 export function ProjectTeam({ projectId, members: initial, seedProposalTitle, timeFormat = '12H', dealMemos, canEdit = true, canOpenRolodex = true, canSetRates = true }: Props) {
   const [members,   setMembers]   = useState(initial)
+  // A server refresh (e.g. after editing someone's Rolodex contact — dietary,
+  // phone…) brings fresh rows; local edits are already saved by then.
+  useEffect(() => { setMembers(initial) }, [initial])
   const [adding,    setAdding]    = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
 
@@ -121,7 +125,11 @@ export function ProjectTeam({ projectId, members: initial, seedProposalTitle, ti
   function handleAdded() { window.location.reload() }
   function handleRemoved(id: string) { setMembers(prev => prev.filter(m => m.id !== id)) }
   function handleUpdated(updated: ProjectMemberRow) {
-    setMembers(prev => prev.map(m => m.id === updated.id ? updated : m))
+    // Dietary comes from the linked contact: kept while the link is unchanged;
+    // cleared if the row now points at someone else (the refresh brings theirs).
+    setMembers(prev => prev.map(m => m.id === updated.id
+      ? { ...updated, contact: updated.contactId === m.contactId ? m.contact : null }
+      : m))
   }
   function handleMismatchDismissed(id: string) {
     setMembers(prev => prev.map(m => m.id === id ? { ...m, mismatchFlag: false } : m))
@@ -132,12 +140,18 @@ export function ProjectTeam({ projectId, members: initial, seedProposalTitle, ti
     <div>
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {members.length === 0
-            ? 'No crew assigned yet.'
-            : `${assigned} of ${members.length} position${members.length === 1 ? '' : 's'} filled.`
-          }
-        </p>
+        <div className="space-y-1">
+          <p className="text-sm text-muted-foreground">
+            {members.length === 0
+              ? 'No crew assigned yet.'
+              : `${assigned} of ${members.length} position${members.length === 1 ? '' : 's'} filled.`
+            }
+          </p>
+          {/* Who needs what for catering — from each person's Rolodex contact. */}
+          {/* Counted per person: someone in two positions eats one lunch. */}
+          <DietarySummary people={[...new Map(members.filter(m => m.contactId && m.contact)
+            .map(m => [m.contactId, { tags: m.contact!.dietaryTags, notes: m.contact!.dietaryNotes }])).values()]} />
+        </div>
         <div className="flex items-center gap-2">
           <Link
             href="/rolodex"
@@ -466,6 +480,7 @@ function MemberCard({
         <p className="mt-0.5 text-xs font-medium text-primary truncate">
           {member.role}
         </p>
+        <DietaryBadges className="mt-1.5" tags={member.contact?.dietaryTags ?? []} notes={member.contact?.dietaryNotes ?? null} />
         {dealMemo && (
           <Link
             href={`/projects/${projectId}/deal-memos/${dealMemo.memoId}`}
