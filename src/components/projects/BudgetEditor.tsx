@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition, useEffect, useMemo, useRef } from 'react'
+import { createContext, useContext, useState, useTransition, useEffect, useMemo, useRef } from 'react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import {
   Plus, Trash2, ChevronRight, ChevronDown, ChevronUp, Package,
@@ -12,7 +12,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { LineItemModal } from './LineItemModal'
-import type { EditableLineItem } from './LineItemModal'
+import type { EditableLineItem, LineItemUpsertInput } from './LineItemModal'
+import { SaveScope, SaveStatusLine, useSaveScope } from '@/components/autosave/SaveScope'
+import { applyPendingOps, findRow, replaceRowId, rollbackRow, rowFromInput, type PendingLineOp } from '@/lib/pending-line-ops'
 import { InsertPackageModal } from './InsertPackageModal'
 import { BudgetSourcePickerModal } from './BudgetSourcePickerModal'
 import { BudgetSummaryBar } from './BudgetSummaryBar'
@@ -77,7 +79,16 @@ interface Props {
   readOnly?: boolean
 }
 
-export function BudgetEditor({
+/**
+ * Line items save in the background: the pop-up closes at once, the row and
+ * totals update immediately, and the page re-syncs once after a pause
+ * (SaveScope). A failed save rolls the row back and reopens the pop-up.
+ */
+export function BudgetEditor(props: Props) {
+  return <SaveScope><BudgetEditorInner {...props} /></SaveScope>
+}
+
+function BudgetEditorInner({
   budget, projectId, canSeeFinancials = true, showCosts = true, canEditMargin = true,
   canEditProposals = true, canClone = true, canInsertPackage = true, canImport = true, readOnly = false,
 }: Props) {
@@ -109,7 +120,10 @@ export function BudgetEditor({
   }
 
   const currentPhase    = budget.phases.find(p => p.id === activePhase)
-  const currentAccounts = (currentPhase?.accounts ?? []) as AccountWithItems[]
+  // Each phase reports its on-screen accounts (including rows still saving),
+  // so the totals bar updates the moment a line is added or edited.
+  const [liveAccounts, setLiveAccounts] = useState<Record<string, AccountWithItems[]>>({})
+  const currentAccounts = (liveAccounts[activePhase ?? ''] ?? currentPhase?.accounts ?? []) as AccountWithItems[]
 
   const phaseTotalCents = currentAccounts.reduce(
     (sum, acc) => sum + sumAccount(acc as unknown as AccountInput), 0
@@ -287,6 +301,7 @@ export function BudgetEditor({
       {ConfirmDialog}
       <Tabs value={activePhase} onValueChange={setActivePhase}>
         {/* ── Phase tabs row ── */}
+        {!readOnly && <div className="mb-1 flex justify-end"><SaveStatusLine /></div>}
         <div className="mb-3 flex items-center gap-2">
           <div className="flex items-center gap-1 flex-wrap">
             {budget.phases.map(phase => {
@@ -527,12 +542,15 @@ export function BudgetEditor({
 
         <BudgetVisibilityContext.Provider value={{ showCosts, showMargin: canSeeFinancials && showCosts, canInsertPackage, canImport }}>
         {budget.phases.map(phase => (
-          <TabsContent key={phase.id} value={phase.id}>
+          // forceMount: phases stay mounted (hidden) so a line still saving in
+          // one phase can surface its failure after switching tabs.
+          <TabsContent key={phase.id} value={phase.id} forceMount className="data-[state=inactive]:hidden">
             <PhaseView
               phase={phase as typeof currentPhase & NonNullable<unknown>}
               budgetId={budget.id}
               projectId={projectId}
               onMutated={() => router.refresh()}
+              onAccountsChange={accs => setLiveAccounts(m => ({ ...m, [phase.id]: accs }))}
               readOnly={readOnly}
               markupPct={localMarkupPct}
               taxPct={localTaxPct}
@@ -567,14 +585,24 @@ export function BudgetEditor({
 
 // ─── Phase view ───────────────────────────────────────────────────────────────
 
+// ─── Background line-item saves (see src/lib/pending-line-ops.ts) ─────────────
+// New rows keep a temporary id — and can't be edited or dragged — until saved.
+
+const LineSaveContext = createContext<{
+  saveLine: (args: { id: string | null; input: LineItemUpsertInput; prefill: EditableLineItem }) => void
+  savingNewIds: Set<string>
+} | null>(null)
+
 function PhaseView({
-  phase, budgetId, projectId, onMutated, readOnly = false,
+  phase, budgetId, projectId, onMutated, onAccountsChange, readOnly = false,
   markupPct = 0, taxPct = 0, discountConfig = null,
 }: {
   phase: BudgetWithPhases['phases'][number]
   budgetId: string
   projectId: string
   onMutated: () => void
+  /** Reports the on-screen accounts (with rows still saving) for the totals bar. */
+  onAccountsChange?: (accounts: AccountWithItems[]) => void
   readOnly?: boolean
   /** Budget-level agency fee / tax — needed to compute the discount amount below. */
   markupPct?: number
@@ -621,12 +649,78 @@ function PhaseView({
   const [renameSectionVal, setRenameSectionVal] = useState('')
 
   // ── Full local account+item state (allows cross-account optimistic updates) ──
+  const pendingOps     = useRef(new Map<string, PendingLineOp>())
+  const serverAccounts = useRef(phase.accounts as AccountWithItems[])
+  const [savingNewIds, setSavingNewIds] = useState<Set<string>>(new Set())
   const [localAccounts, setLocalAccounts] = useState<AccountWithItems[]>(
     phase.accounts as AccountWithItems[]
   )
   useEffect(() => {
-    setLocalAccounts(phase.accounts as AccountWithItems[])
+    serverAccounts.current = phase.accounts as AccountWithItems[]
+    // Rows still saving stay on screen across a refresh.
+    setLocalAccounts(applyPendingOps(phase.accounts as AccountWithItems[], pendingOps.current))
   }, [phase.accounts])
+  useEffect(() => { onAccountsChange?.(localAccounts) // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localAccounts])
+
+  // ── Background line saves (pop-up closes at once) ─────────────────────────
+  const { exclusive, track, requestRefresh } = useSaveScope()
+  // Reopened pop-up after a failed save — built once, so re-renders never
+  // reset what the user is correcting.
+  // Every failure gets its own turn in the pop-up (queued, oldest first) —
+  // several saves can fail in a row, e.g. offline.
+  type FailedLine = { key: string; editItem: EditableLineItem | null; prefill: EditableLineItem | null; accountId: string; error: string }
+  const [failedLines, setFailedLines] = useState<FailedLine[]>([])
+  const failedLine = failedLines[0] ?? null
+  const mounted = useRef(true)
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
+
+  function saveLine({ id, input, prefill }: { id: string | null; input: LineItemUpsertInput; prefill: EditableLineItem }) {
+    const rowId = id ?? `tmp-${crypto.randomUUID()}`
+    const key   = `${rowId}#${crypto.randomUUID()}` // one op per save
+    pendingOps.current.set(key, { key, rowId, isNew: !id, accountId: input.accountId, row: rowFromInput(rowId, input) })
+    if (!id) setSavingNewIds(prev => new Set(prev).add(rowId))
+    setLocalAccounts(prev => applyPendingOps(prev, pendingOps.current))
+
+    const settle = () => {
+      pendingOps.current.delete(key)
+      if (!id) setSavingNewIds(prev => { const n = new Set(prev); n.delete(rowId); return n })
+    }
+    const fail = (error: string) => {
+      settle()
+      // Undo just this row on screen — back to the server's copy, plus any
+      // newer edits of it still saving; other rows stay. Then re-sync.
+      const saved = id ? findRow(serverAccounts.current, id) : null
+      setLocalAccounts(prev => applyPendingOps(rollbackRow(prev, rowId, saved), pendingOps.current))
+      requestRefresh()
+      const newerEdit = [...pendingOps.current.values()].some(o => o.rowId === rowId)
+      if (newerEdit) return // a later edit of this row is on its way and supersedes it
+      if (!mounted.current) {
+        // The budget was closed or switched before the save failed — never silently.
+        window.alert(`A budget line couldn’t be saved (“${input.description}”): ${error}`)
+        return
+      }
+      setFailedLines(list => [...list, {
+        key: key,
+        editItem: id ? { ...prefill, id } : null,
+        prefill:  id ? null : prefill,
+        accountId: input.accountId,
+        error,
+      }])
+    }
+    // Saves run one at a time (page-wide lock), in the order they were made.
+    void track(exclusive(() => upsertLineItem(id, input)).then(res => {
+      if (!res.success) { fail((res as { success: false; error: string }).error); return }
+      settle()
+      // A new row takes its real id at once, so it can be edited straight away.
+      const realId = (res as { success: true; data: { id: string } }).data.id
+      if (!id) setLocalAccounts(prev => replaceRowId(prev, rowId, realId))
+      requestRefresh()
+    }, () => fail('Couldn’t save — check your connection and try again.')))
+  }
+  const lineSave = useMemo(() => ({ saveLine, savingNewIds }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [savingNewIds])
 
   // Discount for THIS phase's own line items (each phase/version can have a
   // different subtotal, so a % discount's dollar amount differs per phase).
@@ -642,7 +736,8 @@ function PhaseView({
   const allItemIds = useMemo(() => {
     function collect(accounts: AccountWithItems[]): string[] {
       return accounts.flatMap(acc => [
-        ...acc.lineItems.map(i => i.id),
+        // Rows still being created (temporary id) can't be bulk-edited yet.
+        ...acc.lineItems.map(i => i.id).filter(id => !id.startsWith('tmp-')),
         ...(acc.children ? collect(acc.children as AccountWithItems[]) : []),
       ])
     }
@@ -780,7 +875,8 @@ function PhaseView({
         a.id === srcAccId ? { ...a, lineItems: items } : a
       ))
       startTransition(async () => {
-        await reorderLineItems(items.map((it, i) => ({ id: it.id, order: i })))
+        // Rows still being created have a temporary id — not in the database yet.
+        await reorderLineItems(items.filter(it => !it.id.startsWith('tmp-')).map((it, i) => ({ id: it.id, order: i })))
       })
     } else {
       // ── Cross-account move ──────────────────────────────────────────────
@@ -1040,6 +1136,7 @@ function PhaseView({
   }
 
   return (
+    <LineSaveContext.Provider value={lineSave}>
     <div>
       {/* ── Sections nudge banner ─────────────────────────────────────────── */}
       {showNudge && !nudgeDismissed && (
@@ -1216,6 +1313,20 @@ function PhaseView({
           onOpenChange={v => { if (!v) setAddingToAccount(null) }}
           accountId={addingToAccount}
           onSaved={onMutated}
+          onDeferredSave={saveLine}
+        />
+      )}
+      {failedLine && (
+        <LineItemModal
+          key={failedLine.key}
+          open
+          onOpenChange={v => { if (!v) setFailedLines(list => list.slice(1)) }}
+          editItem={failedLine.editItem}
+          prefill={failedLine.prefill}
+          accountId={failedLine.accountId}
+          initialError={failedLine.error}
+          onSaved={onMutated}
+          onDeferredSave={saveLine}
         />
       )}
       <InsertPackageModal
@@ -1259,6 +1370,7 @@ function PhaseView({
         />
       )}
     </div>
+    </LineSaveContext.Provider>
   )
 }
 
@@ -1695,8 +1807,11 @@ function AccountRows({
     })
   }
 
+  const lineSave = useContext(LineSaveContext)
+
   // ── Item edit — opens the full LineItemModal ──────────────────────────────
   function openEditModal(item: LineItemRow) {
+    if (lineSave?.savingNewIds.has(item.id)) return // still being created
     setEditModalItem({
       id:              item.id,
       accountId:       account.id,
@@ -1738,6 +1853,7 @@ function AccountRows({
         onOpenChange={v => { if (!v) setEditModalItem(null) }}
         editItem={editModalItem}
         onSaved={() => { setEditModalItem(null); onMutated() }}
+        onDeferredSave={lineSave?.saveLine}
       />
       {/* ── Account header row ─────────────────────────────────────────────── */}
       <tr
@@ -1889,6 +2005,8 @@ function AccountRows({
             className={[
               'group/item border-b transition-colors hover:bg-muted/40',
               isBeingDragged ? 'opacity-40'       : '',
+              // A new row still saving: shown, but not editable/draggable yet.
+              lineSave?.savingNewIds.has(item.id) ? 'pointer-events-none opacity-60 animate-pulse' : '',
               isDropBefore   ? 'border-t-2 border-t-violet-400' : '',
             ].join(' ')}
             onDragOver={e => { e.preventDefault(); onItemDragOverItem(item.id) }}

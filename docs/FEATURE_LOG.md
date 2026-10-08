@@ -126,6 +126,52 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-07 — Batched autosave, ship 2: budget lines save in the background
+- **Before:** a budget line pop-up waited for `upsertLineItem` (5–6
+  database round trips), then `router.refresh()` re-rendered the whole
+  budget page. That happened for every line.
+- **Now** (`LineItemModal` `onDeferredSave`, `BudgetEditor` `saveLine`,
+  `src/lib/pending-line-ops.ts`):
+  - **Save:** the pop-up closes at once and the row shows immediately. A new
+    row gets a temporary id and pulses, and can't be edited or dragged
+    until it's saved. The totals bar and phase total update instantly
+    (phases report their on-screen accounts).
+  - **Saving:** saves go through the page-wide lock in the order made, and
+    are tracked by SaveScope for the status line, the leave-page warning and
+    `flushAll`. The page re-syncs once after a pause.
+  - **Pending saves survive refreshes:** every save is its own op (an edit
+    patch, or a new row), and pending ops are re-applied on every refresh,
+    so a refresh can't wipe a row still saving. Two quick edits of one row
+    apply in order.
+  - **Success:** a new row takes its real id at once.
+  - **Failure:**
+    - Only that row goes back to the server's copy (other changes stay) and
+      the page re-syncs.
+    - The pop-up reopens with what was typed, including contact and rate
+      card, plus the error. Several failures queue up and reopen one by
+      one.
+    - If the budget was switched or left, an alert says the line wasn't
+      saved.
+  - **Phase tabs stay mounted** (hidden), so a failure in another phase
+    still surfaces.
+  - Temporary ids are excluded from bulk selection and reordering.
+- **Verified:**
+  - tsc, jest (354, including the pending-ops tests), lint, and build up to
+    the known Resend step.
+  - Browser, with the real Daadi budget and no session so the save is
+    refused:
+    1. The pop-up closed at once.
+    2. The row appeared, pulsing.
+    3. The refusal removed it.
+    4. The pop-up reopened with the description, the rate ($123.00) and the
+       error.
+  - pitfall-reviewer, two rounds: 6 findings, then 2 more (multiple
+    failures, double-edit rollback). All fixed.
+- **Unchanged:** budget rates and discount, renames, add account, delete,
+  duplicate, drag, bulk actions, packages and import. They don't freeze
+  today: each is one explicit save, and drag is already optimistic.
+- **Next:** ship 3 (actuals cells).
+
 ### 2026-10-07 — Batched autosave, ship 1: shared queue + deal memo editor
 - **Asked:** wait 2–3s, combine a burst of edits and save once, everywhere,
   instead of freezing after each change. Confirm the architecture is safe

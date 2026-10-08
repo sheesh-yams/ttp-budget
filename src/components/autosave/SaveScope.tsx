@@ -23,10 +23,17 @@ interface Scope {
   exclusive:      <T>(fn: () => Promise<T>) => Promise<T>
   /** Bumped by discardFailed — editors remount on it to show the saved values again. */
   generation:     number
+  /**
+   * A one-off background save (e.g. a budget line saved after its pop-up
+   * closed): counts as "saving" for the status line, refresh hold-back,
+   * flushAll and the leave-page warning until it settles.
+   */
+  track:          <T>(p: Promise<T>) => Promise<T>
   requestRefresh: () => void
   /** Bumped on any queue status change — re-renders the status line. */
   notify:         () => void
   queues:         Set<SaveQueue<object>>
+  tracked:        Set<Promise<unknown>>
   version:        number
 }
 
@@ -39,7 +46,16 @@ export function SaveScope({ children, delay = AUTOSAVE_DELAY_MS }: { children: R
   const [generation, setGeneration] = useState(0)
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const anyBusy = useCallback(() => [...queues].some(q => q.busy), [queues])
+  const tracked = useRef(new Set<Promise<unknown>>()).current
+  const anyBusy = useCallback(() => tracked.size > 0 || [...queues].some(q => q.busy), [queues, tracked])
+
+  const track = useCallback(<T,>(p: Promise<T>): Promise<T> => {
+    tracked.add(p)
+    setVersion(v => v + 1)
+    const done = () => { tracked.delete(p); setVersion(v => v + 1) }
+    p.then(done, done)
+    return p
+  }, [tracked])
 
   // One save at a time across the page (see SaveQueueOptions.exclusive).
   const chain = useRef<Promise<unknown>>(Promise.resolve())
@@ -74,8 +90,9 @@ export function SaveScope({ children, delay = AUTOSAVE_DELAY_MS }: { children: R
 
   const flushAll = useCallback(async () => {
     const results = await Promise.all([...queues].map(q => q.flush()))
+    await Promise.allSettled([...tracked])
     return results.every(Boolean)
-  }, [queues])
+  }, [queues, tracked])
 
   const register = useCallback((q: SaveQueue<object>) => {
     queues.add(q)
@@ -108,8 +125,8 @@ export function SaveScope({ children, delay = AUTOSAVE_DELAY_MS }: { children: R
   }, [anyBusy, flushAll])
 
   const value = useMemo<Scope>(
-    () => ({ register, flushAll, discardFailed, exclusive, generation, requestRefresh, notify, queues, version }),
-    [register, flushAll, discardFailed, exclusive, generation, requestRefresh, notify, queues, version],
+    () => ({ register, flushAll, discardFailed, exclusive, generation, track, tracked, requestRefresh, notify, queues, version }),
+    [register, flushAll, discardFailed, exclusive, generation, track, tracked, requestRefresh, notify, queues, version],
   )
   return <SaveScopeContext.Provider value={value}>{children}</SaveScopeContext.Provider>
 }
@@ -123,7 +140,7 @@ export function SaveGeneration({ children }: { children: React.ReactNode }) {
   return <div key={scope?.generation ?? 0} className="contents">{children}</div>
 }
 
-export function useSaveScope(): Pick<Scope, 'flushAll' | 'discardFailed' | 'requestRefresh'> {
+export function useSaveScope(): Pick<Scope, 'flushAll' | 'discardFailed' | 'requestRefresh' | 'exclusive' | 'track'> {
   const scope = useContext(SaveScopeContext)
   if (!scope) throw new Error('useSaveScope must be used inside <SaveScope>')
   return scope
@@ -163,7 +180,7 @@ export function SaveStatusLine({ className = '' }: { className?: string }) {
   const all = [...scope.queues]
   const failed = all.find(q => q.status === 'error')
   const status: SaveStatus = failed ? 'error'
-    : all.some(q => q.status === 'saving') ? 'saving'
+    : all.some(q => q.status === 'saving') || scope.tracked.size > 0 ? 'saving'
     : all.some(q => q.status === 'dirty') ? 'dirty'
     : all.some(q => q.status === 'saved') ? 'saved'
     : 'idle'

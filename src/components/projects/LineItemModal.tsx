@@ -78,11 +78,23 @@ interface Props {
   /** Required when editItem is null (add mode) */
   accountId?: string
   onSaved: () => void
+  /**
+   * Save in the background instead of waiting: the pop-up closes at once and
+   * the caller shows the row optimistically, saves, and reopens the pop-up
+   * (with `prefill` + `initialError`) if the save fails.
+   */
+  onDeferredSave?: (args: { id: string | null; input: LineItemUpsertInput; prefill: EditableLineItem }) => void
+  /** Add mode, reopened after a failed save: what was typed. */
+  prefill?: EditableLineItem | null
+  /** Shown when the pop-up opens (the reason a background save failed). */
+  initialError?: string
 }
+
+export type LineItemUpsertInput = Parameters<typeof upsertLineItem>[1]
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved }: Props) {
+export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved, onDeferredSave, prefill, initialError }: Props) {
   // Without costs / margin access the server keeps the stored rate and markup
   // whatever is sent, so don't offer inputs for them.
   const { showCosts, showMargin } = useBudgetVisibility()
@@ -114,30 +126,31 @@ export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved
   const [notes,       setNotes]       = useState('')
   const [error,       setError]       = useState('')
 
-  // Populate fields when entering edit mode
+  // Populate fields when entering edit mode (or reopening after a failed save)
   useEffect(() => {
-    if (editItem && open) {
-      const formula = editItem.quantityFormula
+    const src = editItem ?? prefill
+    if (src && open) {
+      const formula = src.quantityFormula
       const match = formula?.match(/^(\d+(?:\.\d+)?)[x×](\d+(?:\.\d+)?)$/)
-      const [hc, daysVal] = parseQtyFormula(Number(editItem.quantity), formula ?? null)
-      setDescription(editItem.description)
+      const [hc, daysVal] = parseQtyFormula(Number(src.quantity), formula ?? null)
+      setDescription(src.description)
       setQuantity(match ? match[1] : String(hc))
       setDays(match ? match[2] : daysVal > 1 ? String(daysVal) : '1')
-      setUnit(editItem.unit)
-      setRate(centsToRate(editItem.rateCents))
-      setCategory((editItem.lineItemCategory as LineItemCategory) ?? '')
-      setMarkup(editItem.markupPct ? String(Math.round(Number(editItem.markupPct) * 100)) : '')
-      setNotes(editItem.notes ?? '')
+      setUnit(src.unit)
+      setRate(centsToRate(src.rateCents))
+      setCategory((src.lineItemCategory as LineItemCategory) ?? '')
+      setMarkup(src.markupPct ? String(Math.round(Number(src.markupPct) * 100)) : '')
+      setNotes(src.notes ?? '')
       setSelected(null)
       setQuery('')
       setResults([])
       setSelectedContact(null)
       setContactQuery('')
       setContactResults([])
-      setEditHasContact(!!(editItem.contactId))
-      setError('')
+      setEditHasContact(!!(src.contactId))
+      setError(initialError ?? '')
     }
-  }, [editItem, open])
+  }, [editItem, prefill, initialError, open])
 
   // ── Rate card search ────────────────────────────────────────────────────────
 
@@ -249,24 +262,45 @@ export function LineItemModal({ open, onOpenChange, editItem, accountId, onSaved
     //   selectedContact  → newly picked in this session → use its id
     //   editHasContact   → editing, contact unchanged → preserve editItem.contactId
     //   neither          → null (no assignment or explicitly unlinked)
+    // A reopened add (after a failed save) carries its contact/rate card in prefill.
+    const source = editItem ?? prefill ?? null
     const resolvedContactId =
       selectedContact?.id ??
-      (isEdit && editHasContact ? (editItem!.contactId ?? null) : null)
+      (editHasContact ? (source?.contactId ?? null) : null)
 
-    startTransition(async () => {
-      const res = await upsertLineItem(isEdit ? editItem!.id : null, {
+    const input: LineItemUpsertInput = {
         accountId:        effectiveAccountId,
         description:      description.trim(),
         quantity:         finalQty,
         unit,
         rateCents,
-        rateCardId:       selected?.id ?? (isEdit ? editItem!.rateCardId : null),
+        rateCardId:       selected?.id ?? source?.rateCardId ?? null,
         markupPct:        markup ? parseFloat(markup) / 100 : null,
         notes:            notes.trim() || null,
         quantityFormula,
         lineItemCategory: category || null,
         contactId:        resolvedContactId,
+    }
+
+    // Background save: close now; the budget shows the row and saves it.
+    if (onDeferredSave) {
+      onDeferredSave({
+        id: isEdit ? editItem!.id : null,
+        input,
+        prefill: {
+          id: editItem?.id ?? '', accountId: effectiveAccountId, description: input.description,
+          quantity: input.quantity, unit: input.unit, rateCents: input.rateCents,
+          rateCardId: input.rateCardId ?? null, markupPct: input.markupPct ?? null, notes: input.notes ?? null,
+          quantityFormula: input.quantityFormula ?? null, lineItemCategory: input.lineItemCategory ?? null,
+          contactId: input.contactId ?? null,
+        },
       })
+      handleOpenChange(false)
+      return
+    }
+
+    startTransition(async () => {
+      const res = await upsertLineItem(isEdit ? editItem!.id : null, input)
       if (res.success) {
         onSaved()
         handleOpenChange(false)
