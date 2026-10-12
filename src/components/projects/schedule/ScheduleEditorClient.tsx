@@ -53,6 +53,9 @@ export const DEFAULT_COLUMN_PREFS: Record<string, boolean> = {
   duration: false,
 }
 
+/** How long the pointer must rest on a new spot before rows make room. */
+const DRAG_SETTLE_MS = 180
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface ShootDayRow {
@@ -332,9 +335,15 @@ function ScheduleEditorInner({
   const [dragOverId, setDragOverId] = useState<string | null>(null)
   const [dropAbove, setDropAbove] = useState(true)
 
-  // Live preview: entries during drag
+  // Live preview: entries during drag. It only moves once the pointer has
+  // settled on a new spot (DRAG_SETTLE_MS), so rows don't reshuffle under the
+  // cursor while it passes over them — and the drop lands exactly where the
+  // preview shows (previewTarget), not wherever the pointer is at release.
   const [previewEntries, setPreviewEntries] = useState<EntryRow[] | null>(null)
+  const previewTarget = useRef<{ dayId: string | null; order: string[] } | null>(null)
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const displayEntries = previewEntries ?? entries
+  const draggingIds = useMemo(() => new Set(previewEntries ? (dragItem.current?.multiIds ?? [dragItem.current?.id ?? '']) : []), [previewEntries])
 
   function entriesForDay(dayId: string | null) {
     return displayEntries.filter(e => e.shootDayId === dayId).sort((a, b) => a.orderIndex - b.orderIndex)
@@ -377,9 +386,15 @@ function ScheduleEditorInner({
     }
   }
 
+  function clearSettle() {
+    if (settleTimer.current) { clearTimeout(settleTimer.current); settleTimer.current = null }
+  }
+
   function handleDragEnd() {
     dragItem.current = null
     lastDragKey.current = null
+    previewTarget.current = null
+    clearSettle()
     setDragOverId(null)
     setPreviewEntries(null)
     if (tabHoverTimer.current) clearTimeout(tabHoverTimer.current)
@@ -387,28 +402,42 @@ function ScheduleEditorInner({
 
   function handleDragOverRow(targetEntry: EntryRow, event: React.DragEvent<HTMLTableRowElement>) {
     event.preventDefault()
+    if (!dragItem.current) return
+    // Over the row being dragged (already shown where it will land): stay put.
+    const moving = dragItem.current.multiIds ?? [dragItem.current.id]
+    if (moving.includes(targetEntry.id)) { clearSettle(); return }
+
     const rect = event.currentTarget.getBoundingClientRect()
     const relY = event.clientY - rect.top
-    // Hysteresis band when already hovering this row: avoid flip-flopping right at the
-    // midpoint, which otherwise reorders rows under the cursor and re-triggers itself.
+    // Wide dead zone on the row already targeted: it only flips once the
+    // pointer is well into the other half.
     const isSameRow = dragOverId === targetEntry.id
     const above = isSameRow
-      ? (dropAbove ? relY < rect.height * 0.6 : relY < rect.height * 0.4)
+      ? (dropAbove ? relY < rect.height * 0.75 : relY < rect.height * 0.25)
       : relY < rect.height / 2
 
     const key = `${targetEntry.id}:${above}`
-    if (key === lastDragKey.current) return
-    lastDragKey.current = key
-
-    setDragOverId(targetEntry.id)
-    setDropAbove(above)
-    buildPreview(targetEntry.id, above, targetEntry.shootDayId)
+    if (key === lastDragKey.current) { clearSettle(); return }   // back where the preview is
+    if (settleTimer.current && key === pendingKey.current) return // already waiting for this spot
+    pendingKey.current = key
+    clearSettle()
+    settleTimer.current = setTimeout(() => {
+      settleTimer.current = null
+      if (!dragItem.current) return
+      lastDragKey.current = key
+      setDragOverId(targetEntry.id)
+      setDropAbove(above)
+      buildPreview(targetEntry.id, above, targetEntry.shootDayId)
+    }, DRAG_SETTLE_MS)
   }
+  const pendingKey = useRef<string | null>(null)
 
   function handleDropOnRow(targetEntry: EntryRow, event: React.DragEvent<HTMLTableRowElement>) {
     event.preventDefault()
     if (!dragItem.current) return
     const { id, multiIds } = dragItem.current
+    // Land exactly where the preview shows.
+    if (dropOnPreview(multiIds ?? [id])) return
     const rect = event.currentTarget.getBoundingClientRect()
     const above = event.clientY < rect.top + rect.height / 2
     const beforeId = above ? targetEntry.id : null
@@ -425,7 +454,23 @@ function ScheduleEditorInner({
     event.preventDefault()
     if (!dragItem.current) return
     const { id, multiIds } = dragItem.current
+    // Inside the day's table, below the last row: where the preview shows (if any).
+    if (previewTarget.current?.dayId === dayId && dropOnPreview(multiIds ?? [id])) return
     applyDrop(multiIds ?? [id], dayId, null)
+  }
+
+  /** Commits the move the preview is showing; false if there's no preview. */
+  function dropOnPreview(ids: string[]): boolean {
+    const target = previewTarget.current
+    if (!target) return false
+    lastDragKey.current = null
+    previewTarget.current = null
+    clearSettle()
+    setDragOverId(null)
+    setPreviewEntries(null)
+    setSelectedIds(new Set())
+    commit({ type: 'move', entryIds: ids, toShootDayId: target.dayId, order: target.order })
+    return true
   }
 
   function buildPreview(targetId: string, above: boolean, targetDayId: string | null) {
@@ -457,6 +502,7 @@ function ScheduleEditorInner({
     const timeUpdates = computeEntryTimes(fakeEntries, day?.startTime ?? null)
     const timeMap = new Map(timeUpdates.map(u => [u.id, u]))
 
+    previewTarget.current = { dayId: targetDayId, order: newDayOrder.map(e => e.id) }
     const otherEntries = entries.filter(e => e.shootDayId !== targetDayId && !movingIds.has(e.id))
     setPreviewEntries([
       ...otherEntries,
@@ -471,6 +517,8 @@ function ScheduleEditorInner({
 
   function applyDrop(ids: string[], toShootDayId: string | null, beforeEntryId: string | null) {
     lastDragKey.current = null
+    previewTarget.current = null
+    clearSettle()
     setDragOverId(null)
     setPreviewEntries(null)
     setSelectedIds(new Set())
@@ -891,6 +939,7 @@ function ScheduleEditorInner({
             selectedIds={selectedIds}
             dragOverId={dragOverId}
             dropAbove={dropAbove}
+            draggingIds={draggingIds}
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
             onDragOverRow={handleDragOverRow}
@@ -1162,6 +1211,8 @@ interface ShootDayViewProps {
   selectedIds: Set<string>
   dragOverId: string | null
   dropAbove: boolean
+  /** Rows being dragged — shown highlighted where they'll land. */
+  draggingIds: Set<string>
   onDragStart: (entry: EntryRow, e: React.DragEvent<HTMLElement>) => void
   onDragEnd: () => void
   onDragOverRow: (entry: EntryRow, e: React.DragEvent<HTMLTableRowElement>) => void
@@ -1186,7 +1237,7 @@ interface ShootDayViewProps {
 
 function ShootDayView({
   dayId, day, entries, allDays, scheduleId, canEdit, columnPrefs,
-  selectedIds, dragOverId, dropAbove,
+  selectedIds, dragOverId, dropAbove, draggingIds,
   onDragStart, onDragEnd, onDragOverRow, onDropRow, onDropOnDay,
   onToggleSelect, onEditEntry, onDeleteEntry, onMoveToBoneyard, onToggleConcurrent, onSetStartTime, onMoveToDay,
   onAddScene, onAddBanner, onCreateCallSheet,
@@ -1226,7 +1277,9 @@ function ShootDayView({
       <div
         className="rounded-xl border border-border overflow-hidden"
         onDragOver={e => { e.preventDefault() }}
-        onDrop={e => { if (!dragOverId) onDropOnDay(e) }}
+        // A drop on a row is handled there (it calls preventDefault); one in the
+        // gaps lands where the preview shows, or at the end of the day.
+        onDrop={e => { if (!e.defaultPrevented) onDropOnDay(e) }}
       >
         <table className="w-full text-sm border-collapse">
           <thead>
@@ -1272,6 +1325,7 @@ function ShootDayView({
                 columnPrefs={columnPrefs}
                 isSelected={selectedIds.has(entry.id)}
                 isDragOver={dragOverId === entry.id}
+                isDragging={draggingIds.has(entry.id)}
                 dropAbove={dropAbove}
                 otherDays={otherDays}
                 bannerEdit={bannerEdit?.entry.id === entry.id ? bannerEdit : null}
@@ -1353,6 +1407,7 @@ interface RowProps {
   columnPrefs: Record<string, boolean>
   isSelected: boolean
   isDragOver: boolean
+  isDragging: boolean
   dropAbove: boolean
   otherDays: ShootDayRow[]
   bannerEdit: { entry: EntryRow; label: string; dur: string } | null
@@ -1372,7 +1427,7 @@ interface RowProps {
 }
 
 function ScheduleEntryRow({
-  entry, isFirst, overlaps, onToggleConcurrent, onSetStartTime, canEdit, columnPrefs, isSelected, isDragOver, dropAbove, otherDays, bannerEdit,
+  entry, isFirst, overlaps, onToggleConcurrent, onSetStartTime, canEdit, columnPrefs, isSelected, isDragOver, isDragging, dropAbove, otherDays, bannerEdit,
   onDragStart, onDragEnd, onDragOver, onDrop,
   onToggleSelect, onEdit, onDelete, onMoveToBoneyard, onMoveToDay,
   onStartBannerEdit, onCommitBannerEdit, onCancelBannerEdit, onBannerEditChange,
@@ -1431,8 +1486,11 @@ function ScheduleEntryRow({
       className={[
         'border-b border-border/40 group/row transition-colors cursor-default select-none',
         isSelected ? 'ring-1 ring-inset ring-primary/40' : '',
-        isDragOver && dropAbove ? 'border-t-2 border-t-primary' : '',
-        isDragOver && !dropAbove ? 'border-b-2 border-b-primary' : '',
+        // The dragged row already sits where it will land (live preview), so
+        // it's highlighted there; the neighbour borders only show without one.
+        isDragging ? 'relative z-10 outline outline-2 -outline-offset-2 outline-primary shadow-lg opacity-90' : '',
+        !isDragging && isDragOver && dropAbove ? 'border-t-2 border-t-primary' : '',
+        !isDragging && isDragOver && !dropAbove ? 'border-b-2 border-b-primary' : '',
       ].join(' ')}
       style={{ background: isSelected ? `${color.bg}cc` : color.bg, color: color.text }}
     >

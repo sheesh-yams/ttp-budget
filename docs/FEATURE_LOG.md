@@ -126,6 +126,31 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-12 — Schedule drag: steadier, lands where it shows
+- **Asked:** rearranging on the stripboard was touch-and-go about where an
+  item lands. Make it slower.
+- **Causes:**
+  - The live preview reordered rows on every half-row crossing, so rows
+    shifted under the pointer and changed the target again.
+  - Hovering over the dragged row (already in its preview spot) counted as
+    "insert at the top".
+  - The drop recalculated the spot from the pointer and the original order,
+    so it could land somewhere other than the preview showed.
+  - The dead zone was narrow (40–60%).
+- **Now** (`ScheduleEditorClient.tsx`):
+  - Rows make room only after the pointer rests on a new spot for 180ms
+    (`DRAG_SETTLE_MS`).
+  - The dead zone is 25–75%, and hovering over the dragged row does nothing.
+  - The drop commits the previewed order (`previewTarget`), and drops in
+    the gaps between rows land there too.
+  - The dragged row is outlined in purple where it will land, instead of a
+    border on its neighbour.
+- **Verified:**
+  - tsc, jest and lint; build up to the known Resend step.
+  - Browser with simulated drags: quick passes over rows don't move them;
+    resting moves; hovering over the dragged row and a 35% wobble don't
+    jump; the drop matches the preview; one batched save goes out.
+
 ### 2026-10-12 — Schedule: changes are instant, saved together after 2.5s
 - **Asked:** like deal memos and budget lines, the Schedule should wait about
   2.5s of quiet before saving. Adding or removing something was slow to show.
