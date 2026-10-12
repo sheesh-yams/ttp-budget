@@ -90,6 +90,7 @@ export default async function SchedulePage({
         shootDayId: e.shootDayId,
         orderIndex: e.orderIndex,
         kind: e.kind,
+        concurrentWithPrevious: e.concurrentWithPrevious,
         computedStartTime: e.computedStartTime,
         computedEndTime: e.computedEndTime,
         sceneId: e.sceneId,

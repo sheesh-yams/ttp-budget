@@ -1630,6 +1630,9 @@ model ScheduleEntry {
   bannerLabel       String?
   bannerDurationMin Int?
   bannerNote        String?    @db.Text
+  // Runs at the same time as the entry above it on its shoot day (starts with
+  // it instead of after it); the next entry starts when the longest one ends.
+  concurrentWithPrevious Boolean @default(false)
   // Computed time snapshot (server-maintained)
   computedStartTime String?
   computedEndTime   String?

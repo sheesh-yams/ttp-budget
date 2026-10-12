@@ -157,7 +157,7 @@ export async function updateProject(
       const removeIds = toRemove.map(d => d.id)
       await db.scheduleEntry.updateMany({
         where: { shootDayId: { in: removeIds } },
-        data: { shootDayId: null, computedStartTime: null, computedEndTime: null },
+        data: { shootDayId: null, computedStartTime: null, computedEndTime: null, concurrentWithPrevious: false },
       })
       await db.shootDay.deleteMany({ where: { id: { in: removeIds } } })
     }

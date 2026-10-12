@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { MapPin, Phone, Clock, Hospital, Cloud, Calendar, User } from 'lucide-react'
+import { MapPin, Phone, Clock, Hospital, Cloud, Calendar, User, CornerDownRight } from 'lucide-react'
 import { db } from '@/lib/db'
 import { headers } from 'next/headers'
 import { checkRateLimit } from '@/lib/rate-limit'
@@ -320,9 +320,17 @@ export default async function PublicCallSheetPage({
             {schedule.length > 0 && (
               <Card title="Schedule" icon={<Clock className="h-4 w-4 text-muted-foreground" />}>
                 <div className="divide-y divide-border/60 -mx-4 -mb-4">
-                  {schedule.map((block, i) => (
-                    <div key={i} className="flex items-start gap-4 px-4 py-3">
+                  {schedule.map((block, i) => {
+                    // Shown as a sub-row of the block above: same time, own start/end.
+                    const alongside = i > 0 && !!block.concurrent
+                    return (
+                    <div key={i} className={`flex items-start gap-4 px-4 py-3 ${alongside ? '!border-t-0 pt-0 pl-9' : ''}`}>
                       <div className="shrink-0 pt-0.5 min-w-[90px]">
+                        {alongside && (
+                          <span className="mr-1 inline-flex align-[-2px] text-muted-foreground" title="At the same time as the block above">
+                            <CornerDownRight className="h-3.5 w-3.5" />
+                          </span>
+                        )}
                         <span className="font-mono text-sm font-bold text-foreground">
                           {startOf(block)}
                           {block.endTime && (
@@ -342,7 +350,8 @@ export default async function PublicCallSheetPage({
                         )}
                       </div>
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </Card>
             )}

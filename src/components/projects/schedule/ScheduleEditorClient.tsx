@@ -6,10 +6,10 @@ import { useRouter } from 'next/navigation'
 import {
   Clapperboard, Plus, GripVertical, MoreHorizontal, Pencil, Trash2,
   ArrowRight, Archive, ArchiveRestore, ChevronDown, FilePlus, Clock,
-  Check, Star, Columns3, ArrowUpDown, MapPin,
+  Check, Star, Columns3, ArrowUpDown, MapPin, CornerDownRight,
 } from 'lucide-react'
 import { getSceneColor, BANNER_COLORS } from '@/lib/schedule-colors'
-import { computeEntryTimes } from '@/lib/schedule-compute'
+import { computeEntryTimes, dayWrapTime, parseHHmm } from '@/lib/schedule-compute'
 import { SceneModal } from './SceneModal'
 import type { SceneRow } from './SceneModal'
 import { BannerMenu } from './BannerMenu'
@@ -73,6 +73,8 @@ interface EntryRow {
   shootDayId: string | null
   orderIndex: number
   kind: 'SCENE' | 'BANNER'
+  /** Runs at the same time as the entry above (ignored on a day's first entry). */
+  concurrentWithPrevious: boolean
   computedStartTime: string | null
   computedEndTime: string | null
   sceneId: string | null
@@ -337,6 +339,7 @@ export function ScheduleEditorClient({
     const fakeEntries = newDayOrder.map(e => ({
       id: e.id,
       kind: e.kind,
+      concurrentWithPrevious: e.concurrentWithPrevious,
       bannerDurationMin: e.bannerDurationMin,
       scene: e.scene ? { estimatedDuration: e.scene.estimatedDuration } : null,
     }))
@@ -409,11 +412,12 @@ export function ScheduleEditorClient({
 
     setEntries(prev => {
       const others = prev.filter(e => e.shootDayId !== dayId)
-      return [...others, ...sorted.map((e, i) => ({ ...e, orderIndex: i }))]
+      // Sorting changes every row's neighbour, so "alongside" flags are dropped.
+      return [...others, ...sorted.map((e, i) => ({ ...e, orderIndex: i, concurrentWithPrevious: false }))]
     })
 
     startTransition(async () => {
-      await moveScheduleEntries({ entryIds: sorted.map(e => e.id), toShootDayId: dayId, beforeEntryId: null })
+      await moveScheduleEntries({ entryIds: sorted.map(e => e.id), toShootDayId: dayId, beforeEntryId: null, resetConcurrent: true })
       onMutated()
     })
   }
@@ -521,6 +525,28 @@ export function ScheduleEditorClient({
         bannerLabel: label,
         bannerDurationMin: isNaN(duration) ? 0 : duration,
       })
+      onMutated()
+    })
+  }
+
+  // ── Run alongside the item above ────────────────────────────────────────────
+
+  function handleToggleConcurrent(entry: EntryRow) {
+    if (!canEdit || !entry.shootDayId) return
+    const next = !entry.concurrentWithPrevious
+    const dayId = entry.shootDayId
+    // Optimistic: flip the flag and recompute that day's times locally.
+    setEntries(prev => {
+      const flipped = prev.map(e => e.id === entry.id ? { ...e, concurrentWithPrevious: next } : e)
+      const day = flipped.filter(e => e.shootDayId === dayId).sort((a, b) => a.orderIndex - b.orderIndex)
+      const times = new Map(computeEntryTimes(day, shootDays.find(d => d.id === dayId)?.startTime ?? null).map(t => [t.id, t]))
+      return flipped.map(e => {
+        const t = times.get(e.id)
+        return t ? { ...e, computedStartTime: t.computedStartTime, computedEndTime: t.computedEndTime } : e
+      })
+    })
+    startTransition(async () => {
+      await updateScheduleEntry(entry.id, { concurrentWithPrevious: next })
       onMutated()
     })
   }
@@ -806,6 +832,7 @@ export function ScheduleEditorClient({
             onEditEntry={openEditScene}
             onDeleteEntry={handleDeleteEntry}
             onMoveToBoneyard={handleMoveEntryToBoneyard}
+            onToggleConcurrent={handleToggleConcurrent}
             onMoveToDay={(entryId, dayId) => {
               startTransition(async () => {
                 await moveScheduleEntry({ entryId, toShootDayId: dayId, beforeEntryId: null })
@@ -1080,6 +1107,7 @@ interface ShootDayViewProps {
   onEditEntry: (entry: EntryRow) => void
   onDeleteEntry: (entry: EntryRow) => void
   onMoveToBoneyard: (entry: EntryRow) => void
+  onToggleConcurrent: (entry: EntryRow) => void
   onMoveToDay: (entryId: string, dayId: string) => void
   onAddScene: () => void
   onAddBanner: (preset: BannerPreset, label: string, duration: number) => void
@@ -1095,18 +1123,18 @@ function ShootDayView({
   dayId, day, entries, allDays, scheduleId, canEdit, columnPrefs,
   selectedIds, dragOverId, dropAbove,
   onDragStart, onDragEnd, onDragOverRow, onDropRow, onDropOnDay,
-  onToggleSelect, onEditEntry, onDeleteEntry, onMoveToBoneyard, onMoveToDay,
+  onToggleSelect, onEditEntry, onDeleteEntry, onMoveToBoneyard, onToggleConcurrent, onMoveToDay,
   onAddScene, onAddBanner, onCreateCallSheet,
   bannerEdit, onStartBannerEdit, onCommitBannerEdit, onCancelBannerEdit, onBannerEditChange,
 }: ShootDayViewProps) {
-  // Compute totals
-  const totalMinutes = entries.reduce((sum, e) => {
-    if (e.kind === 'SCENE') return sum + (e.scene?.estimatedDuration ?? 0)
-    return sum + (e.bannerDurationMin ?? 0)
-  }, 0)
+  // Compute totals. With concurrent items the day's length is call → wrap
+  // (the latest end), not the sum of durations.
   const totalPageEighths = entries.reduce((sum, e) => sum + (e.scene?.pageEighths ?? 0), 0)
   const sceneCount = entries.filter(e => e.kind === 'SCENE').length
-  const wrapTime = entries.length > 0 ? entries[entries.length - 1]!.computedEndTime : null
+  const wrapTime = dayWrapTime(entries)
+  const firstStart = entries[0]?.computedStartTime ?? null
+  const totalMinutes = wrapTime && firstStart ? Math.max(0, parseHHmm(wrapTime) - parseHHmm(firstStart)) : 0
+  const overlapping = entries.filter((e, i) => i > 0 && e.concurrentWithPrevious).length
 
   const otherDays = allDays.filter(d => d.id !== dayId)
 
@@ -1165,10 +1193,12 @@ function ShootDayView({
                 </td>
               </tr>
             )}
-            {entries.map(entry => (
+            {entries.map((entry, i) => (
               <ScheduleEntryRow
                 key={entry.id}
                 entry={entry}
+                isFirst={i === 0}
+                onToggleConcurrent={onToggleConcurrent}
                 canEdit={canEdit}
                 columnPrefs={columnPrefs}
                 isSelected={selectedIds.has(entry.id)}
@@ -1216,7 +1246,10 @@ function ShootDayView({
             {totalPageEighths > 0 && (
               <span><span className="font-semibold text-foreground">{pageEighthsToDisplay(totalPageEighths)}</span> pages</span>
             )}
-            <span><span className="font-semibold text-foreground">{totalMinutes}m</span> total</span>
+            <span>
+              <span className="font-semibold text-foreground">{totalMinutes}m</span> total
+              {overlapping > 0 && <> · {overlapping} running alongside</>}
+            </span>
             {wrapTime && (
               <span>Wrap <span className="font-semibold text-foreground">{formatHHmm(wrapTime)}</span></span>
             )}
@@ -1241,6 +1274,9 @@ function ShootDayView({
 
 interface RowProps {
   entry: EntryRow
+  /** First entry of its day — nothing above to run alongside. */
+  isFirst: boolean
+  onToggleConcurrent: (entry: EntryRow) => void
   canEdit: boolean
   columnPrefs: Record<string, boolean>
   isSelected: boolean
@@ -1264,7 +1300,7 @@ interface RowProps {
 }
 
 function ScheduleEntryRow({
-  entry, canEdit, columnPrefs, isSelected, isDragOver, dropAbove, otherDays, bannerEdit,
+  entry, isFirst, onToggleConcurrent, canEdit, columnPrefs, isSelected, isDragOver, dropAbove, otherDays, bannerEdit,
   onDragStart, onDragEnd, onDragOver, onDrop,
   onToggleSelect, onEdit, onDelete, onMoveToBoneyard, onMoveToDay,
   onStartBannerEdit, onCommitBannerEdit, onCancelBannerEdit, onBannerEditChange,
@@ -1290,6 +1326,7 @@ function ScheduleEntryRow({
   }, [menuOpen])
 
   const isScene = entry.kind === 'SCENE'
+  const alongside = entry.concurrentWithPrevious && !isFirst
   const color = isScene && entry.scene
     ? getSceneColor(entry.scene.intExt, entry.scene.timeOfDay, entry.scene.colorOverride)
     : (BANNER_COLORS[entry.bannerType ?? 'CUSTOM'] ?? BANNER_COLORS['CUSTOM']!)
@@ -1363,8 +1400,18 @@ function ScheduleEntryRow({
             <span className="text-xs opacity-60">min</span>
           </div>
         ) : (
-          <span className="text-sm font-medium truncate block">
-            {isScene ? entry.scene?.setting : (entry.bannerLabel || entry.bannerType?.replace('_', ' '))}
+          <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
+            {alongside && (
+              <CornerDownRight
+                className="h-3.5 w-3.5 shrink-0 opacity-60"
+                aria-label="Runs at the same time as the item above"
+              >
+                <title>Runs at the same time as the item above</title>
+              </CornerDownRight>
+            )}
+            <span className="truncate">
+              {isScene ? entry.scene?.setting : (entry.bannerLabel || entry.bannerType?.replace('_', ' '))}
+            </span>
           </span>
         )}
       </td>
@@ -1463,6 +1510,7 @@ function ScheduleEntryRow({
           onMoveToBoneyard={onMoveToBoneyard}
           onMoveToDay={onMoveToDay}
           onEditBanner={onStartBannerEdit}
+          onToggleConcurrent={isFirst ? undefined : onToggleConcurrent}
         />,
         document.body,
       )}
@@ -1484,8 +1532,10 @@ const EntryKebabMenu = forwardRef<HTMLDivElement, {
   onMoveToBoneyard: (e: EntryRow) => void
   onMoveToDay: (id: string, dayId: string) => void
   onEditBanner: (e: EntryRow) => void
+  /** Absent on a day's first entry. */
+  onToggleConcurrent?: (e: EntryRow) => void
 }>(function EntryKebabMenu({
-  pos, entry, otherDays, onClose, onEdit, onDelete, onMoveToBoneyard, onMoveToDay, onEditBanner,
+  pos, entry, otherDays, onClose, onEdit, onDelete, onMoveToBoneyard, onMoveToDay, onEditBanner, onToggleConcurrent,
 }, ref) {
   const [moveDayOpen, setMoveDayOpen] = useState(false)
 
@@ -1511,6 +1561,11 @@ const EntryKebabMenu = forwardRef<HTMLDivElement, {
         ? item(() => onEdit(entry), <><Pencil className="h-3.5 w-3.5 text-muted-foreground" /> Edit scene</>)
         : item(() => onEditBanner(entry), <><Pencil className="h-3.5 w-3.5 text-muted-foreground" /> Edit banner</>)
       }
+      {onToggleConcurrent && item(
+        () => onToggleConcurrent(entry),
+        <><CornerDownRight className="h-3.5 w-3.5 text-muted-foreground" />
+          {entry.concurrentWithPrevious ? 'Run after the item above' : 'Run alongside the item above'}</>,
+      )}
       {otherDays.length > 0 && (
         <div className="relative">
           <button

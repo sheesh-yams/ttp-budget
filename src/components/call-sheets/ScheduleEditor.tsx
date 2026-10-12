@@ -1,9 +1,10 @@
 'use client'
 
-import { Plus, X, ChevronUp, ChevronDown } from 'lucide-react'
+import { Plus, X, ChevronUp, ChevronDown, CornerDownRight } from 'lucide-react'
 import type { ScheduleBlock, CrewDept, TalentMember } from '@/server/actions/call-sheets'
 import { WhoNeededPicker } from './WhoNeededPicker'
 import { formatTime, type TimeFormat } from '@/lib/time-format'
+import { latestBlockEnd } from '@/lib/schedule-compute'
 
 interface Props {
   schedule:    ScheduleBlock[]
@@ -26,13 +27,28 @@ function addMinutes(hhmm: string, mins: number): string {
   return `${String(Math.floor(total / 60) % 24).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
 }
 
+/** Runs alongside the block above (never the first block). */
+export function isAlongside(schedule: ScheduleBlock[], i: number): boolean {
+  return i > 0 && !!schedule[i]?.concurrent
+}
+
 export function ScheduleEditor({ schedule, onChange, readonly = false, crew = [], talent = [], timeFormat = '12H' }: Props) {
   function add() {
-    const last = schedule.at(-1)
-    const lastEnd = last?.endTime ?? startOf(last ?? { startTime: '07:00', label: '' })
-    const nextStart = addMinutes(lastEnd, 0)   // pick up right after last block ends
+    const nextStart = latestBlockEnd(schedule.map(b => ({ startTime: startOf(b), endTime: b.endTime })))   // after everything so far ends
     const nextEnd   = addMinutes(nextStart, 30)
     onChange([...schedule, { startTime: nextStart, endTime: nextEnd, label: '', whoNeeded: '' }])
+  }
+
+  function toggleConcurrent(i: number) {
+    onChange(schedule.map((b, idx) => {
+      if (idx !== i) return b
+      if (b.concurrent) {
+        const rest = { ...b }
+        delete rest.concurrent
+        return rest
+      }
+      return { ...b, concurrent: true }
+    }))
   }
 
   function remove(i: number) {
@@ -62,8 +78,13 @@ export function ScheduleEditor({ schedule, onChange, readonly = false, crew = []
     return (
       <div className="space-y-0 divide-y rounded-lg border">
         {schedule.map((block, i) => (
-          <div key={i} className="flex items-start gap-4 px-4 py-2.5">
+          <div key={i} className={`flex items-start gap-4 px-4 py-2.5 ${isAlongside(schedule, i) ? '!border-t-0 pt-0 pl-8' : ''}`}>
             <div className="shrink-0 pt-0.5 min-w-[80px]">
+              {isAlongside(schedule, i) && (
+                <span className="mr-1 inline-flex align-[-2px] text-muted-foreground" title="At the same time as the block above">
+                  <CornerDownRight className="h-3.5 w-3.5" />
+                </span>
+              )}
               <span className="font-mono text-sm font-semibold text-foreground">
                 {formatTime(startOf(block), timeFormat)}
                 {block.endTime && (
@@ -108,7 +129,7 @@ export function ScheduleEditor({ schedule, onChange, readonly = false, crew = []
       )}
 
       {schedule.map((block, i) => (
-        <div key={i} className="group/block space-y-1">
+        <div key={i} className={`group/block space-y-1 ${isAlongside(schedule, i) ? 'border-l-2 border-violet-300 pl-2' : ''}`}>
           <div className="flex items-center gap-2">
             {/* Reorder */}
             <div className="flex flex-col gap-0.5 opacity-0 group-hover/block:opacity-100 transition-opacity">
@@ -163,13 +184,28 @@ export function ScheduleEditor({ schedule, onChange, readonly = false, crew = []
             </button>
           </div>
 
-          {/* Notes sub-row */}
-          <input
-            placeholder="Notes (optional)"
-            value={block.notes ?? ''}
-            onChange={e => update(i, 'notes', e.target.value)}
-            className="w-full bg-transparent pl-8 px-2 py-0.5 text-xs text-muted-foreground placeholder:text-muted-foreground/50 focus:outline-none border-b border-transparent focus:border-input"
-          />
+          {/* Notes sub-row (+ "same time as above" for every block but the first) */}
+          <div className="flex items-center gap-2 pl-7">
+            {i > 0 && (
+              <button
+                type="button"
+                onClick={() => toggleConcurrent(i)}
+                aria-pressed={!!block.concurrent}
+                title="Show this block as happening at the same time as the one above"
+                className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors ${block.concurrent
+                  ? 'border-violet-300 bg-violet-50 text-violet-700'
+                  : 'border-transparent text-muted-foreground opacity-0 group-hover/block:opacity-100 hover:border-border'}`}
+              >
+                <CornerDownRight className="h-3 w-3" /> Same time as above
+              </button>
+            )}
+            <input
+              placeholder="Notes (optional)"
+              value={block.notes ?? ''}
+              onChange={e => update(i, 'notes', e.target.value)}
+              className="w-full bg-transparent px-2 py-0.5 text-xs text-muted-foreground placeholder:text-muted-foreground/50 focus:outline-none border-b border-transparent focus:border-input"
+            />
+          </div>
         </div>
       ))}
 

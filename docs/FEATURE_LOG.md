@@ -126,6 +126,65 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-12 — Concurrent items on the Schedule (and call sheets)
+- **Asked:** the stripboard couldn't run two things at once (Load In at the
+  same time as Talent Call). Review the scheduling logic, support
+  concurrency, and make it work with call sheets.
+- **Before:** `computeEntryTimes` chained every entry end to end from the
+  day's call time, so an overlap was impossible. Call sheet blocks already
+  took free times, but syncing from the stripboard copied the chained times.
+- **Decision (user):** a per-item toggle, "Run alongside the item above".
+  Times stay automatic; there are no pinned start times.
+- **Model:** `ScheduleEntry.concurrentWithPrevious` (bool, default false;
+  migration `20261012000001_schedule_entry_concurrent`). Existing
+  schedules are unchanged.
+- **Time math (`schedule-compute.ts`):**
+  - A flagged entry starts with the group above it, and the next normal
+    entry starts when the longest entry in that group ends.
+  - The first entry ignores the flag.
+  - `dayWrapTime` gives the latest end.
+  - Unit tests cover groups, longest-not-first, midnight (hours above 24)
+    and the first-entry case.
+- **Stripboard:**
+  - A kebab toggle (hidden on a day's first row), applied optimistically
+    with a local recompute.
+  - A ↳ marker on rows that run alongside.
+  - The footer shows wrap = latest end, total = elapsed from the first
+    start to wrap, and "N running alongside".
+- **When the flag is dropped:** the Boneyard has no timing, and in these
+  cases what's above an entry changes:
+  - it moves to another day
+  - it goes to the Boneyard
+  - the day is sorted
+  - it becomes a day's first entry (cleared at recompute, so a hidden flag
+    can't attach later)
+  - Dragging within a day keeps it ("alongside whatever is above").
+- **Call sheets:**
+  - The snapshot adds `concurrent: true` only when set. The drift check
+    confirmed all 4 synced sheets produce the same snapshot shape as before
+    (no false "stripboard changed"). 2 of them were already out of sync
+    beforehand.
+  - Sync and create-from-shoot-day carry it into `ScheduleBlock.concurrent`.
+  - The call sheet editor has a per-block "Same time as above" toggle.
+  - The readonly view and the public `/cs/[token]` page show those blocks as
+    ↳ sub-rows with their own times.
+  - "Add block" starts after the latest end (`latestBlockEnd`), and handles
+    overnight times typed by hand.
+- **Verified:**
+  - tsc, jest (376), lint and build.
+  - Real-DB script: Load In / Talent call / HMU / Set Up came out 08:00–08:30,
+    08:00, 08:00–09:00 and 09:00–11:00. The blocks carry the flag, and
+    toggling off restores the sequence.
+  - Browser preview of the call sheet editor (toggle, Add block at 11:00,
+    readonly sub-rows).
+  - pitfall-reviewer: 2 findings, both fixed (overnight "Add block"; flags
+    kept on day moves, sorts and first rows).
+- **Manual pass:**
+  - Toggle on the stripboard and check the times and wrap.
+  - Sync the linked call sheet and check its public link.
+- **Follow-up (pre-existing):** sync from the stripboard replaces the call
+  sheet's blocks, including hand-entered "Who's needed".
+
 ### 2026-10-08 — Dietary editable from the Crew page too (latest edit wins)
 - **Asked:** dietary showed only in the Rolodex. It should be editable from
   either the Rolodex or the Crew page, with the most recent edit winning.

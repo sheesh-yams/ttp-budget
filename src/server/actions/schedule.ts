@@ -57,6 +57,8 @@ interface ScheduleEntryInput {
   bannerLabel?: string
   bannerDurationMin?: number
   bannerNote?: string
+  /** Runs at the same time as the entry above (see computeEntryTimes). */
+  concurrentWithPrevious?: boolean
 }
 
 // ── Internal helper ────────────────────────────────────────────────────────────
@@ -71,11 +73,18 @@ async function recomputeShootDayEntries(shootDayId: string, workspaceId: string)
   })
   const updates = computeEntryTimes(entries, day.startTime)
   if (updates.length === 0) return
+  // The first entry has nothing to run alongside: drop a leftover flag (after
+  // the entry above was moved or removed) so it can't silently attach to
+  // whatever lands above it later.
+  const firstId = entries[0]?.concurrentWithPrevious ? entries[0].id : null
   await db.$transaction(
     updates.map(u =>
       db.scheduleEntry.update({
         where: { id: u.id },
-        data: { computedStartTime: u.computedStartTime, computedEndTime: u.computedEndTime },
+        data: {
+          computedStartTime: u.computedStartTime, computedEndTime: u.computedEndTime,
+          ...(u.id === firstId ? { concurrentWithPrevious: false } : {}),
+        },
       }),
     ),
   )
@@ -185,7 +194,7 @@ export async function deleteShootDay(id: string, moveEntriesToBoneyard: boolean)
   if (moveEntriesToBoneyard) {
     await db.scheduleEntry.updateMany({
       where: { shootDayId: id },
-      data: { shootDayId: null, computedStartTime: null, computedEndTime: null },
+      data: { shootDayId: null, computedStartTime: null, computedEndTime: null, concurrentWithPrevious: false },
     })
   }
   await sdb.shootDay.delete({ where: { id } })
@@ -227,6 +236,7 @@ export interface SceneEntryPayload {
   shootDayId: string | null
   orderIndex: number
   kind: 'SCENE'
+  concurrentWithPrevious: false
   computedStartTime: string | null
   computedEndTime: string | null
   sceneId: string
@@ -316,6 +326,7 @@ export async function createSceneWithEntry(
       shootDayId,
       orderIndex,
       kind: 'SCENE',
+      concurrentWithPrevious: false,
       computedStartTime,
       computedEndTime,
       sceneId: scene.id,
@@ -562,7 +573,12 @@ export async function moveScheduleEntry(input: {
 
   await db.$transaction([
     ...newOrder.map((e, i) =>
-      db.scheduleEntry.update({ where: { id: e.id }, data: { shootDayId: toShootDayId, orderIndex: i } }),
+      db.scheduleEntry.update({ where: { id: e.id }, data: {
+        shootDayId: toShootDayId, orderIndex: i,
+        // "Alongside the item above" was chosen for its old neighbour: dropped
+        // when it changes day (and in the Boneyard, which has no timing).
+        ...(!toShootDayId || (e.id === input.entryId && sourceShootDayId !== toShootDayId) ? { concurrentWithPrevious: false } : {}),
+      } }),
     ),
   ])
 
@@ -578,6 +594,8 @@ export async function moveScheduleEntries(input: {
   entryIds: string[]
   toShootDayId: string | null
   beforeEntryId: string | null
+  /** Sorting a day: drop every "alongside" flag, since the rows above change. */
+  resetConcurrent?: boolean
 }): Promise<ActionResult> {
   const gate = await requireProductionPermission({ scheduleEntryIds: input.entryIds }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
@@ -602,6 +620,7 @@ export async function moveScheduleEntries(input: {
   if (scheduleIds.length > 1) return { success: false, error: 'Cannot move entries from different schedules' }
 
   const movingSet = new Set(input.entryIds)
+  const changedDay = new Set(entries.filter(e => e.shootDayId !== input.toShootDayId).map(e => e.id))
   const { toShootDayId, beforeEntryId } = input
   const sourceShootDayIds = [...new Set(entries.map(e => e.shootDayId).filter(Boolean))] as string[]
   const workspaceId = entries[0]!.workspaceId
@@ -625,7 +644,11 @@ export async function moveScheduleEntries(input: {
 
   await db.$transaction(
     newOrder.map((e, i) =>
-      db.scheduleEntry.update({ where: { id: e.id }, data: { shootDayId: toShootDayId, orderIndex: i } }),
+      db.scheduleEntry.update({ where: { id: e.id }, data: {
+        shootDayId: toShootDayId, orderIndex: i,
+        // Dropped in the Boneyard (no timing), for entries changing day, and on a sort.
+        ...(!toShootDayId || input.resetConcurrent || changedDay.has(e.id) ? { concurrentWithPrevious: false } : {}),
+      } }),
     ),
   )
 
