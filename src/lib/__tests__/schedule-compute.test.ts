@@ -1,4 +1,4 @@
-import { computeEntryTimes, dayWrapTime, buildScheduleSnapshot, snapshotToScheduleBlocks, latestBlockEnd, overlapFlags, isValidClockTime, blockOverlapFlags } from '@/lib/schedule-compute'
+import { computeEntryTimes, dayWrapTime, buildScheduleSnapshot, snapshotToScheduleBlocks, latestBlockEnd, overlapFlags, isValidClockTime, blockOverlapFlags, sceneLocationLabel } from '@/lib/schedule-compute'
 
 const banner = (id: string, dur: number, concurrentWithPrevious = false) =>
   ({ id, kind: 'BANNER' as const, bannerDurationMin: dur, scene: null, concurrentWithPrevious })
@@ -185,5 +185,24 @@ describe('overlap markers (review fixes)', () => {
   })
   it('call sheet: an early block before the one above is not a sub-row', () => {
     expect(blockOverlapFlags([{ startTime: '08:00', endTime: '10:00' }, { startTime: '07:00', endTime: '07:30' }])).toEqual([false, false])
+  })
+})
+
+describe('sceneLocationLabel', () => {
+  it('joins a saved location and free text, or shows either alone', () => {
+    expect(sceneLocationLabel('Smith House', 'Master bedroom')).toBe('Smith House · Master bedroom')
+    expect(sceneLocationLabel(null, ' Garage ')).toBe('Garage')
+    expect(sceneLocationLabel('Smith House', null)).toBe('Smith House')
+    expect(sceneLocationLabel(null, '  ')).toBeNull()
+  })
+  it('leaves the call sheet snapshot unchanged for scenes without free text', () => {
+    const entry = (detail?: string | null) => ({
+      kind: 'SCENE' as const, bannerLabel: null, bannerType: null, bannerNote: null, bannerDurationMin: null,
+      computedStartTime: '08:00', computedEndTime: '09:00',
+      scene: { sceneNumber: '1', setting: 'Kitchen', estimatedDuration: 60, notes: null, castContactIds: [], location: { name: 'Smith House' }, ...(detail !== undefined ? { locationDetail: detail } : {}) },
+    })
+    expect(buildScheduleSnapshot([entry(null)])).toEqual(buildScheduleSnapshot([entry()]))
+    expect(buildScheduleSnapshot([entry('Master bedroom')])[0]!.locationName).toBe('Smith House · Master bedroom')
+    expect(snapshotToScheduleBlocks(buildScheduleSnapshot([entry('Master bedroom')]))[0]!.location).toBe('Smith House · Master bedroom')
   })
 })

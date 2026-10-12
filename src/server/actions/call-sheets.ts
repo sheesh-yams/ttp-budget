@@ -202,6 +202,8 @@ export interface ScheduleBlock {
    *  Display works it out from the times (blockOverlapFlags), so blocks
    *  typed on the call sheet don't need it. */
   concurrent?: boolean
+  /** A scene's place, from a stripboard sync ("Smith House · Master bedroom"). */
+  location?: string
 }
 
 export interface HospitalInfo {

@@ -27,6 +27,13 @@ export function addMinutes(totalMinutes: number, delta: number): number {
 
 // ── Call sheet snapshot / sync helpers ───────────────────────────────────────
 
+/** How a scene's place reads: "Smith House · Master bedroom", or either part
+ *  alone (a saved Location, or free text like "Garage"). Null if neither. */
+export function sceneLocationLabel(name: string | null | undefined, detail: string | null | undefined): string | null {
+  const parts = [name?.trim(), detail?.trim()].filter(Boolean)
+  return parts.length ? parts.join(' · ') : null
+}
+
 export interface ScheduleSnapshotEntry {
   kind: 'SCENE' | 'BANNER'
   sceneNumber: string | null
@@ -62,6 +69,7 @@ interface SnapshotSourceEntry {
     notes: string | null
     castContactIds: string[]
     location: { name: string } | null
+    locationDetail?: string | null
   } | null
 }
 
@@ -79,7 +87,8 @@ export function buildScheduleSnapshot(entries: SnapshotSourceEntry[]): ScheduleS
     computedStartTime: e.computedStartTime ?? null,
     computedEndTime: e.computedEndTime ?? null,
     duration: e.kind === 'SCENE' ? (e.scene?.estimatedDuration ?? 0) : (e.bannerDurationMin ?? 0),
-    locationName: e.scene?.location?.name ?? null,
+    // Unchanged for scenes without free text, so older snapshots still match.
+    locationName: sceneLocationLabel(e.scene?.location?.name, e.scene?.locationDetail),
     castContactIds: e.scene?.castContactIds ?? [],
     notes: e.scene?.notes ?? e.bannerNote ?? null,
     // Runs during the entries above (flagged, or a hand-set time inside them).
@@ -94,6 +103,8 @@ export interface ScheduleBlockLike {
   whoNeeded?: string
   notes?: string
   concurrent?: boolean
+  /** A scene's place from the stripboard ("Smith House · Master bedroom"). */
+  location?: string
 }
 
 /** Convert a schedule snapshot into call-sheet schedule blocks for display/editing. */
@@ -108,6 +119,7 @@ export function snapshotToScheduleBlocks(snapshot: ScheduleSnapshotEntry[]): Sch
         : (e.bannerLabel || e.bannerType || ''),
       notes: e.notes ?? undefined,
       ...(e.concurrent ? { concurrent: true } : {}),
+      ...(e.kind === 'SCENE' && e.locationName ? { location: e.locationName } : {}),
     }))
 }
 

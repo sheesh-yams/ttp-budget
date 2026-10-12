@@ -1572,6 +1572,9 @@ model Scene {
   estimatedDuration Int?      // minutes
   locationId        String?
   location          Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  // Free text: a place within the location ("Master bedroom") or, with no
+  // location picked, the whole place ("Garage"). Not added to Locations.
+  locationDetail    String?
   notes             String?   @db.Text
   castContactIds    String[]  @default([])
   colorOverride     String?   // hex; null = auto-derived from intExt + timeOfDay

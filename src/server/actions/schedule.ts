@@ -44,6 +44,8 @@ export interface SceneInput {
   pageEighths?: number
   estimatedDuration?: number
   locationId?: string | null
+  /** Free-text place: within the location ("Master bedroom") or on its own. */
+  locationDetail?: string | null
   notes?: string
   castContactIds?: string[]
   colorOverride?: string | null
@@ -267,6 +269,7 @@ export interface SceneEntryPayload {
     castContactIds: string[]
     archived: boolean
     location: { id: string; name: string } | null
+    locationDetail: string | null
   }
   bannerType: null
   bannerLabel: null
@@ -358,6 +361,7 @@ export async function createSceneWithEntry(
         castContactIds: scene.castContactIds,
         archived: scene.archived,
         location: location ?? null,
+        locationDetail: scene.locationDetail,
       },
       bannerType: null,
       bannerLabel: null,

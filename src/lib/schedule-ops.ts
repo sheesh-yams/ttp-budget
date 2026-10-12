@@ -27,6 +27,8 @@ export interface ScheduleSceneSnap {
   castContactIds: string[]
   archived: boolean
   location: { id: string; name: string } | null
+  /** Free-text place: within `location`, or on its own. */
+  locationDetail: string | null
 }
 
 export interface ScheduleEntryRow {
@@ -62,6 +64,7 @@ export interface ScheduleSceneRow {
   estimatedDuration: number | null
   locationId: string | null
   location: { id: string; name: string } | null
+  locationDetail: string | null
   notes: string | null
   castContactIds: string[]
   colorOverride: string | null
@@ -82,6 +85,7 @@ export interface SceneOpInput {
   pageEighths?: number | null
   estimatedDuration?: number | null
   locationId?: string | null
+  locationDetail?: string | null
   notes?: string | null
   castContactIds?: string[]
   colorOverride?: string | null
@@ -152,6 +156,7 @@ function sceneSnap(s: ScheduleSceneRow): ScheduleSceneSnap {
     intExt: s.intExt, timeOfDay: s.timeOfDay, pageEighths: s.pageEighths,
     estimatedDuration: s.estimatedDuration, colorOverride: s.colorOverride,
     castContactIds: s.castContactIds, archived: s.archived, location: s.location,
+    locationDetail: s.locationDetail,
   }
 }
 
@@ -246,7 +251,7 @@ function applyOne(state: ScheduleState, op: OpBody, ctx: ScheduleOpsContext): Sc
         const blank: ScheduleSceneRow = {
           id: op.sceneId, sceneNumber: null, setting: op.input.setting, description: null, synopsis: null,
           intExt: 'INT', timeOfDay: 'DAY', pageCount: null, pageEighths: null, estimatedDuration: null,
-          locationId: null, location: null, notes: null, castContactIds: [], colorOverride: null, archived: false,
+          locationId: null, location: null, locationDetail: null, notes: null, castContactIds: [], colorOverride: null, archived: false,
         }
         scenes = [...scenes, patchScene(blank, op.input, locations)]
       }

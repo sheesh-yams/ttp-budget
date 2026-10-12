@@ -14,27 +14,12 @@ import { getSceneColor } from '@/lib/schedule-colors'
 import { createScene, createSceneWithEntry, updateScene, createLocation } from '@/server/actions/schedule'
 import type { SceneEntryPayload, SceneInput } from '@/server/actions/schedule'
 import type { IntExt, TimeOfDay } from '@prisma/client'
+import type { ScheduleSceneRow } from '@/lib/schedule-ops'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export interface SceneRow {
-  id: string
-  sceneNumber: string | null
-  setting: string
-  description: string | null
-  synopsis: string | null
-  intExt: IntExt
-  timeOfDay: TimeOfDay
-  pageCount: string | null
-  pageEighths: number | null
-  estimatedDuration: number | null
-  locationId: string | null
-  location: { id: string; name: string } | null
-  notes: string | null
-  castContactIds: string[]
-  colorOverride: string | null
-  archived: boolean
-}
+/** A scene as the schedule editor holds it (one shape with the ops log). */
+export type SceneRow = ScheduleSceneRow
 
 interface Props {
   open: boolean
@@ -115,6 +100,7 @@ export function SceneModal({ open, onClose, onSaved, onSubmitDeferred, initialEr
   const [pageCount, setPageCount]             = useState('')
   const [estimatedDuration, setEstimatedDuration] = useState('')
   const [locationId, setLocationId]           = useState<string>('')
+  const [locationDetail, setLocationDetail]   = useState('')
   const [notes, setNotes]                     = useState('')
   const [colorOverride, setColorOverride]     = useState('')
   const [newLocationName, setNewLocationName] = useState('')
@@ -134,6 +120,7 @@ export function SceneModal({ open, onClose, onSaved, onSubmitDeferred, initialEr
       setPageCount(scene.pageCount ?? '')
       setEstimatedDuration(scene.estimatedDuration != null ? String(scene.estimatedDuration) : '')
       setLocationId(scene.locationId ?? '')
+      setLocationDetail(scene.locationDetail ?? '')
       setNotes(scene.notes ?? '')
       setColorOverride(scene.colorOverride ?? '')
     } else {
@@ -146,6 +133,7 @@ export function SceneModal({ open, onClose, onSaved, onSubmitDeferred, initialEr
       setPageCount('')
       setEstimatedDuration('')
       setLocationId('')
+      setLocationDetail('')
       setNotes('')
       setColorOverride('')
     }
@@ -183,6 +171,8 @@ export function SceneModal({ open, onClose, onSaved, onSubmitDeferred, initialEr
         pageEighths: pageEighths ?? undefined,
         estimatedDuration: (dur !== undefined && !isNaN(dur) && dur > 0) ? dur : undefined,
         locationId: typedLocation ? undefined : (locationId || null),
+        // Emptying it clears it (null), like the location picker.
+        locationDetail: locationDetail.trim() || null,
         notes: notes.trim() || undefined,
         colorOverride: colorOverride.trim() || null,
       }, typedLocation)
@@ -211,6 +201,7 @@ export function SceneModal({ open, onClose, onSaved, onSubmitDeferred, initialEr
         pageEighths: pageEighths ?? undefined,
         estimatedDuration: (!isNaN(dur!) && dur! > 0) ? dur : undefined,
         locationId: resolvedLocationId,
+        locationDetail: locationDetail.trim() || null,
         notes: notes.trim() || undefined,
         colorOverride: colorOverride.trim() || null,
       }
@@ -370,6 +361,18 @@ export function SceneModal({ open, onClose, onSaved, onSubmitDeferred, initialEr
                 </button>
               </div>
             )}
+            {/* Free text: a room or area within the location, or the whole
+                place when it isn't a saved Location. */}
+            <Input
+              value={locationDetail}
+              onChange={e => setLocationDetail(e.target.value)}
+              maxLength={300}
+              placeholder={locationId || (showNewLoc && newLocationName.trim())
+                ? 'Room / area — e.g. Master bedroom'
+                : 'Or type a place — e.g. Garage, Kitchen at Mum’s'}
+              className="mt-2 h-8 text-sm"
+              aria-label="Room or area"
+            />
           </div>
 
           {/* Description */}

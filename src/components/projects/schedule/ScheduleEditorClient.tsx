@@ -9,7 +9,7 @@ import {
   Check, Star, Columns3, ArrowUpDown, MapPin, CornerDownRight, Pin, RotateCcw,
 } from 'lucide-react'
 import { getSceneColor, BANNER_COLORS } from '@/lib/schedule-colors'
-import { computeEntryTimes, dayWrapTime, parseHHmm, formatHHmm as formatClock, overlapFlags } from '@/lib/schedule-compute'
+import { computeEntryTimes, dayWrapTime, parseHHmm, formatHHmm as formatClock, overlapFlags, sceneLocationLabel } from '@/lib/schedule-compute'
 import { SceneModal } from './SceneModal'
 import type { SceneRow } from './SceneModal'
 import { BannerMenu } from './BannerMenu'
@@ -539,7 +539,7 @@ function ScheduleEditorInner({
         case 'pages':        return e.scene?.pageEighths ?? 0
         case 'intExt':       return e.scene?.intExt ?? '￿'
         case 'timeOfDay':    return e.scene?.timeOfDay ?? '￿'
-        case 'location':     return e.scene?.location?.name ?? '￿'
+        case 'location':     return sceneLocationLabel(e.scene?.location?.name, e.scene?.locationDetail) ?? '￿'
       }
     }
     const sorted = [...dayEntries].sort((a, b) => {
@@ -605,7 +605,7 @@ function ScheduleEditorInner({
       id: snap.id, sceneNumber: snap.sceneNumber, setting: snap.setting, description: snap.description,
       synopsis: null, intExt: snap.intExt, timeOfDay: snap.timeOfDay, pageCount: null, pageEighths: snap.pageEighths,
       estimatedDuration: snap.estimatedDuration, locationId: snap.location?.id ?? null, location: snap.location,
-      notes: null, castContactIds: snap.castContactIds, colorOverride: snap.colorOverride, archived: snap.archived,
+      locationDetail: snap.locationDetail, notes: null, castContactIds: snap.castContactIds, colorOverride: snap.colorOverride, archived: snap.archived,
     }
   }
 
@@ -1290,7 +1290,7 @@ function ShootDayView({
               <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Setting / Label</th>
               {columnPrefs.ie && <th className="text-center px-2 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-20">I/E</th>}
               {columnPrefs.timeOfDay && <th className="text-left px-2 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-20">Time</th>}
-              {columnPrefs.location && <th className="text-left px-2 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-24">Location</th>}
+              {columnPrefs.location && <th className="text-left px-2 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-36">Location</th>}
               {columnPrefs.pages && <th className="text-center px-2 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-16">Pages</th>}
               {columnPrefs.duration && <th className="text-center px-2 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-16">Dur</th>}
               <th className="text-right px-2 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-24">Start</th>
@@ -1588,10 +1588,11 @@ function ScheduleEntryRow({
 
       {/* Location */}
       {columnPrefs.location && (
-        <td className="px-2 py-2 w-24">
-          <span className="text-xs opacity-70 truncate block max-w-[80px]">
-            {isScene ? (entry.scene?.location?.name ?? '') : ''}
-          </span>
+        <td className="px-2 py-2 w-36">
+          {(() => {
+            const label = isScene ? (sceneLocationLabel(entry.scene?.location?.name, entry.scene?.locationDetail) ?? '') : ''
+            return <span className="text-xs opacity-70 truncate block max-w-[136px]" title={label || undefined}>{label}</span>
+          })()}
         </td>
       )}
 

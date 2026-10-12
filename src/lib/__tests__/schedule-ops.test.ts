@@ -104,6 +104,14 @@ describe('applyScheduleOps', () => {
     expect(entry.scene!.estimatedDuration).toBe(45)
   })
 
+  it('free-text location: set, shown on the entry, and cleared', () => {
+    const s0 = applyScheduleOps(base(), [op({ type: 'createScene', sceneId: 'sc', input: { setting: 'K', locationDetail: 'Garage' }, entry: { entryId: 'e', shootDayId: 'd1' } })], ctx)
+    expect(s0.entries.find(e => e.id === 'e')!.scene!.locationDetail).toBe('Garage')
+    const s1 = applyScheduleOps(s0, [op({ type: 'updateScene', sceneId: 'sc', input: { locationDetail: null } })], ctx)
+    expect(s1.scenes[0]!.locationDetail).toBeNull()
+    expect(s1.entries.find(e => e.id === 'e')!.scene!.locationDetail).toBeNull()
+  })
+
   it('archives a scene on its entries too', () => {
     const s0 = applyScheduleOps(base(), [op({ type: 'createScene', sceneId: 'sc', input: { setting: 'K' }, entry: { entryId: 'e', shootDayId: null } })], ctx)
     const s1 = applyScheduleOps(s0, [op({ type: 'setSceneArchived', sceneId: 'sc', archived: true })], ctx)

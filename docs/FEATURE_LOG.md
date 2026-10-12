@@ -126,6 +126,35 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-12 — Schedule: free-text location on scenes
+- **Asked:** a scene's location should allow open text, so it can be a saved
+  address or something like a room in a house.
+- **Model:** `Scene.locationDetail` (nullable text; migration
+  `20261012000003_scene_location_detail`).
+- **Scene pop-up:** a "Room / area" field under the Location picker. Use
+  either or both: Smith House + "Master bedroom", or just "Garage". Typed
+  text is not added to Locations. Emptying it clears it.
+- **Display:** `sceneLocationLabel` gives "Smith House · Master bedroom" or
+  either part alone.
+  - Used by the stripboard Location column (wider, full text on hover), sort
+    by location, and the call sheet snapshot's `locationName`.
+  - Scenes without free text give the identical snapshot, so there's no
+    false "stripboard changed".
+- **Call sheets:** synced scene blocks carry `location` and show "Where: …"
+  in the editor, the read-only view and the public `/cs` page. Before, a
+  scene's location never reached the call sheet at all.
+- **Saving:** goes through the batched ops (`schedule-ops`/`schedule-apply`:
+  the zod field and `SCENE_FIELDS`), plus the legacy `SceneInput`.
+- **Verified:**
+  - tsc, jest (406) and lint; build up to the known Resend step.
+  - Real DB on a throwaway schedule: labels "Punjab Meet House · Master
+    bedroom" and "Garage"; clearing works; 0 real scenes changed.
+  - Call sheet drift unchanged on all 4 synced sheets.
+  - Browser: the field, the placeholder switching with the picker, an
+    instant save, and the column label.
+  - pitfall-reviewer: 1 low finding (the label didn't reach call sheet
+    blocks). Fixed.
+
 ### 2026-10-12 — Schedule drag: steadier, lands where it shows
 - **Asked:** rearranging on the stripboard was touch-and-go about where an
   item lands. Make it slower.

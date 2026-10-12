@@ -86,6 +86,9 @@ export function ScheduleEditor({ schedule, onChange, readonly = false, crew = []
                   <span className="font-medium">Who: </span>{block.whoNeeded}
                 </p>
               )}
+              {block.location && (
+                <p className="text-xs text-muted-foreground mt-0.5"><span className="font-medium">Where: </span>{block.location}</p>
+              )}
               {block.notes && (
                 <p className="text-xs text-muted-foreground mt-0.5 italic">{block.notes}</p>
               )}
@@ -171,8 +174,14 @@ export function ScheduleEditor({ schedule, onChange, readonly = false, crew = []
             </button>
           </div>
 
-          {/* Notes sub-row (+ a marker when this block runs during the ones above) */}
+          {/* Notes sub-row (+ a marker when this block runs during the ones above,
+              and the scene's place from the stripboard) */}
           <div className="flex items-center gap-2 pl-7">
+            {block.location && (
+              <span className="shrink-0 text-[11px] text-muted-foreground" title="From the stripboard scene">
+                <span className="font-medium">Where:</span> {block.location}
+              </span>
+            )}
             {during[i] && (
               <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-300 bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700">
                 <CornerDownRight className="h-3 w-3" /> During the block above

@@ -347,6 +347,11 @@ export default async function PublicCallSheetPage({
                             <span className="font-medium">Who: </span>{block.whoNeeded}
                           </p>
                         )}
+                        {block.location && (
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            <span className="font-medium">Where: </span>{block.location}
+                          </p>
+                        )}
                         {block.notes && (
                           <p className="text-xs text-muted-foreground mt-0.5 italic">{block.notes}</p>
                         )}

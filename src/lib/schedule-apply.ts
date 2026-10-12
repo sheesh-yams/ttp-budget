@@ -42,6 +42,7 @@ const sceneInput = z.object({
   pageEighths:       clampInt(100000).nullable().optional(),
   estimatedDuration: clampInt(24 * 60 * 3).nullable().optional(),
   locationId:        id.nullable().optional(),
+  locationDetail:    str(1000).nullable().optional(),
   notes:             str(50000).nullable().optional(),
   castContactIds:    z.array(id).max(1000).optional(),
   colorOverride:     str(100).nullable().optional(),
@@ -79,7 +80,7 @@ export class ScheduleApplyError extends Error {}
 const ENTRY_FIELDS = ['shootDayId', 'orderIndex', 'concurrentWithPrevious', 'fixedStartTime', 'bannerLabel',
   'bannerDurationMin', 'computedStartTime', 'computedEndTime'] as const
 const SCENE_FIELDS = ['sceneNumber', 'setting', 'description', 'synopsis', 'intExt', 'timeOfDay', 'pageCount',
-  'pageEighths', 'estimatedDuration', 'locationId', 'notes', 'castContactIds', 'colorOverride', 'archived'] as const
+  'pageEighths', 'estimatedDuration', 'locationId', 'locationDetail', 'notes', 'castContactIds', 'colorOverride', 'archived'] as const
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
@@ -116,6 +117,7 @@ export async function applyScheduleBatch(args: {
         intExt: e.scene.intExt, timeOfDay: e.scene.timeOfDay, pageEighths: e.scene.pageEighths,
         estimatedDuration: e.scene.estimatedDuration, colorOverride: e.scene.colorOverride,
         castContactIds: e.scene.castContactIds, archived: e.scene.archived, location: e.scene.location,
+        locationDetail: e.scene.locationDetail,
       } : null,
       bannerType: e.bannerType, bannerLabel: e.bannerLabel, bannerDurationMin: e.bannerDurationMin, bannerNote: e.bannerNote,
     })
@@ -153,7 +155,8 @@ export async function applyScheduleBatch(args: {
     const scenes: ScheduleSceneRow[] = rawScenes.map(s => ({
       id: s.id, sceneNumber: s.sceneNumber, setting: s.setting, description: s.description, synopsis: s.synopsis,
       intExt: s.intExt, timeOfDay: s.timeOfDay, pageCount: s.pageCount, pageEighths: s.pageEighths,
-      estimatedDuration: s.estimatedDuration, locationId: s.locationId, location: s.location, notes: s.notes,
+      estimatedDuration: s.estimatedDuration, locationId: s.locationId, location: s.location,
+      locationDetail: s.locationDetail, notes: s.notes,
       castContactIds: s.castContactIds, colorOverride: s.colorOverride, archived: s.archived,
     }))
     const allLocationIds = [...new Set([...locationIdsInOps, ...newIds.locations])]
