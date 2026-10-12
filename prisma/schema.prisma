@@ -1614,6 +1614,8 @@ enum BannerType {
   COFFEE_BREAK
   NOTE
   CUSTOM
+  SETUP
+  WRAP
 }
 
 model ScheduleEntry {

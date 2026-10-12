@@ -106,6 +106,10 @@ type OpBody =
    *  a replay lands the same way even if a neighbour has gone since. */
   | { type: 'move'; entryIds: string[]; toShootDayId: string | null; order: string[]; resetConcurrent?: boolean }
   | { type: 'setSceneArchived'; sceneId: string; archived: boolean }
+  /** Turn an item into a banner type or a scene (e.g. a scene added by
+   *  mistake that's really a break). The label and length carry over; a
+   *  scene made from a banner gets `sceneId` (new). */
+  | { type: 'changeEntryType'; entryId: string; to: BannerType | 'SCENE'; sceneId?: string }
   | { type: 'createScene'; sceneId: string; input: SceneOpInput & { setting: string }; entry?: { entryId: string; shootDayId: string | null }; newLocation?: { locationId: string; name: string } }
   | { type: 'updateScene'; sceneId: string; input: SceneOpInput; newLocation?: { locationId: string; name: string } }
 
@@ -267,6 +271,40 @@ function applyOne(state: ScheduleState, op: OpBody, ctx: ScheduleOpsContext): Sc
       }
       return { entries, scenes, locations }
     }
+    case 'changeEntryType': {
+      const e = entries.find(x => x.id === op.entryId)
+      if (!e) return state
+      if (op.to === 'SCENE') {
+        if (e.kind === 'SCENE' || !op.sceneId) return state
+        if (!scenes.some(sc => sc.id === op.sceneId)) {
+          scenes = [...scenes, {
+            id: op.sceneId, sceneNumber: null, setting: e.bannerLabel?.trim() || 'Untitled scene', description: null,
+            synopsis: null, intExt: 'INT', timeOfDay: 'DAY', pageCount: null, pageEighths: null,
+            estimatedDuration: e.bannerDurationMin || null, locationId: null, location: null, locationDetail: null,
+            notes: e.bannerNote, castContactIds: [], colorOverride: null, archived: false,
+          }]
+        }
+        const row = scenes.find(sc => sc.id === op.sceneId)!
+        entries = entries.map(x => x.id === e.id ? {
+          ...x, kind: 'SCENE', sceneId: row.id, scene: sceneSnap(row),
+          bannerType: null, bannerLabel: null, bannerDurationMin: null, bannerNote: null,
+        } : x)
+        return { entries, scenes, locations }
+      }
+      if (e.kind === 'BANNER') {
+        if (e.bannerType === op.to) return state
+        entries = entries.map(x => x.id === e.id ? { ...x, bannerType: op.to as BannerType } : x)
+        return { entries, scenes, locations }
+      }
+      // Scene → banner: the scene stays in the project; this item becomes a banner.
+      const label = [e.scene?.sceneNumber ? `Sc ${e.scene.sceneNumber}` : null, e.scene?.setting].filter(Boolean).join(' — ')
+      entries = entries.map(x => x.id === e.id ? {
+        ...x, kind: 'BANNER', sceneId: null, scene: null,
+        bannerType: op.to as BannerType, bannerLabel: label || null,
+        bannerDurationMin: e.scene?.estimatedDuration ?? 0, bannerNote: null,
+      } : x)
+      return { entries, scenes, locations }
+    }
     case 'updateScene': {
       if (op.newLocation && !locations.some(l => l.id === op.newLocation!.locationId)) {
         locations = [...locations, { id: op.newLocation.locationId, name: op.newLocation.name, address: null }]
@@ -291,6 +329,7 @@ function touchedBy(state: ScheduleState, op: OpBody): (string | null)[] {
     case 'createScene': return op.entry ? [op.entry.shootDayId] : []
     case 'updateScene': return state.entries.filter(e => e.sceneId === op.sceneId).map(e => e.shootDayId)
     case 'setSceneArchived': return []
+    case 'changeEntryType': { const e = dayOf(op.entryId); return e ? [e.shootDayId] : [] }
   }
 }
 

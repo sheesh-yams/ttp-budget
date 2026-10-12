@@ -126,6 +126,45 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-12 — Setup/Wrap banners, change item type, phone on new bids, "No restrictions"
+- **Setup / Wrap banners:**
+  - New `BannerType` values SETUP (teal, 60m preset) and WRAP (amber, 30m)
+    (migration `20261012000004_banner_setup_wrap`).
+  - Presets in Add Banner; colours in `BANNER_COLORS`; the zod enum in
+    `schedule-apply`.
+- **Change type** (stripboard ⋯ menu, op `changeEntryType`):
+  - **Scene → banner:** keeps "Sc N — setting" and the length. The scene
+    itself stays in the project.
+  - **Banner → scene:** makes a scene from the label, length and note
+    (client-made id).
+  - **Banner → banner:** recolours only.
+  - The batch diff now writes `kind`, `sceneId`, `bannerType` and
+    `bannerNote`. The new scene id is checked as taken and loaded, so a
+    replay doesn't create it twice.
+- **Add a bid:** "Phone (optional)" next to Email, in both new-person forms.
+  It's saved on the Rolodex contact.
+- **Dietary "No restrictions":**
+  - Tag `NONE` in `Contact.dietaryTags`, so no migration. It's kept alone,
+    and dropped when a real restriction is added (merges included).
+  - Never counts as a need (`hasDietary`); `hasNoRestrictions` checks it.
+  - Picker button (clears the chips; a chip clears it) on the Rolodex form
+    and the Crew card.
+  - "No restrictions ✓" badge. Summaries add "N no restrictions".
+  - The call sheet Dietary panel shows confirmed-none and "N haven't been
+    checked yet".
+- **Verified:**
+  - tsc, jest (408) and lint; build up to the known Resend step.
+  - Real DB on throwaway rows:
+    - Setup 08:00–09:00, Lunch scene → Meal Break 09:00–09:45, Wrap →
+      scene 09:45–10:15; the original scene kept.
+    - Contact saved with phone and `["NONE"]`.
+    - Replay of banner → scene → banner is clean.
+    - 0 real rows changed.
+  - Browser: colours, the Change type submenu (instant convert and
+    re-time), the picker toggling, the badge and the summary.
+  - pitfall-reviewer: 1 medium finding (replay re-creating a converted
+    scene). Fixed.
+
 ### 2026-10-12 — Schedule: free-text location on scenes
 - **Asked:** a scene's location should allow open text, so it can be a saved
   address or something like a room in a house.

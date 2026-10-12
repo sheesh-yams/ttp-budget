@@ -143,6 +143,22 @@ describe('applyScheduleOps', () => {
     expect(day(applyScheduleOps(elsewhere, [moveOp], ctx), 'd1').map(t => t.split('@')[0])).toEqual(['x', 'a', 'b', 'c', 'z'])
   })
 
+  it('changes an item\'s type: scene → banner keeps name and length; banner → scene makes one', () => {
+    const s0 = applyScheduleOps(base(), [op({ type: 'createScene', sceneId: 'sc', input: { setting: 'LUNCH', sceneNumber: '4', estimatedDuration: 45 }, entry: { entryId: 'e', shootDayId: 'd1' } })], ctx)
+    const toBanner = applyScheduleOps(s0, [op({ type: 'changeEntryType', entryId: 'e', to: 'MEAL_BREAK' })], ctx)
+    expect(toBanner.entries.find(x => x.id === 'e')).toMatchObject({ kind: 'BANNER', sceneId: null, scene: null, bannerType: 'MEAL_BREAK', bannerLabel: 'Sc 4 — LUNCH', bannerDurationMin: 45, computedStartTime: '09:45', computedEndTime: '10:30' })
+    expect(toBanner.scenes.some(x => x.id === 'sc')).toBe(true)   // the scene itself stays
+
+    const recolour = applyScheduleOps(base(), [op({ type: 'changeEntryType', entryId: 'a', to: 'SETUP' })], ctx)
+    expect(recolour.entries.find(x => x.id === 'a')).toMatchObject({ kind: 'BANNER', bannerType: 'SETUP', bannerLabel: 'a', bannerDurationMin: 30 })
+
+    const conv = [op({ type: 'changeEntryType', entryId: 'b', to: 'SCENE', sceneId: 'new-sc' })]
+    const toScene = applyScheduleOps(base(), conv, ctx)
+    expect(toScene.entries.find(x => x.id === 'b')).toMatchObject({ kind: 'SCENE', sceneId: 'new-sc', bannerType: null, bannerLabel: null, computedStartTime: '08:30', computedEndTime: '09:30' })
+    expect(toScene.scenes.find(x => x.id === 'new-sc')).toMatchObject({ setting: 'b', estimatedDuration: 60 })
+    expect(applyScheduleOps(toScene, conv, ctx)).toEqual(toScene)   // replay-safe
+  })
+
   it('makes valid ids', () => {
     const ids = new Set(Array.from({ length: 50 }, newScheduleId))
     expect(ids.size).toBe(50)

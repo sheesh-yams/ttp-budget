@@ -1,4 +1,4 @@
-import { normalizeDietaryTags, summarizeDietary, hasDietary, dietaryLabel, sameDietary } from '@/lib/dietary'
+import { normalizeDietaryTags, summarizeDietary, hasDietary, dietaryLabel, sameDietary, hasNoRestrictions, NO_RESTRICTIONS } from '@/lib/dietary'
 
 describe('dietary', () => {
   it('keeps known tags only, de-duplicated, in the standard order', () => {
@@ -25,5 +25,17 @@ describe('dietary', () => {
     expect(sameDietary({ tags: [], notes: '' }, { tags: [], notes: null })).toBe(true)
     expect(sameDietary({ tags: ['VEGAN'], notes: null }, { tags: ['VEGAN', 'HALAL'], notes: null })).toBe(false)
     expect(sameDietary({ tags: ['VEGAN'], notes: null }, { tags: ['VEGAN'], notes: 'nuts' })).toBe(false)
+  })
+
+  it('"No restrictions": kept alone, dropped next to a real restriction, never a need', () => {
+    expect(normalizeDietaryTags([NO_RESTRICTIONS])).toEqual([NO_RESTRICTIONS])
+    expect(normalizeDietaryTags([NO_RESTRICTIONS, 'VEGAN'])).toEqual(['VEGAN'])
+    expect(hasDietary({ tags: [NO_RESTRICTIONS], notes: null })).toBe(false)
+    expect(hasNoRestrictions({ tags: [NO_RESTRICTIONS], notes: null })).toBe(true)
+    expect(hasNoRestrictions({ tags: [NO_RESTRICTIONS], notes: 'no pork' })).toBe(false)
+    expect(dietaryLabel(NO_RESTRICTIONS)).toBe('No restrictions')
+    expect(summarizeDietary([
+      { tags: ['VEGAN'], notes: null }, { tags: [NO_RESTRICTIONS], notes: null }, { tags: [NO_RESTRICTIONS], notes: null },
+    ])).toBe('1 Vegan · 2 no restrictions')
   })
 })

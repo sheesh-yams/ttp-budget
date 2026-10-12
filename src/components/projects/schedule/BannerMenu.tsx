@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { ChevronDown, UtensilsCrossed, Coffee, Truck, StickyNote, Pencil } from 'lucide-react'
+import { ChevronDown, UtensilsCrossed, Coffee, Truck, StickyNote, Pencil, Wrench, Flag } from 'lucide-react'
 import type { BannerType } from '@prisma/client'
 
 export interface BannerPreset {
@@ -13,9 +13,11 @@ export interface BannerPreset {
 }
 
 export const BANNER_PRESETS: BannerPreset[] = [
+  { type: 'SETUP',        label: 'Setup',         defaultLabel: 'Setup',        defaultDuration: 60, icon: <Wrench className="h-3.5 w-3.5" /> },
   { type: 'MEAL_BREAK',   label: 'Meal Break',    defaultLabel: 'Lunch',        defaultDuration: 60, icon: <UtensilsCrossed className="h-3.5 w-3.5" /> },
   { type: 'COFFEE_BREAK', label: 'Coffee Break',  defaultLabel: 'Coffee',       defaultDuration: 15, icon: <Coffee className="h-3.5 w-3.5" /> },
   { type: 'COMPANY_MOVE', label: 'Company Move',  defaultLabel: 'Company Move', defaultDuration: 30, icon: <Truck className="h-3.5 w-3.5" /> },
+  { type: 'WRAP',         label: 'Wrap',          defaultLabel: 'Wrap',         defaultDuration: 30, icon: <Flag className="h-3.5 w-3.5" /> },
   { type: 'NOTE',         label: 'Note',          defaultLabel: '',             defaultDuration: 0,  icon: <StickyNote className="h-3.5 w-3.5" /> },
   { type: 'CUSTOM',       label: 'Custom',        defaultLabel: '',             defaultDuration: 0,  icon: <Pencil className="h-3.5 w-3.5" /> },
 ]

@@ -35,6 +35,7 @@ export function AddBidDialog({ projectId, open, onClose, lineItemId, roleLabel }
   const [newMode, setNewMode]   = useState(false)
   const [newName, setNewName]   = useState('')
   const [newEmail, setNewEmail] = useState('')
+  const [newPhone, setNewPhone] = useState('')
   const [error, setError]       = useState<string | null>(null)
   // Contract template for the memo's terms — the default one pre-selected.
   const [templates, setTemplates] = useState<ContractTemplateOption[]>([])
@@ -61,7 +62,7 @@ export function AddBidDialog({ projectId, open, onClose, lineItemId, roleLabel }
   }, [query, open, projectId])
 
   function reset() {
-    setQuery(''); setNewMode(false); setNewName(''); setNewEmail(''); setError(null); setRoleName(roleLabel)
+    setQuery(''); setNewMode(false); setNewName(''); setNewEmail(''); setNewPhone(''); setError(null); setRoleName(roleLabel)
     setSearchedQuery(null)
   }
 
@@ -88,7 +89,7 @@ export function AddBidDialog({ projectId, open, onClose, lineItemId, roleLabel }
     setError(null)
     startTransition(async () => {
       const created = await createContact({
-        name: name.trim(), primaryRole: role, email: newEmail.trim() || null,
+        name: name.trim(), primaryRole: role, email: newEmail.trim() || null, phone: newPhone.trim() || null,
         secondaryRoles: [], defaultRateUnit: 'DAY', hasKit: false,
       }, projectId)
       if (!created.success) { setError((created as { success: false; error: string }).error); return }
@@ -149,12 +150,21 @@ export function AddBidDialog({ projectId, open, onClose, lineItemId, roleLabel }
                   <p className="text-sm text-muted-foreground">
                     <span className="font-medium text-foreground">{query.trim()}</span> isn’t in your rolodex yet. Add them and start the bid:
                   </p>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="bid-inline-email">Email (optional)</Label>
-                    <Input
-                      id="bid-inline-email" ref={emailRef} type="email" value={newEmail}
-                      placeholder="name@example.com" onChange={e => setNewEmail(e.target.value)}
-                    />
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="bid-inline-email">Email (optional)</Label>
+                      <Input
+                        id="bid-inline-email" ref={emailRef} type="email" value={newEmail}
+                        placeholder="name@example.com" onChange={e => setNewEmail(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="bid-inline-phone">Phone (optional)</Label>
+                      <Input
+                        id="bid-inline-phone" type="tel" value={newPhone} autoComplete="tel"
+                        placeholder="(555) 123-4567" onChange={e => setNewPhone(e.target.value)}
+                      />
+                    </div>
                   </div>
                   <Button type="submit" className="w-full" disabled={isPending}>
                     <UserPlus className="mr-1.5 h-3.5 w-3.5" />
@@ -202,9 +212,15 @@ export function AddBidDialog({ projectId, open, onClose, lineItemId, roleLabel }
               <Label htmlFor="bid-name">Name</Label>
               <Input id="bid-name" autoFocus value={newName} onChange={e => setNewName(e.target.value)} />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="bid-email">Email (optional)</Label>
-              <Input id="bid-email" type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="bid-email">Email (optional)</Label>
+                <Input id="bid-email" type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="bid-phone">Phone (optional)</Label>
+                <Input id="bid-phone" type="tel" autoComplete="tel" value={newPhone} onChange={e => setNewPhone(e.target.value)} />
+              </div>
             </div>
             <div className="flex justify-between">
               <Button variant="ghost" onClick={() => setNewMode(false)} disabled={isPending}>Back to search</Button>

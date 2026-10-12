@@ -77,6 +77,8 @@ export const BANNER_COLORS: Record<string, StripColor> = {
   MEAL_BREAK:    { bg: '#4a1942', text: '#f3e8f5', border: '#7b2f72' },  // maroon/purple
   COMPANY_MOVE:  { bg: '#1e3a5f', text: '#dbeafe', border: '#3b6fa0' },  // dark blue
   COFFEE_BREAK:  { bg: '#3f2a14', text: '#fdf4e7', border: '#7a5328' },  // brown
+  SETUP:         { bg: '#134e4a', text: '#ccfbf1', border: '#2a7f78' },  // teal
+  WRAP:          { bg: '#78350f', text: '#fef3c7', border: '#b45309' },  // amber
   NOTE:          { bg: '#374151', text: '#f3f4f6', border: '#6b7280' },  // gray
   CUSTOM:        { bg: '#374151', text: '#f3f4f6', border: '#6b7280' },  // gray
 }

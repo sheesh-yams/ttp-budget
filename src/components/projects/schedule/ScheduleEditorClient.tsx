@@ -6,13 +6,13 @@ import { useRouter } from 'next/navigation'
 import {
   Clapperboard, Plus, GripVertical, MoreHorizontal, Pencil, Trash2,
   ArrowRight, Archive, ArchiveRestore, ChevronDown, FilePlus, Clock,
-  Check, Star, Columns3, ArrowUpDown, MapPin, CornerDownRight, Pin, RotateCcw,
+  Check, Star, Columns3, ArrowUpDown, MapPin, CornerDownRight, Pin, RotateCcw, Shapes,
 } from 'lucide-react'
 import { getSceneColor, BANNER_COLORS } from '@/lib/schedule-colors'
 import { computeEntryTimes, dayWrapTime, parseHHmm, formatHHmm as formatClock, overlapFlags, sceneLocationLabel } from '@/lib/schedule-compute'
 import { SceneModal } from './SceneModal'
 import type { SceneRow } from './SceneModal'
-import { BannerMenu } from './BannerMenu'
+import { BannerMenu, BANNER_PRESETS } from './BannerMenu'
 import type { BannerPreset } from './BannerMenu'
 import { LocationsModal } from './LocationsModal'
 import { SortDialog } from './SortDialog'
@@ -34,6 +34,7 @@ import {
 import { createCallSheet } from '@/server/actions/call-sheets'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { parseLocalDate } from '@/lib/time-format'
+import type { BannerType } from '@prisma/client'
 
 // ── Column definitions ───────────────────────────────────────────────────────
 
@@ -678,6 +679,11 @@ function ScheduleEditorInner({
     commit({ type: 'updateEntry', entryId: entry.id, patch: { fixedStartTime: time } })
   }
 
+  /** Scene ↔ banner, or one banner type to another (keeps name and length). */
+  function handleChangeType(entry: EntryRow, to: BannerType | 'SCENE') {
+    commit({ type: 'changeEntryType', entryId: entry.id, to, ...(to === 'SCENE' ? { sceneId: newScheduleId() } : {}) })
+  }
+
   // ── Delete / move ────────────────────────────────────────────────────────────
 
   async function handleDeleteEntry(entry: EntryRow) {
@@ -950,6 +956,7 @@ function ScheduleEditorInner({
             onDeleteEntry={handleDeleteEntry}
             onMoveToBoneyard={handleMoveEntryToBoneyard}
             onToggleConcurrent={handleToggleConcurrent}
+            onChangeType={handleChangeType}
             onSetStartTime={handleSetStartTime}
             onMoveToDay={(entryId, dayId) => commitMove([entryId], dayId, null)}
             onAddScene={() => openNewScene()}
@@ -1223,6 +1230,7 @@ interface ShootDayViewProps {
   onDeleteEntry: (entry: EntryRow) => void
   onMoveToBoneyard: (entry: EntryRow) => void
   onToggleConcurrent: (entry: EntryRow) => void
+  onChangeType: (entry: EntryRow, to: BannerType | 'SCENE') => void
   onSetStartTime: (entry: EntryRow, time: string | null) => void
   onMoveToDay: (entryId: string, dayId: string) => void
   onAddScene: () => void
@@ -1239,7 +1247,7 @@ function ShootDayView({
   dayId, day, entries, allDays, scheduleId, canEdit, columnPrefs,
   selectedIds, dragOverId, dropAbove, draggingIds,
   onDragStart, onDragEnd, onDragOverRow, onDropRow, onDropOnDay,
-  onToggleSelect, onEditEntry, onDeleteEntry, onMoveToBoneyard, onToggleConcurrent, onSetStartTime, onMoveToDay,
+  onToggleSelect, onEditEntry, onDeleteEntry, onMoveToBoneyard, onToggleConcurrent, onChangeType, onSetStartTime, onMoveToDay,
   onAddScene, onAddBanner, onCreateCallSheet,
   bannerEdit, onStartBannerEdit, onCommitBannerEdit, onCancelBannerEdit, onBannerEditChange,
 }: ShootDayViewProps) {
@@ -1320,6 +1328,7 @@ function ShootDayView({
                 isFirst={i === 0}
                 overlaps={overlaps[i] ?? false}
                 onToggleConcurrent={onToggleConcurrent}
+                onChangeType={onChangeType}
                 onSetStartTime={onSetStartTime}
                 canEdit={canEdit}
                 columnPrefs={columnPrefs}
@@ -1402,6 +1411,7 @@ interface RowProps {
   /** Runs during the rows above (flagged, or a hand-set time inside them). */
   overlaps: boolean
   onToggleConcurrent: (entry: EntryRow) => void
+  onChangeType: (entry: EntryRow, to: BannerType | 'SCENE') => void
   onSetStartTime: (entry: EntryRow, time: string | null) => void
   canEdit: boolean
   columnPrefs: Record<string, boolean>
@@ -1427,7 +1437,7 @@ interface RowProps {
 }
 
 function ScheduleEntryRow({
-  entry, isFirst, overlaps, onToggleConcurrent, onSetStartTime, canEdit, columnPrefs, isSelected, isDragOver, isDragging, dropAbove, otherDays, bannerEdit,
+  entry, isFirst, overlaps, onToggleConcurrent, onChangeType, onSetStartTime, canEdit, columnPrefs, isSelected, isDragOver, isDragging, dropAbove, otherDays, bannerEdit,
   onDragStart, onDragEnd, onDragOver, onDrop,
   onToggleSelect, onEdit, onDelete, onMoveToBoneyard, onMoveToDay,
   onStartBannerEdit, onCommitBannerEdit, onCancelBannerEdit, onBannerEditChange,
@@ -1689,6 +1699,7 @@ function ScheduleEntryRow({
           onToggleConcurrent={isFirst || entry.fixedStartTime ? undefined : onToggleConcurrent}
           onSetStartTime={entry.shootDayId ? () => openStartEdit(true) : undefined}
           onClearStartTime={entry.fixedStartTime ? () => onSetStartTime(entry, null) : undefined}
+          onChangeType={to => onChangeType(entry, to)}
         />,
         document.body,
       )}
@@ -1710,6 +1721,7 @@ const EntryKebabMenu = forwardRef<HTMLDivElement, {
   onMoveToBoneyard: (e: EntryRow) => void
   onMoveToDay: (id: string, dayId: string) => void
   onEditBanner: (e: EntryRow) => void
+  onChangeType: (to: BannerType | 'SCENE') => void
   /** Absent on a day's first entry, or when an exact start is set. */
   onToggleConcurrent?: (e: EntryRow) => void
   onSetStartTime?: () => void
@@ -1717,9 +1729,15 @@ const EntryKebabMenu = forwardRef<HTMLDivElement, {
   onClearStartTime?: () => void
 }>(function EntryKebabMenu({
   pos, entry, otherDays, onClose, onEdit, onDelete, onMoveToBoneyard, onMoveToDay, onEditBanner, onToggleConcurrent,
-  onSetStartTime, onClearStartTime,
+  onSetStartTime, onClearStartTime, onChangeType,
 }, ref) {
   const [moveDayOpen, setMoveDayOpen] = useState(false)
+  const [typeOpen, setTypeOpen] = useState(false)
+  const current: BannerType | 'SCENE' = entry.kind === 'SCENE' ? 'SCENE' : (entry.bannerType ?? 'CUSTOM')
+  const typeOptions: { value: BannerType | 'SCENE'; label: string; swatch: string }[] = [
+    { value: 'SCENE' as const, label: 'Scene', swatch: '#ffffff' },
+    ...BANNER_PRESETS.map(p => ({ value: p.type, label: p.label, swatch: (BANNER_COLORS[p.type] ?? BANNER_COLORS['CUSTOM']!).bg })),
+  ].filter(o => o.value !== current)
 
   function item(onClick: () => void, children: React.ReactNode, danger = false) {
     return (
@@ -1756,12 +1774,37 @@ const EntryKebabMenu = forwardRef<HTMLDivElement, {
         onClearStartTime,
         <><RotateCcw className="h-3.5 w-3.5 text-muted-foreground" /> Back to automatic time</>,
       )}
+      <div className="relative">
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors text-left"
+          onClick={() => { setTypeOpen(v => !v); setMoveDayOpen(false) }}
+        >
+          <Shapes className="h-3.5 w-3.5 text-muted-foreground" /> Change type
+          <ChevronDown className="h-3 w-3 ml-auto text-muted-foreground" />
+        </button>
+        {typeOpen && (
+          <div className="absolute right-full top-0 mr-1 w-44 rounded-xl border border-border bg-popover shadow-xl py-1 z-40">
+            {typeOptions.map(o => (
+              <button
+                key={o.value}
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors text-left"
+                onClick={() => { onChangeType(o.value); onClose() }}
+              >
+                <span className="h-3 w-3 shrink-0 rounded-sm border border-border" style={{ background: o.swatch }} />
+                {o.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       {otherDays.length > 0 && (
         <div className="relative">
           <button
             type="button"
             className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors text-left"
-            onClick={() => setMoveDayOpen(v => !v)}
+            onClick={() => { setMoveDayOpen(v => !v); setTypeOpen(false) }}
           >
             <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" /> Move to day
             <ChevronDown className="h-3 w-3 ml-auto text-muted-foreground" />

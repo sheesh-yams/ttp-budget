@@ -4,7 +4,7 @@
 
 import { Lock } from 'lucide-react'
 import type { CrewDept, TalentMember } from '@/server/actions/call-sheets'
-import { hasDietary, type Dietary } from '@/lib/dietary'
+import { hasDietary, hasNoRestrictions, NO_RESTRICTIONS, type Dietary } from '@/lib/dietary'
 import { DietaryBadges, DietarySummary } from '@/components/crew/DietaryBadges'
 
 export function DietaryNeedsPanel({ crew, talent, dietary }: {
@@ -15,12 +15,16 @@ export function DietaryNeedsPanel({ crew, talent, dietary }: {
 }) {
   const seen = new Set<string>()
   const people: { key: string; name: string; role: string; d: Dietary }[] = []
+  // Linked people marked "No restrictions" (checked) vs with nothing on file.
+  let none = 0
+  let unchecked = 0
   const add = (contactId: string | undefined, name: string, role: string | undefined) => {
     if (!contactId || seen.has(contactId)) return
-    const d = dietary[contactId]
-    if (!hasDietary(d)) return
     seen.add(contactId)
-    people.push({ key: contactId, name: name || '—', role: role ?? '', d })
+    const d = dietary[contactId]
+    if (hasNoRestrictions(d)) { none++; return }
+    if (!hasDietary(d)) { unchecked++; return }
+    people.push({ key: contactId, name: name || '—', role: role ?? '', d: d! })
   }
   for (const t of talent) add(t.contactId, t.name, t.role || 'Talent')
   for (const dept of crew) for (const m of dept.members ?? []) add(m.contactId, m.name, m.role)
@@ -39,11 +43,16 @@ export function DietaryNeedsPanel({ crew, talent, dietary }: {
         <p className="mt-1 text-xs text-muted-foreground">
           {linkedCount === 0
             ? 'Link people to their Rolodex contacts to see dietary needs here.'
-            : 'No dietary restrictions on file for the people on this sheet.'}
+            : none > 0
+              ? `No dietary restrictions — ${none} confirmed none.`
+              : 'No dietary restrictions on file for the people on this sheet.'}
         </p>
       ) : (
         <>
-          <DietarySummary className="mt-1" label="For catering" people={people.map(p => p.d)} />
+          <DietarySummary
+            className="mt-1" label="For catering"
+            people={[...people.map(p => p.d), ...Array.from({ length: none }, () => ({ tags: [NO_RESTRICTIONS], notes: null }))]}
+          />
           <ul className="mt-2 space-y-1.5">
             {people.map(p => (
               <li key={p.key} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
@@ -54,6 +63,11 @@ export function DietaryNeedsPanel({ crew, talent, dietary }: {
             ))}
           </ul>
         </>
+      )}
+      {unchecked > 0 && (
+        <p className="mt-1.5 text-[11px] text-muted-foreground">
+          {unchecked} {unchecked === 1 ? 'person hasn’t' : 'people haven’t'} been checked yet — mark “No restrictions” in the Rolodex or on the Crew page once you’ve asked.
+        </p>
       )}
     </div>
   )

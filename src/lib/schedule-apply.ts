@@ -53,7 +53,7 @@ const seq = z.number().int().nonnegative()
 
 export const scheduleOpsSchema = z.array(z.discriminatedUnion('type', [
   z.object({ seq, type: z.literal('addBanner'), entryId: newId, shootDayId: id.nullable(),
-    bannerType: z.enum(['MEAL_BREAK', 'COMPANY_MOVE', 'COFFEE_BREAK', 'NOTE', 'CUSTOM']),
+    bannerType: z.enum(['MEAL_BREAK', 'COMPANY_MOVE', 'COFFEE_BREAK', 'NOTE', 'CUSTOM', 'SETUP', 'WRAP']),
     label: str(1000), durationMin: clampInt(24 * 60 * 3) }).strict(),
   z.object({ seq, type: z.literal('updateEntry'), entryId: id, patch: z.object({
     bannerLabel: str(1000).optional(),
@@ -65,6 +65,9 @@ export const scheduleOpsSchema = z.array(z.discriminatedUnion('type', [
   z.object({ seq, type: z.literal('move'), entryIds: z.array(id).min(1).max(1000), toShootDayId: id.nullable(),
     order: z.array(id).max(1000), resetConcurrent: z.boolean().optional() }).strict(),
   z.object({ seq, type: z.literal('setSceneArchived'), sceneId: id, archived: z.boolean() }).strict(),
+  z.object({ seq, type: z.literal('changeEntryType'), entryId: id,
+    to: z.enum(['SCENE', 'MEAL_BREAK', 'COMPANY_MOVE', 'COFFEE_BREAK', 'NOTE', 'CUSTOM', 'SETUP', 'WRAP']),
+    sceneId: newId.optional() }).strict(),
   z.object({ seq, type: z.literal('createScene'), sceneId: newId,
     input: sceneInput.extend({ setting: str(1000).min(1) }),
     entry: z.object({ entryId: newId, shootDayId: id.nullable() }).strict().optional(),
@@ -77,8 +80,8 @@ export const scheduleOpsSchema = z.array(z.discriminatedUnion('type', [
 
 export class ScheduleApplyError extends Error {}
 
-const ENTRY_FIELDS = ['shootDayId', 'orderIndex', 'concurrentWithPrevious', 'fixedStartTime', 'bannerLabel',
-  'bannerDurationMin', 'computedStartTime', 'computedEndTime'] as const
+const ENTRY_FIELDS = ['shootDayId', 'orderIndex', 'concurrentWithPrevious', 'fixedStartTime', 'kind', 'sceneId',
+  'bannerType', 'bannerLabel', 'bannerDurationMin', 'bannerNote', 'computedStartTime', 'computedEndTime'] as const
 const SCENE_FIELDS = ['sceneNumber', 'setting', 'description', 'synopsis', 'intExt', 'timeOfDay', 'pageCount',
   'pageEighths', 'estimatedDuration', 'locationId', 'locationDetail', 'notes', 'castContactIds', 'colorOverride', 'archived'] as const
 
@@ -128,6 +131,12 @@ export async function applyScheduleBatch(args: {
     const newIds = { entries: new Set<string>(), scenes: new Set<string>(), locations: new Set<string>() }
     for (const op of ops) {
       if (op.type === 'addBanner') newIds.entries.add(op.entryId)
+      if (op.type === 'changeEntryType' && op.sceneId) {
+        newIds.scenes.add(op.sceneId)
+        // Loaded too, so a replay (after a lost response) finds the scene it
+        // already made instead of creating it again.
+        sceneIdsInOps.add(op.sceneId)
+      }
       if (op.type === 'createScene') {
         newIds.scenes.add(op.sceneId)
         if (op.entry) newIds.entries.add(op.entry.entryId)
