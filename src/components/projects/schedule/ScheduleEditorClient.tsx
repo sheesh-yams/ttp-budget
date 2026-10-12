@@ -6,10 +6,10 @@ import { useRouter } from 'next/navigation'
 import {
   Clapperboard, Plus, GripVertical, MoreHorizontal, Pencil, Trash2,
   ArrowRight, Archive, ArchiveRestore, ChevronDown, FilePlus, Clock,
-  Check, Star, Columns3, ArrowUpDown, MapPin, CornerDownRight,
+  Check, Star, Columns3, ArrowUpDown, MapPin, CornerDownRight, Pin, RotateCcw,
 } from 'lucide-react'
 import { getSceneColor, BANNER_COLORS } from '@/lib/schedule-colors'
-import { computeEntryTimes, dayWrapTime, parseHHmm } from '@/lib/schedule-compute'
+import { computeEntryTimes, dayWrapTime, parseHHmm, formatHHmm as formatClock, overlapFlags } from '@/lib/schedule-compute'
 import { SceneModal } from './SceneModal'
 import type { SceneRow } from './SceneModal'
 import { BannerMenu } from './BannerMenu'
@@ -75,6 +75,8 @@ interface EntryRow {
   kind: 'SCENE' | 'BANNER'
   /** Runs at the same time as the entry above (ignored on a day's first entry). */
   concurrentWithPrevious: boolean
+  /** Exact start set by hand ("HH:mm"); null = automatic. */
+  fixedStartTime: string | null
   computedStartTime: string | null
   computedEndTime: string | null
   sceneId: string | null
@@ -340,6 +342,7 @@ export function ScheduleEditorClient({
       id: e.id,
       kind: e.kind,
       concurrentWithPrevious: e.concurrentWithPrevious,
+      fixedStartTime: e.fixedStartTime,
       bannerDurationMin: e.bannerDurationMin,
       scene: e.scene ? { estimatedDuration: e.scene.estimatedDuration } : null,
     }))
@@ -529,24 +532,41 @@ export function ScheduleEditorClient({
     })
   }
 
-  // ── Run alongside the item above ────────────────────────────────────────────
+  // ── Timing: run alongside / exact start time ─────────────────────────────────
 
-  function handleToggleConcurrent(entry: EntryRow) {
-    if (!canEdit || !entry.shootDayId) return
-    const next = !entry.concurrentWithPrevious
+  /** Apply a change to one entry, then recompute its day's times locally
+   *  (optimistic — the server recomputes and the refresh replaces this). */
+  function patchEntryAndRetime(entry: EntryRow, patch: Partial<EntryRow>) {
     const dayId = entry.shootDayId
-    // Optimistic: flip the flag and recompute that day's times locally.
+    if (!dayId) return
     setEntries(prev => {
-      const flipped = prev.map(e => e.id === entry.id ? { ...e, concurrentWithPrevious: next } : e)
-      const day = flipped.filter(e => e.shootDayId === dayId).sort((a, b) => a.orderIndex - b.orderIndex)
+      const patched = prev.map(e => e.id === entry.id ? { ...e, ...patch } : e)
+      const day = patched.filter(e => e.shootDayId === dayId).sort((a, b) => a.orderIndex - b.orderIndex)
       const times = new Map(computeEntryTimes(day, shootDays.find(d => d.id === dayId)?.startTime ?? null).map(t => [t.id, t]))
-      return flipped.map(e => {
+      return patched.map(e => {
         const t = times.get(e.id)
         return t ? { ...e, computedStartTime: t.computedStartTime, computedEndTime: t.computedEndTime } : e
       })
     })
+  }
+
+  function handleToggleConcurrent(entry: EntryRow) {
+    if (!canEdit || !entry.shootDayId) return
+    const next = !entry.concurrentWithPrevious
+    patchEntryAndRetime(entry, { concurrentWithPrevious: next })
     startTransition(async () => {
       await updateScheduleEntry(entry.id, { concurrentWithPrevious: next })
+      onMutated()
+    })
+  }
+
+  /** `time` = "HH:mm" to pin an exact start, null = back to automatic. */
+  function handleSetStartTime(entry: EntryRow, time: string | null) {
+    if (!canEdit || !entry.shootDayId) return
+    if (time === entry.fixedStartTime) return
+    patchEntryAndRetime(entry, time ? { fixedStartTime: time, concurrentWithPrevious: false } : { fixedStartTime: null })
+    startTransition(async () => {
+      await updateScheduleEntry(entry.id, { fixedStartTime: time })
       onMutated()
     })
   }
@@ -833,6 +853,7 @@ export function ScheduleEditorClient({
             onDeleteEntry={handleDeleteEntry}
             onMoveToBoneyard={handleMoveEntryToBoneyard}
             onToggleConcurrent={handleToggleConcurrent}
+            onSetStartTime={handleSetStartTime}
             onMoveToDay={(entryId, dayId) => {
               startTransition(async () => {
                 await moveScheduleEntry({ entryId, toShootDayId: dayId, beforeEntryId: null })
@@ -1108,6 +1129,7 @@ interface ShootDayViewProps {
   onDeleteEntry: (entry: EntryRow) => void
   onMoveToBoneyard: (entry: EntryRow) => void
   onToggleConcurrent: (entry: EntryRow) => void
+  onSetStartTime: (entry: EntryRow, time: string | null) => void
   onMoveToDay: (entryId: string, dayId: string) => void
   onAddScene: () => void
   onAddBanner: (preset: BannerPreset, label: string, duration: number) => void
@@ -1123,7 +1145,7 @@ function ShootDayView({
   dayId, day, entries, allDays, scheduleId, canEdit, columnPrefs,
   selectedIds, dragOverId, dropAbove,
   onDragStart, onDragEnd, onDragOverRow, onDropRow, onDropOnDay,
-  onToggleSelect, onEditEntry, onDeleteEntry, onMoveToBoneyard, onToggleConcurrent, onMoveToDay,
+  onToggleSelect, onEditEntry, onDeleteEntry, onMoveToBoneyard, onToggleConcurrent, onSetStartTime, onMoveToDay,
   onAddScene, onAddBanner, onCreateCallSheet,
   bannerEdit, onStartBannerEdit, onCommitBannerEdit, onCancelBannerEdit, onBannerEditChange,
 }: ShootDayViewProps) {
@@ -1132,9 +1154,11 @@ function ShootDayView({
   const totalPageEighths = entries.reduce((sum, e) => sum + (e.scene?.pageEighths ?? 0), 0)
   const sceneCount = entries.filter(e => e.kind === 'SCENE').length
   const wrapTime = dayWrapTime(entries)
-  const firstStart = entries[0]?.computedStartTime ?? null
-  const totalMinutes = wrapTime && firstStart ? Math.max(0, parseHHmm(wrapTime) - parseHHmm(firstStart)) : 0
-  const overlapping = entries.filter((e, i) => i > 0 && e.concurrentWithPrevious).length
+  // A hand-set time can start before the first row, so use the earliest start.
+  const starts = entries.flatMap(e => e.computedStartTime ? [parseHHmm(e.computedStartTime)] : [])
+  const totalMinutes = wrapTime && starts.length ? Math.max(0, parseHHmm(wrapTime) - Math.min(...starts)) : 0
+  const overlaps = overlapFlags(entries)
+  const overlapping = overlaps.filter(Boolean).length
 
   const otherDays = allDays.filter(d => d.id !== dayId)
 
@@ -1198,7 +1222,9 @@ function ShootDayView({
                 key={entry.id}
                 entry={entry}
                 isFirst={i === 0}
+                overlaps={overlaps[i] ?? false}
                 onToggleConcurrent={onToggleConcurrent}
+                onSetStartTime={onSetStartTime}
                 canEdit={canEdit}
                 columnPrefs={columnPrefs}
                 isSelected={selectedIds.has(entry.id)}
@@ -1248,7 +1274,7 @@ function ShootDayView({
             )}
             <span>
               <span className="font-semibold text-foreground">{totalMinutes}m</span> total
-              {overlapping > 0 && <> · {overlapping} running alongside</>}
+              {overlapping > 0 && <> · {overlapping} overlapping</>}
             </span>
             {wrapTime && (
               <span>Wrap <span className="font-semibold text-foreground">{formatHHmm(wrapTime)}</span></span>
@@ -1276,7 +1302,10 @@ interface RowProps {
   entry: EntryRow
   /** First entry of its day — nothing above to run alongside. */
   isFirst: boolean
+  /** Runs during the rows above (flagged, or a hand-set time inside them). */
+  overlaps: boolean
   onToggleConcurrent: (entry: EntryRow) => void
+  onSetStartTime: (entry: EntryRow, time: string | null) => void
   canEdit: boolean
   columnPrefs: Record<string, boolean>
   isSelected: boolean
@@ -1300,7 +1329,7 @@ interface RowProps {
 }
 
 function ScheduleEntryRow({
-  entry, isFirst, onToggleConcurrent, canEdit, columnPrefs, isSelected, isDragOver, dropAbove, otherDays, bannerEdit,
+  entry, isFirst, overlaps, onToggleConcurrent, onSetStartTime, canEdit, columnPrefs, isSelected, isDragOver, dropAbove, otherDays, bannerEdit,
   onDragStart, onDragEnd, onDragOver, onDrop,
   onToggleSelect, onEdit, onDelete, onMoveToBoneyard, onMoveToDay,
   onStartBannerEdit, onCommitBannerEdit, onCancelBannerEdit, onBannerEditChange,
@@ -1308,6 +1337,10 @@ function ScheduleEntryRow({
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPos, setMenuPos]   = useState<{ top: number; left: number } | null>(null)
   const [mounted, setMounted]   = useState(false)
+  // Inline exact-start editor ("HH:mm" for the time input — 25:30 shows as 01:30)
+  const [startDraft, setStartDraft] = useState<string | null>(null)
+  // Opened from "Set start time…": pin even if the time is unchanged.
+  const pinAsIs = useRef(false)
   const menuRef    = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
 
@@ -1326,7 +1359,23 @@ function ScheduleEntryRow({
   }, [menuOpen])
 
   const isScene = entry.kind === 'SCENE'
-  const alongside = entry.concurrentWithPrevious && !isFirst
+  const alongside = overlaps
+
+  function openStartEdit(explicit = false) {
+    pinAsIs.current = explicit
+    const current = entry.fixedStartTime ?? entry.computedStartTime ?? '08:00'
+    setStartDraft(formatClock(parseHHmm(current) % (24 * 60)))
+  }
+  function commitStartEdit() {
+    if (startDraft === null) return
+    const draft = startDraft
+    setStartDraft(null)
+    if (!draft) return
+    // Re-entering the automatic time on an automatic row doesn't pin it.
+    const auto = entry.computedStartTime ? formatClock(parseHHmm(entry.computedStartTime) % (24 * 60)) : null
+    if (!entry.fixedStartTime && draft === auto && !pinAsIs.current) return
+    onSetStartTime(entry, draft)
+  }
   const color = isScene && entry.scene
     ? getSceneColor(entry.scene.intExt, entry.scene.timeOfDay, entry.scene.colorOverride)
     : (BANNER_COLORS[entry.bannerType ?? 'CUSTOM'] ?? BANNER_COLORS['CUSTOM']!)
@@ -1404,9 +1453,9 @@ function ScheduleEntryRow({
             {alongside && (
               <CornerDownRight
                 className="h-3.5 w-3.5 shrink-0 opacity-60"
-                aria-label="Runs at the same time as the item above"
+                aria-label="Runs during the item above"
               >
-                <title>Runs at the same time as the item above</title>
+                <title>Runs during the item above</title>
               </CornerDownRight>
             )}
             <span className="truncate">
@@ -1464,11 +1513,36 @@ function ScheduleEntryRow({
         </td>
       )}
 
-      {/* Start time */}
+      {/* Start time — click to set an exact start (📌); automatic otherwise */}
       <td className="px-2 py-2 text-right w-24">
-        <span className="text-xs font-mono tabular-nums opacity-80 whitespace-nowrap">
-          {entry.computedStartTime ? formatHHmm(entry.computedStartTime) : '—'}
-        </span>
+        {startDraft !== null ? (
+          <input
+            type="time"
+            autoFocus
+            value={startDraft}
+            onChange={e => setStartDraft(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') commitStartEdit(); if (e.key === 'Escape') setStartDraft(null) }}
+            onBlur={commitStartEdit}
+            onClick={e => e.stopPropagation()}
+            className="w-[6.5rem] rounded border border-current/20 bg-background/80 px-1 py-0.5 text-xs font-mono text-foreground outline-none"
+            aria-label="Exact start time"
+          />
+        ) : canEdit ? (
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); openStartEdit(false) }}
+            title={entry.fixedStartTime ? 'Exact start time — click to change' : 'Click to set an exact start time'}
+            className="inline-flex items-center gap-1 rounded px-1 text-xs font-mono tabular-nums opacity-80 whitespace-nowrap hover:bg-black/10 hover:opacity-100"
+          >
+            {entry.fixedStartTime && <Pin className="h-3 w-3 shrink-0" aria-label="Exact start time" />}
+            {entry.computedStartTime ? formatHHmm(entry.computedStartTime) : '—'}
+          </button>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-xs font-mono tabular-nums opacity-80 whitespace-nowrap">
+            {entry.fixedStartTime && <Pin className="h-3 w-3 shrink-0" aria-label="Exact start time" />}
+            {entry.computedStartTime ? formatHHmm(entry.computedStartTime) : '—'}
+          </span>
+        )}
       </td>
 
       {/* End time */}
@@ -1510,7 +1584,9 @@ function ScheduleEntryRow({
           onMoveToBoneyard={onMoveToBoneyard}
           onMoveToDay={onMoveToDay}
           onEditBanner={onStartBannerEdit}
-          onToggleConcurrent={isFirst ? undefined : onToggleConcurrent}
+          onToggleConcurrent={isFirst || entry.fixedStartTime ? undefined : onToggleConcurrent}
+          onSetStartTime={entry.shootDayId ? () => openStartEdit(true) : undefined}
+          onClearStartTime={entry.fixedStartTime ? () => onSetStartTime(entry, null) : undefined}
         />,
         document.body,
       )}
@@ -1532,10 +1608,14 @@ const EntryKebabMenu = forwardRef<HTMLDivElement, {
   onMoveToBoneyard: (e: EntryRow) => void
   onMoveToDay: (id: string, dayId: string) => void
   onEditBanner: (e: EntryRow) => void
-  /** Absent on a day's first entry. */
+  /** Absent on a day's first entry, or when an exact start is set. */
   onToggleConcurrent?: (e: EntryRow) => void
+  onSetStartTime?: () => void
+  /** Present only when an exact start is set. */
+  onClearStartTime?: () => void
 }>(function EntryKebabMenu({
   pos, entry, otherDays, onClose, onEdit, onDelete, onMoveToBoneyard, onMoveToDay, onEditBanner, onToggleConcurrent,
+  onSetStartTime, onClearStartTime,
 }, ref) {
   const [moveDayOpen, setMoveDayOpen] = useState(false)
 
@@ -1565,6 +1645,14 @@ const EntryKebabMenu = forwardRef<HTMLDivElement, {
         () => onToggleConcurrent(entry),
         <><CornerDownRight className="h-3.5 w-3.5 text-muted-foreground" />
           {entry.concurrentWithPrevious ? 'Run after the item above' : 'Run alongside the item above'}</>,
+      )}
+      {onSetStartTime && item(
+        onSetStartTime,
+        <><Pin className="h-3.5 w-3.5 text-muted-foreground" /> {entry.fixedStartTime ? 'Change start time…' : 'Set start time…'}</>,
+      )}
+      {onClearStartTime && item(
+        onClearStartTime,
+        <><RotateCcw className="h-3.5 w-3.5 text-muted-foreground" /> Back to automatic time</>,
       )}
       {otherDays.length > 0 && (
         <div className="relative">

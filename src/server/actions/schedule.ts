@@ -6,7 +6,7 @@ import { getScopedDb } from '@/lib/db-scoped'
 import { getAccess } from '@/lib/access'
 import { requireProductionPermission } from '@/lib/production-access'
 import type { ActionResult } from '@/types'
-import { computeEntryTimes, buildScheduleSnapshot, snapshotToScheduleBlocks } from '@/lib/schedule-compute'
+import { computeEntryTimes, buildScheduleSnapshot, snapshotToScheduleBlocks, isValidClockTime } from '@/lib/schedule-compute'
 import type { IntExt, TimeOfDay, BannerType } from '@prisma/client'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -59,6 +59,13 @@ interface ScheduleEntryInput {
   bannerNote?: string
   /** Runs at the same time as the entry above (see computeEntryTimes). */
   concurrentWithPrevious?: boolean
+  /** Exact start set by hand, "HH:mm" (00–23); null = automatic. */
+  fixedStartTime?: string | null
+}
+
+/** Rejects a malformed hand-set start before it reaches the stripboard math. */
+function badFixedStart(input: Partial<ScheduleEntryInput>): boolean {
+  return input.fixedStartTime !== undefined && input.fixedStartTime !== null && !isValidClockTime(input.fixedStartTime)
 }
 
 // ── Internal helper ────────────────────────────────────────────────────────────
@@ -237,6 +244,7 @@ export interface SceneEntryPayload {
   orderIndex: number
   kind: 'SCENE'
   concurrentWithPrevious: false
+  fixedStartTime: null
   computedStartTime: string | null
   computedEndTime: string | null
   sceneId: string
@@ -327,6 +335,7 @@ export async function createSceneWithEntry(
       orderIndex,
       kind: 'SCENE',
       concurrentWithPrevious: false,
+      fixedStartTime: null,
       computedStartTime,
       computedEndTime,
       sceneId: scene.id,
@@ -474,6 +483,7 @@ export async function createScheduleEntry(
 ): Promise<ActionResult<{ id: string }>> {
   const gate = await requireProductionPermission({ scheduleId }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
+  if (badFixedStart(input)) return { success: false, error: 'Use a time like 09:30.' }
   if (input.shootDayId) {
     const gate2 = await requireProductionPermission({ shootDayId: input.shootDayId }, 'schedule', 'EDIT')
     if (!gate2.ok) return gate2.error!
@@ -514,6 +524,7 @@ export async function updateScheduleEntry(
 ): Promise<ActionResult> {
   const gate = await requireProductionPermission({ scheduleEntryId: id }, 'schedule', 'EDIT')
   if (!gate.ok) return gate.error!
+  if (badFixedStart(patch)) return { success: false, error: 'Use a time like 09:30.' }
   if (patch.sceneId) {
     // A scene from another project would show its details on this schedule.
     const gate3 = await requireProductionPermission({ sceneId: patch.sceneId }, 'schedule', 'EDIT')
@@ -528,7 +539,10 @@ export async function updateScheduleEntry(
   const sdb = await getScopedDb()
   const entry = await sdb.scheduleEntry.findFirst({ where: { id }, include: { schedule: true } })
   if (!entry) return { success: false, error: 'Not found' }
-  await sdb.scheduleEntry.update({ where: { id }, data: patch })
+  // A hand-set start replaces "alongside the item above" (else the stale flag
+  // would come back on "Back to automatic time").
+  const data = patch.fixedStartTime ? { ...patch, concurrentWithPrevious: false } : patch
+  await sdb.scheduleEntry.update({ where: { id }, data })
   if (entry.shootDayId) {
     await recomputeShootDayEntries(entry.shootDayId, entry.workspaceId)
   }

@@ -91,6 +91,7 @@ export default async function SchedulePage({
         orderIndex: e.orderIndex,
         kind: e.kind,
         concurrentWithPrevious: e.concurrentWithPrevious,
+        fixedStartTime: e.fixedStartTime,
         computedStartTime: e.computedStartTime,
         computedEndTime: e.computedEndTime,
         sceneId: e.sceneId,

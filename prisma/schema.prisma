@@ -1633,6 +1633,10 @@ model ScheduleEntry {
   // Runs at the same time as the entry above it on its shoot day (starts with
   // it instead of after it); the next entry starts when the longest one ends.
   concurrentWithPrevious Boolean @default(false)
+  // An exact start time set by hand ("HH:mm"); null = automatic. Overlapping
+  // the items above makes it run during them (e.g. Talent call 09:00 during
+  // Setup 08:00–10:00).
+  fixedStartTime    String?
   // Computed time snapshot (server-maintained)
   computedStartTime String?
   computedEndTime   String?

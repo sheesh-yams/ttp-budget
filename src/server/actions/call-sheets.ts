@@ -198,8 +198,9 @@ export interface ScheduleBlock {
   label: string
   whoNeeded?: string // free-text: "Director, DP, 1st AD"
   notes?: string
-  /** Runs at the same time as the block above (from the stripboard, or set
-   *  here). Display only — the block keeps its own start/end. */
+  /** Set by a stripboard sync when the item ran during the ones above.
+   *  Display works it out from the times (blockOverlapFlags), so blocks
+   *  typed on the call sheet don't need it. */
   concurrent?: boolean
 }
 

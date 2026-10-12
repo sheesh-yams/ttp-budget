@@ -7,6 +7,7 @@ import { trustedClientIp } from '@/lib/client-ip'
 import { ExpiredLinkPage } from '@/components/public/ExpiredLinkPage'
 import { RateLimitedPage } from '@/components/public/RateLimitedPage'
 import { PrintTrigger } from '@/components/public/PrintTrigger'
+import { blockOverlapFlags } from '@/lib/schedule-compute'
 import type {
   CrewDept,
   ScheduleBlock,
@@ -77,6 +78,7 @@ export default async function PublicCallSheetPage({
 
   const crew           = (cs.crew          as unknown as CrewDept[])      ?? []
   const schedule       = (cs.schedule      as unknown as ScheduleBlock[]) ?? []
+  const scheduleDuring = blockOverlapFlags(schedule.map(b => ({ startTime: startOf(b), endTime: b.endTime, concurrent: b.concurrent })))
   const weather        = cs.weather        as unknown as WeatherInfo | null
   const hospital       = cs.hospitalInfo   as unknown as HospitalInfo | null
   const talent         = ((cs as any).talent        as unknown as TalentMember[])  ?? []
@@ -321,13 +323,13 @@ export default async function PublicCallSheetPage({
               <Card title="Schedule" icon={<Clock className="h-4 w-4 text-muted-foreground" />}>
                 <div className="divide-y divide-border/60 -mx-4 -mb-4">
                   {schedule.map((block, i) => {
-                    // Shown as a sub-row of the block above: same time, own start/end.
-                    const alongside = i > 0 && !!block.concurrent
+                    // A block starting before the ones above have ended is a sub-row.
+                    const alongside = scheduleDuring[i] ?? false
                     return (
                     <div key={i} className={`flex items-start gap-4 px-4 py-3 ${alongside ? '!border-t-0 pt-0 pl-9' : ''}`}>
                       <div className="shrink-0 pt-0.5 min-w-[90px]">
                         {alongside && (
-                          <span className="mr-1 inline-flex align-[-2px] text-muted-foreground" title="At the same time as the block above">
+                          <span className="mr-1 inline-flex align-[-2px] text-muted-foreground" title="During the block above">
                             <CornerDownRight className="h-3.5 w-3.5" />
                           </span>
                         )}

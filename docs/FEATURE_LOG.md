@@ -126,6 +126,53 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-12 — Exact start times on the Schedule (items during other items)
+- **Asked:** "alongside" could only start an item at the *same* time as the
+  one above. The user needs an item part-way through another (Setup 8–10,
+  Talent call 9:00–9:30), with exact times editable while still
+  defaulting to after the block above.
+- **Model:** `ScheduleEntry.fixedStartTime` ("HH:mm", null = automatic;
+  migration `20261012000002_schedule_entry_fixed_start`).
+- **Math (`computeEntryTimes`):** each entry starts at its set time, else
+  with the entry directly above if "alongside", else when everything above
+  has ended.
+  - A set time inside earlier items runs during them.
+  - One that ends later pushes the next item.
+  - One after everything above leaves a gap.
+  - A time 12h or more before the call is after midnight; anything closer
+    is pre-call that day.
+- **Overlap markers:** `overlapRule` is shared by the stripboard ↳ rows,
+  the snapshot's `concurrent`, and call sheet sub-rows. A row counts as
+  "during" when it starts inside the current group (at or after the group's
+  first start, before everything above has ended), or starts with the row
+  above when flagged.
+- **Stripboard:**
+  - Click a Start time to type an exact time (shown with 📌).
+  - Kebab: "Set start time…" (can pin the current time) and "Back to
+    automatic time".
+  - Setting a time clears "alongside" (the server does too); the toggle is
+    hidden while a time is set.
+  - Footer total runs from the earliest start; the count is "N
+    overlapping".
+- **Call sheets:**
+  - The manual "Same time as above" toggle shipped in ea4c528 is removed.
+    Sub-rows are worked out from the typed times (`blockOverlapFlags`,
+    overnight-aware). A synced `concurrent` flag still counts when the block
+    starts with the one above (a 0-minute banner).
+- **Verified:**
+  - tsc, jest (391), lint and build.
+  - Real-DB script: Setup 08:00–10:00, Talent call 📌 09:00–09:30
+    (during), Scene 10:00–11:00. Back to automatic gives the sequence again.
+  - Recomputing every existing day changes 0 stored times; synced-sheet
+    drift is unchanged.
+  - Browser preview of the stripboard inline edit (12:00 pin → gap, wrap
+    1:00 PM) and of call sheet sub-rows.
+  - pitfall-reviewer: 5 findings, all fixed (stale alongside flag on pinned
+    rows; 0-length rows above; pre-call pins shown as "during"; the
+    next-day threshold moved from 6h to 12h; pinning the current time).
+- **Note:** a set time is a fixed clock time. It doesn't move when the
+  day's call time changes, and it stays when the item moves to another day.
+
 ### 2026-10-12 — Concurrent items on the Schedule (and call sheets)
 - **Asked:** the stripboard couldn't run two things at once (Load In at the
   same time as Talent Call). Review the scheduling logic, support
