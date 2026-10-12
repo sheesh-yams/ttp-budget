@@ -140,6 +140,12 @@ export function SaveGeneration({ children }: { children: React.ReactNode }) {
   return <div key={scope?.generation ?? 0} className="contents">{children}</div>
 }
 
+/** Bumped by Discard — for editors that keep their own unsaved state (and so
+ *  must drop it) without remounting through SaveGeneration. */
+export function useSaveGeneration(): number {
+  return useContext(SaveScopeContext)?.generation ?? 0
+}
+
 export function useSaveScope(): Pick<Scope, 'flushAll' | 'discardFailed' | 'requestRefresh' | 'exclusive' | 'track'> {
   const scope = useContext(SaveScopeContext)
   if (!scope) throw new Error('useSaveScope must be used inside <SaveScope>')

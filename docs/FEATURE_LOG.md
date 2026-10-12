@@ -126,6 +126,82 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-12 — Schedule: changes are instant, saved together after 2.5s
+- **Asked:** like deal memos and budget lines, the Schedule should wait about
+  2.5s of quiet before saving. Adding or removing something was slow to show.
+- **Before:**
+  - These awaited a server action, then `router.refresh()` of the whole
+    page, before the screen changed:
+    - remove, add banner, edit banner
+    - move to day / Boneyard
+    - archive or restore a scene
+    - the scene pop-up
+  - Drag, sort, alongside and start times were optimistic, but each made its
+    own save and refresh.
+- **Now:**
+  - **Op log (`src/lib/schedule-ops.ts`):** every change is an op. The
+    screen shows server copy + pending ops, through a pure reducer that
+    re-times only the touched days.
+    - New rows get browser-made cuid-shaped ids, so they can be dragged or
+      edited before saving.
+    - Ops are idempotent: a move carries the day's full resulting order, adds
+      skip existing ids. Re-applying over any refresh, or retrying a batch
+      that already landed, is harmless.
+  - **Saving:** one `SaveQueue` sends everything ~2.5s after the last change,
+    per schedule, in chunks of 250, to `applyScheduleChanges`.
+    - **On the server (`src/lib/schedule-apply.ts`)**, inside one
+      transaction:
+      - zod-validate the ops
+      - load the schedule's state, scoped by workspace and schedule/project
+      - replay the same reducer and write only the difference
+      - re-time the scene's days in other schedules when its length changed
+    - **Ops pointing at things that are gone don't fail the batch:** a row
+      for a deleted day goes to the Boneyard, a move there is dropped, and a
+      deleted location becomes "no location".
+  - **Status line** in the toolbar, with Retry/Discard. Discard clears the
+    log (new `useSaveGeneration`).
+  - **Saved first:** create call sheet, switch / delete schedule and set
+    primary. Leaving the page also flushes, with a warning while unsaved.
+  - **Scene pop-up** closes instantly. If its batch fails, it reopens on
+    that scene with the typed values and the error: once, and not over an
+    open pop-up.
+- **Fixed along the way:** `recomputeShootDayEntries` mixed every schedule's
+  entries on a shoot day into one timeline. An alternate schedule pushed the
+  primary's times (seen on Sheeshyams Project Testing, 30 Jun). Each
+  schedule is now timed separately.
+- **Data note:**
+  - The first verify script ran a batch on that test project's real primary
+    schedule. That re-timed its 30 Jun day, rewriting 4 stored times to the
+    correct per-schedule values (Lunch 09:20→08:30, Coffee 09:50→09:00,
+    INT. SHEESH OFFICE 10:30→09:40, Company Move 11:30→10:40), without an
+    OK first.
+  - Saves now only re-time days the ops touch. Verify scripts use a
+    throwaway schedule and assert 0 real rows changed.
+- **Verified:**
+  - tsc, jest (403, including 12 schedule-ops tests: batches, idempotent
+    replay, flag rules, untouched days), lint and build.
+  - Real-DB script on a throwaway schedule:
+    - a mixed batch, then a replay with no changes
+    - a vanished day is lenient; a taken id is refused
+    - 0 real rows changed
+  - Browser, with saves forced to fail:
+    - add, remove and a new scene show instantly
+    - one request carries all three ops
+    - "Couldn't save · Retry · Discard" appears, and Discard restores
+    - the pop-up closes instantly and reopens with the error
+  - pitfall-reviewer, two rounds:
+    - Round 1, 5 findings:
+      - ops sent to the wrong schedule after Back/Forward
+      - a rejected op blocking all saves
+      - the pop-up reopening over one in use
+      - moves not idempotent
+      - StrictMode mount flag
+    - Round 2, 3 more:
+      - out-of-range numbers are now clamped, not rejected
+      - ops are sent strictly in the order made across schedules
+      - move dedupe made O(n) and the caps lowered
+    - All fixed.
+
 ### 2026-10-12 — Exact start times on the Schedule (items during other items)
 - **Asked:** "alongside" could only start an item at the *same* time as the
   one above. The user needs an item part-way through another (Setup 8–10,

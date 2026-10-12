@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/select'
 import { getSceneColor } from '@/lib/schedule-colors'
 import { createScene, createSceneWithEntry, updateScene, createLocation } from '@/server/actions/schedule'
-import type { SceneEntryPayload } from '@/server/actions/schedule'
+import type { SceneEntryPayload, SceneInput } from '@/server/actions/schedule'
 import type { IntExt, TimeOfDay } from '@prisma/client'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -40,6 +40,14 @@ interface Props {
   open: boolean
   onClose: () => void
   onSaved: (sceneId: string, entry?: SceneEntryPayload) => void
+  /**
+   * When given, Save closes the pop-up at once and hands over what was typed
+   * (a new location by name); the caller saves it in the background. Without
+   * it, the pop-up saves itself and waits.
+   */
+  onSubmitDeferred?: (input: SceneInput, newLocationName: string | null) => void
+  /** Shown when the pop-up reopens after a background save failed. */
+  initialError?: string | null
   projectId: string
   scene?: SceneRow | null
   locations: { id: string; name: string; address: string | null }[]
@@ -93,7 +101,7 @@ function parseFraction(input: string): number | null {
   return null
 }
 
-export function SceneModal({ open, onClose, onSaved, projectId, scene, locations, scheduleContext }: Props) {
+export function SceneModal({ open, onClose, onSaved, onSubmitDeferred, initialError, projectId, scene, locations, scheduleContext }: Props) {
   const [isPending, startTransition] = useTransition()
   const [mounted, setMounted] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -141,10 +149,10 @@ export function SceneModal({ open, onClose, onSaved, projectId, scene, locations
       setNotes('')
       setColorOverride('')
     }
-    setError(null)
+    setError(initialError ?? null)
     setShowNewLoc(false)
     setNewLocationName('')
-  }, [open, scene])
+  }, [open, scene, initialError])
 
   const previewColor = getSceneColor(intExt, timeOfDay, colorOverride || null)
 
@@ -159,6 +167,27 @@ export function SceneModal({ open, onClose, onSaved, projectId, scene, locations
   function handleSubmit() {
     if (!setting.trim()) { setError('Setting is required'); return }
     setError(null)
+
+    if (onSubmitDeferred) {
+      const pageEighths = parseFraction(pageCount)
+      const dur = estimatedDuration.trim() ? parseInt(estimatedDuration) : undefined
+      const typedLocation = showNewLoc && newLocationName.trim() ? newLocationName.trim() : null
+      onSubmitDeferred({
+        sceneNumber: sceneNumber.trim() || undefined,
+        setting: setting.trim(),
+        description: description.trim() || undefined,
+        synopsis: synopsis.trim() || undefined,
+        intExt,
+        timeOfDay,
+        pageCount: pageCount.trim() || undefined,
+        pageEighths: pageEighths ?? undefined,
+        estimatedDuration: (dur !== undefined && !isNaN(dur) && dur > 0) ? dur : undefined,
+        locationId: typedLocation ? undefined : (locationId || null),
+        notes: notes.trim() || undefined,
+        colorOverride: colorOverride.trim() || null,
+      }, typedLocation)
+      return
+    }
 
     startTransition(async () => {
       let resolvedLocationId: string | null = locationId || null

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useTransition, useRef, forwardRef } from 'react'
+import { useState, useEffect, useTransition, useRef, useMemo, useCallback, forwardRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import {
@@ -23,20 +23,17 @@ import {
   setPrimarySchedule,
   deleteSchedule,
   updateColumnPrefs,
-  createScheduleEntry,
-  updateScheduleEntry,
-  moveScheduleEntry,
-  moveScheduleEntries,
-  deleteScheduleEntry,
-  archiveScene,
-  unarchiveScene,
-  deleteScene,
+  applyScheduleChanges,
 } from '@/server/actions/schedule'
-import type { SceneEntryPayload } from '@/server/actions/schedule'
+import type { SceneInput } from '@/server/actions/schedule'
+import { SaveScope, SaveStatusLine, useSaveGeneration, useSaveQueue, useSaveScope } from '@/components/autosave/SaveScope'
+import {
+  applyScheduleOps, newScheduleId, moveOrder,
+  type ScheduleEntryRow, type ScheduleOp, type ScheduleOpBody, type SceneOpInput, type ScheduleState,
+} from '@/lib/schedule-ops'
 import { createCallSheet } from '@/server/actions/call-sheets'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { parseLocalDate } from '@/lib/time-format'
-import type { IntExt, TimeOfDay, BannerType } from '@prisma/client'
 
 // ── Column definitions ───────────────────────────────────────────────────────
 
@@ -67,38 +64,7 @@ interface ShootDayRow {
   primaryLocation: { id: string; name: string } | null
 }
 
-interface EntryRow {
-  id: string
-  scheduleId: string
-  shootDayId: string | null
-  orderIndex: number
-  kind: 'SCENE' | 'BANNER'
-  /** Runs at the same time as the entry above (ignored on a day's first entry). */
-  concurrentWithPrevious: boolean
-  /** Exact start set by hand ("HH:mm"); null = automatic. */
-  fixedStartTime: string | null
-  computedStartTime: string | null
-  computedEndTime: string | null
-  sceneId: string | null
-  scene: {
-    id: string
-    sceneNumber: string | null
-    setting: string
-    description: string | null
-    intExt: IntExt
-    timeOfDay: TimeOfDay
-    pageEighths: number | null
-    estimatedDuration: number | null
-    colorOverride: string | null
-    castContactIds: string[]
-    archived: boolean
-    location: { id: string; name: string } | null
-  } | null
-  bannerType: BannerType | null
-  bannerLabel: string | null
-  bannerDurationMin: number | null
-  bannerNote: string | null
-}
+type EntryRow = ScheduleEntryRow
 
 interface Props {
   projectId: string
@@ -141,7 +107,13 @@ function pageEighthsToDisplay(eighths: number | null): string {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export function ScheduleEditorClient({
+/** The stripboard. Changes show instantly and are saved together ~2.5s after
+ *  the last one (src/lib/schedule-ops.ts → applyScheduleChanges). */
+export function ScheduleEditorClient(props: Props) {
+  return <SaveScope><ScheduleEditorInner {...props} /></SaveScope>
+}
+
+function ScheduleEditorInner({
   projectId,
   projectName,
   canEdit,
@@ -151,21 +123,154 @@ export function ScheduleEditorClient({
   activeScheduleId,
   initialEntries,
   allScenes,
-  locations,
+  locations: initialLocations,
 }: Props) {
   const router = useRouter()
   const [, startTransition] = useTransition()
   const { confirm, ConfirmDialog } = useConfirm()
+  const { flushAll } = useSaveScope()
 
-  const [entries, setEntries]           = useState<EntryRow[]>(initialEntries)
-  useEffect(() => { setEntries(initialEntries) }, [initialEntries])
+  // ── Pending changes ─────────────────────────────────────────────────────────
+  // What's on screen = the server's copy + every change not yet in it, so a
+  // change shows at once and a refresh can't wipe one still saving. `pending`
+  // = unsaved or saving; `confirmed` = saved, kept until the next server copy
+  // (ops are idempotent, so applying one the server already has is harmless).
+  // Each op remembers the schedule it was made on (switching schedules keeps
+  // this component mounted — only the search param changes).
+  type Logged = { scheduleId: string; op: ScheduleOp }
+  const pending   = useRef(new Map<number, Logged>())
+  const confirmed = useRef(new Map<number, Logged>())
+  const seqRef    = useRef(0)
+  const [opsVersion, setOpsVersion] = useState(0)
+  const bump = useCallback(() => setOpsVersion(v => v + 1), [])
+
+  const serverState = useMemo<ScheduleState>(
+    () => ({ entries: initialEntries, scenes: allScenes, locations: initialLocations }),
+    [initialEntries, allScenes, initialLocations],
+  )
+  useEffect(() => { confirmed.current.clear(); bump() }, [serverState, bump])
+  const opsCtx = useMemo(() => ({
+    scheduleId: activeScheduleId ?? '',
+    dayStart: new Map(shootDays.map(d => [d.id, d.startTime])),
+  }), [activeScheduleId, shootDays])
+  const display = useMemo(
+    () => applyScheduleOps(serverState,
+      [...confirmed.current.values(), ...pending.current.values()].filter(l => l.scheduleId === activeScheduleId).map(l => l.op),
+      opsCtx),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- opsVersion tracks the refs
+    [serverState, opsCtx, opsVersion],
+  )
+  const entries = display.entries
+  const scenes = display.scenes as SceneRow[]
+  const locations = display.locations
+
+  const mountedRef = useRef(true)
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false } }, [])
+  const [sceneError, setSceneError] = useState<string | null>(null)
+  const reopenedFor = useRef(new Set<number>())
+
+  const queue = useSaveQueue<Record<string, Logged>>(async patch => {
+    const logged = Object.values(patch).sort((a, b) => a.op.seq - b.op.seq)
+    // Strictly in the order made (scene edits are project-wide, so order
+    // matters across schedules): runs of one schedule, in chunks the server
+    // accepts; stop at a failure (what saved stays saved — replays are harmless).
+    const runs: { scheduleId: string; ops: ScheduleOp[] }[] = []
+    for (const l of logged) {
+      const last = runs[runs.length - 1]
+      if (last && last.scheduleId === l.scheduleId && last.ops.length < 200) last.ops.push(l.op)
+      else runs.push({ scheduleId: l.scheduleId, ops: [l.op] })
+    }
+    let error: string | null = null
+    let failedOps: ScheduleOp[] = []
+    for (const [r, run] of runs.entries()) {
+      const { scheduleId } = run
+      {
+        const chunk = run.ops
+        // A dropped connection throws — treat it like any other failed save.
+        const res = await applyScheduleChanges(scheduleId, chunk).catch((err: unknown) =>
+          ({ success: false as const, error: err instanceof Error ? err.message : 'Couldn’t reach the server' }))
+        if (res.success) {
+          for (const op of chunk) {
+            const l = pending.current.get(op.seq)
+            pending.current.delete(op.seq)
+            if (l) confirmed.current.set(op.seq, l)
+          }
+          bump()
+        } else {
+          error = (res as { success: false; error: string }).error
+          failedOps = runs.slice(r).flatMap(x => x.ops)
+        }
+      }
+      if (error) break
+    }
+    if (!error) return { success: true }
+
+    if (!mountedRef.current) {
+      window.alert(`Your schedule changes weren’t saved: ${error}`)
+    } else {
+      // A scene typed in the pop-up: reopen it with what was typed + the error
+      // — once per change, and never over a pop-up that's already open.
+      const sceneOp = [...failedOps].reverse().find(o => o.type === 'createScene' || o.type === 'updateScene')
+      if (sceneOp && (sceneOp.type === 'createScene' || sceneOp.type === 'updateScene') && !reopenedFor.current.has(sceneOp.seq)) {
+        reopenedFor.current.add(sceneOp.seq)
+        reopenSceneRef.current?.(sceneOp.sceneId, error)
+      }
+    }
+    return { success: false, error }
+  })
+
+  // Switching schedules: save the old one's changes straight away.
+  const lastScheduleId = useRef(activeScheduleId)
+  useEffect(() => {
+    if (lastScheduleId.current === activeScheduleId) return
+    lastScheduleId.current = activeScheduleId
+    void queue.flush()
+  }, [activeScheduleId, queue])
+
+  // Discard (from the status line) drops everything unsaved.
+  const generation = useSaveGeneration()
+  const lastGeneration = useRef(generation)
+  useEffect(() => {
+    if (generation === lastGeneration.current) return
+    lastGeneration.current = generation
+    pending.current.clear()
+    confirmed.current.clear()
+    reopenedFor.current.clear()
+    bump()
+  }, [generation, bump])
+
+  /** Records a change: on screen now, saved with the rest after a pause. */
+  function commit(body: ScheduleOpBody) {
+    if (!canEdit || !activeScheduleId) return
+    const op = { ...body, seq: ++seqRef.current } as ScheduleOp
+    const logged = { scheduleId: activeScheduleId, op }
+    pending.current.set(op.seq, logged)
+    bump()
+    queue.queue({ [`s${op.seq}`]: logged })
+  }
+
+  /** A move, recorded with the target day's resulting order. */
+  function commitMove(ids: string[], toShootDayId: string | null, beforeEntryId: string | null, resetConcurrent?: boolean) {
+    commit({
+      type: 'move', entryIds: ids, toShootDayId,
+      order: moveOrder(entries, ids, toShootDayId, beforeEntryId),
+      ...(resetConcurrent ? { resetConcurrent } : {}),
+    })
+  }
+
+  /** Saves pending changes before an action that reads the saved schedule. */
+  async function saveFirst(): Promise<boolean> {
+    if (await flushAll()) return true
+    window.alert('Your latest schedule changes haven’t saved yet — Retry or Discard them (top right) first.')
+    return false
+  }
+  const reopenSceneRef = useRef<((sceneId: string, error: string) => void) | null>(null)
   const [activeTab, setActiveTab]       = useState<string | 'boneyard'>(
     shootDays[0]?.id ?? 'boneyard'
   )
   const [selectedIds, setSelectedIds]   = useState<Set<string>>(new Set())
   const [sceneModalOpen, setSceneModalOpen] = useState(false)
   const [editingScene, setEditingScene] = useState<SceneRow | null>(null)
-  const [editingEntry, setEditingEntry] = useState<EntryRow | null>(null)
   const [bannerEdit, setBannerEdit]     = useState<{ entry: EntryRow; label: string; dur: string } | null>(null)
   const [creatingSchedule, setCreatingSchedule] = useState(false)
   const [newScheduleName, setNewScheduleName]   = useState('')
@@ -187,7 +292,8 @@ export function ScheduleEditorClient({
     startTransition(async () => { await updateColumnPrefs(activeScheduleId, next) })
   }
 
-  function switchSchedule(id: string) {
+  async function switchSchedule(id: string) {
+    if (!(await saveFirst())) return
     router.push(`/projects/${projectId}/schedule?scheduleId=${id}`)
   }
 
@@ -198,6 +304,7 @@ export function ScheduleEditorClient({
   }
 
   async function handleSetPrimarySchedule(id: string) {
+    if (!(await saveFirst())) return
     await setPrimarySchedule(projectId, id)
     onMutated()
   }
@@ -208,6 +315,7 @@ export function ScheduleEditorClient({
       { title: 'Delete schedule?', key: 'delete-schedule', confirmLabel: 'Delete' },
     )
     if (!ok) return
+    if (!(await saveFirst())) return
     const result = await deleteSchedule(id)
     if ('error' in result && result.error) {
       window.alert(result.error)
@@ -365,29 +473,8 @@ export function ScheduleEditorClient({
     lastDragKey.current = null
     setDragOverId(null)
     setPreviewEntries(null)
-
-    // Optimistic: move entries locally
-    const movingSet = new Set(ids)
-    const dayEntries = entries.filter(e => e.shootDayId === toShootDayId && !movingSet.has(e.id)).sort((a, b) => a.orderIndex - b.orderIndex)
-    const movingEntries = ids.map(i => entries.find(e => e.id === i)!).filter(Boolean)
-    const insertIdx = beforeEntryId ? Math.max(0, dayEntries.findIndex(e => e.id === beforeEntryId)) : dayEntries.length
-    const newDayOrder = [...dayEntries.slice(0, insertIdx), ...movingEntries, ...dayEntries.slice(insertIdx)]
-    const others = entries.filter(e => e.shootDayId !== toShootDayId && !movingSet.has(e.id))
-    setEntries([
-      ...others,
-      ...newDayOrder.map((e, i) => ({ ...e, shootDayId: toShootDayId, orderIndex: i })),
-    ])
     setSelectedIds(new Set())
-
-    startTransition(async () => {
-      const action = ids.length > 1 ? moveScheduleEntries : moveScheduleEntry
-      if (ids.length > 1) {
-        await moveScheduleEntries({ entryIds: ids, toShootDayId, beforeEntryId })
-      } else {
-        await moveScheduleEntry({ entryId: ids[0]!, toShootDayId, beforeEntryId })
-      }
-      onMutated()
-    })
+    commitMove(ids, toShootDayId, beforeEntryId)
   }
 
   // ── Sort dialog ───────────────────────────────────────────────────────────────
@@ -413,16 +500,8 @@ export function ScheduleEditorClient({
       return dir === 'asc' ? cmp : -cmp
     })
 
-    setEntries(prev => {
-      const others = prev.filter(e => e.shootDayId !== dayId)
-      // Sorting changes every row's neighbour, so "alongside" flags are dropped.
-      return [...others, ...sorted.map((e, i) => ({ ...e, orderIndex: i, concurrentWithPrevious: false }))]
-    })
-
-    startTransition(async () => {
-      await moveScheduleEntries({ entryIds: sorted.map(e => e.id), toShootDayId: dayId, beforeEntryId: null, resetConcurrent: true })
-      onMutated()
-    })
+    // Sorting changes every row's neighbour, so "alongside" flags are dropped.
+    commitMove(sorted.map(e => e.id), dayId, null, true)
   }
 
   // ── Call sheet creation ──────────────────────────────────────────────────────
@@ -432,6 +511,8 @@ export function ScheduleEditorClient({
     const day = shootDays[dayIndex]
     if (!day) return
     startTransition(async () => {
+      // The call sheet copies the saved schedule — save what's on screen first.
+      if (!(await saveFirst())) return
       const result = await createCallSheet(projectId, {
         title: `${projectName} — Day ${dayIndex + 1}`,
         shootDate: day.date.slice(0, 10),
@@ -460,61 +541,69 @@ export function ScheduleEditorClient({
 
   // ── Scene actions ────────────────────────────────────────────────────────────
 
-  function openNewScene(dayId?: string) {
+  function openNewScene() {
     setEditingScene(null)
+    setSceneError(null)
     setSceneModalOpen(true)
+  }
+
+  /** The full scene (with synopsis, notes…) when we have it; else what the row shows. */
+  function sceneRowFor(sceneId: string, entry?: EntryRow): SceneRow | null {
+    const full = scenes.find(sc => sc.id === sceneId)
+    if (full) return full
+    const snap = entry?.scene
+    if (!snap) return null
+    return {
+      id: snap.id, sceneNumber: snap.sceneNumber, setting: snap.setting, description: snap.description,
+      synopsis: null, intExt: snap.intExt, timeOfDay: snap.timeOfDay, pageCount: null, pageEighths: snap.pageEighths,
+      estimatedDuration: snap.estimatedDuration, locationId: snap.location?.id ?? null, location: snap.location,
+      notes: null, castContactIds: snap.castContactIds, colorOverride: snap.colorOverride, archived: snap.archived,
+    }
   }
 
   function openEditScene(entry: EntryRow) {
     if (!entry.scene) return
-    setEditingScene({
-      id: entry.scene.id,
-      sceneNumber: entry.scene.sceneNumber,
-      setting: entry.scene.setting,
-      description: entry.scene.description,
-      synopsis: null,
-      intExt: entry.scene.intExt,
-      timeOfDay: entry.scene.timeOfDay,
-      pageCount: null,
-      pageEighths: entry.scene.pageEighths,
-      estimatedDuration: entry.scene.estimatedDuration,
-      locationId: entry.scene.location?.id ?? null,
-      location: entry.scene.location,
-      notes: null,
-      castContactIds: entry.scene.castContactIds,
-      colorOverride: entry.scene.colorOverride,
-      archived: entry.scene.archived,
-    })
-    setEditingEntry(entry)
+    setEditingScene(sceneRowFor(entry.scene.id, entry))
+    setSceneError(null)
     setSceneModalOpen(true)
   }
 
-  function handleSceneSaved(sceneId: string, entry?: SceneEntryPayload) {
+  // A failed save that included a scene from the pop-up: reopen it on that
+  // scene (it's on screen with what was typed) with the error.
+  reopenSceneRef.current = (sceneId, error) => {
+    if (sceneModalOpen) return
+    const row = sceneRowFor(sceneId, entries.find(e => e.sceneId === sceneId))
+    if (!row) return
+    setEditingScene(row)
+    setSceneError(error)
+    setSceneModalOpen(true)
+  }
+
+  /** The pop-up closed straight away; the scene saves with the other changes. */
+  function handleSceneSubmit(input: SceneInput, newLocationName: string | null) {
     setSceneModalOpen(false)
-    if (entry) {
-      // Fast path: createSceneWithEntry already returned the fully-formed entry,
-      // so render it immediately instead of waiting on a full page refresh.
-      setEntries(prev => [...prev, entry])
-      router.refresh()
+    setSceneError(null)
+    const newLocation = newLocationName ? { locationId: newScheduleId(), name: newLocationName } : undefined
+    const opInput: SceneOpInput = { ...input, ...(newLocation ? { locationId: newLocation.locationId } : {}) }
+    if (editingScene) {
+      commit({ type: 'updateScene', sceneId: editingScene.id, input: opInput, newLocation })
     } else {
-      onMutated()
+      commit({
+        type: 'createScene', sceneId: newScheduleId(), input: { ...opInput, setting: input.setting }, newLocation,
+        // Added to the open day (or the Boneyard) of this schedule.
+        entry: { entryId: newScheduleId(), shootDayId: activeTab !== 'boneyard' ? activeTab : null },
+      })
     }
+    setEditingScene(null)
   }
 
   // ── Banner actions ───────────────────────────────────────────────────────────
 
   function handleAddBanner(preset: BannerPreset, label: string, duration: number) {
-    if (!activeScheduleId || !canEdit) return
-    const shootDayId = activeTab !== 'boneyard' ? activeTab : null
-    startTransition(async () => {
-      await createScheduleEntry(activeScheduleId, {
-        kind: 'BANNER',
-        shootDayId,
-        bannerType: preset.type,
-        bannerLabel: label,
-        bannerDurationMin: duration,
-      })
-      onMutated()
+    commit({
+      type: 'addBanner', entryId: newScheduleId(),
+      shootDayId: activeTab !== 'boneyard' ? activeTab : null,
+      bannerType: preset.type, label, durationMin: Math.min(4320, Math.max(0, Math.round(duration) || 0)),
     })
   }
 
@@ -523,73 +612,38 @@ export function ScheduleEditorClient({
     const { entry, label, dur } = bannerEdit
     const duration = parseInt(dur)
     setBannerEdit(null)
-    startTransition(async () => {
-      await updateScheduleEntry(entry.id, {
-        bannerLabel: label,
-        bannerDurationMin: isNaN(duration) ? 0 : duration,
-      })
-      onMutated()
-    })
+    const patch = { bannerLabel: label, bannerDurationMin: isNaN(duration) ? 0 : Math.min(4320, Math.max(0, duration)) }
+    if (patch.bannerLabel === entry.bannerLabel && patch.bannerDurationMin === (entry.bannerDurationMin ?? 0)) return
+    commit({ type: 'updateEntry', entryId: entry.id, patch })
   }
 
   // ── Timing: run alongside / exact start time ─────────────────────────────────
 
-  /** Apply a change to one entry, then recompute its day's times locally
-   *  (optimistic — the server recomputes and the refresh replaces this). */
-  function patchEntryAndRetime(entry: EntryRow, patch: Partial<EntryRow>) {
-    const dayId = entry.shootDayId
-    if (!dayId) return
-    setEntries(prev => {
-      const patched = prev.map(e => e.id === entry.id ? { ...e, ...patch } : e)
-      const day = patched.filter(e => e.shootDayId === dayId).sort((a, b) => a.orderIndex - b.orderIndex)
-      const times = new Map(computeEntryTimes(day, shootDays.find(d => d.id === dayId)?.startTime ?? null).map(t => [t.id, t]))
-      return patched.map(e => {
-        const t = times.get(e.id)
-        return t ? { ...e, computedStartTime: t.computedStartTime, computedEndTime: t.computedEndTime } : e
-      })
-    })
-  }
-
   function handleToggleConcurrent(entry: EntryRow) {
-    if (!canEdit || !entry.shootDayId) return
-    const next = !entry.concurrentWithPrevious
-    patchEntryAndRetime(entry, { concurrentWithPrevious: next })
-    startTransition(async () => {
-      await updateScheduleEntry(entry.id, { concurrentWithPrevious: next })
-      onMutated()
-    })
+    if (!entry.shootDayId) return
+    commit({ type: 'updateEntry', entryId: entry.id, patch: { concurrentWithPrevious: !entry.concurrentWithPrevious } })
   }
 
   /** `time` = "HH:mm" to pin an exact start, null = back to automatic. */
   function handleSetStartTime(entry: EntryRow, time: string | null) {
-    if (!canEdit || !entry.shootDayId) return
-    if (time === entry.fixedStartTime) return
-    patchEntryAndRetime(entry, time ? { fixedStartTime: time, concurrentWithPrevious: false } : { fixedStartTime: null })
-    startTransition(async () => {
-      await updateScheduleEntry(entry.id, { fixedStartTime: time })
-      onMutated()
-    })
+    if (!entry.shootDayId || time === entry.fixedStartTime) return
+    commit({ type: 'updateEntry', entryId: entry.id, patch: { fixedStartTime: time } })
   }
 
-  // ── Delete ───────────────────────────────────────────────────────────────────
+  // ── Delete / move ────────────────────────────────────────────────────────────
 
   async function handleDeleteEntry(entry: EntryRow) {
     const ok = await confirm(
       `Remove this ${entry.kind === 'SCENE' ? 'scene' : 'banner'} from the schedule?`,
-      { key: 'delete-schedule-entry' }
+      { key: 'delete-schedule-entry', confirmLabel: 'Remove' }
     )
     if (!ok) return
-    startTransition(async () => {
-      await deleteScheduleEntry(entry.id)
-      onMutated()
-    })
+    setSelectedIds(prev => { const next = new Set(prev); next.delete(entry.id); return next })
+    commit({ type: 'deleteEntry', entryId: entry.id })
   }
 
-  async function handleMoveEntryToBoneyard(entry: EntryRow) {
-    startTransition(async () => {
-      await moveScheduleEntry({ entryId: entry.id, toShootDayId: null, beforeEntryId: null })
-      onMutated()
-    })
+  function handleMoveEntryToBoneyard(entry: EntryRow) {
+    commitMove([entry.id], null, null)
   }
 
   // ── Keyboard: escape clears selection ────────────────────────────────────────
@@ -682,16 +736,13 @@ export function ScheduleEditorClient({
       {/* Scene modal */}
       <SceneModal
         open={sceneModalOpen}
-        onClose={() => { setSceneModalOpen(false); setEditingScene(null); setEditingEntry(null) }}
-        onSaved={handleSceneSaved}
+        onClose={() => { setSceneModalOpen(false); setEditingScene(null); setSceneError(null) }}
+        onSaved={() => onMutated()}
+        onSubmitDeferred={handleSceneSubmit}
+        initialError={sceneError}
         projectId={projectId}
         scene={editingScene}
         locations={locations}
-        scheduleContext={
-          !editingScene && activeScheduleId && activeTab !== 'boneyard'
-            ? { scheduleId: activeScheduleId, shootDayId: activeTab }
-            : null
-        }
       />
 
       {/* Locations modal */}
@@ -766,6 +817,7 @@ export function ScheduleEditorClient({
           )}
         </div>
         <div className="flex items-center gap-2">
+          <SaveStatusLine className="mr-1" />
           <button
             className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
             onClick={() => setLocationsModalOpen(true)}
@@ -820,16 +872,12 @@ export function ScheduleEditorClient({
         {activeTab === 'boneyard' ? (
           <BoneyardView
             entries={entriesForDay(null)}
-            allScenes={allScenes}
+            allScenes={scenes}
             canEdit={canEdit}
             onEditEntry={openEditScene}
             onDeleteEntry={handleDeleteEntry}
-            onRestoreScene={id => {
-              startTransition(async () => { await unarchiveScene(id); onMutated() })
-            }}
-            onArchiveScene={id => {
-              startTransition(async () => { await archiveScene(id); onMutated() })
-            }}
+            onRestoreScene={id => commit({ type: 'setSceneArchived', sceneId: id, archived: false })}
+            onArchiveScene={id => commit({ type: 'setSceneArchived', sceneId: id, archived: true })}
           />
         ) : (
           <ShootDayView
@@ -854,13 +902,8 @@ export function ScheduleEditorClient({
             onMoveToBoneyard={handleMoveEntryToBoneyard}
             onToggleConcurrent={handleToggleConcurrent}
             onSetStartTime={handleSetStartTime}
-            onMoveToDay={(entryId, dayId) => {
-              startTransition(async () => {
-                await moveScheduleEntry({ entryId, toShootDayId: dayId, beforeEntryId: null })
-                onMutated()
-              })
-            }}
-            onAddScene={() => openNewScene(activeTab)}
+            onMoveToDay={(entryId, dayId) => commitMove([entryId], dayId, null)}
+            onAddScene={() => openNewScene()}
             onAddBanner={handleAddBanner}
             onCreateCallSheet={canCreateCallSheet ? () => handleCreateCallSheet(activeTab) : undefined}
             bannerEdit={bannerEdit}

@@ -7,6 +7,8 @@ import { getAccess } from '@/lib/access'
 import { requireProductionPermission } from '@/lib/production-access'
 import type { ActionResult } from '@/types'
 import { computeEntryTimes, buildScheduleSnapshot, snapshotToScheduleBlocks, isValidClockTime } from '@/lib/schedule-compute'
+import { applyScheduleBatch, scheduleOpsSchema, ScheduleApplyError } from '@/lib/schedule-apply'
+import type { ScheduleOp } from '@/lib/schedule-ops'
 import type { IntExt, TimeOfDay, BannerType } from '@prisma/client'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -78,14 +80,16 @@ async function recomputeShootDayEntries(shootDayId: string, workspaceId: string)
     orderBy: { orderIndex: 'asc' },
     include: { scene: { select: { estimatedDuration: true } } },
   })
-  const updates = computeEntryTimes(entries, day.startTime)
-  if (updates.length === 0) return
-  // The first entry has nothing to run alongside: drop a leftover flag (after
-  // the entry above was moved or removed) so it can't silently attach to
-  // whatever lands above it later.
-  const firstId = entries[0]?.concurrentWithPrevious ? entries[0].id : null
-  await db.$transaction(
-    updates.map(u =>
+  // Each schedule (a version of the plan) has its own timeline on the day —
+  // an alternate schedule's entries must not push the primary's times.
+  const bySchedule = new Map<string, typeof entries>()
+  for (const e of entries) bySchedule.set(e.scheduleId, [...(bySchedule.get(e.scheduleId) ?? []), e])
+  const writes = [...bySchedule.values()].flatMap(list => {
+    // The first entry has nothing to run alongside: drop a leftover flag (after
+    // the entry above was moved or removed) so it can't silently attach to
+    // whatever lands above it later.
+    const firstId = list[0]?.concurrentWithPrevious ? list[0].id : null
+    return computeEntryTimes(list, day.startTime).map(u =>
       db.scheduleEntry.update({
         where: { id: u.id },
         data: {
@@ -93,8 +97,10 @@ async function recomputeShootDayEntries(shootDayId: string, workspaceId: string)
           ...(u.id === firstId ? { concurrentWithPrevious: false } : {}),
         },
       }),
-    ),
-  )
+    )
+  })
+  if (writes.length === 0) return
+  await db.$transaction(writes)
 }
 
 // ── Location ──────────────────────────────────────────────────────────────────
@@ -710,6 +716,35 @@ export async function recomputeShootDay(shootDayId: string): Promise<ActionResul
   const day = await sdb.shootDay.findFirst({ where: { id: shootDayId } })
   if (!day) return { success: false, error: 'Not found' }
   await recomputeShootDayEntries(shootDayId, day.workspaceId)
+  return { success: true, data: null }
+}
+
+// ── Batched stripboard changes ────────────────────────────────────────────────
+
+/**
+ * Saves a burst of stripboard changes (add/edit/delete/move entries, scene
+ * create/edit/archive) in one transaction — the editor shows them instantly
+ * and sends them ~2.5s after the last one. See src/lib/schedule-apply.ts.
+ */
+export async function applyScheduleChanges(scheduleId: string, ops: ScheduleOp[]): Promise<ActionResult> {
+  const gate = await requireProductionPermission({ scheduleId }, 'schedule', 'EDIT')
+  if (!gate.ok) return gate.error!
+  const parsed = scheduleOpsSchema.safeParse(ops)
+  if (!parsed.success) return { success: false, error: parsed.error.issues[0]?.message ?? 'Couldn’t read the changes.' }
+  const sdb = await getScopedDb()
+  const schedule = await sdb.schedule.findFirst({ where: { id: scheduleId }, select: { id: true, projectId: true, workspaceId: true } })
+  if (!schedule || schedule.projectId !== gate.projectId) return { success: false, error: 'Schedule not found' }
+  try {
+    await applyScheduleBatch({
+      workspaceId: schedule.workspaceId, projectId: schedule.projectId, scheduleId,
+      ops: parsed.data as ScheduleOp[],
+    })
+  } catch (err) {
+    if (err instanceof ScheduleApplyError) return { success: false, error: err.message }
+    console.error('applyScheduleChanges', err)
+    return { success: false, error: 'Couldn’t save the schedule changes.' }
+  }
+  revalidatePath(`/projects/${schedule.projectId}/schedule`)
   return { success: true, data: null }
 }
 
