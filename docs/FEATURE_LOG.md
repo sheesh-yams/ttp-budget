@@ -161,8 +161,14 @@ Run each through `/feature`. Check the overlap first:
   - pitfall-reviewer: 4 findings (non-awarded or reassigned memo renaming a
     crew row, budget import duplicating the slot, cancelled memos in the
     re-win map, one contact's two roles collapsing). All fixed.
-- **Data:** 4 awarded Daadi memos have a different memo role than their
-  crew row. Updating those rows waits for the user's OK.
+- **Data (user approved, 2026-10-13):** 4 Daadi crew rows were moved to
+  their deal memo roles: Dot Perryman → Key Grip, Lawrence Cortes →
+  Driving Production Assistant, Priya Karki → Talent ("Rani"), Sunita S.
+  Mukhi → Lead Talent "Daadi".
+  - On the sent Daadi call sheet, Dot's and Lawrence's rows were updated
+    too.
+  - One guarded transaction (the old role and same person re-checked) with
+    6 `AuditEvent`s.
 
 ### 2026-10-13 — Call sheets email the crew (personal emails + Sent / Opened / Confirmed)
 - **Asked:** "Send to crew" emailed nobody. It only set SENT and turned on
