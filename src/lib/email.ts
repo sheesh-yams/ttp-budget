@@ -94,6 +94,11 @@ function resolveAppUrl(): string {
 
 const APP_URL = resolveAppUrl()
 
+/** The public app URL (never localhost) — for links built outside this file. */
+export function publicAppUrl(): string {
+  return APP_URL
+}
+
 interface ProposalApprovedPayload {
   to: string
   proposalTitle: string
@@ -772,4 +777,41 @@ export async function sendDealMemoCancelledEmail(p: DealMemoBrand & {
   })
   if (result.error) throw new Error(result.error.message)
   return { id: result.data!.id }
+}
+
+// ─── Call sheets (one personal email per person) ─────────────────────────────
+
+/**
+ * Sends prepared call sheet emails (src/lib/call-sheet-email.ts) through
+ * Resend's batch API, 100 per request. Returns one result per email, in
+ * order — a failed batch marks all of its emails failed.
+ */
+export async function sendCallSheetBatch(
+  emails: { to: string; subject: string; html: string; text: string }[],
+  sender: { actorName?: string | null; actorEmail?: string | null; workspaceName?: string | null },
+): Promise<({ id: string } | { error: string })[]> {
+  const from = buildFrom(sender.actorName, sender.workspaceName)
+  const out: ({ id: string } | { error: string })[] = []
+  for (let i = 0; i < emails.length; i += 100) {
+    const chunk = emails.slice(i, i + 100)
+    try {
+      const res = await resend.batch.send(chunk.map(e => ({
+        from, to: e.to, subject: e.subject, html: e.html, text: e.text,
+        ...(sender.actorEmail ? { replyTo: sender.actorEmail } : {}),
+      })))
+      if (res.error || !res.data) {
+        const msg = res.error?.message ?? 'The email service didn’t respond'
+        chunk.forEach(() => out.push({ error: msg }))
+      } else {
+        chunk.forEach((_, j) => {
+          const id = res.data!.data[j]?.id
+          out.push(id ? { id } : { error: 'Not accepted by the email service' })
+        })
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Couldn’t reach the email service'
+      chunk.forEach(() => out.push({ error: msg }))
+    }
+  }
+  return out
 }

@@ -127,6 +127,17 @@ export default async function CallSheetPage({
     shootDayId:      cs.shootDayId,
     scheduleSyncedAt: cs.scheduleSyncedAt ? cs.scheduleSyncedAt.toISOString() : null,
     scheduleDiverged,
+    emailSummary: await (async () => {
+      const rows = await db.callSheetRecipient.findMany({
+        where: { callSheetId: cs.id, workspaceId, lastSentAt: { not: null } },
+        select: { firstViewedAt: true, confirmedAt: true },
+      })
+      return {
+        sent: rows.length,
+        opened: rows.filter(r => r.firstViewedAt || r.confirmedAt).length,
+        confirmed: rows.filter(r => r.confirmedAt).length,
+      }
+    })(),
     pointOfContact:  (cs as any).pointOfContact as unknown as PointOfContact | null,
     talent:          ((cs as any).talent as unknown as TalentMember[]) ?? [],
     crew:            (cs.crew as unknown as CrewDept[])       ?? [],

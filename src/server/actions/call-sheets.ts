@@ -9,6 +9,10 @@ import { toJsonSafe } from '@/lib/json-safe'
 import { generatePublicToken } from '@/lib/secure-token'
 import { buildScheduleSnapshot, snapshotToScheduleBlocks } from '@/lib/schedule-compute'
 import { getProjectAccess } from '@/lib/access'
+import { getCurrentUser } from '@/lib/auth'
+import { logAuditEvent } from '@/lib/audit'
+import { buildSendList, runCallSheetSend, type SendListPerson, type SendResult } from '@/lib/call-sheet-send'
+import { sendCallSheetBatch, publicAppUrl } from '@/lib/email'
 
 // =============================================================================
 // Crew import from budget
@@ -714,11 +718,11 @@ export async function deleteCallSheet(id: string): Promise<ActionResult<void>> {
 // Status transitions
 // =============================================================================
 
-export async function sendCallSheet(id: string): Promise<ActionResult<{ publicToken: string }>> {
-  try {
-    const sdb = await getScopedDb()
-    const cs = await getOwnedSheet(id, sdb)
-
+/** What "sent" means for a call sheet (share link only, or emailed):
+ *  status SENT, link expiry 14 days after the shoot, fresh weather. */
+async function markCallSheetSent(sdb: ScopedDb, cs: Awaited<ReturnType<typeof getOwnedSheet>>) {
+  const id = cs.id
+  {
     // Auto-refresh weather & hospital when sending so crew gets the freshest forecast.
     // Only skip if weather was fetched within the last 3 hours (already very fresh).
     if (cs.locationAddress) {
@@ -743,12 +747,69 @@ export async function sendCallSheet(id: string): Promise<ActionResult<{ publicTo
         publicTokenExpiresAt: tokenExpiry,
       } as unknown as Parameters<typeof sdb.callSheet.update>[0]['data'],
     })
+  }
+}
 
+/** "Just get the share link": marks the sheet sent without emailing anyone. */
+export async function sendCallSheet(id: string): Promise<ActionResult<{ publicToken: string }>> {
+  try {
+    const sdb = await getScopedDb()
+    const cs = await getOwnedSheet(id, sdb)
+    if (cs.status === 'FINAL') return { success: false, error: 'This call sheet is final.' }
+    await markCallSheetSent(sdb, cs)
     revalidatePath(`/projects/${cs.projectId}`)
     revalidatePath(`/projects/${cs.projectId}/call-sheets/${id}`)
     return { success: true, data: { publicToken: cs.publicToken } }
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : 'Failed to send call sheet' }
+  }
+}
+
+// =============================================================================
+// Emailing the call sheet (one personal email per person)
+// =============================================================================
+
+export type { SendListPerson } from '@/lib/call-sheet-send'
+
+/** Everyone on the (saved) sheet with their email status — the send dialog. */
+export async function getCallSheetSendList(callSheetId: string): Promise<ActionResult<{ people: SendListPerson[]; sheetStatus: string }>> {
+  try {
+    const sdb = await getScopedDb()
+    const owned = await getOwnedSheet(callSheetId, sdb)
+    return { success: true, data: await buildSendList(sdb, owned.id) }
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : 'Couldn’t load the people on this call sheet' }
+  }
+}
+
+/**
+ * Emails the call sheet: one personal email each (their call time, the day's
+ * details, a Confirm button and their own link). See src/lib/call-sheet-send.ts.
+ */
+export async function sendCallSheetEmails(
+  callSheetId: string, input: { people: { ref: string; email?: string }[]; note?: string },
+): Promise<ActionResult<{ results: SendResult[]; sheet: { crew: CrewDept[]; talent: TalentMember[]; otherContacts: OtherContact[] } | null }>> {
+  try {
+    const sdb = await getScopedDb()
+    const owned = await getOwnedSheet(callSheetId, sdb)
+    const user = await getCurrentUser()
+    const out = await runCallSheetSend({
+      sdb, callSheetId: owned.id, input,
+      user: { id: user.id, name: user.name ?? null, email: user.email ?? null },
+      markSent: () => markCallSheetSent(sdb, owned),
+      sendBatch: sendCallSheetBatch,
+      appUrl: publicAppUrl(),
+    })
+    if ('error' in out) return { success: false, error: out.error }
+    await logAuditEvent({
+      workspaceId: out.workspaceId, actorId: user.id, action: 'callSheet.emailed', entityType: 'CallSheet', entityId: owned.id,
+      metadata: { sent: out.results.filter(x => x.ok).length, failed: out.results.filter(x => !x.ok).length, updates: out.updates },
+    })
+    revalidatePath(`/projects/${owned.projectId}`)
+    revalidatePath(`/projects/${owned.projectId}/call-sheets/${owned.id}`)
+    return { success: true, data: { results: out.results, sheet: out.sheet } }
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : 'Couldn’t send the call sheet' }
   }
 }
 

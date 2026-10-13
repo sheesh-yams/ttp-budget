@@ -8,6 +8,9 @@ import { ExpiredLinkPage } from '@/components/public/ExpiredLinkPage'
 import { RateLimitedPage } from '@/components/public/RateLimitedPage'
 import { PrintTrigger } from '@/components/public/PrintTrigger'
 import { blockOverlapFlags } from '@/lib/schedule-compute'
+import { peopleOnSheet, matchRecipients } from '@/lib/call-sheet-recipients'
+import { formatTime, type TimeFormat } from '@/lib/time-format'
+import { CallSheetRecipientBanner } from '@/components/public/CallSheetRecipientBanner'
 import type {
   CrewDept,
   ScheduleBlock,
@@ -35,7 +38,7 @@ export default async function PublicCallSheetPage({
   searchParams,
 }: {
   params:       Promise<{ token: string }>
-  searchParams: Promise<{ print?: string }>
+  searchParams: Promise<{ print?: string; r?: string; confirm?: string }>
 }) {
   const [{ token }, sp] = await Promise.all([params, searchParams])
   const autoPrint = sp.print === '1'
@@ -62,7 +65,7 @@ export default async function PublicCallSheetPage({
           },
         },
       },
-      workspace: { select: { name: true, logoUrl: true } },
+      workspace: { select: { name: true, logoUrl: true, callTimeFormat: true } },
     },
   })
 
@@ -75,6 +78,25 @@ export default async function PublicCallSheetPage({
   }
 
   const isDraft = cs.status === 'DRAFT'
+
+  // ── Opened from someone's own email link (?r=) ──────────────────────────
+  // Their token must belong to this sheet; anything else shows the plain page.
+  const recipientToken = typeof sp.r === 'string' && sp.r.length <= 100 ? sp.r : null
+  const recipient = recipientToken && !isDraft
+    ? await db.callSheetRecipient.findFirst({
+        where: { token: recipientToken, callSheetId: cs.id, lastSentAt: { not: null } },
+        select: { id: true, name: true, role: true, personKey: true, confirmedAt: true, firstViewedAt: true },
+      })
+    : null
+  if (recipient) {
+    // "Opened" — first time only for firstViewedAt; email scanners can trip
+    // this too, so the editor labels it Opened, not Read.
+    const now = new Date()
+    await db.callSheetRecipient.updateMany({
+      where: { id: recipient.id },
+      data: { lastViewedAt: now, ...(recipient.firstViewedAt ? {} : { firstViewedAt: now }) },
+    })
+  }
 
   const crew           = (cs.crew          as unknown as CrewDept[])      ?? []
   const schedule       = (cs.schedule      as unknown as ScheduleBlock[]) ?? []
@@ -104,6 +126,20 @@ export default async function PublicCallSheetPage({
     ? new Date(weather.sunset).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
     : null
 
+  const timeFmt = ((cs.workspace as { callTimeFormat?: string | null }).callTimeFormat as TimeFormat | null) ?? '12H'
+  // Their row on the sheet now (same matching as sending, so a later link to
+  // the Rolodex or an email fix still finds them).
+  const me = recipient
+    ? await (async () => {
+        const people = peopleOnSheet(crew, talent, otherContacts)
+        const rows = await db.callSheetRecipient.findMany({
+          where: { callSheetId: cs.id }, select: { id: true, personKey: true, contactId: true, email: true, name: true, group: true },
+        })
+        const m = matchRecipients(people, rows)
+        return people.find(p => m.get(p.ref)?.id === recipient.id) ?? null
+      })()
+    : null
+
   // Combine client contact + other contacts for the unified section
   const hasAnyContacts =
     (client && (client.contactName || client.contactEmail || client.contactPhone)) ||
@@ -114,6 +150,19 @@ export default async function PublicCallSheetPage({
 
       {/* Auto-trigger print dialog when ?print=1 is set */}
       {autoPrint && <PrintTrigger />}
+
+      {recipient && (
+        <CallSheetRecipientBanner
+          sheetToken={token}
+          recipientToken={recipientToken!}
+          firstName={(me?.name ?? recipient.name).split(' ')[0] ?? ''}
+          callLabel={me?.callTime ? 'Your call' : 'General call'}
+          callTime={formatTime(me?.callTime ?? cs.generalCall, timeFmt)}
+          role={me?.role ?? recipient.role}
+          confirmed={!!recipient.confirmedAt}
+          highlight={sp.confirm === '1'}
+        />
+      )}
 
       {/* ── Draft preview banner ── */}
       {isDraft && (

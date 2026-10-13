@@ -36,6 +36,7 @@ import {
 import { syncCallSheetSchedule } from '@/server/actions/schedule'
 import { listImportableShootDays, importScheduleIntoCallSheet, type ImportableShootDay } from '@/server/actions/call-sheets'
 import { ImportScheduleDialog } from './ImportScheduleDialog'
+import { SendCallSheetDialog } from './SendCallSheetDialog'
 import type { CallSheetStatus } from '@/types'
 import type { RolodexContact } from './RolodexNameInput'
 
@@ -60,6 +61,8 @@ export interface CallSheetData {
   shootDayId: string | null
   scheduleSyncedAt: string | null
   scheduleDiverged: boolean
+  /** Who the call sheet was emailed to so far. */
+  emailSummary: { sent: number; opened: number; confirmed: number }
   pointOfContact: PointOfContact | null
   talent: TalentMember[]
   crew: CrewDept[]
@@ -195,7 +198,27 @@ export function CallSheetEditor({
 
   // ── Send / Finalize / Reopen ──────────────────────────────────────────────────
 
+  // "Send to crew" — save what's on screen, then review who gets the email.
+  const [sendOpen, setSendOpen] = useState(false)
   function handleSend() {
+    startTransition(async () => {
+      if (dirty) {
+        const saveResult = await updateCallSheet(initial.id, {
+          title, shootDate, generalCall,
+          locationName, locationAddress, parkingAddress, locationNotes,
+          pointOfContact: pointOfContact.name.trim() ? pointOfContact : null,
+          talent, otherContacts, hospitalInfo: hospital, crew, schedule, cateringInfo, notes,
+        })
+        if (!saveResult.success) { setError((saveResult as { success: false; error: string }).error); return }
+        setDirty(false)
+      }
+      setSendOpen(true)
+    })
+  }
+
+  /** "Just get the share link": mark sent without emailing anyone. */
+  function handleShareOnly() {
+    setSendOpen(false)
     startTransition(async () => {
       // Save first if dirty
       if (dirty) {
@@ -397,6 +420,19 @@ export function CallSheetEditor({
         onImport={day => { void runImport(day) }}
       />
       {ConfirmDialog}
+      <SendCallSheetDialog
+        open={sendOpen}
+        callSheetId={initial.id}
+        timeFormat={timeFormat}
+        onClose={() => { setSendOpen(false); router.refresh() }}
+        onSent={(n, sheet) => {
+          if (n > 0) setStatus('SENT')
+          // Emails typed in the dialog are on the server now — take them, so
+          // the next Save doesn't put the old (email-less) rows back.
+          if (sheet) { setCrew(sheet.crew); setTalent(sheet.talent); setOtherContacts(sheet.otherContacts) }
+        }}
+        onShareOnly={handleShareOnly}
+      />
       {/* Back */}
       <Link
         href={`/projects/${initial.projectId}`}
@@ -483,10 +519,21 @@ export function CallSheetEditor({
                 </span>
               )}
 
+              {/* Emailed so far — opens the send dialog's status view */}
+              {initial.emailSummary.sent > 0 && (
+                <button
+                  type="button" onClick={handleSend} disabled={pending}
+                  className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+                  title="See who has opened and confirmed"
+                >
+                  Sent to {initial.emailSummary.sent} · {initial.emailSummary.opened} opened · <span className="font-medium text-foreground">{initial.emailSummary.confirmed} confirmed</span>
+                </button>
+              )}
+
               {/* Send */}
               <Button size="sm" onClick={handleSend} disabled={pending}>
                 <Send className="mr-1.5 h-3.5 w-3.5" />
-                {status === 'DRAFT' ? 'Send to crew' : 'Resend'}
+                {status === 'DRAFT' ? 'Send to crew' : 'Send update'}
               </Button>
 
               {/* Finalize */}

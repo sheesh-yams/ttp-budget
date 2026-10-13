@@ -126,6 +126,85 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-13 — Call sheets email the crew (personal emails + Sent / Opened / Confirmed)
+- **Asked:** "Send to crew" emailed nobody. It only set SENT and turned on
+  the share link.
+- **Decisions (user):** the full first ship: review before sending, one
+  personal email each, confirmations, update emails. Email only; SMS,
+  calendar invite and scheduled send later.
+- **Model:** `CallSheetRecipient` (migration
+  `20261013000001_call_sheet_recipients`, in `SCOPED_MODELS`). One row per
+  person per sheet, with:
+  - their own `token`
+  - `personKey`: `contact:<id>`, else `email:<lc>|<lc name>`, so people
+    sharing an agent's address stay separate
+  - `lastSent`: what their last email said
+  - send count and last error
+  - first/last viewed, confirmed
+- **Sending:**
+  - The logic lives in `src/lib/call-sheet-send.ts`
+    (`buildSendList` / `runCallSheetSend`). It takes a scoped db and the
+    sender, so it's testable. The actions in `call-sheets.ts` check access
+    via `getOwnedSheet` and pass Resend's batch sender
+    (`sendCallSheetBatch`, 100 per request).
+  - Typed-in emails are saved to the sheet JSON, and to a linked contact
+    that has none. The updated lists go back to the editor so its next Save
+    doesn't undo them.
+  - Rows are matched by key, then contact, email, then unique name
+    (`matchRecipients`). Being linked to the Rolodex, or fixing an email,
+    keeps a person's link, history and confirmation.
+  - On success: record `lastSent` and increment the count. A change to
+    their call, the date or the place resets their confirmation. A failure
+    records only `lastError`.
+  - `markCallSheetSent` (status, expiry, weather) runs on every send, as
+    Resend did. FINAL sheets are refused.
+- **Email** (`src/lib/call-sheet-email.ts`, pure):
+  - "Your call" (or the general call), date and day, location with a map
+    link, parking, weather, hospital, the first 6 schedule blocks, and an
+    optional note.
+  - Updates get a "What changed" box.
+  - Buttons: Confirm (opens the page, never confirms by GET, since email
+    scanners follow links) and View.
+  - From "Name via Workspace", reply-to the sender. Plain-text version too.
+  - No dietary info or other people's contact details.
+- **Public `/cs/[token]?r=`:**
+  - The recipient is looked up by token and sheet; views are recorded.
+  - A banner shows their call and the Confirm button
+    (`confirmCallSheetAttendance` in `call-sheet-public.ts`: rate limit
+    `confirm`, no DRAFT, expiry checked, set once).
+- **Editor:**
+  - "Send to crew" / "Send update" saves, then opens
+    `SendCallSheetDialog`.
+    - People grouped Crew / Talent / Other, with status pills and inline
+      emails for anyone missing one.
+    - Filters: Everyone / Unconfirmed / Details changed.
+    - Default ticks: everyone on the first send; new or changed people on a
+      re-send.
+    - A note field; per-person results; failed people stay ticked.
+    - "Just get the share link" keeps the old behaviour.
+  - The header shows "Sent to N · opened · confirmed".
+- **Verified:**
+  - tsc, jest (418, including 10 recipient tests), lint, `audit:scoping`,
+    and build up to the known Resend step.
+  - Real DB on throwaway sheets with a stubbed sender:
+    - the first send and typed emails
+    - a call-time change → "Your call: 6:30 AM → 6:00 AM" and only that
+      confirmation reset
+    - a failed email doesn't count
+    - FINAL refused
+    - agent-shared email kept apart
+    - linking to the Rolodex keeps Confirmed on one row
+    - 0 real rows changed
+  - Browser:
+    - the email at desktop and phone width
+    - a real `/cs/…?r=…&confirm=1` page: banner → Confirm → "Confirmed",
+      and the DB has opened + confirmed
+  - pitfall-reviewer: 3 findings plus 2 low (stale editor lists wiping
+    typed emails, unstable `personKey`, shared-email merge, typed duplicate,
+    concurrent create). All fixed.
+- **Needs:** `RESEND_FROM_EMAIL` on Railway, on a verified Resend domain.
+- **Next:** add-to-calendar (.ics), scheduled send, SMS (Twilio).
+
 ### 2026-10-12 — Call sheets: schedule imports by date + "Import from stripboard"
 - **Reported:** "the schedule isn't importing when I created a call sheet".
 - **Root cause:**

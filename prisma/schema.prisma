@@ -94,6 +94,7 @@ model Workspace {
   proposals         Proposal[]
   invoices          Invoice[]
   callSheets        CallSheet[]
+  callSheetRecipients CallSheetRecipient[]
   actualSheets      ActualSheet[]
   invitations       WorkspaceInvitation[]
   contacts          Contact[]
@@ -876,6 +877,7 @@ model CallSheet {
 
   sentAt          DateTime?
   publicTokenExpiresAt DateTime? // when the public /cs/[token] URL stops working (null = never)
+  recipients      CallSheetRecipient[]
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -883,6 +885,38 @@ model CallSheet {
   @@index([workspaceId])
   @@index([shootDate])
   @@index([shootDayId])
+}
+
+/// One person a call sheet was emailed to: their own link (token), what
+/// their latest email said (lastSent), and Sent / Opened / Confirmed.
+model CallSheetRecipient {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  callSheetId   String
+  callSheet     CallSheet @relation(fields: [callSheetId], references: [id], onDelete: Cascade)
+  token         String    @unique @default(dbgenerated("gen_random_uuid()::text"))
+  /// "contact:<id>" when linked to the Rolodex, else "email:<lowercased>".
+  personKey     String
+  group         String    // CREW | TALENT | OTHER
+  name          String
+  email         String
+  role          String?
+  contactId     String?
+  /// What their latest email said: { date, generalCall, callTime, location }.
+  lastSent      Json?
+  lastSentAt    DateTime?
+  sendCount     Int       @default(0)
+  lastEmailId   String?
+  lastError     String?
+  firstViewedAt DateTime?
+  lastViewedAt  DateTime?
+  confirmedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([callSheetId, personKey])
+  @@index([workspaceId])
 }
 
 // =============================================================

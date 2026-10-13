@@ -39,6 +39,7 @@ export const SCOPED_MODELS = new Set([
   'Proposal',
   'Invoice',
   'CallSheet',
+  'CallSheetRecipient',
   'ActualSheet',
   'Contact',
   // Child models — denormalized workspaceId added in A1 migration
