@@ -7,6 +7,7 @@ import { renderToBuffer } from '@react-pdf/renderer'
 import { db } from '@/lib/db'
 import { DealMemoPDF } from '@/components/deal-memos/DealMemoPDF'
 import type { VendorDealMemo } from '@/lib/deal-memo-vendor-view'
+import { loadPdfLogo } from '@/lib/pdf-logo'
 
 export interface SignedDealMemoForPdf {
   sentSnapshot:   unknown
@@ -16,21 +17,6 @@ export interface SignedDealMemoForPdf {
   signatureIp:    string | null
   cancelledAt?:   Date | null
   workspace:      { name: string; logoUrl: string | null; primaryColor: string | null }
-}
-
-/** Logo as a data: URI react-pdf can embed (png/jpeg only), or undefined. */
-async function loadLogo(url: string | null): Promise<string | undefined> {
-  if (!url || !/^https:\/\//.test(url)) return undefined
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(4000) })
-    const type = (res.headers.get('content-type') ?? '').split(';')[0].trim()
-    if (!res.ok || !['image/png', 'image/jpeg'].includes(type)) return undefined
-    const buf = Buffer.from(await res.arrayBuffer())
-    if (buf.length > 2_000_000) return undefined
-    return `data:${type};base64,${buf.toString('base64')}`
-  } catch {
-    return undefined
-  }
 }
 
 function safeFilePart(s: string): string {
@@ -48,7 +34,7 @@ export async function renderSignedDealMemoPdf(memo: SignedDealMemoForPdf): Promi
     throw new Error('Deal memo is not signed')
   }
   const snapshot = memo.sentSnapshot as VendorDealMemo
-  const logoSrc  = await loadLogo(memo.workspace.logoUrl)
+  const logoSrc  = await loadPdfLogo(memo.workspace.logoUrl)
   const buffer = await renderToBuffer(
     React.createElement(DealMemoPDF, {
       memo:      snapshot,

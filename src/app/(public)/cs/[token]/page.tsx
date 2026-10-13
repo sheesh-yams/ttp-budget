@@ -175,12 +175,20 @@ export default async function PublicCallSheetPage({
       {/* ── Hero header (full width) ── */}
       <div className="bg-[#0a0a0a] text-white px-4 pt-10 pb-8">
         <div className="max-w-6xl mx-auto">
-          {cs.workspace.logoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={cs.workspace.logoUrl} alt={cs.workspace.name} className="h-7 mb-6 opacity-80" />
-          ) : (
-            <p className="text-xs font-semibold tracking-widest uppercase text-white/50 mb-6">{cs.workspace.name}</p>
-          )}
+          <div className="flex items-start justify-between gap-4">
+            {cs.workspace.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={cs.workspace.logoUrl} alt={cs.workspace.name} className="h-7 mb-6 opacity-80" />
+            ) : (
+              <p className="text-xs font-semibold tracking-widest uppercase text-white/50 mb-6">{cs.workspace.name}</p>
+            )}
+            <a
+              href={`/api/pdf/call-sheet/${token}`}
+              className="print:hidden shrink-0 inline-flex items-center gap-1.5 rounded-md border border-white/20 px-3 py-1.5 text-xs font-medium text-white/80 hover:bg-white/10"
+            >
+              Download PDF
+            </a>
+          </div>
 
           <p className="text-sm text-white/60 mb-1">{cs.project.name}</p>
           <h1 className="text-2xl font-bold mb-4">{cs.title}</h1>

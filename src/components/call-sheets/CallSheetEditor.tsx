@@ -216,6 +216,31 @@ export function CallSheetEditor({
     })
   }
 
+  /** The PDF reflects the saved sheet — save edits first. The tab opens
+   *  right away (inside the click) so pop-up blockers allow it. */
+  function handleDownloadPdf() {
+    const url = `/api/pdf/call-sheet/${initial.publicToken}`
+    const tab = window.open('', '_blank')
+    startTransition(async () => {
+      if (dirty && !isLocked) {
+        const saveResult = await updateCallSheet(initial.id, {
+          title, shootDate, generalCall,
+          locationName, locationAddress, parkingAddress, locationNotes,
+          pointOfContact: pointOfContact.name.trim() ? pointOfContact : null,
+          talent, otherContacts, hospitalInfo: hospital, crew, schedule, cateringInfo, notes,
+        })
+        if (!saveResult.success) {
+          tab?.close()
+          setError((saveResult as { success: false; error: string }).error)
+          return
+        }
+        setDirty(false)
+      }
+      if (tab) tab.location.href = url
+      else window.location.href = url
+    })
+  }
+
   /** "Just get the share link": mark sent without emailing anyone. */
   function handleShareOnly() {
     setSendOpen(false)
@@ -471,16 +496,16 @@ export function CallSheetEditor({
             Preview
           </a>
 
-          {/* Download PDF — opens the public page with ?print=1 which auto-triggers window.print() */}
-          <a
-            href={`${publicUrl}?print=1`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-md border border-input px-3 py-1.5 text-xs font-medium hover:bg-muted transition-colors"
+          {/* Download PDF — the printable call sheet (saves unsaved edits first) */}
+          <button
+            type="button"
+            onClick={handleDownloadPdf}
+            disabled={pending}
+            className="inline-flex items-center gap-1.5 rounded-md border border-input px-3 py-1.5 text-xs font-medium hover:bg-muted transition-colors disabled:opacity-50"
           >
             <Download className="h-3 w-3" />
             Download PDF
-          </a>
+          </button>
 
           {isLocked ? (
             <>

@@ -126,6 +126,63 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-13 — Call sheet PDF (traditional layout, "Option A · SlateSuite Classic")
+- **Asked:** "Download PDF" opened the web page and called print, which
+  wasn't a real call sheet. Three mockups were made (`docs/mockups/
+  call-sheet-pdf/`, not committed); the user picked A.
+  - Also: include the client's contacts, and don't indent concurrent
+    items.
+- **Layout** (`src/components/call-sheets/CallSheetPDF.tsx`, react-pdf,
+  US Letter):
+  - **Top row:** logo / wordmark, project, client and key contacts on the
+    left; a boxed "DAY N OF M" with a big general call, the date, crew
+    call and shooting call in the middle; weather and the nearest hospital
+    on the right.
+  - **Strip:** location | parking / notes | point of contact.
+  - **Schedule** table: time, description and notes, where, who. A long
+    who-list shows "+N more".
+  - **Then** talent, contacts (client contact first), crew by department
+    two to a row, and notes.
+  - **Footer** with the page numbers. A DRAFT mark on drafts.
+- **Data** (`src/lib/call-sheet-pdf.ts`, pure `buildCallSheetPdfData`,
+  tested):
+  - Key contacts are the first Producer / Director / 1st AD in crew, plus
+    the client contact.
+  - Crew call is the earliest crew call; shooting call is the first "Sc"
+    block.
+  - US phones are shown as 516-508-6411.
+  - The client appears only with their contact details, like `/cs`.
+- **Route:** `GET /api/pdf/call-sheet/[token]`.
+  - Public, keyed by the share-link token; expired links get 410.
+  - Its own rate limit (`callSheetPdf`, 60/min: a crew on one Wi-Fi).
+  - The editor's "Download PDF" saves unsaved edits first, then opens it.
+    The crew page `/cs` gets a "Download PDF" link too.
+- **Shared:** `src/lib/pdf-logo.ts` loads the logo (https, png/jpeg, no
+  redirects, a 2 MB cap checked up front). It's used by the deal memo PDF
+  too.
+- **react-pdf lessons (4.5.1):**
+  - Side-by-side columns don't split across pages cleanly, and
+    `wrap={false}` blocks in them get squashed. So below the schedule it's
+    one flowing column, with two-person rows.
+  - A `render`-prop Text (page numbers) disappears under any inherited
+    `lineHeight`, and an inherited unitless lineHeight spaces small text
+    far too wide. So there is no page or body lineHeight.
+  - A heading grouped (`wrap={false}`) with its first row is how to stop
+    orphaned headings; `minPresenceAhead` alone didn't.
+- **Verified:**
+  - tsc, jest (429, including the PDF data tests), lint, and build up to
+    the known Resend step.
+  - Rendered the real Daadi call sheet (2 pages: 18-block schedule, 18
+    crew, client contacts) and a bare draft, and checked each page as an
+    image.
+  - Through the dev server: the route returns a 200 PDF without a session;
+    an unknown token gets 404.
+  - pitfall-reviewer: 3 low findings (client name shown without contacts,
+    logo fetch following redirects, the shared 10/min PDF limit). All
+    fixed.
+- **Follow-up:** the deal memo PDF uses the same footer pattern. Check its
+  page numbers render (the lineHeight bug).
+
 ### 2026-10-13 — Crew roles follow the deal memo's role
 - **Asked:** a deal memo's "Role (shown to the vendor)" should be the
   person's role on the crew and call sheets, not the budget line's. E.g. a
