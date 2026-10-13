@@ -289,6 +289,105 @@ async function getOwnedSheet(id: string, sdb: ScopedDb) {
 }
 
 // =============================================================================
+// Stripboard import (shared by create + "Import from stripboard")
+// =============================================================================
+
+/** The schedule a call sheet copies — the primary one, the same one "Sync
+ *  from stripboard" and the "stripboard changed" check use. */
+async function importSchedule(sdb: ScopedDb, projectId: string) {
+  return sdb.schedule.findFirst({ where: { projectId, isPrimary: true } })
+}
+
+/** A shoot day's stripboard as call-sheet blocks + the snapshot used to spot
+ *  later changes. Null when the project has no schedule. */
+async function dayScheduleBlocks(sdb: ScopedDb, projectId: string, shootDayId: string) {
+  const schedule = await importSchedule(sdb, projectId)
+  if (!schedule) return null
+  const entries = await sdb.scheduleEntry.findMany({
+    where: { scheduleId: schedule.id, shootDayId },
+    orderBy: { orderIndex: 'asc' },
+    include: { scene: { include: { location: true } } },
+  })
+  const snapshot = buildScheduleSnapshot(entries)
+  return { snapshot, blocks: snapshotToScheduleBlocks(snapshot) }
+}
+
+export interface ImportableShootDay {
+  id: string
+  /** "YYYY-MM-DD" */
+  date: string
+  dayNumber: number
+  label: string | null
+  /** Items on the schedule a call sheet copies, for this day. */
+  itemCount: number
+}
+
+/** The project's shoot days, for "Import from stripboard" on a call sheet. */
+export async function listImportableShootDays(callSheetId: string): Promise<ActionResult<ImportableShootDay[]>> {
+  try {
+    const sdb = await getScopedDb()
+    const cs = await getOwnedSheet(callSheetId, sdb)
+    const days = await sdb.shootDay.findMany({ where: { projectId: cs.projectId }, orderBy: [{ orderIndex: 'asc' }, { date: 'asc' }] })
+    const schedule = await importSchedule(sdb, cs.projectId)
+    const counts = schedule
+      ? await sdb.scheduleEntry.groupBy({ by: ['shootDayId'], where: { scheduleId: schedule.id, shootDayId: { not: null } }, _count: true })
+      : []
+    const countOf = new Map(counts.map(c => [c.shootDayId, c._count]))
+    return { success: true, data: days.map((d, i) => ({
+      id: d.id, date: d.date.toISOString().slice(0, 10), dayNumber: i + 1, label: d.label, itemCount: countOf.get(d.id) ?? 0,
+    })) }
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : 'Couldn’t load the shoot days' }
+  }
+}
+
+/**
+ * Links a call sheet to a shoot day and copies that day's stripboard into its
+ * schedule (replacing what's there — the editor asks first). The sheet's date
+ * follows the day; the day's call time and location come back for the editor
+ * to use where its own fields are empty.
+ */
+export async function importScheduleIntoCallSheet(
+  callSheetId: string, shootDayId: string,
+): Promise<ActionResult<{ schedule: ScheduleBlock[]; shootDayId: string; shootDate: string; dayCallTime: string | null; dayLocationName: string | null; dayLocationAddress: string | null }>> {
+  try {
+    const sdb = await getScopedDb()
+    const cs = await getOwnedSheet(callSheetId, sdb)
+    if (cs.status === 'FINAL') return { success: false, error: 'This call sheet is final — reopen it to change the schedule.' }
+    const day = await sdb.shootDay.findFirst({
+      where: { id: shootDayId, projectId: cs.projectId },
+      include: { primaryLocation: { select: { name: true, address: true } } },
+    })
+    if (!day) return { success: false, error: 'That shoot day isn’t in this project.' }
+    const imported = await dayScheduleBlocks(sdb, cs.projectId, day.id)
+    if (!imported) return { success: false, error: 'This project has no primary schedule yet.' }
+
+    // Only the schedule, the link and the date are written here. Call time and
+    // location are offered back for the editor to fill if they're empty on
+    // screen (so unsaved edits there are never overwritten).
+    await sdb.callSheet.update({
+      where: { id: cs.id },
+      data: {
+        shootDayId: day.id,
+        shootDate: day.date,
+        schedule: imported.blocks as unknown as Prisma.InputJsonValue,
+        scheduleSnapshot: imported.snapshot as unknown as Prisma.InputJsonValue,
+        scheduleSyncedAt: new Date(),
+      },
+    })
+    revalidatePath(`/projects/${cs.projectId}/call-sheets`)
+    revalidatePath(`/projects/${cs.projectId}/call-sheets/${cs.id}`)
+    return { success: true, data: {
+      schedule: imported.blocks as ScheduleBlock[], shootDayId: day.id, shootDate: day.date.toISOString().slice(0, 10),
+      dayCallTime: day.startTime,
+      dayLocationName: day.primaryLocation?.name ?? null, dayLocationAddress: day.primaryLocation?.address ?? null,
+    } }
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : 'Couldn’t import the schedule' }
+  }
+}
+
+// =============================================================================
 // CRUD
 // =============================================================================
 
@@ -317,9 +416,14 @@ export async function createCallSheet(
       generalCall?: string
     } = {}
 
-    if (input.shootDayId) {
+    // Made from the Call Sheets page (no shoot day picked): a date that matches
+    // a shoot day links to it, so its stripboard comes in the same way.
+    const shootDayWhere = input.shootDayId
+      ? { id: input.shootDayId, projectId }
+      : { projectId, date: new Date(input.shootDate) }
+    {
       const shootDay = await sdb.shootDay.findFirst({
-        where: { id: input.shootDayId, projectId },
+        where: shootDayWhere,
         include: { primaryLocation: { select: { name: true, address: true } } },
       })
       if (shootDay) {
@@ -330,16 +434,10 @@ export async function createCallSheet(
           shootDayFields.locationAddress = shootDay.primaryLocation.address ?? undefined
         }
 
-        const primarySchedule = await sdb.schedule.findFirst({ where: { projectId, isPrimary: true } })
-        if (primarySchedule) {
-          const entries = await sdb.scheduleEntry.findMany({
-            where: { scheduleId: primarySchedule.id, shootDayId: shootDay.id },
-            orderBy: { orderIndex: 'asc' },
-            include: { scene: { include: { location: true } } },
-          })
-          const snapshot = buildScheduleSnapshot(entries)
-          shootDayFields.schedule = snapshotToScheduleBlocks(snapshot)
-          shootDayFields.scheduleSnapshot = snapshot
+        const imported = await dayScheduleBlocks(sdb, projectId, shootDay.id)
+        if (imported) {
+          shootDayFields.schedule = imported.blocks
+          shootDayFields.scheduleSnapshot = imported.snapshot
           shootDayFields.scheduleSyncedAt = new Date()
         }
       }

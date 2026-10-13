@@ -34,6 +34,8 @@ import {
   type OtherContact,
 } from '@/server/actions/call-sheets'
 import { syncCallSheetSchedule } from '@/server/actions/schedule'
+import { listImportableShootDays, importScheduleIntoCallSheet, type ImportableShootDay } from '@/server/actions/call-sheets'
+import { ImportScheduleDialog } from './ImportScheduleDialog'
 import type { CallSheetStatus } from '@/types'
 import type { RolodexContact } from './RolodexNameInput'
 
@@ -141,6 +143,11 @@ export function CallSheetEditor({
   const [syncing,       setSyncing]       = useState(false)
   const [syncMsg,       setSyncMsg]       = useState('')
   const [scheduleDiverged, setScheduleDiverged] = useState(initial.scheduleDiverged)
+  // The shoot day this sheet copies its schedule from (set by importing).
+  const [linkedDayId, setLinkedDayId] = useState(initial.shootDayId)
+  const [importDays, setImportDays] = useState<ImportableShootDay[] | null>(null)
+  const [importingSchedule, setImportingSchedule] = useState(false)
+  const [importError, setImportError] = useState<string | null>(null)
 
   const isLocked = status === 'FINAL'
   const publicUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/cs/${initial.publicToken}`
@@ -296,8 +303,57 @@ export function CallSheetEditor({
     setTimeout(() => setImportMsg(''), 5000)
   }
 
+  /** "Import from stripboard" / "Change day": one shoot day imports straight
+   *  away (after a replace check); several ask which one. */
+  async function handleImportClick() {
+    setSyncMsg('')
+    const res = await listImportableShootDays(initial.id)
+    if (!res.success) { setSyncMsg((res as { success: false; error: string }).error); return }
+    const days = res.data
+    if (days.length === 0) { setSyncMsg('No shoot days yet — add shoot dates to the project first.'); return }
+    if (days.length === 1) {
+      if (schedule.length > 0 && !(await confirmDialog(
+        `Replace the ${schedule.length} row${schedule.length === 1 ? '' : 's'} on this call sheet with Day 1’s stripboard?`,
+        { title: 'Import schedule?', confirmLabel: 'Replace' },
+      ))) return
+      await runImport(days[0]!)
+      return
+    }
+    setImportDays(days)
+  }
+
+  async function runImport(day: ImportableShootDay) {
+    setImportingSchedule(true)
+    const res = await importScheduleIntoCallSheet(initial.id, day.id)
+    setImportingSchedule(false)
+    if (!res.success) {
+      const error = (res as { success: false; error: string }).error
+      // Shown in the day picker when it's open (the header is behind it).
+      if (importDays) setImportError(error); else setSyncMsg(error)
+      return
+    }
+    setImportDays(null)
+    setImportError(null)
+    setSchedule(res.data.schedule)
+    setLinkedDayId(res.data.shootDayId)
+    setShootDate(res.data.shootDate)
+    // The day's call time / location only where the sheet's are empty on
+    // screen — then they save with the next Save, like any edit.
+    let filled = false
+    if (!generalCall.trim() && res.data.dayCallTime) { setGeneralCall(res.data.dayCallTime); filled = true }
+    if (!locationName.trim() && !locationAddress.trim() && (res.data.dayLocationName || res.data.dayLocationAddress)) {
+      setLocationName(res.data.dayLocationName ?? '')
+      setLocationAddress(res.data.dayLocationAddress ?? '')
+      filled = true
+    }
+    if (filled) markDirty()
+    setScheduleDiverged(false)
+    setSyncMsg(day.itemCount ? `Imported Day ${day.dayNumber} (${day.itemCount} item${day.itemCount === 1 ? '' : 's'})` : `Linked to Day ${day.dayNumber} — nothing scheduled there yet`)
+    setTimeout(() => setSyncMsg(''), 5000)
+  }
+
   async function handleSyncSchedule() {
-    if (!initial.shootDayId) return
+    if (!linkedDayId) return
     setSyncing(true)
     setSyncMsg('')
     const result = await syncCallSheetSchedule(initial.id)
@@ -328,6 +384,18 @@ export function CallSheetEditor({
           You can view this call sheet but not change it.
         </p>
       )}
+      <ImportScheduleDialog
+        open={importDays !== null}
+        days={importDays ?? []}
+        defaultDayId={(importDays ?? []).find(d => d.id === linkedDayId)?.id
+          ?? (importDays ?? []).find(d => d.date === shootDate)?.id
+          ?? (importDays ?? []).find(d => d.itemCount > 0)?.id ?? null}
+        replacing={schedule.length}
+        pending={importingSchedule}
+        error={importError}
+        onCancel={() => { setImportDays(null); setImportError(null) }}
+        onImport={day => { void runImport(day) }}
+      />
       {ConfirmDialog}
       {/* Back */}
       <Link
@@ -703,20 +771,42 @@ export function CallSheetEditor({
         {/* ── Schedule ── */}
         <Section
           title="Schedule"
-          action={!isLocked && initial.shootDayId && (
+          action={!isLocked && (
             <div className="flex items-center gap-3">
               {syncMsg && (
                 <span className="text-xs text-muted-foreground">{syncMsg}</span>
               )}
-              <button
-                type="button"
-                onClick={handleSyncSchedule}
-                disabled={syncing}
-                className="flex items-center gap-1.5 text-xs font-medium text-violet-600 hover:text-violet-800 disabled:opacity-40 transition-colors"
-              >
-                <RefreshCw className={`h-3 w-3 ${syncing ? 'animate-spin' : ''}`} />
-                {syncing ? 'Syncing…' : 'Sync from stripboard'}
-              </button>
+              {linkedDayId ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleSyncSchedule}
+                    disabled={syncing || importingSchedule}
+                    className="flex items-center gap-1.5 text-xs font-medium text-violet-600 hover:text-violet-800 disabled:opacity-40 transition-colors"
+                  >
+                    <RefreshCw className={`h-3 w-3 ${syncing ? 'animate-spin' : ''}`} />
+                    {syncing ? 'Syncing…' : 'Sync from stripboard'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleImportClick}
+                    disabled={syncing || importingSchedule}
+                    className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-40"
+                  >
+                    Change day…
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleImportClick}
+                  disabled={importingSchedule}
+                  className="flex items-center gap-1.5 text-xs font-medium text-violet-600 hover:text-violet-800 disabled:opacity-40 transition-colors"
+                >
+                  <RefreshCw className={`h-3 w-3 ${importingSchedule ? 'animate-spin' : ''}`} />
+                  {importingSchedule ? 'Importing…' : 'Import from stripboard'}
+                </button>
+              )}
             </div>
           )}
         >

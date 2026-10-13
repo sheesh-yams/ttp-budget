@@ -126,6 +126,42 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-12 — Call sheets: schedule imports by date + "Import from stripboard"
+- **Reported:** "the schedule isn't importing when I created a call sheet".
+- **Root cause:**
+  - The sheet ("TTS - Diwali Proposal - Daadi — Call Sheet", 13 Oct) was
+    made from the Call Sheets page. NewCallSheetModal sends only title, date
+    and call time.
+  - `createCallSheet` imported only when given an explicit `shootDayId`, so
+    13 Oct's 17 stripboard items were never linked.
+  - Only the stripboard's own "Create Call Sheet" passed the day.
+- **Fix:**
+  - `createCallSheet` links the project's shoot day whose date matches,
+    when no day is given, and imports it the same way.
+  - The call sheet editor gets "Import from stripboard" (unlinked sheets)
+    and "Change day…" (linked sheets, next to Sync).
+    - One day: confirm the replace, then import.
+    - Several days: `ImportScheduleDialog` lists each day with its item
+      count, defaulting to the linked day, then the date match, then the
+      first day with items.
+  - `importScheduleIntoCallSheet` links the day, replaces the schedule,
+    snapshot and syncedAt, and moves the sheet's date to the day's.
+    - Refused on FINAL sheets.
+    - Uses the primary schedule only, like Sync and the change check.
+  - The day's call time and location are filled in the editor only where
+    its fields are empty on screen, then saved with Save, so unsaved edits
+    are never overwritten.
+- **Existing sheet:** the Daadi call sheet is still unlinked; open it and
+  click "Import from stripboard" (2 days, so it asks).
+- **Verified:**
+  - tsc, jest (408) and lint; build up to the known Resend step.
+  - Read-only DB: the 13 Oct date matches the shoot day (20 Oct doesn't),
+    and the import would bring 17 blocks.
+  - Browser: the day picker.
+  - pitfall-reviewer: 3 findings, all fixed (unsaved call time / location
+    overwritten; errors hidden behind the dialog; non-primary fallback out
+    of step with Sync).
+
 ### 2026-10-12 — Setup/Wrap banners, change item type, phone on new bids, "No restrictions"
 - **Setup / Wrap banners:**
   - New `BannerType` values SETUP (teal, 60m preset) and WRAP (amber, 30m)
