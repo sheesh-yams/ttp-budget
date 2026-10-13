@@ -180,8 +180,8 @@ Run each through `/feature`. Check the overlap first:
   - pitfall-reviewer: 3 low findings (client name shown without contacts,
     logo fetch following redirects, the shared 10/min PDF limit). All
     fixed.
-- **Follow-up:** the deal memo PDF uses the same footer pattern. Check its
-  page numbers render (the lineHeight bug).
+- **Checked:** the deal memo PDF's page numbers aren't affected. Its
+  lineHeight is only on body text, never on the page.
 
 ### 2026-10-13 — Crew roles follow the deal memo's role
 - **Asked:** a deal memo's "Role (shown to the vendor)" should be the
