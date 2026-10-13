@@ -5,20 +5,28 @@ import type { ScopedDb } from '@/lib/db-scoped'
 
 /**
  * Puts the awarded person into the project's crew roster and links the memo
- * to that slot. Slot resolution, in order:
- *   1. this contact is already on the crew IN THIS ROLE → update their rate
- *   2. an "Unassigned" placeholder for this role (created when the proposal
- *      was won) → fill it with this person
- *   3. otherwise → add a new crew member for this role
+ * to that slot. Their crew role is the memo's role (`position` — "Role
+ * (shown to the vendor)"), which may differ from the budget line it came
+ * from (`roleLabel`): a "Lighting Asst" line re-allocated to a Key Grip.
+ * Call sheets copy crew roles, so that's what crew see.
+ *
+ * Slot resolution, in order:
+ *   0. the crew row this memo is already linked to (awarded before)
+ *   1. this contact is already on the crew in the budget role
+ *   2. an "Unassigned" placeholder for the budget role (created when the
+ *      proposal was won) → fill it with this person
+ *   3. otherwise → add a new crew member
  * Matching on role as well as person matters: someone already on the crew as
  * Gaffer who wins Best Boy fills the Best Boy slot, not the Gaffer one.
+ * (Proposal re-wins match a memo-linked member by the memo's budget role —
+ * see proposal-won.ts.)
  * Returns the ProjectMember id, or null when the memo has no rolodex contact.
  */
 export async function applyDealMemoAwardEffects(sdb: ScopedDb, memoId: string): Promise<string | null> {
   const memo = await sdb.dealMemo.findFirst({
     where:  { id: memoId },
     select: {
-      id: true, projectId: true, contactId: true, roleLabel: true,
+      id: true, projectId: true, contactId: true, roleLabel: true, position: true, projectMemberId: true,
       fees: { where: { kind: 'DAY_RATE' }, orderBy: { order: 'asc' }, take: 1, select: { rateCents: true, unit: true } },
     },
   })
@@ -34,15 +42,19 @@ export async function applyDealMemoAwardEffects(sdb: ScopedDb, memoId: string): 
   const dayRate = memo.fees[0]
   const rate = dayRate && dayRate.rateCents > 0 ? { rateCents: dayRate.rateCents, rateUnit: dayRate.unit } : {}
 
+  const role = memo.position.trim() || memo.roleLabel
   let memberId: string
 
-  const existing = await sdb.projectMember.findFirst({
+  const linked = memo.projectMemberId
+    ? await sdb.projectMember.findFirst({ where: { id: memo.projectMemberId, projectId: memo.projectId, contactId: contact.id }, select: { id: true } })
+    : null
+  const existing = linked ?? await sdb.projectMember.findFirst({
     where:  { projectId: memo.projectId, contactId: contact.id, role: memo.roleLabel },
     select: { id: true },
   })
   if (existing) {
     memberId = existing.id
-    await sdb.projectMember.update({ where: { id: memberId }, data: { ...rate, mismatchFlag: false } })
+    await sdb.projectMember.update({ where: { id: memberId }, data: { role, ...rate, mismatchFlag: false } })
   } else {
     const placeholder = await sdb.projectMember.findFirst({
       where:   { projectId: memo.projectId, name: 'Unassigned', role: memo.roleLabel },
@@ -54,7 +66,7 @@ export async function applyDealMemoAwardEffects(sdb: ScopedDb, memoId: string): 
       await sdb.projectMember.update({
         where: { id: memberId },
         data:  {
-          contactId: contact.id, name: contact.name,
+          contactId: contact.id, name: contact.name, role,
           email: contact.email ?? null, phone: contact.phone ?? null,
           ...rate, mismatchFlag: false,
         },
@@ -64,7 +76,7 @@ export async function applyDealMemoAwardEffects(sdb: ScopedDb, memoId: string): 
       const created = await sdb.projectMember.create({
         data: {
           projectId: memo.projectId, contactId: contact.id, name: contact.name,
-          role: memo.roleLabel, email: contact.email ?? null, phone: contact.phone ?? null,
+          role, email: contact.email ?? null, phone: contact.phone ?? null,
           ...rate, mismatchFlag: false, order: count,
         } as Parameters<typeof sdb.projectMember.create>[0]['data'],
         select: { id: true },

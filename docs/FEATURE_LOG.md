@@ -126,6 +126,44 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-13 — Crew roles follow the deal memo's role
+- **Asked:** a deal memo's "Role (shown to the vendor)" should be the
+  person's role on the crew and call sheets, not the budget line's. E.g. a
+  "Lighting Asst" line re-allocated to a Key Grip.
+- **Before:** awarding used `roleLabel` (the budget line) for the
+  `ProjectMember`, so the crew page and new call sheets showed the budget
+  role.
+- **Now:**
+  - `applyDealMemoAwardEffects` writes `position` (falling back to
+    `roleLabel`) as the crew role. Slot finding: the row the memo already
+    links to, then this contact in the budget role, then the "Unassigned"
+    placeholder for the budget role, then a new row.
+  - Editing the memo's role on an awarded memo updates the linked crew row,
+    but only while that row is still the same contact.
+- **Kept consistent:** code that matches crew to budget lines counts a
+  memo-renamed member as their budget line, via `budgetRoleFor`
+  (`src/lib/deal-memo-roles.ts`, awarded memos only, while their role is
+  still the memo's).
+  - Proposal re-win reconciliation, now split into a pure, tested
+    `planTeamReconcile` in `proposal-won.ts`.
+  - Call sheet "Import from budget".
+  - Without this, a re-win would flag the person and add a duplicate
+    placeholder (the dry run on Daadi showed +2 mismatches and +2
+    placeholders before the fix, 0 after).
+- **Verified:**
+  - tsc, jest (425, including the reconcile and memo-role tests), lint,
+    and build up to the known Resend step.
+  - Real DB with throwaway rows on Daadi: the award fills the "Lighting
+    Asst" placeholder as "Key Grip"; a re-award reuses the row; 0 real crew
+    rows changed.
+  - A read-only re-win dry run on Daadi gives the same result before and
+    after renaming.
+  - pitfall-reviewer: 4 findings (non-awarded or reassigned memo renaming a
+    crew row, budget import duplicating the slot, cancelled memos in the
+    re-win map, one contact's two roles collapsing). All fixed.
+- **Data:** 4 awarded Daadi memos have a different memo role than their
+  crew row. Updating those rows waits for the user's OK.
+
 ### 2026-10-13 — Call sheets email the crew (personal emails + Sent / Opened / Confirmed)
 - **Asked:** "Send to crew" emailed nobody. It only set SENT and turned on
   the share link.

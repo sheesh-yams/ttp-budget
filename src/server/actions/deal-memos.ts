@@ -260,6 +260,18 @@ export async function updateDealMemo(memoId: string, patch: z.infer<typeof updat
     })
     if (res.count === 0) return { success: false, error: 'Signed — the vendor agreed to these terms. Cancel the deal memo to change them.' }
     if (rest.workDayHours !== undefined || rest.otMultiplier !== undefined) await syncAutoOvertime(sdb, memoId)
+    // Awarded: their crew row (and so new call sheets) follow the memo's role —
+    // only while that row is still this person (it may have been reassigned).
+    if (rest.position) {
+      const linked = await sdb.dealMemo.findFirst({ where: { id: memoId, status: 'CONFIRMED' }, select: { projectMemberId: true, contactId: true } })
+      if (linked?.projectMemberId && linked.contactId) {
+        await sdb.projectMember.updateMany({
+          where: { id: linked.projectMemberId, projectId: loaded.memo.projectId, contactId: linked.contactId },
+          data:  { role: rest.position },
+        })
+        revalidatePath(`/projects/${loaded.memo.projectId}/crew`)
+      }
+    }
 
     revalidateMemo(loaded.memo.projectId, memoId)
     return { success: true, data: undefined }

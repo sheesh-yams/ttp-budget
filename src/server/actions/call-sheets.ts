@@ -12,6 +12,7 @@ import { getProjectAccess } from '@/lib/access'
 import { getCurrentUser } from '@/lib/auth'
 import { logAuditEvent } from '@/lib/audit'
 import { buildSendList, runCallSheetSend, type SendListPerson, type SendResult } from '@/lib/call-sheet-send'
+import { budgetRoleFor } from '@/lib/deal-memo-roles'
 import { sendCallSheetBatch, publicAppUrl } from '@/lib/email'
 
 // =============================================================================
@@ -121,14 +122,19 @@ export async function importCrewFromBudget(
       else incomingCounts.set(key, { dept, role, count: qty })
     }
 
-    // Merge into existing crew
+    // Merge into existing crew. Someone awarded through a deal memo may carry
+    // the memo's role ("Key Grip") — they still fill their budget line.
     const existingCrew = (cs.crew as unknown as CrewDept[]) ?? []
     const crewMap = new Map<string, CrewMember[]>(existingCrew.map(d => [d.dept, d.members]))
+    const awarded = await sdb.dealMemo.findMany({
+      where:  { projectId: cs.projectId, status: 'CONFIRMED' },
+      select: { contactId: true, roleLabel: true, position: true },
+    })
 
     let added = 0
     for (const { dept, role, count } of incomingCounts.values()) {
       const members = crewMap.get(dept) ?? []
-      const existingForRole = members.filter(m => m.role === role).length
+      const existingForRole = members.filter(m => budgetRoleFor(m, awarded) === role).length
       const slotsNeeded = Math.max(0, count - existingForRole)
       for (let i = 0; i < slotsNeeded; i++) {
         members.push({ name: '', role, callTime: '' })

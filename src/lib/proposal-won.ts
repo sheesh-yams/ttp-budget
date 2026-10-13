@@ -4,6 +4,7 @@
 // here is exposed as a callable server action.
 
 import { revalidatePath } from 'next/cache'
+import { budgetRoleFor } from '@/lib/deal-memo-roles'
 import type { ScopedDb } from '@/lib/db-scoped'
 
 export async function applyProposalWonEffects(sdb: ScopedDb, proposalId: string, projectId: string) {
@@ -99,65 +100,83 @@ async function reconcileTeamFromWonProposal(
     }
   }
 
-  const proposalRoleNames = new Set(proposalRoles.keys())
-
   // Load current team
   const currentMembers = await sdb.projectMember.findMany({
     where:  { projectId },
-    select: { id: true, name: true, role: true, department: true, order: true },
+    select: { id: true, name: true, role: true, department: true, order: true, contactId: true },
   })
-
-  const isAssigned = (m: { name: string }) => m.name !== 'Unassigned'
-
-  const toDelete:       string[] = []
-  const toMismatch:     string[] = []
-  const toClearMismatch: string[] = []
-
+  const awarded = await sdb.dealMemo.findMany({
+    where:  { projectId, status: 'CONFIRMED' },
+    select: { contactId: true, roleLabel: true, position: true },
+  })
+  const budgetRoleByMember = new Map<string, string>()
   for (const m of currentMembers) {
-    if (proposalRoleNames.has(m.role)) {
-      toClearMismatch.push(m.id)
-    } else if (isAssigned(m)) {
-      toMismatch.push(m.id)
-    } else {
-      toDelete.push(m.id)
-    }
+    const r = budgetRoleFor(m, awarded)
+    if (r !== m.role) budgetRoleByMember.set(m.id, r)
   }
+  const plan = planTeamReconcile(proposalRoles, currentMembers, budgetRoleByMember)
 
   // Execute changes
-  if (toDelete.length > 0)       await sdb.projectMember.deleteMany({ where: { id: { in: toDelete } } })
-  if (toMismatch.length > 0)     await sdb.projectMember.updateMany({ where: { id: { in: toMismatch } }, data: { mismatchFlag: true } })
-  if (toClearMismatch.length > 0) await sdb.projectMember.updateMany({ where: { id: { in: toClearMismatch } }, data: { mismatchFlag: false } })
+  if (plan.toDelete.length > 0)        await sdb.projectMember.deleteMany({ where: { id: { in: plan.toDelete } } })
+  if (plan.toMismatch.length > 0)      await sdb.projectMember.updateMany({ where: { id: { in: plan.toMismatch } }, data: { mismatchFlag: true } })
+  if (plan.toClearMismatch.length > 0) await sdb.projectMember.updateMany({ where: { id: { in: plan.toClearMismatch } }, data: { mismatchFlag: false } })
 
   // Add placeholders for roles that need more slots than currently exist
-  const remaining = currentMembers.filter(m => !toDelete.includes(m.id))
-  const currentRoleCount = new Map<string, number>()
-  for (const m of remaining) currentRoleCount.set(m.role, (currentRoleCount.get(m.role) ?? 0) + 1)
-
   let maxOrder = Math.max(-1, ...currentMembers.map(m => m.order))
-  const toCreate: Parameters<typeof sdb.projectMember.createMany>[0]['data'] = []
-
-  for (const [role, { dept, count, rateCents, unit }] of proposalRoles.entries()) {
-    const existing  = currentRoleCount.get(role) ?? 0
-    const needed    = Math.max(0, count - existing)
-    for (let i = 0; i < needed; i++) {
-      toCreate.push({
-        projectId,
-        contactId:    null,
-        name:         'Unassigned',
-        role,
-        department:   dept,
-        email:        null,
-        phone:        null,
-        rateCents:    rateCents,
-        rateUnit:     unit as import('@prisma/client').RateUnit,
-        callTime:     null,
-        mismatchFlag: false,
-        order:        ++maxOrder,
-      })
-    }
-  }
+  const toCreate: Parameters<typeof sdb.projectMember.createMany>[0]['data'] = plan.placeholders.map(({ role, dept, rateCents, unit }) => ({
+    projectId,
+    contactId:    null,
+    name:         'Unassigned',
+    role,
+    department:   dept,
+    email:        null,
+    phone:        null,
+    rateCents:    rateCents,
+    rateUnit:     unit as import('@prisma/client').RateUnit,
+    callTime:     null,
+    mismatchFlag: false,
+    order:        ++maxOrder,
+  }))
 
   if (toCreate.length > 0) await sdb.projectMember.createMany({ data: toCreate })
 
   revalidatePath(`/projects/${projectId}/crew`)
+}
+
+/**
+ * What a won proposal does to the crew (pure — tested in
+ * src/lib/__tests__/proposal-won.test.ts):
+ *  • Unassigned placeholder whose role is NOT in the proposal  → delete
+ *  • Assigned member whose role IS in the proposal             → clear mismatch
+ *  • Assigned member whose role is NOT in the proposal         → flag mismatch
+ *  • Role with fewer slots than its headcount                  → add placeholders
+ * A member from an awarded deal memo may carry the memo's role ("Key Grip")
+ * instead of the budget line it fills ("Lighting Asst"); they count as that
+ * budget line (`budgetRoleByMember`).
+ */
+export function planTeamReconcile(
+  proposalRoles: Map<string, { dept: string; count: number; rateCents: number | null; unit: string }>,
+  members: { id: string; name: string; role: string }[],
+  budgetRoleByMember: Map<string, string>,
+): {
+  toDelete: string[]; toMismatch: string[]; toClearMismatch: string[]
+  placeholders: { role: string; dept: string; rateCents: number | null; unit: string }[]
+} {
+  const roleOf = (m: { id: string; role: string }) => {
+    const viaMemo = budgetRoleByMember.get(m.id)
+    return viaMemo && proposalRoles.has(viaMemo) ? viaMemo : m.role
+  }
+  const toDelete: string[] = [], toMismatch: string[] = [], toClearMismatch: string[] = []
+  for (const m of members) {
+    if (proposalRoles.has(roleOf(m))) toClearMismatch.push(m.id)
+    else if (m.name !== 'Unassigned') toMismatch.push(m.id)
+    else toDelete.push(m.id)
+  }
+  const count = new Map<string, number>()
+  for (const m of members) if (!toDelete.includes(m.id)) count.set(roleOf(m), (count.get(roleOf(m)) ?? 0) + 1)
+  const placeholders: { role: string; dept: string; rateCents: number | null; unit: string }[] = []
+  for (const [role, { dept, count: need, rateCents, unit }] of proposalRoles.entries()) {
+    for (let i = (count.get(role) ?? 0); i < need; i++) placeholders.push({ role, dept, rateCents, unit })
+  }
+  return { toDelete, toMismatch, toClearMismatch, placeholders }
 }
