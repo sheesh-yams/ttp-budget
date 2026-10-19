@@ -2,7 +2,9 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, ExternalLink, Eye, Clock, Send, FileText, Pencil, Receipt, CheckCircle, Trash2, TrendingDown, ChevronDown } from 'lucide-react'
+import { Plus, ExternalLink, Eye, Clock, Send, FileText, Pencil, Receipt, CheckCircle, Trash2, TrendingDown, ChevronDown, RotateCcw } from 'lucide-react'
+import { ReopenProposalDialog } from '@/components/proposals/ReopenProposalDialog'
+import { canReopenProposal } from '@/lib/proposal-expiry'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ProposalModal, type ProposalModalMode } from './ProposalModal'
@@ -114,6 +116,17 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
   function openEdit(p: Props['proposals'][0]) {
     setEditingProposal(p)
     setModalMode(p.status === 'DRAFT' ? 'edit-draft' : 'revision')
+    setModalOpen(true)
+  }
+
+  // ── Reopen an expired proposal ──
+  const [reopenTarget, setReopenTarget] = useState<Props['proposals'][0] | null>(null)
+  const [reopenNote, setReopenNote] = useState<string | null>(null)
+  /** "Make changes first": the revision editor, starting from the new date. */
+  function reopenWithChanges(p: Props['proposals'][0], expiresAt: string) {
+    setReopenTarget(null)
+    setEditingProposal({ ...p, expiresAt: new Date(`${expiresAt}T00:00:00Z`) })
+    setModalMode('revision')
     setModalOpen(true)
   }
 
@@ -271,6 +284,17 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
                         )}
+                        {/* Reopen (expired) */}
+                        {allowEdit && canReopenProposal({ status: effectiveStatus, expiresAt: p.expiresAt }) && (
+                          <button
+                            type="button"
+                            onClick={() => { setReopenNote(null); setReopenTarget(p) }}
+                            className="rounded p-1 text-amber-700 hover:bg-amber-50 inline-flex"
+                            title="Reopen this expired proposal"
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                         {/* Create invoice */}
                         {canInvoice && (
                           <button
@@ -324,6 +348,18 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
           </table>
         </div>
       )}
+      {reopenNote && (
+        <p className={`mt-2 text-xs ${reopenNote.includes('didn’t send') ? 'text-destructive' : 'text-emerald-700'}`} role="status">{reopenNote}</p>
+      )}
+
+      <ReopenProposalDialog
+        open={!!reopenTarget}
+        proposalId={reopenTarget?.id ?? null}
+        proposalTitle={reopenTarget?.title ?? ''}
+        onClose={() => setReopenTarget(null)}
+        onReopened={note => { setReopenTarget(null); setReopenNote(note); router.refresh() }}
+        onMakeChanges={budgetId && reopenTarget ? (d => reopenWithChanges(reopenTarget, d)) : undefined}
+      />
 
       {budgetId && (
         <ProposalModal

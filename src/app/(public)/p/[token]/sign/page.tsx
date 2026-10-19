@@ -1,5 +1,6 @@
 import { notFound, redirect } from 'next/navigation'
 import { db } from '@/lib/db'
+import { isProposalExpired } from '@/lib/proposal-expiry'
 import { headers } from 'next/headers'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { trustedClientIp } from '@/lib/client-ip'
@@ -195,6 +196,7 @@ export default async function ProposalSignPage({ params, searchParams }: Props) 
       proposal={serialisedProposal}
       contractSections={contractSections}
       optionPhaseId={optionPhaseId}
+      isExpired={isProposalExpired(proposal)}
     />
   )
 }

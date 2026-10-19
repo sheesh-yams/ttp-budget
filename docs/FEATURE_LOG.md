@@ -126,6 +126,59 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-19 — Reopen an expired proposal
+- **Asked:** expired proposals were a dead end. Plan approved first:
+  - both paths
+  - an email checkbox, ticked by default
+  - expired only, not lost or declined
+- **What expired means:** derived as `expiresAt < now` on SENT, VIEWED or
+  CHANGES_NEEDED, or a literal EXPIRED status. Defined in
+  `src/lib/proposal-expiry.ts`, which also has `canReopenProposal`,
+  `reopenedStatus`, `earliestReopenDate`, `reopenedLinkExpiry` and the
+  `ProposalReopenInfo` type.
+- **Where:** an amber Reopen action on expired proposals in:
+  - the project's Proposals list
+  - the /proposals table
+  - Kanban cards (in the footer, not inside the card link)
+- **`ReopenProposalDialog`:**
+  - Header: expired date and last viewed.
+  - New valid-through date: defaults to today + `proposalExpiryDays`.
+  - **Same proposal, new date:** `reopenProposal`. Same link, same frozen
+    content. It optionally re-emails the client with the same To and cc as
+    a send. The reopen stands if the email fails, and the dialog says so.
+  - **Make changes first:** in the project, this opens the existing revision
+    modal with the new date. On the /proposals page it goes to the project.
+- **`reopenProposal`:**
+  - Gate: proposals EDIT.
+  - Guarded on exactly the status and `expiresAt` it read, so a decision or a
+    second reopen made in between wins and a double-click can't send two
+    emails.
+  - Extends `publicTokenExpiresAt` past the new date.
+  - EXPIRED and CHANGES_NEEDED go back to VIEWED, or SENT if never opened.
+    The approve route only accepts SENT or VIEWED, and the review caught
+    that an expired CHANGES_NEEDED proposal would otherwise be emailed but
+    unsignable.
+  - Audit `proposal.reopened`, recording from/to date and status.
+- **Dates:** stored as UTC midnight like sends, so the earliest pick is
+  tomorrow in UTC. Late in a US day that means the day after tomorrow.
+- **Client page:** `/p/[token]` and `/p/[token]/sign` show
+  `ExpiredProposalNotice` ("has expired — contact {studio}") instead of a
+  sign form that 410s.
+- **No migration.**
+- **Verified:**
+  - Throwaway proposals: reopen writes, guards, statuses; won, lost,
+    declined and drafts refused; 0 real rows changed.
+  - Public pages in dev: the notice shows on inline sign-off, the contract
+    CTA and /sign, and signing returns after a reopen.
+  - tsc, jest (434), lint, build.
+  - pitfall-reviewer.
+- **Follow-up:**
+  - Valid-through is midnight UTC, so a proposal "valid through Oct 20"
+    stops being signable at about 5pm PT on Oct 19. This is a pre-existing
+    send behaviour; consider end-of-day in the studio's timezone.
+  - Of the 23 already-expired proposals, 18 also have dead links. Reopen
+    revives them.
+
 ### 2026-10-13 — Call sheet PDF (traditional layout, "Option A · SlateSuite Classic")
 - **Asked:** "Download PDF" opened the web page and called print, which
   wasn't a real call sheet. Three mockups were made (`docs/mockups/

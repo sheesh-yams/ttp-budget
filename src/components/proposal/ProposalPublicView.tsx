@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Check } from 'lucide-react'
+import { ExpiredProposalNotice } from './ExpiredProposalNotice'
 import { formatMoney } from '@/lib/money'
 import { lighten, darken, safeHex } from '@/lib/color'
 import { parseLocalDate } from '@/lib/time-format'
@@ -136,6 +137,8 @@ interface Props {
   contractEnabled?: boolean
   deliverableLinkMode?: 'scroll' | 'filter'
   proposalOptions?: ProposalOptionData[]
+  /** Past its valid-through date — show a notice instead of signing. */
+  isExpired?: boolean
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -143,7 +146,7 @@ interface Props {
 export function ProposalPublicView({
   proposal, accounts, totalCents, discountCents = 0, discountLabel = 'Discount',
   isDraft = false, budgetSections = [], contractSections = [], contractEnabled = false,
-  deliverableLinkMode = 'scroll', proposalOptions,
+  deliverableLinkMode = 'scroll', proposalOptions, isExpired = false,
 }: Props) {
   const content     = proposal.content as ProposalContent
   const sections    = content?.sections ?? []
@@ -544,6 +547,7 @@ export function ProposalPublicView({
         <section style={{ padding: 'clamp(48px,7vw,96px) clamp(24px,6vw,80px)', background: V_TINT }}>
           <div style={{ maxWidth: 560, margin: '0 auto' }}>
             <SectionHeader label="Ready to proceed?" />
+            {isExpired ? <ExpiredProposalNotice title={proposal.title} validThrough={validThrough} workspaceName={proposal.workspace.name} contactEmail={proposal.workspace.contactEmail} /> : (
             <div style={{ background: '#fff', border: `0.5px solid ${BORDER}`, borderRadius: 10, padding: '40px 36px' }}>
               <p style={{ fontSize: 15, color: BODY, lineHeight: 1.7, margin: '0 0 10px' }}>
                 If the scope of work, budget, and payment terms look good, continue to review and sign the contract.
@@ -573,6 +577,7 @@ export function ProposalPublicView({
                 Request changes instead
               </a>
             </div>
+            )}
           </div>
         </section>
       )}
@@ -619,6 +624,8 @@ export function ProposalPublicView({
                 )}
               </p>
             </div>
+          ) : isExpired ? (
+            <ExpiredProposalNotice title={proposal.title} validThrough={validThrough} workspaceName={proposal.workspace.name} contactEmail={proposal.workspace.contactEmail} />
           ) : (
             <div style={{ background: '#fff', border: `0.5px solid ${BORDER}`, borderRadius: 10, padding: '40px 36px' }}>
               <p style={{ fontSize: 15, color: BODY, lineHeight: 1.7, margin: '0 0 28px', textAlign: 'left' }}>

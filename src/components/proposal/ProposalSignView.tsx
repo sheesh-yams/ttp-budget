@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Check, ArrowLeft } from 'lucide-react'
+import { ExpiredProposalNotice } from './ExpiredProposalNotice'
 import { formatMoney } from '@/lib/money'
 import { lighten, darken, safeHex } from '@/lib/color'
 import { parseLocalDate } from '@/lib/time-format'
@@ -66,9 +67,11 @@ interface Props {
    *  doesn't share React state with ProposalPublicView. Omitted on a
    *  single-option proposal. */
   optionPhaseId?: string
+  /** Past its valid-through date — show a notice instead of signing. */
+  isExpired?: boolean
 }
 
-export function ProposalSignView({ proposal, contractSections, optionPhaseId }: Props) {
+export function ProposalSignView({ proposal, contractSections, optionPhaseId, isExpired = false }: Props) {
   const workspace  = proposal.workspace
   const clientName = proposal.project.client.name
 
@@ -248,6 +251,8 @@ export function ProposalSignView({ proposal, contractSections, optionPhaseId }: 
                 Download signed PDF
               </a>
             </div>
+          ) : isExpired ? (
+            <ExpiredProposalNotice title={proposal.title} validThrough={validThrough} workspaceName={workspace.name} contactEmail={workspace.contactEmail} />
           ) : (
             <div style={{ background: '#fff', border: `0.5px solid ${BORDER}`, borderRadius: 10, padding: '40px 36px', textAlign: 'left' }}>
               {/* Agree checkbox */}

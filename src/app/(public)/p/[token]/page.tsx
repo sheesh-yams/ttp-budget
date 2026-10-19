@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { db } from '@/lib/db'
+import { isProposalExpired } from '@/lib/proposal-expiry'
 import { ProposalPublicView } from '@/components/proposal/ProposalPublicView'
 import { recordProposalView } from '@/server/actions/proposals'
 import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
@@ -321,6 +322,7 @@ export default async function PublicProposalPage({ params }: Props) {
       contractEnabled={effectiveContractEnabled}
       contractSections={effectiveContractEnabled ? [] : contractSections}
       proposalOptions={proposalOptions && proposalOptions.length > 1 ? proposalOptions : undefined}
+      isExpired={!isDraft && isProposalExpired(proposal)}
     />
   )
 }

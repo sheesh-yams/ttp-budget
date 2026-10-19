@@ -3,7 +3,9 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Eye, Send, ExternalLink, ChevronDown, CheckCircle, XCircle, Clock, GripVertical, TrendingDown } from 'lucide-react'
+import { Eye, Send, ExternalLink, ChevronDown, CheckCircle, XCircle, Clock, GripVertical, TrendingDown, RotateCcw } from 'lucide-react'
+import { ReopenProposalDialog } from './ReopenProposalDialog'
+import { canReopenProposal } from '@/lib/proposal-expiry'
 import { format } from 'date-fns'
 import { updateProposalStatus } from '@/server/actions/proposals'
 
@@ -168,11 +170,14 @@ function ProposalCard({
   card,
   isDragging,
   onStatusChange,
+  onReopen,
   onDragStart,
   onDragEnd,
 }: {
   card:           ProposalCardData
   isDragging:     boolean
+  /** Expired + editable: open the Reopen dialog. */
+  onReopen?:      () => void
   /** Omitted when this person can't edit the card's project proposals. */
   onStatusChange?: (proposalId: string, newStatus: string) => void
   onDragStart:    (e: React.DragEvent<HTMLDivElement>) => void
@@ -302,15 +307,27 @@ function ProposalCard({
           expiresAt={proposal.expiresAt}
           onChange={onStatusChange ? (newStatus) => onStatusChange(proposal.id, newStatus) : undefined}
         />
-        <a
-          href={`/p/${proposal.publicToken}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-muted-foreground/40 hover:text-violet-600 transition-colors"
-          title="Open public link"
-        >
-          <ExternalLink className="h-3.5 w-3.5" />
-        </a>
+        <div className="flex items-center gap-2">
+          {onReopen && (
+            <button
+              type="button"
+              onClick={onReopen}
+              className="inline-flex items-center gap-1 rounded-full border border-amber-300 px-2 py-0.5 text-[10px] font-medium text-amber-800 hover:bg-amber-50"
+              title="Reopen this expired proposal"
+            >
+              <RotateCcw className="h-3 w-3" /> Reopen
+            </button>
+          )}
+          <a
+            href={`/p/${proposal.publicToken}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-muted-foreground/40 hover:text-violet-600 transition-colors"
+            title="Open public link"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+        </div>
       </div>
     </div>
   )
@@ -330,6 +347,8 @@ export function ProposalsKanban({ cards: initialCards, editableProjectIds = null
   const [draggedId, setDraggedId]   = useState<string | null>(null)
   const [dragOverCol, setDragOverCol] = useState<ColumnId | null>(null)
   const [showLost, setShowLost]     = useState(false)
+  const [reopen, setReopen] = useState<{ id: string; title: string; projectId: string } | null>(null)
+  const [reopenNote, setReopenNote] = useState<string | null>(null)
 
   function handleStatusChange(proposalId: string, newStatus: string) {
     setCards(prev =>
@@ -455,6 +474,9 @@ export function ProposalsKanban({ cards: initialCards, editableProjectIds = null
                         card={card}
                         isDragging={draggedId === card.proposal.id}
                         onStatusChange={canEditProject(card.projectId) ? handleStatusChange : undefined}
+                        onReopen={canEditProject(card.projectId) && canReopenProposal(card.proposal)
+                          ? () => { setReopenNote(null); setReopen({ id: card.proposal.id, title: card.proposal.title, projectId: card.projectId }) }
+                          : undefined}
                         onDragStart={e => {
                           // Set drag image to the whole card element
                           const cardEl = e.currentTarget.closest('[data-card]') as HTMLElement
@@ -483,6 +505,23 @@ export function ProposalsKanban({ cards: initialCards, editableProjectIds = null
         })}
       </div>
     </div>
+      {reopenNote && <p className={`text-xs ${reopenNote.includes('didn’t send') ? 'text-destructive' : 'text-emerald-700'}`} role="status">{reopenNote}</p>}
+      <ReopenProposalDialog
+        open={!!reopen}
+        proposalId={reopen?.id ?? null}
+        proposalTitle={reopen?.title ?? ''}
+        onClose={() => setReopen(null)}
+        onReopened={(note, r) => {
+          // Cards are local state (seeded once from props) — update this one in place.
+          const id = reopen?.id
+          setCards(prev => prev.map(c => c.proposal.id === id
+            ? { ...c, proposal: { ...c.proposal, status: r.status, expiresAt: r.expiresAt } }
+            : c))
+          setReopen(null); setReopenNote(note); router.refresh()
+        }}
+        onMakeChanges={reopen ? (() => router.push(`/projects/${reopen.projectId}`)) : undefined}
+        makeChangesLabel="Opens the project, where you can revise it and send the new version."
+      />
     </div>
   )
 }

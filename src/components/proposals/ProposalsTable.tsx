@@ -3,8 +3,10 @@
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ExternalLink, Trash2 } from 'lucide-react'
+import { ExternalLink, Trash2, RotateCcw } from 'lucide-react'
 import { deleteProposal } from '@/server/actions/proposals'
+import { ReopenProposalDialog } from './ReopenProposalDialog'
+import { canReopenProposal } from '@/lib/proposal-expiry'
 
 const STATUS_STYLES: Record<string, { label: string; bg: string; text: string }> = {
   DRAFT:          { label: 'Draft',          bg: '#F3F4F6', text: '#374151' },
@@ -45,6 +47,8 @@ export function ProposalsTable({ proposals, editableProjectIds = null }: {
   const [deleting, setDeleting] = useState<string | null>(null)
   const [_, startDelete]        = useTransition()
   const now = new Date()
+  const [reopen, setReopen] = useState<{ id: string; title: string; projectId: string } | null>(null)
+  const [reopenNote, setReopenNote] = useState<string | null>(null)
 
   function handleDelete(id: string) {
     setDeleting(id)
@@ -116,6 +120,16 @@ export function ProposalsTable({ proposals, editableProjectIds = null }: {
                 <td className="px-3 py-2.5 text-muted-foreground text-xs">{p.signatureName ?? '—'}</td>
                 <td className="px-2 py-2.5">
                   <div className="flex items-center gap-0.5">
+                    {canReopenProposal(p, now) && (editableProjectIds === null || editableProjectIds.includes(p.project.id)) && (
+                      <button
+                        type="button"
+                        onClick={() => { setReopenNote(null); setReopen({ id: p.id, title: p.title, projectId: p.project.id }) }}
+                        className="inline-flex rounded p-1 text-amber-700 hover:bg-amber-50 transition-colors"
+                        title="Reopen this expired proposal"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                     <a
                       href={`/p/${p.publicToken}`}
                       target="_blank"
@@ -141,6 +155,16 @@ export function ProposalsTable({ proposals, editableProjectIds = null }: {
           })}
         </tbody>
       </table>
+      <ReopenProposalDialog
+        open={!!reopen}
+        proposalId={reopen?.id ?? null}
+        proposalTitle={reopen?.title ?? ''}
+        onClose={() => setReopen(null)}
+        onReopened={note => { setReopen(null); setReopenNote(note); router.refresh() }}
+        onMakeChanges={reopen ? (() => router.push(`/projects/${reopen.projectId}`)) : undefined}
+        makeChangesLabel="Opens the project, where you can revise it and send the new version."
+      />
+      {reopenNote && <p className={`px-4 py-2 text-xs ${reopenNote.includes('didn’t send') ? 'text-destructive' : 'text-emerald-700'}`} role="status">{reopenNote}</p>}
     </div>
   )
 }

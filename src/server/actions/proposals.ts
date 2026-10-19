@@ -14,6 +14,7 @@ import { syncDeliverablesFromProposal } from './delivery'
 import { sendProposalEmail, normalizeRecipientEmails, buildCcList } from '@/lib/email'
 import { PHASE_TREE_INCLUDE, BUDGET_SNAPSHOT_SELECT, buildBudgetSnapshot, buildProposalContent, type SnapshotPhase } from '@/lib/proposal-snapshot'
 import { applyProposalWonEffects } from '@/lib/proposal-won'
+import { canReopenProposal, defaultReopenDate, earliestReopenDate, reopenedLinkExpiry, reopenedStatus, type ProposalReopenInfo } from '@/lib/proposal-expiry'
 
 function uid() { return crypto.randomUUID().slice(0, 8) }
 
@@ -600,6 +601,120 @@ export async function sendDraftProposal(
   } catch (err) {
     console.error('[sendDraftProposal]', err)
     return { success: false, error: 'Failed to send proposal' }
+  }
+}
+
+// ─── Reopen an expired proposal ───────────────────────────────────────────────
+
+/** What the Reopen dialog shows. */
+export async function getProposalReopenInfo(proposalId: string): Promise<ActionResult<ProposalReopenInfo>> {
+  try {
+    const gate = await requireMoneyPermission({ proposalId }, 'proposals', 'EDIT')
+    if (!gate.ok) return gate.error
+    const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+    const p = await sdb.proposal.findFirst({
+      where:  { id: proposalId },
+      select: { status: true, expiresAt: true, lastViewedAt: true, projectId: true, recipientEmails: true },
+    })
+    if (!p) return { success: false, error: 'Proposal not found' }
+    if (!canReopenProposal(p)) return { success: false, error: 'Only an expired proposal can be reopened.' }
+    const ws = await sdb.workspace.findFirst({ where: { id: gate.workspaceId }, select: { proposalExpiryDays: true } })
+    const ctx = await resolveProposalEmailContext(sdb, p.projectId)
+    return { success: true, data: {
+      expiredOn: p.expiresAt?.toISOString() ?? null,
+      lastViewedAt: p.lastViewedAt?.toISOString() ?? null,
+      defaultExpiresAt: defaultReopenDate(ws?.proposalExpiryDays ?? 30),
+      to: ctx.clientEmail,
+      cc: ctx.clientEmail ? buildCcList(ctx.clientEmail, (p as unknown as { recipientEmails?: string[] }).recipientEmails, user.email) : [],
+    } }
+  } catch (err) {
+    console.error('[getProposalReopenInfo]', err)
+    return { success: false, error: 'Couldn’t load the proposal' }
+  }
+}
+
+/**
+ * Reopens an expired proposal as it was sent — same link, same frozen
+ * pricing and terms — with a new valid-through date. The link is kept alive
+ * past the new date; a literally-EXPIRED status goes back to Viewed/Sent;
+ * Won/Lost/Declined/drafts are refused. Optionally emails the client the link
+ * again (the reopen stands even if that email fails — the result says so).
+ */
+export async function reopenProposal(
+  proposalId: string, input: { expiresAt: string; notify: boolean },
+): Promise<ActionResult<{ emailed: boolean; emailError?: string; status: string; expiresAt: string }>> {
+  try {
+    const gate = await requireMoneyPermission({ proposalId }, 'proposals', 'EDIT')
+    if (!gate.ok) return gate.error
+    if (typeof input?.expiresAt !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(input.expiresAt)) {
+      return { success: false, error: 'Pick a valid-through date.' }
+    }
+    // Stored as UTC midnight, like every send; the approve route refuses once
+    // it's < now — so the new date has to still be in the future.
+    const validThrough = new Date(input.expiresAt)
+    if (isNaN(validThrough.getTime()) || input.expiresAt < earliestReopenDate()) {
+      return { success: false, error: 'Pick a later date — the proposal would already be expired on that one.' }
+    }
+
+    const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+    const p = await sdb.proposal.findFirst({
+      where:  { id: proposalId },
+      select: { status: true, expiresAt: true, publicTokenExpiresAt: true, firstViewedAt: true, projectId: true, title: true, publicToken: true, recipientEmails: true },
+    })
+    if (!p) return { success: false, error: 'Proposal not found' }
+    if (!canReopenProposal(p)) return { success: false, error: 'Only an expired proposal can be reopened.' }
+
+    // Fail fast before changing anything if the email can't go anywhere.
+    const emailCtx = input.notify ? await resolveProposalEmailContext(sdb, p.projectId) : null
+    if (input.notify && !emailCtx?.clientEmail) {
+      return { success: false, error: 'This client has no contact email on file — add one, or reopen without emailing.' }
+    }
+
+    const status = reopenedStatus(p)
+    const res = await sdb.proposal.updateMany({
+      // Guarded on exactly what was read: a status change or another reopen
+      // made meanwhile wins (and a double-click doesn't email twice).
+      where: { id: proposalId, status: p.status, expiresAt: p.expiresAt },
+      data:  {
+        expiresAt: validThrough,
+        publicTokenExpiresAt: reopenedLinkExpiry(p.publicTokenExpiresAt, validThrough),
+        ...(status !== p.status ? { status: status as typeof p.status } : {}),
+      },
+    })
+    if (res.count === 0) return { success: false, error: 'This proposal changed — refresh and try again.' }
+    await logAuditEvent({
+      workspaceId: gate.workspaceId, actorId: user.id, action: 'proposal.reopened', entityType: 'Proposal', entityId: proposalId,
+      metadata: { from: p.expiresAt?.toISOString() ?? null, to: validThrough.toISOString(), fromStatus: p.status, toStatus: status, notify: input.notify },
+    })
+    revalidatePath(`/projects/${p.projectId}`)
+    revalidatePath('/proposals')
+
+    const done = { status, expiresAt: validThrough.toISOString() }
+    if (!input.notify || !emailCtx?.clientEmail) return { success: true, data: { ...done, emailed: false } }
+    const ccList = buildCcList(emailCtx.clientEmail, (p as unknown as { recipientEmails?: string[] }).recipientEmails, user.email)
+    try {
+      const sent = await sendProposalEmail({
+        to: emailCtx.clientEmail, cc: ccList, proposalTitle: p.title, projectName: emailCtx.projectName,
+        proposalUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/p/${p.publicToken}`, expiresAt: validThrough,
+        actorName: user.name ?? user.email, actorEmail: user.email,
+        workspaceName: emailCtx.workspaceName, brandPrimary: emailCtx.brandPrimary, brandAccent: emailCtx.brandAccent,
+      })
+      await logAuditEvent({
+        workspaceId: gate.workspaceId, actorId: user.id, action: 'proposal.email_sent', entityType: 'Proposal', entityId: proposalId,
+        metadata: { to: emailCtx.clientEmail, cc: ccList, messageId: sent.id, reason: 'reopened' },
+      })
+      return { success: true, data: { ...done, emailed: true } }
+    } catch (emailErr) {
+      const message = emailErr instanceof Error ? emailErr.message : 'Unknown error'
+      await logAuditEvent({
+        workspaceId: gate.workspaceId, actorId: user.id, action: 'proposal.email_failed', entityType: 'Proposal', entityId: proposalId,
+        metadata: { to: emailCtx.clientEmail, cc: ccList, error: message, reason: 'reopened' },
+      })
+      return { success: true, data: { ...done, emailed: false, emailError: message } }
+    }
+  } catch (err) {
+    console.error('[reopenProposal]', err)
+    return { success: false, error: 'Failed to reopen the proposal' }
   }
 }
 
