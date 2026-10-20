@@ -513,6 +513,9 @@ function buildPreviewProposal(
     version:       1,
     status:        'DRAFT',
     content: {
+      // The view reads the agency fee and tax off content.budgetSnapshot (as
+      // on a sent proposal) — without it the fee row is missing.
+      ...(phase.preview ? { budgetSnapshot: phase.preview } : {}),
       sections: [
         { type: 'about', title: 'About', overview, body: description },
         {

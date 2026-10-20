@@ -126,6 +126,21 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-20 — Proposal Overview preview missing the agency fee
+- **Bug:** the Preview button on Proposal Overview (before any proposal
+  exists) showed no Agency Fee row and no production subtotal.
+- **Cause:** `buildPreviewProposal` built content without `budgetSnapshot`.
+  `ProposalPublicView` reads the markup and tax from there and fell back to
+  0%.
+- **Fix:** pass the phase's `captureSinglePhaseSnapshot` (`phase.preview`, the
+  same shape a send freezes) as `content.budgetSnapshot`. No server or data
+  change.
+- **Verified:** a server-side render with Modern Mangal's real budget (20%
+  fee).
+  - Before: no fee row.
+  - After: the fee row and the $18,125 production subtotal, with a $21,750
+    total.
+
 ### 2026-10-20 — Proposal deliverables show quantity and type
 - **Asked:** the type (Deliverable / Service / Raw Footage / Other) and
   quantity set in Proposal Overview never reached the client page or the PDF.
