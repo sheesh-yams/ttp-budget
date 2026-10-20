@@ -6,6 +6,7 @@ import type { Style } from '@react-pdf/types'
 import { lineTotal, formatMoney, parseQtyFormula, fmtUnit } from '@/lib/money'
 import { sumAccount, type AccountInput } from '@/lib/totals'
 import { parseLocalDate } from '@/lib/time-format'
+import { deliverableBadges } from '@/lib/deliverable-display'
 import type { ProposalContent, PaymentMilestone, ScopeItem } from '@/types'
 
 // ─── Brand colours ────────────────────────────────────────────────────────────
@@ -182,7 +183,10 @@ const s = StyleSheet.create({
   // Deliverables
   delGrid:     { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   delCard:     { width: '30%', borderTopWidth: 2.5, borderTopColor: V, borderWidth: 0.5, borderColor: BDR, borderRadius: 6, padding: '14 14 18' },
-  delNum:      { fontSize: 20, fontFamily: 'Helvetica-Bold', color: V, marginBottom: 8, lineHeight: 1 },
+  delTop:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
+  delNum:      { fontSize: 20, fontFamily: 'Helvetica-Bold', color: V, lineHeight: 1 },
+  delQty:      { fontSize: 8, fontFamily: 'Helvetica-Bold', color: V, backgroundColor: '#EDE3F7', borderRadius: 8, paddingVertical: 2, paddingHorizontal: 6 },
+  delType:     { fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: MUT, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 4 },
   delTitle:    { fontSize: 11, fontFamily: 'Helvetica-Bold', color: BODY, marginBottom: 5 },
   delDesc:     { fontSize: 9.5, color: MUT, lineHeight: 1.55 },
   delSeeRef:   { fontSize: 8.5, color: V, marginTop: 8, fontStyle: 'italic' },
@@ -459,9 +463,14 @@ export function ProposalPDF({
                 const sectionTitles = linked?.length
                   ? linked.map(sid => pkg.budgetSections.find(sec => sec.id === sid)?.title).filter((t): t is string => !!t)
                   : []
+                const { qty, typeLabel } = deliverableBadges(d)
                 return (
                   <View key={i} style={s.delCard}>
-                    <Text style={s.delNum}>{d.number ?? String(i + 1).padStart(2, '0')}</Text>
+                    <View style={s.delTop}>
+                      <Text style={s.delNum}>{d.number ?? String(i + 1).padStart(2, '0')}</Text>
+                      {qty && <Text style={s.delQty}>{qty}</Text>}
+                    </View>
+                    {typeLabel && <Text style={s.delType}>{typeLabel}</Text>}
                     <Text style={s.delTitle}>{d.title}</Text>
                     <Text style={s.delDesc}>{d.description}</Text>
                     {sectionTitles.length > 0 && (

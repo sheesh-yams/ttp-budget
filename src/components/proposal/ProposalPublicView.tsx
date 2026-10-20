@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Check } from 'lucide-react'
 import { ExpiredProposalNotice } from './ExpiredProposalNotice'
+import { deliverableBadges } from '@/lib/deliverable-display'
 import { formatMoney } from '@/lib/money'
 import { lighten, darken, safeHex } from '@/lib/color'
 import { parseLocalDate } from '@/lib/time-format'
@@ -453,11 +454,22 @@ export function ProposalPublicView({
                   cursor: isLinked ? 'pointer' : 'default',
                   transition: 'box-shadow 0.15s',
                 }
+                const { qty, typeLabel } = deliverableBadges(item)
                 const inner = (
                   <>
-                    <p style={{ color: V, fontSize: 30, fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1, margin: '0 0 14px' }}>
-                      {item.number ?? String(i + 1).padStart(2, '0')}
-                    </p>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, margin: '0 0 14px' }}>
+                      <p style={{ color: V, fontSize: 30, fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1, margin: 0 }}>
+                        {item.number ?? String(i + 1).padStart(2, '0')}
+                      </p>
+                      {qty && (
+                        <span style={{ fontSize: 12, fontWeight: 700, color: V, background: V_TINT, borderRadius: 999, padding: '4px 10px', whiteSpace: 'nowrap' }}>
+                          {qty}
+                        </span>
+                      )}
+                    </div>
+                    {typeLabel && (
+                      <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: MUTED, margin: '0 0 6px' }}>{typeLabel}</p>
+                    )}
                     <p style={{ fontSize: 15, fontWeight: 700, color: BODY, margin: '0 0 8px' }}>{item.title}</p>
                     <p style={{ fontSize: 13, color: MUTED, lineHeight: 1.65, margin: 0 }}>{item.description}</p>
                     {isLinked && (

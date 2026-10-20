@@ -7,6 +7,7 @@ import { updatePhaseOverview, makePhasePrimary } from '@/server/actions/budgets'
 import { SmartTextEditor } from '@/components/delivery/SmartTextEditor'
 import { renderSmartText } from '@/lib/smart-text'
 import type { DeliverableItemType } from '@/types'
+import { toScopeItems } from '@/lib/deliverable-display'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { ProposalPublicView } from '@/components/proposal/ProposalPublicView'
 
@@ -516,12 +517,7 @@ function buildPreviewProposal(
         { type: 'about', title: 'About', overview, body: description },
         {
           type: 'scope', title: 'Deliverables',
-          items: filled.map((d, i) => ({
-            number:      String(i + 1).padStart(2, '0'),
-            title:       d.title,
-            description: d.description,
-            ...(d.sectionIds?.length ? { sectionIds: d.sectionIds } : {}),
-          })),
+          items: toScopeItems(filled),
         },
       ],
     },

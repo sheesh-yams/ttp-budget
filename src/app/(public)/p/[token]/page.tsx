@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import { db } from '@/lib/db'
 import { isProposalExpired } from '@/lib/proposal-expiry'
+import { toScopeItems, type PhaseDeliverable } from '@/lib/deliverable-display'
 import { ProposalPublicView } from '@/components/proposal/ProposalPublicView'
 import { recordProposalView } from '@/server/actions/proposals'
 import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
@@ -210,9 +211,7 @@ export default async function PublicProposalPage({ params }: Props) {
           isPrimary,
           overview:     (phase as unknown as { overview?: string | null }).overview ?? '',
           about:        phase.description ?? '',
-          deliverables: ((phase as unknown as {
-            deliverables?: { title: string; description: string; sectionIds?: string[] }[] | null
-          }).deliverables ?? []) as unknown as ScopeItem[],
+          deliverables: toScopeItems((phase as unknown as { deliverables?: PhaseDeliverable[] | null }).deliverables ?? []),
           budgetSnapshot: captureSinglePhaseSnapshot(phase, draftMarkupPct, draftTaxPct, draftDiscountConfig),
         })
         proposalOptions = [
@@ -233,7 +232,7 @@ export default async function PublicProposalPage({ params }: Props) {
       const livePhaseOverview = (primaryPhase as unknown as { overview?: string | null })?.overview ?? ''
       const livePhaseAbout    = primaryPhase?.description ?? ''
       const livePhaseDeliverables = (primaryPhase as unknown as {
-        deliverables?: { title: string; description: string; sectionIds?: string[] }[] | null
+        deliverables?: PhaseDeliverable[] | null
       })?.deliverables ?? []
 
       const existingSections = (content.sections as Array<Record<string, unknown>> | undefined) ?? []
@@ -242,12 +241,7 @@ export default async function PublicProposalPage({ params }: Props) {
         if (sec.type === 'scope') {
           return {
             ...sec,
-            items: livePhaseDeliverables.map((d, i) => ({
-              number:      String(i + 1).padStart(2, '0'),
-              title:       d.title,
-              description: d.description,
-              ...(d.sectionIds?.length ? { sectionIds: d.sectionIds } : {}),
-            })),
+            items: toScopeItems(livePhaseDeliverables),
           }
         }
         return sec

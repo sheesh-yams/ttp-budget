@@ -6,6 +6,7 @@
 // and so can't call getScopedDb()-based server actions.
 
 import type { Prisma } from '@prisma/client'
+import { toScopeItems, type PhaseDeliverable } from '@/lib/deliverable-display'
 import { calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 
 export const PHASE_TREE_INCLUDE = {
@@ -127,7 +128,7 @@ export function buildBudgetSnapshot(budget: BudgetSnapshotRow | null, allPhases:
     isPrimary:    phase.id === primaryPhase?.id,
     overview:     phase.overview ?? '',
     about:        phase.description ?? '',
-    deliverables: (phase.deliverables as { title: string; description: string; sectionIds?: string[] }[] | null) ?? [],
+    deliverables: toScopeItems((phase.deliverables as unknown as PhaseDeliverable[] | null) ?? []),
     budgetSnapshot: captureSinglePhaseSnapshot(phase, budgetMarkupPct, budgetTaxPct, discountConfig),
   }))
 
@@ -154,7 +155,7 @@ export function buildBudgetSnapshot(budget: BudgetSnapshotRow | null, allPhases:
 export function buildProposalContent(input: {
   overview: string
   about: string
-  deliverables: { title: string; description: string; sectionIds?: string[] }[]
+  deliverables: PhaseDeliverable[]
   milestones: { id: string; name: string; percentPct: number; trigger: string; customDate?: string }[]
   totalCents: number
 }) {
@@ -165,12 +166,7 @@ export function buildProposalContent(input: {
       {
         type: 'scope',
         title: 'Deliverables',
-        items: input.deliverables.map((d, i) => ({
-          number:     String(i + 1).padStart(2, '0'),
-          title:      d.title,
-          description: d.description,
-          ...(d.sectionIds?.length ? { sectionIds: d.sectionIds } : {}),
-        })),
+        items: toScopeItems(input.deliverables),
       },
       { type: 'budget', detailLevel: 'SUMMARY' },
       {

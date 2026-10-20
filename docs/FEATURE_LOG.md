@@ -126,6 +126,43 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-10-20 — Proposal deliverables show quantity and type
+- **Asked:** the type (Deliverable / Service / Raw Footage / Other) and
+  quantity set in Proposal Overview never reached the client page or the PDF.
+  - The user approved mockup Option A (`docs/mockups/proposal-deliverables/`,
+    not committed).
+  - Decision: leave already-sent proposals as sent.
+- **Root cause:** `buildProposalContent` and the draft live patch on
+  `/p/[token]` built scope items from title, description and sectionIds
+  only. The views only rendered those fields.
+- **Change:** `src/lib/deliverable-display.ts`.
+  - `toScopeItems()` is now the one builder. It's used by the frozen content,
+    the draft live patch, option tabs (snapshot + live draft) and the overview
+    preview.
+  - `deliverableBadges()` drives the card on the client page and the PDF:
+    - a "× N" pill opposite the number, only when the quantity is above 1
+    - a small type label above the title, only when the type isn't
+      "Deliverable"
+- **Frozen content:** option tabs sent before this froze the raw
+  `Phase.deliverables`, which has type and quantity but no `number`.
+  `deliverableBadges` only badges items that have a `number`, so those keep
+  looking as sent. Checked: 42 sent proposals (3 with option tabs), 0
+  newly show badges.
+- **No migration.**
+- **Verified:**
+  - jest (438)
+  - the Modern Mangal draft in dev
+  - a PDF render
+  - a read-only check of the sent proposals
+  - pitfall-reviewer (its frozen-options finding is fixed)
+- **Follow-ups:**
+  - A revision copied from a proposal sent before this shows no badges until
+    it's saved once through the modal. `createProposalRevision` copies the
+    frozen content, and `updateDraftProposal` rebuilds it.
+  - Side effect: the deliverables merge tag in contract text now reads
+    "× N" on new proposals. Signed contracts use `contractSnapshot` and
+    don't change.
+
 ### 2026-10-19 — Reopen an expired proposal
 - **Asked:** expired proposals were a dead end. Plan approved first:
   - both paths
