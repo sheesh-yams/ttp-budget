@@ -9,6 +9,8 @@ import type { ActionResult } from '@/types'
 
 const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const MAX_BYTES = 2 * 1024 * 1024 // 2 MB
+// Shot references are downsized to a JPEG in the browser first; this is headroom.
+const MAX_BYTES_BY_FOLDER: Partial<Record<UploadFolder, number>> = { 'shot-references': 4 * 1024 * 1024 }
 
 const MIME_TO_EXT: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -16,7 +18,9 @@ const MIME_TO_EXT: Record<string, string> = {
   'image/webp': 'webp',
 }
 
-type UploadFolder = 'avatars' | 'logos' | 'client-logos' | 'delivery-covers' | 'delivery-thumbnails'
+type UploadFolder = 'avatars' | 'logos' | 'client-logos' | 'delivery-covers' | 'delivery-thumbnails' | 'shot-references'
+// 'use server' args arrive unchecked at runtime — the type alone doesn't stop a made-up folder.
+const UPLOAD_FOLDERS = new Set<string>(['avatars', 'logos', 'client-logos', 'delivery-covers', 'delivery-thumbnails', 'shot-references'])
 
 /**
  * Issue a short-lived (60 s) presigned PUT URL so the browser can upload
@@ -36,11 +40,13 @@ export async function getPresignedUploadUrl(
     const [user, workspaceId] = await Promise.all([getCurrentUser(), getWorkspaceId()])
 
     // ── Validate on the server before issuing any credentials ──────────────────
+    if (!UPLOAD_FOLDERS.has(folder)) return { success: false, error: 'Invalid upload folder.' }
     if (!ALLOWED_MIME_TYPES.has(contentType)) {
       return { success: false, error: 'Only JPEG, PNG, and WebP images are allowed.' }
     }
-    if (byteSize > MAX_BYTES) {
-      return { success: false, error: 'File must be under 2 MB.' }
+    const maxBytes = MAX_BYTES_BY_FOLDER[folder] ?? MAX_BYTES
+    if (!Number.isFinite(byteSize) || byteSize <= 0 || byteSize > maxBytes) {
+      return { success: false, error: `File must be under ${maxBytes / (1024 * 1024)} MB.` }
     }
     if (!filename || filename.length > 260) {
       return { success: false, error: 'Invalid filename.' }

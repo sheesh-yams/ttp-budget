@@ -88,6 +88,11 @@ export const SCOPED_MODELS = new Set([
   'WorkspaceRole',
   'WorkspaceMember',
   'ProjectRole',
+  // Shot list — per project; sections, shots and references carry workspaceId
+  'ShotList',
+  'ShotSection',
+  'Shot',
+  'ShotReference',
   // NOTE: WebhookEvent is NOT workspace-scoped (keyed by provider+eventId only)
   // NOTE: GlobalContractBlock / GlobalContractBlockTrigger are NOT workspace-scoped
 ])

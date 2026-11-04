@@ -1,7 +1,7 @@
 import { Clock } from 'lucide-react'
 
 interface Props {
-  type: 'proposal' | 'invoice' | 'call-sheet' | 'deal-memo'
+  type: 'proposal' | 'invoice' | 'call-sheet' | 'deal-memo' | 'shot-list'
 }
 
 const COPY = {
@@ -9,6 +9,7 @@ const COPY = {
   invoice:    { noun: 'invoice',    verb: 'invoice'  },
   'call-sheet': { noun: 'call sheet', verb: 'call sheet' },
   'deal-memo':  { noun: 'deal memo',  verb: 'deal memo' },
+  'shot-list':  { noun: 'shot list',  verb: 'shot list' },
 }
 
 export function ExpiredLinkPage({ type }: Props) {

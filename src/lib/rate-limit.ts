@@ -28,6 +28,7 @@ const POLICIES = {
   approve:   { requests: 10, window: '60 s' },  // /api/proposals/*/approve (public sign-off)
   confirm:   { requests: 10, window: '60 s' },  // call sheet "Confirm I'll be there" (public)
   cspReport: { requests: 20, window: '60 s' },  // /api/csp-report (violation collector — cap log flooding)
+  linkPreview: { requests: 30, window: '60 s' }, // shot reference links — our server fetches the page (per user)
 } as const
 export type PolicyName = keyof typeof POLICIES
 

@@ -13,6 +13,7 @@ const isPublicRoute = createRouteMatcher([
   '/p/(.*)',             // public proposal pages
   '/i/(.*)',             // public invoice pages
   '/cs/(.*)',            // public call sheet pages
+  '/sl/(.*)',            // public shot list share pages — token + shareEnabled checked at the route
   '/d/(.*)',             // public delivery pages — token-authenticated at the route level
   '/dm/(.*)',            // vendor deal memo pages — token-authenticated at the route level
   '/shade-test',         // temporary Shade embed test page
@@ -25,6 +26,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/pdf/invoice/(.*)',
   '/api/pdf/deal-memo/(.*)',   // signed deal memo PDF — token-authenticated at the route level
   '/api/pdf/call-sheet/(.*)',  // call sheet PDF — the share-link token, checked at the route level
+  '/api/pdf/shot-list-share/(.*)', // shot list PDF via the share link (/api/pdf/shot-list/[projectId] stays signed-in only)
   '/api/payments/(.*)',         // payment routes self-authenticate via publicToken / attemptId
   '/api/proposals/(.*)/approve', // public client sign-off — self-authenticates via proposal publicToken
   '/api/deal-memos/(.*)/sign',   // public vendor sign-off — self-authenticates via deal memo publicToken
@@ -57,9 +59,9 @@ function clientIp(req: NextRequest): string {
 }
 
 function policyFor(pathname: string): PolicyName | null {
-  if (/^\/(p|i|cs|d|dm)\//.test(pathname))                                            return 'publicDoc'
+  if (/^\/(p|i|cs|d|dm|sl)\//.test(pathname))                                            return 'publicDoc'
   if (pathname.startsWith('/api/pdf/call-sheet/')) return 'callSheetPdf'
-  if (pathname.startsWith('/api/pdf/proposal/') || pathname.startsWith('/api/pdf/invoice/') || pathname.startsWith('/api/pdf/deal-memo/')) return 'publicPdf'
+  if (pathname.startsWith('/api/pdf/proposal/') || pathname.startsWith('/api/pdf/invoice/') || pathname.startsWith('/api/pdf/deal-memo/') || pathname.startsWith('/api/pdf/shot-list-share/')) return 'publicPdf'
   if (pathname.startsWith('/api/payments/'))                                           return 'payments'
   if (pathname.startsWith('/api/proposals/') && pathname.endsWith('/approve'))          return 'approve'
   if (pathname.startsWith('/api/deal-memos/') && pathname.endsWith('/sign'))            return 'approve'

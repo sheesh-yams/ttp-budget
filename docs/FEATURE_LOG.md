@@ -126,6 +126,86 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-04 — Shot list
+- **Asked:** a shot list per project, StudioBinder-style, with references
+  (upload, paste or link) and on-set tracking. Mockup approved at v3
+  (`docs/mockups/shot-list/` — Ramp-like, 4px corners).
+- **Decisions (user):**
+  - Shots link optionally to a Schedule scene; free sections cover B-roll
+    and product shots.
+  - Links get a saved preview copy.
+  - Statuses To shoot / Done / Skipped (no priority flag).
+  - First ship: storyboard view, PDF, view-only share link.
+- **Data:** migration `20261104000001_shot_list`.
+  - `ShotList` (one per project, created on first edit; share token).
+  - `ShotSection` (`sceneId` SET NULL on scene delete; the title is a
+    copy, so the section survives).
+  - `Shot`, and `ShotReference` (lowest `orderIndex` = ★ thumbnail).
+  - All four are in `SCOPED_MODELS`.
+- **Permissions:** new project area `shotList`. The migration backfilled
+  every role's JSON from its Schedule level, so Producers keep access. The
+  Collaborator preset is VIEW; ticking shots needs Edit.
+- **References:**
+  - Uploads are downsized in the browser to a JPEG (≤2000px; react-pdf
+    can't read WebP) and go through the `shot-references` R2 folder.
+    `addUploadedReference` only accepts that workspace's own R2 keys.
+  - Links: `src/lib/link-preview(-fetch).ts`, SSRF-guarded:
+    - every DNS answer is checked at connect time (custom `lookup`)
+    - redirects are followed by hand, each hop re-checked
+    - byte caps and timeouts
+    - `linkPreview` rate limit
+  - Link images: YouTube thumbnail, Vimeo oEmbed, or the page's og:image,
+    turned into a JPEG with `sharp` (now a direct dependency) and stored
+    in R2.
+  - Instagram, Pinterest and IMDb block bots → link card.
+- **Share:** `/sl/[token]` and `/api/pdf/shot-list-share/[token]` work only
+  while sharing is on. They expire 14 days after the last shoot day (else
+  30 days after enabling). Crew notes are stripped.
+  - Turning sharing off revokes the link: turning it back on issues a new
+    token.
+  - The signed-in PDF (`/api/pdf/shot-list/[projectId]`) includes notes.
+- **Also:** `getPresignedUploadUrl` now checks the folder at runtime.
+  'use server' args are unchecked, so before this any folder string was
+  accepted.
+- **Verified:**
+  - tsc, jest (518: shot codes, expiry, day map, URL/IP guard,
+    redirect-to-private, slow-drip timeout), lint, build.
+  - A throwaway DB script: codes, day labels, cross-section move, duplicate
+    scene link refused, scene delete keeps the section, access targets
+    resolve and are refused from another workspace; row counts unchanged.
+  - Live link previews:
+    - YouTube, Vimeo, FilmGrab, Wikipedia and a direct image → frames
+    - `169.254.169.254` and a public name resolving to 127.0.0.1 → refused
+  - Share page and PDF: 404 when off, expired page / 410, notes absent.
+  - The editor, the storyboard and the phone list on a throwaway page.
+  - PDF rendered with embedded frames.
+  - R2 isn't configured locally, so real uploads still need a pass on
+    Railway.
+  - pitfall-reviewer — all fixed:
+    - link fetches had no wall-clock limit (a slow drip held the action
+      open) → hard timeout, plus DNS via c-ares so slow DNS can't stall the
+      thread pool
+    - direct image links over 1 MB got no preview → separate page / image
+      caps
+    - PDF frames over 2 MB were dropped → a 4.5 MB cap for frames
+    - the share popover showed no expiry until refresh
+    - undo restored a whole snapshot → each undo reverses only its own
+      change
+    - re-enabling kept the old token; expired links leaked the project
+      name in the tab title
+    - the 20-reference cap was checked after storing in R2
+  - Also found in the browser: the Delete shot confirm opened behind the
+    modal panel and couldn't be clicked → the panel closes first and
+    reopens on Cancel.
+  - Old prod code drops unknown role keys on save, so the backfill can be
+    undone between the migration and the deploy → re-checked after deploy.
+- **Follow-ups:**
+  - shots on call sheets
+  - a must-have flag
+  - deleting R2 objects when a reference is removed (thumbnails don't
+    either)
+  - an app-wide Ramp restyle
+
 ### 2026-11-04 — Deal memos: custom work day
 - **Asked:** a work day other than 10 or 12 hours (e.g. a 4- or 6-hour shoot),
   kept clean and minimal.

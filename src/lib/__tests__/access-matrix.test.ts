@@ -29,7 +29,7 @@ const PROJECT_BASELINE: Record<'OWNER' | 'PRODUCER' | 'COLLABORATOR', Record<Pro
   PRODUCER: ALL_EDIT,
   COLLABORATOR: {
     overview: V, 'budget.lines': V, 'budget.costs': N, 'budget.margin': N,
-    crew: V, dealMemos: N, callSheets: E, schedule: V, delivery: N,
+    crew: V, dealMemos: N, callSheets: E, schedule: V, shotList: V, delivery: N,
     proposals: N, invoices: N, actuals: N, contract: N, projectTeam: N,
   },
 }

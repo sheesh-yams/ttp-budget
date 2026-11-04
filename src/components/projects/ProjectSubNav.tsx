@@ -3,7 +3,7 @@
 import type { ElementType } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { ChevronLeft, LayoutDashboard, DollarSign, FileText, Users, Receipt, ScanLine, Globe, Package, FileSpreadsheet, Clapperboard, ScrollText, Handshake } from 'lucide-react'
+import { ChevronLeft, LayoutDashboard, DollarSign, FileText, Users, Receipt, ScanLine, Globe, Package, FileSpreadsheet, Clapperboard, ScrollText, Handshake, Aperture } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export interface NavItem {
@@ -23,7 +23,7 @@ export interface NavSection {
  *  project permissions; the pages refuse the same people. */
 export type ProjectTabKey =
   | 'budget' | 'contract' | 'actuals' | 'receipts' | 'invoices'
-  | 'crew' | 'dealMemos' | 'schedule' | 'callSheets' | 'delivery'
+  | 'crew' | 'dealMemos' | 'schedule' | 'shotList' | 'callSheets' | 'delivery'
 
 interface Props {
   projectId: string
@@ -39,7 +39,7 @@ function tabKey(projectId: string, href: string): ProjectTabKey | null {
   const map: Record<string, ProjectTabKey> = {
     budget: 'budget', contract: 'contract', actuals: 'actuals', receipts: 'receipts',
     invoices: 'invoices', crew: 'crew', 'deal-memos': 'dealMemos', schedule: 'schedule',
-    'call-sheets': 'callSheets',
+    'call-sheets': 'callSheets', 'shot-list': 'shotList',
   }
   return map[rest] ?? null
 }
@@ -99,6 +99,11 @@ export function projectNavSections(projectId: string, tabs: Record<ProjectTabKey
           label: 'Schedule',
           href: `/projects/${projectId}/schedule`,
           icon: Clapperboard,
+        },
+        {
+          label: 'Shot List',
+          href: `/projects/${projectId}/shot-list`,
+          icon: Aperture,
         },
         {
           label: 'Call Sheets',

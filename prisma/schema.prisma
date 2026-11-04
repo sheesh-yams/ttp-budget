@@ -95,6 +95,7 @@ model Workspace {
   invoices          Invoice[]
   callSheets        CallSheet[]
   callSheetRecipients CallSheetRecipient[]
+  shotLists         ShotList[]
   actualSheets      ActualSheet[]
   invitations       WorkspaceInvitation[]
   contacts          Contact[]
@@ -223,6 +224,7 @@ model Project {
   scenes         Scene[]
   schedules      Schedule[]
   dealMemos      DealMemo[]
+  shotList       ShotList?
 
   @@index([workspaceId])
   @@index([clientId])
@@ -1614,6 +1616,7 @@ model Scene {
   colorOverride     String?   // hex; null = auto-derived from intExt + timeOfDay
   archived          Boolean   @default(false)
   entries           ScheduleEntry[]
+  shotSections      ShotSection[]
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -1971,5 +1974,116 @@ model DealMemoSection {
   updatedAt        DateTime @updatedAt
 
   @@index([dealMemoId, orderIndex])
+  @@index([workspaceId])
+}
+
+// =============================================================
+// SHOT LIST — one per project. Sections are a linked Schedule scene or a
+// free section ("Product / B-roll"); each shot has references (the lowest
+// orderIndex is the ★ thumbnail) and an on-set status.
+// =============================================================
+
+enum ShotStatus {
+  TO_SHOOT
+  DONE
+  SKIPPED
+}
+
+enum ShotReferenceKind {
+  UPLOAD
+  LINK
+}
+
+model ShotList {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId      String    @unique
+  project        Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  publicToken    String    @unique @default(dbgenerated("gen_random_uuid()::text")) // /sl/[token]
+  shareEnabled   Boolean   @default(false)
+  shareEnabledAt DateTime?
+  columnPrefs    Json      @default("{}") // { visible: string[] } — optional columns shown
+  sections       ShotSection[]
+  shots          Shot[]
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([workspaceId])
+}
+
+model ShotSection {
+  id          String    @id @default(cuid())
+  workspaceId String
+  shotListId  String
+  shotList    ShotList  @relation(fields: [shotListId], references: [id], onDelete: Cascade)
+  // Linked Schedule scene. SetNull on scene delete: the section keeps `title`.
+  sceneId     String?
+  scene       Scene?    @relation(fields: [sceneId], references: [id], onDelete: SetNull)
+  // Free title; for a scene section, the scene heading when it was linked.
+  title       String
+  // Shot-number prefix for free sections ("B" → B1, B2). Unused for scenes.
+  code        String?
+  orderIndex  Int       @default(0)
+  shots       Shot[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([shotListId, sceneId])
+  @@index([shotListId, orderIndex])
+  @@index([workspaceId])
+}
+
+model Shot {
+  id              String      @id @default(cuid())
+  workspaceId     String
+  shotListId      String
+  shotList        ShotList    @relation(fields: [shotListId], references: [id], onDelete: Cascade)
+  sectionId       String
+  section         ShotSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  orderIndex      Int         @default(0)
+  status          ShotStatus  @default(TO_SHOOT)
+  statusChangedAt DateTime?
+  description     String      @default("") @db.Text
+  subject         String?
+  // Camera — free text; presets in src/lib/shot-list.ts are suggestions only.
+  size            String?
+  angle           String?
+  movement        String?
+  lens            String?
+  equipment       String?
+  // Optional columns (shown via ShotList.columnPrefs)
+  camera          String?
+  frameRate       String?
+  aspect          String?
+  sound           String?
+  setup           String?
+  estMinutes      Int?
+  cast            String?
+  location        String?
+  notes           String?     @db.Text
+  references      ShotReference[]
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([sectionId, orderIndex])
+  @@index([shotListId])
+  @@index([workspaceId])
+}
+
+model ShotReference {
+  id          String            @id @default(cuid())
+  workspaceId String
+  shotId      String
+  shot        Shot              @relation(fields: [shotId], references: [id], onDelete: Cascade)
+  orderIndex  Int               @default(0) // lowest = ★ thumbnail
+  kind        ShotReferenceKind
+  imageUrl    String?           // our R2 copy (JPEG); null = link card only
+  sourceUrl   String?           // the pasted link, for LINK references
+  sourceHost  String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([shotId, orderIndex])
   @@index([workspaceId])
 }

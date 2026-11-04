@@ -23,6 +23,10 @@ export type ProductionTarget =
   | { deliveryAssetId: string }
   | { deliveryVersionId: string }
   | { callSheetId: string }
+  | { shotListId: string }
+  | { shotSectionId: string }
+  | { shotId: string }
+  | { shotReferenceId: string }
 
 export type ProductionGate = {
   ok:          boolean
@@ -66,6 +70,19 @@ export async function productionTargetProjectIds(target: ProductionTarget, works
   if ('deliveryVersionId' in target) {
     const v = await db.deliverableVersion.findFirst({ where: { id: target.deliveryVersionId, ...ws }, select: { deliverable: { select: { deliveryPage: { select: { projectId: true } } } } } })
     return v ? [v.deliverable.deliveryPage.projectId] : null
+  }
+  if ('shotListId' in target)    return one(await db.shotList.findFirst({ where: { id: target.shotListId, ...ws }, select: { projectId: true } }))
+  if ('shotSectionId' in target) {
+    const s = await db.shotSection.findFirst({ where: { id: target.shotSectionId, ...ws }, select: { shotList: { select: { projectId: true } } } })
+    return s ? [s.shotList.projectId] : null
+  }
+  if ('shotId' in target) {
+    const s = await db.shot.findFirst({ where: { id: target.shotId, ...ws }, select: { shotList: { select: { projectId: true } } } })
+    return s ? [s.shotList.projectId] : null
+  }
+  if ('shotReferenceId' in target) {
+    const r = await db.shotReference.findFirst({ where: { id: target.shotReferenceId, ...ws }, select: { shot: { select: { shotList: { select: { projectId: true } } } } } })
+    return r ? [r.shot.shotList.projectId] : null
   }
   return one(await db.callSheet.findFirst({ where: { id: target.callSheetId, ...ws }, select: { projectId: true } }))
 }

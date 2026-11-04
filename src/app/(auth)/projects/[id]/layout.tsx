@@ -33,6 +33,7 @@ export default async function ProjectLayout({
     crew:       can('crew'),
     dealMemos:  can('dealMemos'),
     schedule:   can('schedule'),
+    shotList:   can('shotList'),
     callSheets: can('callSheets'),
     delivery:   can('delivery'),
   }

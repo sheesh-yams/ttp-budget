@@ -67,6 +67,7 @@ export const PROJECT_AREAS = [
   { key: 'dealMemos',     label: 'Deal memos',      group: 'Vendors', hint: 'Bids, awards and what vendors are paid' },
   { key: 'callSheets',    label: 'Call sheets',     group: 'Production', hint: 'Call sheets and sending them' },
   { key: 'schedule',      label: 'Schedule',        group: 'Production', hint: 'Shoot days, scenes and locations' },
+  { key: 'shotList',      label: 'Shot list',       group: 'Production', hint: 'Shots, references and on-set tracking' },
   { key: 'delivery',      label: 'Delivery',        group: 'Production', hint: 'Deliverables and the client delivery page' },
   { key: 'proposals',     label: 'Proposals',       group: 'Money',   hint: 'Creating and sending proposals for this project' },
   { key: 'invoices',      label: 'Invoices',        group: 'Money',   hint: 'This project’s invoices' },
@@ -216,6 +217,7 @@ export const WORKSPACE_ROLE_PRESETS: readonly WorkspaceRolePreset[] = [
       crew:           'VIEW',
       callSheets:     'EDIT',
       schedule:       'VIEW',
+      shotList:       'VIEW',
     },
   },
 ]
