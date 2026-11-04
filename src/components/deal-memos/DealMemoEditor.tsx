@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, useTransition } from 'react'
+import { WorkDayPicker } from './WorkDayPicker'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowDown, ArrowLeft, ArrowUp, Eye, ListChecks, Lock, Plus, RotateCcw, X } from 'lucide-react'
@@ -155,6 +156,9 @@ function DealMemoEditorInner({ projectId, memo, lines, library, vendorView, show
   // The work-day toggle shows the choice at once (the save follows in a moment).
   const [workDay, setWorkDay] = useState(memo.workDayHours)
   useEffect(() => { if (!memoQueue.busy) setWorkDay(memo.workDayHours) }, [memo.workDayHours, memoQueue])
+  // Tracked so a long custom day can't silently pass the double-time threshold.
+  const [dtAfter, setDtAfter] = useState(memo.doubleTimeAfterHours)
+  useEffect(() => { if (!memoQueue.busy) setDtAfter(memo.doubleTimeAfterHours) }, [memo.doubleTimeAfterHours, memoQueue])
 
   async function openPreview() {
     await flushAll()
@@ -377,21 +381,19 @@ function DealMemoEditorInner({ projectId, memo, lines, library, vendorView, show
             <div className="mt-4 flex flex-wrap items-end gap-3 sm:gap-4 border-t pt-4">
               <div className="space-y-1.5">
                 <Label>Work day</Label>
-                <div className="flex gap-1">
-                  {([10, 12] as const).map(h => (
-                    <button key={h} type="button" disabled={readOnly}
-                      onClick={() => { setWorkDay(h); save({ workDayHours: h }) }}
-                      className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${workDay === h ? 'border-primary bg-primary/10 font-medium text-primary' : 'border-input text-muted-foreground hover:bg-muted/60'}`}>
-                      {h}-hour
-                    </button>
-                  ))}
-                </div>
+                <WorkDayPicker value={workDay} disabled={readOnly}
+                  onChange={h => { setWorkDay(h); save({ workDayHours: h }) }} />
               </div>
               <NumberField label="OT ×" value={memo.otMultiplier} step="0.1" disabled={readOnly} onSave={v => save({ otMultiplier: v })} />
-              <NumberField label="Double time after (hrs)" value={memo.doubleTimeAfterHours} step="1" disabled={readOnly} onSave={v => save({ doubleTimeAfterHours: Math.round(v) })} />
+              <NumberField label="Double time after (hrs)" value={memo.doubleTimeAfterHours} step="1" disabled={readOnly} onSave={v => { setDtAfter(Math.round(v)); save({ doubleTimeAfterHours: Math.round(v) }) }} />
               <NumberField label="Double time ×" value={memo.doubleTimeMultiplier} step="0.1" disabled={readOnly} onSave={v => save({ doubleTimeMultiplier: v })} />
               <NumberField label="Zone (miles)" value={memo.productionZoneMiles} step="1" disabled={readOnly} onSave={v => save({ productionZoneMiles: Math.round(v) })} />
             </div>
+            {workDay >= dtAfter && (
+              <p className="mt-2 text-xs text-amber-700" role="status">
+                Double time starts at {dtAfter} hours — at or before the end of this {workDay}-hour day. Raise “Double time after” so the terms read correctly.
+              </p>
+            )}
           </section>
 
           {/* Fees */}

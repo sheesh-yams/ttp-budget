@@ -110,3 +110,12 @@ describe('moveInOrder', () => {
     expect(ids).toEqual(['a', 'b', 'c'])
   })
 })
+
+describe('custom work day', () => {
+  it('auto overtime follows any work-day length (e.g. a 6- or 4-hour shoot)', () => {
+    const fees = [{ kind: 'OVERTIME' as const, isAutoRate: true, rateCents: 0 }]
+    // $600 day ÷ 6 hrs × 1.5 = $150/hr; ÷ 4 hrs × 1.5 = $225/hr
+    expect(applyAutoOvertime(fees, 60_000, 6, 1.5)[0]!.rateCents).toBe(15_000)
+    expect(applyAutoOvertime(fees, 60_000, 4, 1.5)[0]!.rateCents).toBe(22_500)
+  })
+})

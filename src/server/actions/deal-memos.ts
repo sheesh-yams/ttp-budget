@@ -230,7 +230,7 @@ const updateSchema = z.object({
   startDate:            z.string().nullable().optional(),
   endDate:              z.string().nullable().optional(),
   days:                 z.number().min(0).max(1000).optional(),
-  workDayHours:         z.union([z.literal(10), z.literal(12)]).optional(),
+  workDayHours:         z.number().int().min(1).max(24).optional(),  // 10 / 12, or a custom day (e.g. a 6-hour shoot)
   otMultiplier:         z.number().min(1).max(5).optional(),
   doubleTimeAfterHours: z.number().int().min(1).max(24).optional(),
   doubleTimeMultiplier: z.number().min(1).max(5).optional(),

@@ -126,6 +126,34 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-04 — Deal memos: custom work day
+- **Asked:** a work day other than 10 or 12 hours (e.g. a 4- or 6-hour shoot),
+  kept clean and minimal.
+- **UI:** `WorkDayPicker` (`src/components/deal-memos/WorkDayPicker.tsx`)
+  shows 10-hour / 12-hour / Custom. Custom becomes a small inline "6-hour"
+  input in the same pill.
+  - Whole hours, 1–24.
+  - Saved on Enter or blur, not per keystroke, so typing "14" never saves a
+    1-hour day.
+  - Empty or out of range snaps back to the saved value. Typing 10 or 12
+    lights that button.
+- **Server:** `updateDealMemo` zod accepts any int 1–24 (was `10 | 12`). The
+  column was already `Int`. No migration.
+- **Unchanged:** auto overtime (day rate ÷ hours × OT) and the
+  `{{dealMemo.workDayHours}}` terms already handle any number.
+- **Warning:** an amber note shows when the work day reaches the "Double time
+  after" hours. Otherwise a 16-hour day with default terms would read "1.5x
+  after 16 hours; 2x after 14 hours".
+- **Not changed:** the workspace default in Settings still offers 10 or 12
+  only. Ask if Custom is wanted there.
+- **Verified:**
+  - Picker on a throwaway page: presets, custom, Enter/blur, out-of-range
+    snap-back, clearing, typing a preset value, an outside value change.
+  - Jest (439) with a short-day overtime test.
+  - tsc, lint, build.
+  - pitfall-reviewer: its 3 findings (clear left a ghost placeholder, no
+    double-time guard, preset typed into Custom stayed custom) are fixed.
+
 ### 2026-10-20 — Proposal Overview preview missing the agency fee
 - **Bug:** the Preview button on Proposal Overview (before any proposal
   exists) showed no Agency Fee row and no production subtotal.
