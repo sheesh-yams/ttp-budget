@@ -126,6 +126,41 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-05 — Proposals page: Inbox list + Ledger board ("what am I bidding for")
+
+- /proposals was rebuilt from the approved mockup (`docs/mockups/proposals/v4.html`). It uses the same flush Ramp page as Projects:
+  - square stat boxes
+  - segmented tabs: Open, Follow up, Won, Lost & expired, All
+  - a toolbar strip with search and Owner / Client / Status filters
+  - a List / Board toggle. List is the default, and Board opens on All.
+- **One row per deal:** each non-archived project's representative proposal (the latest non-draft, or the newest draft), plus LEAD projects with no proposal and no sent invoice ("Not started"). Invoiced leads count as booked work, as on Projects.
+- **Value:**
+  - Won: `approvedTotalCents`.
+  - Sent: the total frozen at send (`content.totalCents` → `budgetSnapshot.totalCents`), read with a small `$queryRaw`.
+  - Drafts and leads: the live primary-phase gross.
+  - Amounts appear only with `dashboardMoney`, the same gate as Projects.
+- **Stats** follow the filters but not the tab: Pipeline (open, sent), Drafting (not started and drafts), Won this quarter (± vs last quarter), and Win rate (won ÷ decided).
+- **Follow up** uses the same thresholds as Projects' next step: viewed more than 5 days ago, not opened 3+ days after sending, expiring within 2 days, or changes asked for.
+- **List:** one table, banded by last activity (7 days, 30 days, not started, older), with Copy link / Draft proposal and a ⋯ menu. The menu has Open project, Open / copy client link, Reopen, Mark won / lost (with a confirm) and Delete draft.
+- **Board:** Not started, Sent, Viewed, Won · this quarter, and Lost · expired (last 90 days). Plain cards with Notion-style badges.
+  - There is no drag-and-drop. The old kanban's drop into "Sent" marked a proposal sent without sending it.
+- **New proposal** lists the leads waiting for one. Picking a lead opens `/projects/{id}?proposal=new`, and the project page opens the create modal.
+- **Decision dates:** won and lost dates come from `approvedAt`, else the `proposal.approved` / `proposal.lost` audit events, and never `updatedAt`. Every client-link view bumps `updatedAt`, so old wins would otherwise jump into "Won this quarter".
+- **`markProposalWon` / `markProposalLost` are now guarded.** They only apply while the stored status is SENT, VIEWED or CHANGES_NEEDED, using `updateMany` with the status in the `where`. A stale page can't overwrite a client's e-signature. `updateProposalStatus` takes an optional `{ onlyFrom }`.
+- **Other changes:**
+  - `FilterChip` moved to `src/components/projects/table/FilterChip.tsx` (shared).
+  - The Projects page primary-phase query is now scoped through `budget.workspaceId`. Phase isn't auto-scoped, so it was reading every workspace's phases.
+  - `ProposalsKanban` and `ProposalsTable` were removed.
+- **Live on Nov 5:**
+  - Pipeline $88,673 (6 out)
+  - Drafting $27,750 (4)
+  - Won Q4 $18,377
+  - Win rate 10 of 13
+- **Follow-ups:**
+  - Manually won proposals still show "Signed by  on …" (a blank name) on the client page. This was already there before this change.
+  - Bulk actions and saved views.
+  - The project page's status dropdown still uses the unguarded `updateProposalStatus`.
+
 ### 2026-11-05 — Projects page shows booked work: Booked / Collected / Outstanding / Not invoiced
 
 - /projects now lists only won work. That means projects past Lead, **plus leads that already have a sent invoice**: money is being collected, so it counts as booked. (Today that's Sheeshyams Testing, Salute and Grey Goose Atlanta. Without this, $8.5k of unpaid invoices would drop out of Outstanding.)

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useRef, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Plus, ExternalLink, Eye, Clock, Send, FileText, Pencil, Receipt, CheckCircle, Trash2, TrendingDown, ChevronDown, RotateCcw } from 'lucide-react'
 import { ReopenProposalDialog } from '@/components/proposals/ReopenProposalDialog'
 import { canReopenProposal } from '@/lib/proposal-expiry'
@@ -113,6 +113,21 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
     setModalOpen(true)
   }
 
+  // /proposals "New proposal" links here with ?proposal=new: open the create
+  // modal once, scroll to this section, and drop the param from the URL.
+  const params = useSearchParams()
+  const pathname = usePathname()
+  const sectionRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (params.get('proposal') !== 'new') return
+    sectionRef.current?.scrollIntoView({ block: 'start' })
+    if (canCreateProposal) openCreate()
+    const next = new URLSearchParams(window.location.search)
+    next.delete('proposal')
+    window.history.replaceState(null, '', next.size ? `${pathname}?${next}` : pathname)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params])
+
   function openEdit(p: Props['proposals'][0]) {
     setEditingProposal(p)
     setModalMode(p.status === 'DRAFT' ? 'edit-draft' : 'revision')
@@ -171,7 +186,7 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
   const prefill  = lastSent ? extractFromContent(lastSent.content) : undefined
 
   return (
-    <div>
+    <div ref={sectionRef} className="scroll-mt-20">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-base font-semibold text-foreground">Proposals</h2>
         {allowEdit && (

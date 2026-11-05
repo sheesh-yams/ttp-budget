@@ -57,7 +57,8 @@ export default async function ProjectsPage() {
     // For NewProjectModal
     db.client.findMany({ where: { workspaceId, archivedAt: null }, orderBy: { name: 'asc' }, select: { id: true, name: true } }),
     db.budgetTemplate.findMany({ where: { workspaceId }, orderBy: { name: 'asc' }, select: { id: true, name: true, shootType: true, description: true } }),
-    canSeeFin ? sdb.phase.findMany({ where: { isPrimary: true }, select: PRIMARY_PHASE_TOTALS_SELECT }) : Promise.resolve([]),
+    // Phase has no workspaceId (not auto-scoped) — scope it through its budget.
+    canSeeFin ? sdb.phase.findMany({ where: { isPrimary: true, budget: { workspaceId } }, select: PRIMARY_PHASE_TOTALS_SELECT }) : Promise.resolve([]),
     projectsWithArea('overview', 'EDIT'),
     projectsWithArea('projectTeam', 'EDIT'),
   ])

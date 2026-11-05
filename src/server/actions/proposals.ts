@@ -792,7 +792,10 @@ export async function createProposalRevision(
 
 export async function updateProposalStatus(
   proposalId: string,
-  status: string
+  status: string,
+  /** Only apply while the stored status is one of these (a stale page must not
+   *  overwrite a decision made meanwhile, e.g. a client's e-signature). */
+  opts?: { onlyFrom?: string[] },
 ): Promise<ActionResult> {
   try {
     const gate = await requireMoneyPermission({ proposalId }, 'proposals', 'EDIT')
@@ -805,9 +808,15 @@ export async function updateProposalStatus(
         projectId:   true,
         workspaceId: true,
         content:     true,
+        status:      true,
         project: { select: { status: true } },
       },
     })
+
+    const onlyFrom = opts?.onlyFrom
+    const STALE = 'This proposal changed since the page loaded. Refresh and try again.'
+    if (!proposal) return { success: false, error: 'Proposal not found' }
+    if (onlyFrom && !onlyFrom.includes(proposal.status)) return { success: false, error: STALE }
 
     // When manually marking APPROVED, snapshot the gross total from content so
     // the project card shows the correct amount (same logic as the client
@@ -824,13 +833,20 @@ export async function updateProposalStatus(
       if (resolved !== null) approvedTotalCents = resolved
     }
 
-    await sdb.proposal.update({
-      where: { id: proposalId },
-      data:  {
-        status: status as Parameters<typeof sdb.proposal.update>[0]['data']['status'],
-        ...(approvedTotalCents !== undefined ? { approvedTotalCents } : {}),
-      } as Parameters<typeof sdb.proposal.update>[0]['data'],
-    })
+    const data = {
+      status: status as Parameters<typeof sdb.proposal.update>[0]['data']['status'],
+      ...(approvedTotalCents !== undefined ? { approvedTotalCents } : {}),
+    } as Parameters<typeof sdb.proposal.update>[0]['data']
+    if (onlyFrom) {
+      // Guarded write: re-checks the status in the same statement.
+      const res = await sdb.proposal.updateMany({
+        where: { id: proposalId, status: { in: onlyFrom as never } },
+        data:  data as Parameters<typeof sdb.proposal.updateMany>[0]['data'],
+      })
+      if (res.count === 0) return { success: false, error: STALE }
+    } else {
+      await sdb.proposal.update({ where: { id: proposalId }, data })
+    }
 
     // ── Auto-advance project status based on proposal outcome ─────────────────
     if (proposal) {
@@ -890,13 +906,15 @@ export async function updateProposalStatus(
 }
 
 // Convenience wrapper — marks a proposal as won (APPROVED)
+// Only from an open proposal — a stale /proposals page can't overwrite a
+// signature, a loss or an expiry recorded meanwhile.
 export async function markProposalWon(proposalId: string): Promise<ActionResult> {
-  return updateProposalStatus(proposalId, 'APPROVED')
+  return updateProposalStatus(proposalId, 'APPROVED', { onlyFrom: ['SENT', 'VIEWED', 'CHANGES_NEEDED'] })
 }
 
 // Convenience wrapper — marks a proposal as lost
 export async function markProposalLost(proposalId: string): Promise<ActionResult> {
-  return updateProposalStatus(proposalId, 'LOST')
+  return updateProposalStatus(proposalId, 'LOST', { onlyFrom: ['SENT', 'VIEWED', 'CHANGES_NEEDED'] })
 }
 
 // ─── Delete a proposal ───────────────────────────────────────────────────────
