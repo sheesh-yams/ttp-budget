@@ -179,6 +179,18 @@ enum ShootType {
   OTHER
 }
 
+// Detailed lifecycle stage. Project.status stays the coarse bucket
+// (LEAD = phase LEAD, ACTIVE = any later phase); src/lib/project-phase.ts
+// keeps the two in step on every write.
+enum ProjectPhase {
+  LEAD
+  PRE_PROD
+  PRODUCTION
+  POST
+  INVOICING
+  OFFBOARDING
+}
+
 enum ProjectStatus {
   LEAD
   ACTIVE
@@ -197,6 +209,8 @@ model Project {
   code           String?  // optional internal code, e.g. "HUL-26-SUM"
   shootType      ShootType @default(OTHER)
   status         ProjectStatus @default(LEAD)
+  phase          ProjectPhase  @default(LEAD)
+  phaseChangedAt DateTime?
   shootStartDate DateTime?
   shootEndDate   DateTime?
   coverImageUrl  String?
@@ -229,6 +243,7 @@ model Project {
   @@index([workspaceId])
   @@index([clientId])
   @@index([workspaceId, status])
+  @@index([workspaceId, phase])
 }
 
 // ─── Project ↔ App-user assignment (RBAC visibility for Collaborators) ─────────

@@ -18,6 +18,7 @@ import { formatMoney } from '@/lib/money'
 import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 import { addedScopeCents } from '@/lib/project-value'
 import { parseLocalDate } from '@/lib/time-format'
+import { stageLabel } from '@/lib/project-phase'
 import { captureSinglePhaseSnapshot, type SnapshotPhase } from '@/lib/proposal-snapshot'
 
 const SHOOT_LABELS: Record<string, string> = {
@@ -285,6 +286,7 @@ export default async function ProjectDetailPage({
     id:             project.id,
     name:           project.name,
     status:         project.status,
+    phase:          project.phase,
     shootType:      project.shootType,
     shootStartDate: project.shootStartDate?.toISOString() ?? null,
     shootEndDate:   project.shootEndDate?.toISOString()   ?? null,
@@ -297,7 +299,7 @@ export default async function ProjectDetailPage({
         <div>
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_COLORS[project.status] ?? ''}`}>
-              {project.status}
+              {stageLabel(project.status, project.phase)}
             </span>
             <span className="text-xs text-muted-foreground">{SHOOT_LABELS[project.shootType] ?? project.shootType}</span>
           </div>

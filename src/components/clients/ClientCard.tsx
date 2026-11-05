@@ -1,5 +1,6 @@
 'use client'
 
+import { stageLabel } from '@/lib/project-phase'
 import { useState } from 'react'
 import Link from 'next/link'
 import {
@@ -30,6 +31,7 @@ export interface ClientRow {
     id:             string
     name:           string
     status:         string
+    phase:          string
     accountManager: { name: string | null; email: string; avatarUrl: string | null } | null
   }[]
 }
@@ -202,7 +204,7 @@ export function ClientCard({ client: c, onEdit, onArchive }: Props) {
                   </span>
                 )}
                 <span className={`shrink-0 rounded-full px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide ${PROJECT_STATUS_COLORS[p.status] ?? 'bg-gray-100 text-gray-500'}`}>
-                  {p.status.charAt(0) + p.status.slice(1).toLowerCase()}
+                  {stageLabel(p.status, p.phase)}
                 </span>
               </Link>
             ))}

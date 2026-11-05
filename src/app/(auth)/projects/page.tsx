@@ -4,512 +4,158 @@ import { db } from '@/lib/db'
 import { getWorkspaceId, getCurrentUser } from '@/lib/auth'
 import { getAccess } from '@/lib/access'
 import type { Prisma } from '@prisma/client'
-import { ProjectsPageClient } from '@/components/projects/ProjectsPageClient'
-import type { ProjectForCard, ProjectMetrics, AttentionItem, UpcomingShoot, StatusCounts } from '@/components/projects/projects-types'
-import { calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
+import { ProjectsTableClient, type ProjectStats } from '@/components/projects/table/ProjectsTableClient'
 import { addedScopeCents } from '@/lib/project-value'
+import { primaryPhaseTotals, PRIMARY_PHASE_TOTALS_SELECT, type PrimaryPhaseRow } from '@/lib/primary-phase-totals'
+import { effectivePhase, suggestedPhase } from '@/lib/project-phase'
+import { needsAttention, nextStep } from '@/lib/project-next-step'
+import type { ProjectRow } from '@/lib/projects-table'
 
 export const metadata = { title: 'Projects' }
 
-// Shared project includes — used for both allProjects and archivedProjects queries
-const PROJECT_INCLUDES = {
-  client: { select: { id: true, name: true } },
-  _count: { select: { budgets: true } },
+const PROJECT_SELECT = {
+  id: true, name: true, shootType: true, status: true, phase: true,
+  shootStartDate: true, shootEndDate: true, updatedAt: true,
+  client: { select: { id: true, name: true, logoUrl: true } },
   proposals: {
-    select: {
-      id: true,
-      status: true,
-      approvedTotalCents: true,
-      lastViewedAt: true,
-      sentAt: true,
-      expiresAt: true,
-      viewCount: true,
-      createdAt: true,
-      updatedAt: true,
-    },
+    select: { status: true, approvedTotalCents: true, approvedAt: true, lastViewedAt: true, sentAt: true, expiresAt: true, viewCount: true },
   },
   invoices: {
-    select: {
-      id: true,
-      status: true,
-      totalCents: true,
-      amountPaidCents: true,
-      dueDate: true,
-      paidAt: true,
-      issueDate: true,
-      isScopeAddition: true,
-    },
+    select: { number: true, kind: true, status: true, totalCents: true, amountPaidCents: true, dueDate: true, issueDate: true, isScopeAddition: true },
   },
-  callSheets: {
-    select: {
-      id: true,
-      status: true,
-      shootDate: true,
-    },
-  },
+  callSheets: { select: { status: true } },
   teamMembers: {
-    // The PL/AM/PM chips — read from the project role (the legacy `role`
-    // column is no longer written for new rows).
+    // The PL / AM / PM chips — read from the project role.
     where:   { unassignedAt: null, projectRole: { systemKey: { in: ['PROJECT_LEAD', 'ACCOUNT_MANAGER', 'PROJECT_MANAGER'] as string[] } } },
     orderBy: { assignedAt: 'asc' },
-    select:  { projectRole: { select: { systemKey: true } }, user: { select: { name: true, email: true, avatarUrl: true } } },
+    select:  { userId: true, projectRole: { select: { systemKey: true } }, user: { select: { name: true, email: true, avatarUrl: true } } },
   },
 } as const
 
-export default async function ProjectsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ status?: string; view?: string; sort?: string }>
-}) {
-  const [resolvedParams, workspaceId, currentUser, access] = await Promise.all([
-    searchParams,
-    getWorkspaceId(),
-    getCurrentUser(),
-    getAccess(),
-  ])
+const iso = (d: Date | null) => (d ? d.toISOString() : null)
+const dayKey = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null)
 
-  // ── RBAC: Collaborators only see projects they're explicitly assigned to.
-  // Owners/Producers see the whole workspace. Merged into the scoped where so
-  // it composes with the automatic workspaceId injection.
-  // Roles: an ASSIGNED-scope role only lists projects they're on.
+export default async function ProjectsPage() {
+  const [workspaceId, currentUser, access] = await Promise.all([getWorkspaceId(), getCurrentUser(), getAccess()])
+
+  // ASSIGNED-scope roles only list projects they're on.
   const visibilityWhere: Prisma.ProjectWhereInput =
     !access.isOwner && access.projectScope === 'ASSIGNED'
       ? { assignments: { some: { userId: currentUser.id } } }
       : {}
 
-  // Collaborators are margin-blind — workspace-wide financial KPIs (pipeline,
-  // outstanding, won) must not reach them. Zeroed server-side so the real
-  // figures never enter the payload; the metrics strip is also hidden in the UI.
+  // Margin-blind roles: every money figure is left out server-side — the
+  // gross total next to a net budget they can see would give away markup.
   const canSeeFin = access.can('dashboardMoney')
 
-  const sdb         = await getScopedDb()
-  const now         = new Date()
-  const msPerDay    = 86_400_000
-  // Use start-of-today so projects with shootStartDate = today are included.
-  // Prisma stores dates as UTC midnight; comparing against `now` (mid-day) would
-  // exclude shoots that are actually today.
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const sdb = await getScopedDb()
+  const now = new Date()
+  const todayKey = now.toISOString().slice(0, 10)
+  const DAY = 86_400_000
 
-  // ── Quarter bounds ────────────────────────────────────────────────────────────
-  const qMonth         = Math.floor(now.getMonth() / 3) * 3
-  const qStart         = new Date(now.getFullYear(), qMonth, 1)
-  const qEnd           = new Date(now.getFullYear(), qMonth + 3, 0, 23, 59, 59, 999)
-  const prevQStart     = new Date(now.getFullYear(), qMonth - 3, 1)
-  const prevQEnd       = new Date(qStart.getTime() - 1)
+  const qMonth     = Math.floor(now.getMonth() / 3) * 3
+  const qStart     = new Date(now.getFullYear(), qMonth, 1)
+  const qEnd       = new Date(now.getFullYear(), qMonth + 3, 0, 23, 59, 59, 999)
+  const prevQStart = new Date(now.getFullYear(), qMonth - 3, 1)
+  const prevQEnd   = new Date(qStart.getTime() - 1)
 
-  // ── Week bounds (Mon–Sun) ─────────────────────────────────────────────────────
-  const dayOfWeek  = now.getDay() === 0 ? 6 : now.getDay() - 1   // Mon = 0
-  const weekStart  = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek)
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Parallel fetch
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  const [
-    allProjects,
-    archivedProjects,
-    clients,
-    templates,
-    wonThisQ,
-    wonLastQ,
-    actualsSheets,
-    primaryPhases,
-    pipelineProposals,
-    scopeThisQ,
-    scopeLastQ,
-  ] = await Promise.all([
-
-    // ── All non-archived projects with rich includes ──────────────────────────
-    sdb.project.findMany({
-      where: { status: { not: 'ARCHIVED' }, ...visibilityWhere },
-      orderBy: { updatedAt: 'desc' },
-      include: PROJECT_INCLUDES,
-    }),
-
-    // ── Archived projects (passed to client for the Archived filter view) ─────
-    sdb.project.findMany({
-      where: { status: 'ARCHIVED', ...visibilityWhere },
-      orderBy: { updatedAt: 'desc' },
-      include: PROJECT_INCLUDES,
-    }),
-
-    // ── For NewProjectModal ───────────────────────────────────────────────────
-    db.client.findMany({
-      where: { workspaceId, archivedAt: null },
-      orderBy: { name: 'asc' },
-      select: { id: true, name: true },
-    }),
-    db.budgetTemplate.findMany({
-      where: { workspaceId },
-      orderBy: { name: 'asc' },
-      select: { id: true, name: true, shootType: true, description: true },
-    }),
-
-    // ── Won this quarter (non-archived projects only) ─────────────────────────
-    sdb.proposal.aggregate({
-      where: {
-        status: 'APPROVED',
-        approvedAt: { gte: qStart, lte: qEnd },
-        project: { status: { not: 'ARCHIVED' } },
-      },
-      _sum: { approvedTotalCents: true },
-      _count: true,
-    }),
-
-    // ── Won last quarter (non-archived projects only) ─────────────────────────
-    sdb.proposal.aggregate({
-      where: {
-        status: 'APPROVED',
-        approvedAt: { gte: prevQStart, lte: prevQEnd },
-        project: { status: { not: 'ARCHIVED' } },
-      },
-      _sum: { approvedTotalCents: true },
-    }),
-
-    // ── Actuals: sum of actualCents per project ───────────────────────────────
-    // Each project can have at most one ActualSheet; we sum all entries for it.
-    sdb.actualSheet.findMany({
-      select: {
-        projectId: true,
-        entries:   { select: { actualCents: true } },
-      },
-    }),
-
-    // ── Primary phase gross totals (net + markup + tax) ──────────────────────
-    // Used for burn bar denominator and "Proposed" / "Approved" amounts on cards.
-    // Fetches account tree so calcBudgetTotals can apply per-item markup + budget
-    // level markup + tax, matching what the proposal modal sends to the client.
-    sdb.phase.findMany({
-      where: { isPrimary: true },
-      select: {
-        budget: {
-          select: {
-            projectId: true,
-            markupPct:  true,
-            taxPct:     true,
-            discountType: true, discountLabel: true, discountValueCents: true, discountValuePct: true,
-          },
-        },
-        accounts: {
-          where:  { parentId: null },
-          select: {
-            lineItems: { select: { quantity: true, rateCents: true, markupPct: true } },
-            children:  {
-              select: {
-                lineItems: { select: { quantity: true, rateCents: true, markupPct: true } },
-              },
-            },
-          },
-        },
-      },
-    }),
-
-    // ── Pipeline proposals (non-archived projects, deduped to one per project) ─
-    // Ordered by sentAt desc so deduplication keeps the most-recently-sent proposal.
-    // Value is computed from budgetTotalByProject (same gross calc as the cards),
-    // so we only need the projectId to look it up.
-    sdb.proposal.findMany({
-      where: {
-        status: { in: ['SENT', 'VIEWED'] },
-        project: { status: { not: 'ARCHIVED' } },
-      },
-      orderBy: { sentAt: 'desc' },
-      select: {
-        id: true,
-        projectId: true,
-      },
-    }),
-
-    // ── Added scope billed this / last quarter (invoice-first) ────────────────
-    // Won on top of an approved proposal, so it counts as won when invoiced.
-    sdb.invoice.aggregate({
-      where: { isScopeAddition: true, status: { not: 'VOID' }, issueDate: { gte: qStart, lte: qEnd }, project: { status: { not: 'ARCHIVED' } } },
-      _sum: { totalCents: true },
-    }),
-    sdb.invoice.aggregate({
-      where: { isScopeAddition: true, status: { not: 'VOID' }, issueDate: { gte: prevQStart, lte: prevQEnd }, project: { status: { not: 'ARCHIVED' } } },
-      _sum: { totalCents: true },
-    }),
+  const [projects, clients, templates, wonThisQ, wonLastQ, primaryPhases, scopeThisQ, scopeLastQ, editableIds, teamEditableIds, pipelineProposals] = await Promise.all([
+    sdb.project.findMany({ where: visibilityWhere, orderBy: { updatedAt: 'desc' }, select: PROJECT_SELECT }),
+    // For NewProjectModal
+    db.client.findMany({ where: { workspaceId, archivedAt: null }, orderBy: { name: 'asc' }, select: { id: true, name: true } }),
+    db.budgetTemplate.findMany({ where: { workspaceId }, orderBy: { name: 'asc' }, select: { id: true, name: true, shootType: true, description: true } }),
+    sdb.proposal.aggregate({ where: { status: 'APPROVED', approvedAt: { gte: qStart, lte: qEnd }, project: { status: { not: 'ARCHIVED' } } }, _sum: { approvedTotalCents: true } }),
+    sdb.proposal.aggregate({ where: { status: 'APPROVED', approvedAt: { gte: prevQStart, lte: prevQEnd }, project: { status: { not: 'ARCHIVED' } } }, _sum: { approvedTotalCents: true } }),
+    canSeeFin ? sdb.phase.findMany({ where: { isPrimary: true }, select: PRIMARY_PHASE_TOTALS_SELECT }) : Promise.resolve([]),
+    // Added scope billed this / last quarter counts as won when invoiced.
+    sdb.invoice.aggregate({ where: { isScopeAddition: true, status: { not: 'VOID' }, issueDate: { gte: qStart, lte: qEnd }, project: { status: { not: 'ARCHIVED' } } }, _sum: { totalCents: true } }),
+    sdb.invoice.aggregate({ where: { isScopeAddition: true, status: { not: 'VOID' }, issueDate: { gte: prevQStart, lte: prevQEnd }, project: { status: { not: 'ARCHIVED' } } }, _sum: { totalCents: true } }),
+    projectsWithArea('overview', 'EDIT'),
+    projectsWithArea('projectTeam', 'EDIT'),
+    sdb.proposal.findMany({ where: { status: { in: ['SENT', 'VIEWED'] }, project: { status: { not: 'ARCHIVED' } } }, select: { projectId: true } }),
   ])
 
-  // ── Pipeline: deduplicate to one proposal per project (latest sent) ──────────
-  // Multiple proposals for the same project should only count once in the metrics.
-  const seenProjectIds = new Set<string>()
-  const dedupedPipelineProposals = pipelineProposals.filter(p => {
-    if (!p.projectId || seenProjectIds.has(p.projectId)) return false
-    seenProjectIds.add(p.projectId)
-    return true
+  const budgetTotal = primaryPhaseTotals(primaryPhases as unknown as PrimaryPhaseRow[])
+
+  // ── Rows ──────────────────────────────────────────────────────────────────
+  const rows: ProjectRow[] = projects.map(p => {
+    const won       = p.proposals.find(pr => pr.status === 'APPROVED') ?? null
+    const proposed  = p.proposals.some(pr => pr.status === 'SENT' || pr.status === 'VIEWED')
+    const budget    = budgetTotal.get(p.id) ?? 0
+    const expected  = (budget > 0 ? budget : (won?.approvedTotalCents ?? 0)) + addedScopeCents(p.invoices)
+    const collected = p.invoices.reduce((s, i) => s + (i.status === 'VOID' ? 0 : i.amountPaidCents), 0)
+    const invoices  = p.invoices.map(i => ({ ...i, invoiceNumber: i.number, dueDate: i.dueDate.toISOString(), issueDate: i.issueDate.toISOString() }))
+    const shootStart = dayKey(p.shootStartDate)
+    const step = nextStep({
+      status: p.status, shootStart,
+      proposals: p.proposals.map(pr => ({ ...pr, lastViewedAt: iso(pr.lastViewedAt), sentAt: iso(pr.sentAt), expiresAt: iso(pr.expiresAt) })),
+      invoices, callSheets: p.callSheets,
+      // Real figure even for margin-blind roles: only the paid-in-full yes/no
+      // comes out of it; amounts stay out of `detail` when showMoney is off.
+      expectedCents: expected,
+    }, now, { showMoney: canSeeFin })
+    const phase = effectivePhase(p.status, p.phase)
+    const seen = new Set<string>()
+    return {
+      id: p.id, name: p.name, shootType: p.shootType, status: p.status, phase,
+      client: p.client,
+      shootStart, shootEnd: dayKey(p.shootEndDate),
+      updatedAt: p.updatedAt.toISOString(),
+      money: canSeeFin ? { valueCents: expected, collectedCents: collected, won: !!won, wonAt: iso(won?.approvedAt ?? null), proposed } : null,
+      step,
+      attention: needsAttention(step),
+      suggested: suggestedPhase(phase, {
+        status: p.status, shootStart, shootEnd: dayKey(p.shootEndDate), proposals: p.proposals, invoices, expectedCents: expected,
+      }, todayKey),
+      // One chip per built-in role — the earliest holder when several share it.
+      team: p.teamMembers.flatMap(m => {
+        const role = m.projectRole?.systemKey
+        if (!role || seen.has(role)) return []
+        seen.add(role)
+        return [{ role, userId: m.userId, ...m.user }]
+      }),
+      canEdit:     editableIds === null || editableIds.includes(p.id),
+      canEditTeam: teamEditableIds === null || teamEditableIds.includes(p.id),
+    }
   })
 
-  // ── Pipeline value assigned after budgetTotalByProject (see below) ───────────
-
-  // ── Burn bar: merge actuals + budget totals into project cards ───────────────
-  // actualSpentCents: sum of all ActualEntry.actualCents for the project's sheet
-  const actualSpentByProject = new Map<string, number>()
-  for (const sheet of actualsSheets) {
-    const sum = sheet.entries.reduce((s, e) => s + e.actualCents, 0)
-    actualSpentByProject.set(sheet.projectId, (actualSpentByProject.get(sheet.projectId) ?? 0) + sum)
+  // ── Stats (non-archived) ──────────────────────────────────────────────────
+  const live = rows.filter(r => r.status !== 'ARCHIVED')
+  // Pipeline: projects with a sent / viewed proposal (one per project),
+  // valued at the live budget total — as before the table.
+  // Workspace-wide, as before the table (not limited to the projects listed).
+  const pipelineIds = [...new Set(pipelineProposals.map(p => p.projectId).filter((id): id is string => !!id))]
+  let outstanding = 0
+  for (const r of live) if (r.money?.won) outstanding += Math.max(0, r.money.valueCents - r.money.collectedCents)
+  // Not won yet but invoiced (invoice-first or ad hoc): unpaid balances.
+  for (const p of projects) {
+    if (p.status === 'ARCHIVED' || p.proposals.some(pr => pr.status === 'APPROVED')) continue
+    for (const i of p.invoices) if (i.status !== 'VOID' && i.status !== 'PAID') outstanding += Math.max(0, i.totalCents - i.amountPaidCents)
   }
-
-  // budgetTotalCents: GROSS total (net + markup + tax) from primary phase.
-  // Uses calcBudgetTotals so the number matches what the proposal modal shows.
-  const budgetTotalByProject = new Map<string, number>()
-  for (const phase of primaryPhases) {
-    const projectId = phase.budget?.projectId
-    if (!projectId) continue
-    const markupPct = phase.budget?.markupPct != null ? Number(phase.budget.markupPct) : 0
-    const taxPct    = phase.budget?.taxPct    != null ? Number(phase.budget.taxPct)    : 0
-    const discountConfig: BudgetDiscountConfig | null = phase.budget?.discountType ? {
-      type:       phase.budget.discountType as 'flat' | 'pct',
-      label:      phase.budget.discountLabel,
-      valueCents: phase.budget.discountValueCents,
-      valuePct:   phase.budget.discountValuePct != null ? Number(phase.budget.discountValuePct) : null,
-    } : null
-    const { grandTotalCents } = calcBudgetTotals(
-      phase.accounts as unknown as AccountInput[],
-      markupPct,
-      taxPct,
-      discountConfig,
-    )
-    budgetTotalByProject.set(projectId, grandTotalCents)
-  }
-
-  // ── Pipeline value: gross total for each project with a SENT/VIEWED proposal ─
-  // Matches "Proposed $X" on the cards — same calcBudgetTotals source of truth.
-  const pipelineValueCents = dedupedPipelineProposals.reduce((sum, p) => {
-    if (!p.projectId) return sum
-    return sum + (budgetTotalByProject.get(p.projectId) ?? 0)
-  }, 0)
-
-  // Attach burn data to both non-archived and archived projects. For roles
-  // without financial access every money field is zeroed server-side: the
-  // gross budget total in particular, compared with the net budget they can
-  // see, would give away the markup.
-  // One chip per built-in role — the earliest holder when several share it.
-  const chips = (rows: (typeof allProjects)[number]['teamMembers'] | undefined) => {
-    const seen = new Set<string>()
-    return (rows ?? []).flatMap(r => {
-      const role = r.projectRole?.systemKey as 'PROJECT_LEAD' | 'ACCOUNT_MANAGER' | 'PROJECT_MANAGER' | undefined
-      if (!role || seen.has(role)) return []
-      seen.add(role)
-      return [{ role, user: r.user }]
-    })
-  }
-  const withCardMoney = (p: (typeof allProjects)[number]) => canSeeFin
-    ? {
-        ...p,
-        actualSpentCents: actualSpentByProject.get(p.id) ?? 0,
-        budgetTotalCents: budgetTotalByProject.get(p.id) ?? 0,
-        addedScopeCents:  addedScopeCents(p.invoices),
-        teamMembers: chips(p.teamMembers),
-      }
-    : {
-        ...p,
-        proposals: p.proposals.map(pr => ({ ...pr, approvedTotalCents: null })),
-        invoices:  p.invoices.map(inv => ({ ...inv, totalCents: 0, amountPaidCents: 0 })),
-        actualSpentCents: 0,
-        budgetTotalCents: 0,
-        addedScopeCents:  0,
-        teamMembers: chips(p.teamMembers),
-      }
-  const projectsWithBurn = allProjects.map(withCardMoney)
-  const archivedWithBurn = archivedProjects.map(withCardMoney)
-
-  // All projects for the client (non-archived first, then archived at the end)
-  const allProjectsForClient = [...projectsWithBurn, ...archivedWithBurn]
-
-  // ── Metrics ───────────────────────────────────────────────────────────────────
-  // Metrics are computed from allProjects (non-archived) only.
-  // "Open" = LEAD + ACTIVE (anything you're actively working or pitching)
-  const openProjects        = allProjects.filter(p => p.status === 'LEAD' || p.status === 'ACTIVE')
-  const upcomingShootCutoff = new Date(now.getTime() + 30 * msPerDay)
-  const upcomingShootCount  = allProjects.filter(
-    // Use startOfToday so projects with shootDate = today are included
-    p => p.shootStartDate && p.shootStartDate >= startOfToday && p.shootStartDate <= upcomingShootCutoff,
-  ).length
-
-  // Overdue = open invoices (not VOID/PAID, not fully paid) past their due date.
-  const overdueCount = projectsWithBurn
+  const overdueCount = projects
+    .filter(p => p.status !== 'ARCHIVED')
     .flatMap(p => p.invoices)
-    .filter(inv =>
-      ['SENT', 'VIEWED', 'OVERDUE'].includes(inv.status) &&
-      inv.amountPaidCents < inv.totalCents &&
-      inv.dueDate < now,
-    ).length
+    .filter(i => ['SENT', 'VIEWED', 'OVERDUE'].includes(i.status) && i.amountPaidCents < i.totalCents && i.dueDate < now).length
+  const soon = new Date(now.getTime() + 30 * DAY).toISOString().slice(0, 10)
 
-  // Outstanding = money owed but not yet collected.
-  //
-  // • WON projects: expected gross (live budgetTotalCents, plus added scope) minus all
-  //   payments made so far. This captures approved-but-not-yet-invoiced amounts automatically.
-  // • Non-WON projects: sum of unpaid balances on open (non-void, non-paid) invoices.
-  let outstandingCents = 0
-  for (const project of projectsWithBurn) {
-    const wonProposal = project.proposals.find(p => p.status === 'APPROVED')
-    if (wonProposal) {
-      const expectedCents  = (project.budgetTotalCents > 0
-        ? project.budgetTotalCents
-        : (wonProposal.approvedTotalCents ?? 0)
-      ) + project.addedScopeCents
-      const collectedCents = project.invoices.reduce((s, inv) => s + inv.amountPaidCents, 0)
-      outstandingCents += Math.max(0, expectedCents - collectedCents)
-    } else {
-      for (const inv of project.invoices) {
-        if (inv.status === 'VOID' || inv.status === 'PAID') continue
-        outstandingCents += Math.max(0, inv.totalCents - inv.amountPaidCents)
-      }
-    }
-  }
-
-  // This-week stats (non-archived only)
-  const thisWeekProposalsSent = allProjects
-    .flatMap(p => p.proposals)
-    .filter(pr => pr.sentAt && pr.sentAt >= weekStart).length
-
-  const thisWeekInvoicesIssued = allProjects
-    .flatMap(p => p.invoices)
-    .filter(inv => inv.issueDate >= weekStart).length
-
-  const thisWeekProjectsCreated = allProjects.filter(
-    p => p.createdAt >= weekStart,
-  ).length
-
-  const metrics: ProjectMetrics = {
-    pipelineValueCents:       canSeeFin ? pipelineValueCents : 0,
-    pipelineCount:            dedupedPipelineProposals.length,
-    activeCount:              openProjects.length,
-    upcomingShootCount,
-    outstandingCents:         canSeeFin ? outstandingCents : 0,
+  const stats: ProjectStats = {
+    showMoney:      canSeeFin,
+    pipelineCents:  canSeeFin ? pipelineIds.reduce((s, id) => s + (budgetTotal.get(id) ?? 0), 0) : 0,
+    pipelineCount:  pipelineIds.length,
+    outstandingCents: canSeeFin ? outstanding : 0,
     overdueCount,
-    wonThisQuarterCents:      canSeeFin ? (wonThisQ._sum.approvedTotalCents ?? 0) + (scopeThisQ._sum.totalCents ?? 0) : 0,
-    wonLastQuarterCents:      canSeeFin ? (wonLastQ._sum.approvedTotalCents ?? 0) + (scopeLastQ._sum.totalCents ?? 0) : 0,
-    thisWeekProposalsSent,
-    thisWeekInvoicesIssued,
-    thisWeekProjectsCreated,
-  }
-
-  // ── Attention items ───────────────────────────────────────────────────────────
-  const attentionItems: AttentionItem[] = []
-  const FIVE_DAYS  = 5 * msPerDay
-  const FOUR_DAYS  = 4 * msPerDay
-  const TWO_DAYS   = 2 * msPerDay
-
-  for (const project of allProjects) {
-    // 1. Proposals viewed >5 days ago with no response
-    for (const pr of project.proposals) {
-      if (
-        pr.status === 'VIEWED' &&
-        pr.lastViewedAt &&
-        now.getTime() - pr.lastViewedAt.getTime() > FIVE_DAYS
-      ) {
-        const daysAgo = Math.floor((now.getTime() - pr.lastViewedAt.getTime()) / msPerDay)
-        attentionItems.push({
-          type:        'proposal-viewed',
-          projectId:   project.id,
-          projectName: project.name,
-          label:       `Proposal viewed ${pr.viewCount}×, no response in ${daysAgo}d`,
-          href:        `/projects/${project.id}`,
-        })
-        break // one alert per project
-      }
-    }
-
-    // 2. Overdue invoices
-    for (const inv of project.invoices) {
-      if (
-        ['SENT', 'VIEWED', 'OVERDUE'].includes(inv.status) &&
-        inv.dueDate < now
-      ) {
-        const daysOverdue = Math.floor((now.getTime() - inv.dueDate.getTime()) / msPerDay)
-        attentionItems.push({
-          type:        'invoice-overdue',
-          projectId:   project.id,
-          projectName: project.name,
-          label:       `Invoice overdue by ${daysOverdue}d`,
-          href:        `/projects/${project.id}`,
-        })
-        break
-      }
-    }
-
-    // 3. Shoot in next 4 days with no SENT or FINAL call sheet
-    if (
-      project.shootStartDate &&
-      project.shootStartDate >= startOfToday &&
-      project.shootStartDate <= new Date(startOfToday.getTime() + FOUR_DAYS)
-    ) {
-      const hasSentSheet = project.callSheets.some(
-        cs => cs.status === 'SENT' || cs.status === 'FINAL',
-      )
-      if (!hasSentSheet) {
-        const daysUntil = Math.ceil(
-          (project.shootStartDate.getTime() - now.getTime()) / msPerDay,
-        )
-        attentionItems.push({
-          type:        'shoot-no-callsheet',
-          projectId:   project.id,
-          projectName: project.name,
-          label:       `Shoot in ${daysUntil} day${daysUntil === 1 ? '' : 's'}, no call sheet sent`,
-          href:        `/projects/${project.id}`,
-        })
-      }
-    }
-
-    // 4. Proposal expiring in next 2 days
-    for (const pr of project.proposals) {
-      if (
-        ['SENT', 'VIEWED'].includes(pr.status) &&
-        pr.expiresAt &&
-        pr.expiresAt >= now &&
-        pr.expiresAt <= new Date(now.getTime() + TWO_DAYS)
-      ) {
-        const daysLeft = Math.ceil((pr.expiresAt.getTime() - now.getTime()) / msPerDay)
-        attentionItems.push({
-          type:        'proposal-expiring',
-          projectId:   project.id,
-          projectName: project.name,
-          label:       `Proposal expires in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`,
-          href:        `/projects/${project.id}`,
-        })
-        break
-      }
-    }
-  }
-
-  // ── Upcoming shoots (next 28 days, inclusive of today) ───────────────────────
-  const upcomingCutoff = new Date(startOfToday.getTime() + 28 * msPerDay)
-  const upcomingShoots: UpcomingShoot[] = allProjects
-    .filter(p => p.shootStartDate && p.shootStartDate >= startOfToday && p.shootStartDate <= upcomingCutoff)
-    .sort((a, b) => (a.shootStartDate!.getTime()) - (b.shootStartDate!.getTime()))
-    .map(p => ({
-      projectId:   p.id,
-      projectName: p.name,
-      clientName:  p.client.name,
-      shootDate:   p.shootStartDate!,
-    }))
-
-  // ── Status counts (for filter pills) ──────────────────────────────────────────
-  const statusCounts: StatusCounts = {
-    lead:     allProjects.filter(p => p.status === 'LEAD').length,
-    active:   allProjects.filter(p => p.status === 'ACTIVE').length,
-    wrapped:  allProjects.filter(p => p.status === 'WRAPPED').length,
-    archived: archivedProjects.length,
+    wonThisQuarterCents: canSeeFin ? (wonThisQ._sum.approvedTotalCents ?? 0) + (scopeThisQ._sum.totalCents ?? 0) : 0,
+    wonLastQuarterCents: canSeeFin ? (wonLastQ._sum.approvedTotalCents ?? 0) + (scopeLastQ._sum.totalCents ?? 0) : 0,
+    upcomingShoots: live.filter(r => r.shootStart && r.shootStart >= todayKey && r.shootStart <= soon).length,
   }
 
   return (
-    <ProjectsPageClient
-      projects={allProjectsForClient as unknown as ProjectForCard[]}
-      metrics={metrics}
-      canSeeFinancials={canSeeFin}
-      teamEditableIds={await projectsWithArea('projectTeam', 'EDIT')}
+    <ProjectsTableClient
+      rows={rows}
+      stats={stats}
       canManageProjects={access.can('projects', 'EDIT')}
-      attentionItems={attentionItems}
-      upcomingShoots={upcomingShoots}
-      statusCounts={statusCounts}
       clients={clients}
       templates={templates}
-      initialStatus={resolvedParams.status ?? 'all'}
-      initialView={resolvedParams.view === 'list' ? 'list' : 'grid'}
-      initialSort={resolvedParams.sort ?? 'shoot'}
     />
   )
 }

@@ -1,4 +1,5 @@
 import { requireWorkspaceArea } from '@/lib/project-access'
+import { stageLabel } from '@/lib/project-phase'
 import { projectsWithArea } from '@/lib/money-access'
 import { ViewOnly } from '@/components/ui/view-only'
 import { notFound } from 'next/navigation'
@@ -32,12 +33,6 @@ const STATUS_LABEL: Record<string, { label: string; bg: string; color: string }>
   FINAL: { label: 'Final', bg: '#dcfce7', color: '#15803d' },
 }
 
-const PROJECT_STATUS_LABEL: Record<string, string> = {
-  LEAD:     'Lead',
-  ACTIVE:   'Active',
-  WRAPPED:  'Wrapped',
-  ARCHIVED: 'Archived',
-}
 
 export default async function ContactDetailPage({ params }: { params: Promise<{ id: string }> }) {
   // Roles 2b: the workspace rolodex permission.
@@ -188,7 +183,7 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
                       {new Date(pm.project.shootStartDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                     </span>
                   )}
-                  <span className="text-xs text-muted-foreground">{PROJECT_STATUS_LABEL[pm.project.status] ?? pm.project.status}</span>
+                  <span className="text-xs text-muted-foreground">{stageLabel(pm.project.status, pm.project.phase)}</span>
                 </div>
               </Link>
             ))}

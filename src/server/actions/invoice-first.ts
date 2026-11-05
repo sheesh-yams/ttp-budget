@@ -116,7 +116,8 @@ async function createWithNewProject(
     const project = await tx.project.create({
       data: {
         workspaceId, clientId, name: data.projectName,
-        status: 'ACTIVE', createdById: user.id,
+        // Billed straight away, so it starts in Invoicing (project-phase.ts).
+        status: 'ACTIVE', phase: 'INVOICING', createdById: user.id,
       },
       select: { id: true },
     })

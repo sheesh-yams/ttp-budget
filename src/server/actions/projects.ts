@@ -9,6 +9,8 @@ import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import { Prisma } from '@prisma/client'
 import { createBudget } from './budgets'
+import { applyStage, effectivePhase, isPhase, restoredStatus, statusForPhase, type StageKey } from '@/lib/project-phase'
+import { logAuditEvent } from '@/lib/audit'
 
 // ─── Create project + budget from template ────────────────────────────────────
 
@@ -97,13 +99,14 @@ const SHOOT_TYPES = [
   'SOCIAL_CONTENT','INFLUENCER','DOCUMENTARY','OTHER',
 ] as const
 
-const PROJECT_STATUSES = ['LEAD','ACTIVE','WRAPPED','ARCHIVED'] as const
+const STAGES = ['LEAD','PRE_PROD','PRODUCTION','POST','INVOICING','OFFBOARDING','WRAPPED','ARCHIVED'] as const
 
 export async function updateProject(
   projectId: string,
   input: {
     name: string
-    status: typeof PROJECT_STATUSES[number]
+    /** A phase, or WRAPPED / ARCHIVED (the Edit modal's Stage select). */
+    stage: StageKey
     shootType: typeof SHOOT_TYPES[number]
     /** Individual shoot dates, "YYYY-MM-DD". Need not be contiguous. */
     shootDates: string[]
@@ -112,20 +115,27 @@ export async function updateProject(
   try {
     const gate = await requireProjectPermission(projectId, 'overview', 'EDIT')
     if (!gate.ok) return gate.error
-    if (!(await archiveChangeAllowed(projectId, input.status))) {
-      return { success: false, error: 'Archiving or restoring a project needs the Projects permission.' }
-    }
+    if (!(STAGES as readonly string[]).includes(input.stage)) return { success: false, error: 'Invalid stage' }
 
     const db = await getScopedDb()
+    const current = await db.project.findFirst({ where: { id: projectId }, select: { status: true, phase: true, archivedAt: true } })
+    if (!current) return { success: false, error: 'Project not found' }
+    const next = applyStage(input.stage, { status: current.status, phase: effectivePhase(current.status, current.phase) })
+    if (!(await archiveChangeAllowed(projectId, next.status))) {
+      return { success: false, error: 'Archiving or restoring a project needs the Projects permission.' }
+    }
     const wantedKeys = [...new Set(input.shootDates)].sort()
 
     await db.project.update({
       where: { id: projectId },
       data: {
         name:           input.name.trim(),
-        status:         input.status,
-        // Keep archivedAt in step when the status path archives / restores.
-        ...(input.status === 'ARCHIVED' ? { archivedAt: new Date() } : { archivedAt: null }),
+        status:         next.status,
+        phase:          next.phase,
+        ...(next.phase !== current.phase ? { phaseChangedAt: new Date() } : {}),
+        // Keep archivedAt in step when the status path archives / restores
+        // (an already-archived project keeps its original date).
+        archivedAt: next.status === 'ARCHIVED' ? (current.archivedAt ?? new Date()) : null,
         shootType:      input.shootType,
         shootStartDate: wantedKeys[0] ? new Date(wantedKeys[0]) : null,
         shootEndDate:   wantedKeys.length ? new Date(wantedKeys[wantedKeys.length - 1]) : null,
@@ -215,10 +225,12 @@ export async function unarchiveProject(projectId: string): Promise<ActionResult>
     if (!gate.ok) return gate.error
 
     const db = await getScopedDb()
-    await db.project.update({
-      where: { id: projectId },
+    const current = await db.project.findFirst({ where: { id: projectId }, select: { phase: true } })
+    if (!current) return { success: false, error: 'Project not found' }
+    await db.project.updateMany({
+      where: { id: projectId, status: 'ARCHIVED' },
       data: {
-        status:     'ACTIVE',
+        status:     restoredStatus(current.phase),
         archivedAt: null,
       },
     })
@@ -229,5 +241,65 @@ export async function unarchiveProject(projectId: string): Promise<ActionResult>
   } catch (err) {
     console.error(err)
     return { success: false, error: 'Failed to unarchive project' }
+  }
+}
+
+// ─── Set phase (the /projects table's in-place change) ────────────────────────
+
+export async function setProjectPhase(projectId: string, phase: string): Promise<ActionResult<{ status: string }>> {
+  try {
+    if (typeof projectId !== 'string' || !isPhase(phase)) return { success: false, error: 'Invalid phase' }
+    const gate = await requireProjectPermission(projectId, 'overview', 'EDIT')
+    if (!gate.ok) return gate.error
+
+    const [db, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+    const current = await db.project.findFirst({ where: { id: projectId }, select: { status: true, phase: true, workspaceId: true } })
+    if (!current) return { success: false, error: 'Project not found' }
+    if (current.status === 'ARCHIVED') return { success: false, error: 'Restore the project before changing its phase.' }
+    if (effectivePhase(current.status, current.phase) === phase && current.phase === phase && current.status !== 'WRAPPED') return { success: true, data: { status: current.status } }
+
+    const status = statusForPhase(phase, current.status)
+    // Guarded on the values just read, so a concurrent archive isn't undone.
+    const res = await db.project.updateMany({
+      where: { id: projectId, status: current.status, phase: current.phase },
+      data:  { phase, status, phaseChangedAt: new Date() },
+    })
+    if (res.count !== 1) return { success: false, error: 'The project changed meanwhile — refresh and try again.' }
+
+    await logAuditEvent({
+      workspaceId: current.workspaceId, actorId: user.id, action: 'project.phaseChanged',
+      entityType: 'Project', entityId: projectId,
+      metadata: { from: current.phase, to: phase, statusFrom: current.status, statusTo: status },
+    })
+    revalidatePath('/projects')
+    revalidatePath(`/projects/${projectId}`)
+    revalidatePath('/dashboard')
+    return { success: true, data: { status } }
+  } catch (err) {
+    console.error(err)
+    return { success: false, error: 'Failed to change phase' }
+  }
+}
+
+/** Wrap from the table: status WRAPPED, phase kept. */
+export async function wrapProject(projectId: string): Promise<ActionResult> {
+  try {
+    if (typeof projectId !== 'string') return { success: false, error: 'Invalid project' }
+    const gate = await requireProjectPermission(projectId, 'overview', 'EDIT')
+    if (!gate.ok) return gate.error
+    const [db, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+    const current = await db.project.findFirst({ where: { id: projectId }, select: { status: true, workspaceId: true } })
+    if (!current) return { success: false, error: 'Project not found' }
+    if (current.status === 'ARCHIVED') return { success: false, error: 'Restore the project first.' }
+    const res = await db.project.updateMany({ where: { id: projectId, status: { in: ['LEAD', 'ACTIVE'] } }, data: { status: 'WRAPPED' } })
+    if (res.count !== 1) return { success: false, error: 'The project is already wrapped or changed meanwhile — refresh.' }
+    await logAuditEvent({ workspaceId: current.workspaceId, actorId: user.id, action: 'project.wrapped', entityType: 'Project', entityId: projectId })
+    revalidatePath('/projects')
+    revalidatePath(`/projects/${projectId}`)
+    revalidatePath('/dashboard')
+    return { success: true, data: undefined }
+  } catch (err) {
+    console.error(err)
+    return { success: false, error: 'Failed to wrap project' }
   }
 }

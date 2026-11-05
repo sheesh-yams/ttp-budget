@@ -13,6 +13,7 @@ interface Props {
     id: string
     name: string
     status: string
+    phase: string
     shootType: string
     shootStartDate: string | null
     shootEndDate: string | null

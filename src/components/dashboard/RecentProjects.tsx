@@ -3,6 +3,7 @@ import type { ProjectWithClient } from '@/types'
 import { Badge } from '@/components/ui/badge'
 import { formatMoney } from '@/lib/money'
 import { parseLocalDate } from '@/lib/time-format'
+import { stageLabel } from '@/lib/project-phase'
 
 const shootTypeLabels: Record<string, string> = {
   MUSIC_VIDEO:    'Music video',
@@ -69,7 +70,7 @@ export function RecentProjects({ projects, showValue = true }: Props) {
                 </span>
               )}
               <Badge variant={project.status.toLowerCase() as 'active' | 'lead' | 'wrapped'}>
-                {project.status.charAt(0) + project.status.slice(1).toLowerCase()}
+                {stageLabel(project.status, project.phase)}
               </Badge>
             </span>
             {showValue && (

@@ -5,6 +5,7 @@ import { getScopedDb } from '@/lib/db-scoped'
 import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
 import { requirePermission, requireProjectPermission } from '@/lib/access'
 import { archiveChangeAllowed } from '@/lib/project-access'
+import { phaseForStatus } from '@/lib/project-phase'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import { Prisma } from '@prisma/client'
@@ -201,8 +202,11 @@ export async function updateProjectStatus(
       return { success: false, error: 'Archiving or restoring a project needs the Projects permission.' }
     }
 
+    if (!['LEAD', 'ACTIVE', 'WRAPPED', 'ARCHIVED'].includes(status)) return { success: false, error: 'Invalid status' }
     const db = await getScopedDb()
-    await db.project.update({ where: { id }, data: { status, archivedAt: status === 'ARCHIVED' ? new Date() : null } })
+    const current = await db.project.findFirst({ where: { id }, select: { phase: true } })
+    if (!current) return { success: false, error: 'Project not found' }
+    await db.project.update({ where: { id }, data: { status, phase: phaseForStatus(status, current.phase), archivedAt: status === 'ARCHIVED' ? new Date() : null } })
     revalidatePath('/dashboard')
     revalidatePath(`/projects/${id}`)
     return { success: true, data: undefined }

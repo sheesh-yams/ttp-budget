@@ -851,10 +851,19 @@ export async function updateProposalStatus(
           },
         })
         if (otherApproved === 0) {
-          await sdb.project.update({
-            where: { id: proposal.projectId },
-            data:  { status: 'LEAD' },
+          // Only undoes the automatic Lead → Pre-prod move; a project someone
+          // has moved on to Production or later keeps its phase.
+          const back = await sdb.project.updateMany({
+            where: { id: proposal.projectId, status: 'ACTIVE', phase: { in: ['LEAD', 'PRE_PROD'] } },
+            data:  { status: 'LEAD', phase: 'LEAD', phaseChangedAt: new Date() },
           })
+          if (back.count === 1) {
+            await logAuditEvent({
+              workspaceId: proposal.workspaceId, actorId: user.id, action: 'project.phaseChanged',
+              entityType: 'Project', entityId: proposal.projectId,
+              metadata: { to: 'LEAD', statusTo: 'LEAD', reason: `proposal ${status.toLowerCase()}` },
+            })
+          }
         }
       }
     }

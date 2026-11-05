@@ -449,6 +449,7 @@ export async function getContactById(id: string) {
               id:             true,
               name:           true,
               status:         true,
+              phase:          true,
               shootStartDate: true,
             },
           },

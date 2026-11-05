@@ -126,6 +126,82 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-04 — Projects page → table, with Phase and a calculated Status
+- **Asked:** a table instead of cards on /projects (logo, project, client,
+  status, phase, budget), in the shot list's Ramp style. Mockup approved
+  (`docs/mockups/projects-table/`).
+- **Decisions (user):**
+  - Phase (Lead → Pre-prod → Production → Post → Invoicing → Offboarding)
+    replaces Lead / Active / Wrapped in the UI. Winning a proposal moves
+    Lead → Pre-prod. Later phases are only suggested ("Move to Post?"),
+    never moved automatically.
+  - Status is calculated (the next step), not set by hand.
+  - Clients without a logo get a monogram; no logo fetching.
+- **Model:** `Project.status` is kept as the coarse bucket everything else
+  reads (dashboard, clients, proposals, archive permission). New
+  `Project.phase` + `phaseChangedAt`; `src/lib/project-phase.ts` keeps them
+  in step on every write:
+  - LEAD = phase LEAD; ACTIVE = phases 2–6; WRAPPED / ARCHIVED keep their
+    last phase.
+  - `effectivePhase` reads an ACTIVE project still at LEAD as Pre-prod, so
+    old status-only writes can't make the Edit modal demote a won project.
+  - Write paths: create (Lead), invoice-first (Invoicing), proposal won
+    (Pre-prod), proposal lost (back to Lead **only** from Lead / Pre-prod,
+    with an AuditEvent), Edit modal "Stage", archive / restore (restore
+    goes to Lead or Active by phase), legacy `updateProjectStatus`.
+  - New actions `setProjectPhase` (guarded `updateMany`, AuditEvent
+    `project.phaseChanged`) and `wrapProject`.
+- **Status (`src/lib/project-next-step.ts`):** first match wins:
+  1. invoice overdue
+  2. call sheet not sent (shoot within 4 days)
+  3. proposal expiring (within 2 days)
+  4. no reply in 5+ days
+  5. awaiting deposit
+  6. proposal sent / viewed
+  7. draft the proposal
+  8. paid in full
+  9. on track
+
+  Red / amber is the **Needs attention** tab, replacing the attention
+  sidebar. Amounts appear in the detail only with money access.
+- **UI (`src/components/projects/table/`):**
+  - Tabs: In progress / Leads / Needs attention / Wrapped / Archived / All.
+  - Stats, search, filters (Phase / Client / Type / Team) and sortable
+    columns. Group by phase and the column picker (localStorage).
+  - Export CSV, in-place phase menu, row menu (edit team, wrap,
+    archive / restore) and a phone list.
+  - Table state lives in the URL via `history.replaceState`, so there's no
+    server round trip.
+  - Removed: ProjectsPageClient, ProjectCard, ProjectStatusPills,
+    ProjectsAttentionSidebar, ProjectMetricsStrip, projects-types.
+  - The phase label also shows on the project header, dashboard recent
+    projects, client cards and the rolodex.
+- **Data:** migration `20261104000002_project_phase` (additive; run by the
+  user). Backfill approved by the user: 10 non-Lead projects set from
+  dates and payments, each with AuditEvent `project.phaseBackfilled`. The 7
+  archived projects that never won stay Lead.
+- **Metrics:** Outstanding no longer counts payments on VOID invoices as
+  collected. Pipeline is unchanged (workspace-wide, budget totals).
+- **Verified:**
+  - tsc, jest (533; new `project-phase.test.ts`), lint, build up to the
+    known Resend step.
+  - A throwaway DB script: won / lost / set phase / wrap / guarded writes /
+    other workspace / 0 other rows changed.
+  - A throwaway page with real data at desktop and 375px, with and without
+    money (no amounts in the payload).
+- **Review (pitfall-reviewer), all fixed:**
+  - Pre-deploy ACTIVE+LEAD rows could be demoted by the Edit modal.
+  - Margin-blind roles saw "Paid in full" on half-paid projects.
+  - Losing a proposal wiped a manually set phase.
+  - `wrapProject` audited no-op writes.
+  - The pipeline scope had changed.
+- **Follow-ups:**
+  - Sheeshyams Project Testing is status LEAD with a won, paid proposal.
+    This drift predates the change; ask before fixing.
+  - Fetch client logos from their websites.
+  - Bulk phase change.
+  - Phase history on the project page.
+
 ### 2026-11-04 — Shot list
 - **Asked:** a shot list per project, StudioBinder-style, with references
   (upload, paste or link) and on-set tracking. Mockup approved at v3

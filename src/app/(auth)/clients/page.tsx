@@ -22,6 +22,7 @@ export default async function ClientsPage() {
           id: true,
           name: true,
           status: true,
+          phase: true,
           updatedAt: true,
           invoices: {
             select: {
@@ -91,6 +92,7 @@ export default async function ClientsPage() {
         id:             p.id,
         name:           p.name,
         status:         p.status,
+        phase:          p.phase,
         accountManager: p.teamMembers[0]?.user ?? null,
       })),
     }

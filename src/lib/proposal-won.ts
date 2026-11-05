@@ -8,10 +8,11 @@ import { budgetRoleFor } from '@/lib/deal-memo-roles'
 import type { ScopedDb } from '@/lib/db-scoped'
 
 export async function applyProposalWonEffects(sdb: ScopedDb, proposalId: string, projectId: string) {
-  // Won proposal → promote project Lead → Active
+  // Won proposal → promote project Lead → Active, phase Lead → Pre-prod
+  // (src/lib/project-phase.ts keeps status and phase in step).
   await sdb.project.updateMany({
     where: { id: projectId, status: 'LEAD' },
-    data:  { status: 'ACTIVE' },
+    data:  { status: 'ACTIVE', phase: 'PRE_PROD', phaseChangedAt: new Date() },
   })
 
   // Fire-and-forget: delete unassigned placeholders not in the new proposal,

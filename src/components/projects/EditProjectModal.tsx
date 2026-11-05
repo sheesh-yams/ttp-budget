@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { updateProject, listShootDays } from '@/server/actions/projects'
 import { parseLocalDate } from '@/lib/time-format'
+import { PHASES, effectivePhase, type StageKey } from '@/lib/project-phase'
 
 const SHOOT_TYPES = [
   { value: 'MUSIC_VIDEO',    label: 'Music Video' },
@@ -21,9 +22,9 @@ const SHOOT_TYPES = [
   { value: 'OTHER',          label: 'Other' },
 ]
 
-const STATUSES = [
-  { value: 'LEAD',     label: 'Lead' },
-  { value: 'ACTIVE',   label: 'Active' },
+// Stage = the six phases, then Wrapped / Archived (src/lib/project-phase.ts).
+const STAGES = [
+  ...PHASES.map(p => ({ value: p.key as string, label: p.label })),
   { value: 'WRAPPED',  label: 'Wrapped' },
   { value: 'ARCHIVED', label: 'Archived' },
 ]
@@ -35,6 +36,7 @@ interface Props {
     id: string
     name: string
     status: string
+    phase: string
     shootType: string
   }
   onSaved: () => void
@@ -56,7 +58,7 @@ export function EditProjectModal({ open, onOpenChange, project, onSaved, canArch
   useEffect(() => {
     if (!open) return
     setName(project.name)
-    setStatus(project.status)
+    setStatus(project.status === 'WRAPPED' || project.status === 'ARCHIVED' ? project.status : effectivePhase(project.status, project.phase))
     setShootType(project.shootType)
     setNewDate('')
     setError('')
@@ -85,7 +87,7 @@ export function EditProjectModal({ open, onOpenChange, project, onSaved, canArch
     startTransition(async () => {
       const result = await updateProject(project.id, {
         name,
-        status:     status as never,
+        stage:      status as StageKey,
         shootType:  shootType as never,
         shootDates,
       })
@@ -120,13 +122,13 @@ export function EditProjectModal({ open, onOpenChange, project, onSaved, canArch
           {/* Status + Type */}
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
-              <Label>Status</Label>
+              <Label>Stage</Label>
               <Select value={status} onValueChange={setStatus}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {STATUSES.filter(st => canArchive || st.value !== 'ARCHIVED' || project.status === 'ARCHIVED').map(s => (
+                  {STAGES.filter(st => canArchive || st.value !== 'ARCHIVED' || project.status === 'ARCHIVED').map(s => (
                     <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
                   ))}
                 </SelectContent>
