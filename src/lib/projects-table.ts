@@ -15,9 +15,17 @@ export interface ProjectRow {
   shootStart: string | null
   shootEnd:   string | null
   updatedAt:  string
+  /** Has a sent (non-draft, non-void) invoice — money is being collected, so
+   *  it counts as booked work even if it's still marked Lead. */
+  billing:    boolean
+  /** Unpaid invoices past their due date. A count, not money. */
+  overdueInvoices: number
   /** Null for roles without project money (stripped server-side). */
   money: null | {
+    /** Expected gross (primary budget + added scope), never less than what's been invoiced. */
     valueCents:     number
+    /** Sum of sent invoices (not draft / void). */
+    invoicedCents:  number
     collectedCents: number
     won:            boolean
     wonAt:          string | null
@@ -32,29 +40,77 @@ export interface ProjectRow {
   canEditTeam: boolean
 }
 
+/** The tabs shown. /projects is booked work only; leads (bidding) are
+ *  reached through the separate "Leads" link (`?tab=leads`). */
 export const TABS = [
   { key: 'progress',  label: 'In progress' },
-  { key: 'leads',     label: 'Leads' },
   { key: 'attention', label: 'Needs attention' },
   { key: 'wrapped',   label: 'Wrapped' },
   { key: 'archived',  label: 'Archived' },
   { key: 'all',       label: 'All' },
 ] as const
-export type TabKey = typeof TABS[number]['key']
+export type TabKey = typeof TABS[number]['key'] | 'leads'
 
 export function isTab(v: unknown): v is TabKey {
-  return typeof v === 'string' && TABS.some(t => t.key === v)
+  return v === 'leads' || (typeof v === 'string' && TABS.some(t => t.key === v))
+}
+
+/** Won work: anything past Lead, or a lead that's already being invoiced. */
+export function isBooked(r: Pick<ProjectRow, 'status' | 'billing'>): boolean {
+  return r.status !== 'LEAD' || r.billing
 }
 
 export function inTab(r: ProjectRow, tab: TabKey): boolean {
+  if (tab === 'leads') return r.status === 'LEAD'
+  if (!isBooked(r)) return false
   switch (tab) {
-    case 'progress':  return r.status === 'ACTIVE'
-    case 'leads':     return r.status === 'LEAD'
+    case 'progress':  return r.status === 'ACTIVE' || r.status === 'LEAD'
     case 'attention': return r.attention && r.status !== 'ARCHIVED'
     case 'wrapped':   return r.status === 'WRAPPED'
     case 'archived':  return r.status === 'ARCHIVED'
     case 'all':       return r.status !== 'ARCHIVED'
   }
+}
+
+export interface BookedSummary {
+  count:               number
+  bookedCents:         number
+  collectedCents:      number
+  /** booked − collected: everything still to come in. */
+  outstandingCents:    number
+  /** The part of outstanding that's been invoiced. */
+  invoicedUnpaidCents: number
+  /** The part of outstanding not invoiced yet. */
+  notInvoicedCents:    number
+  overdueCount:        number
+  upcomingShoots:      number
+}
+
+/**
+ * The /projects stat row: booked, non-archived projects among `rows` (the
+ * filtered list, whatever the tab). Per project, outstanding = value −
+ * collected and not-invoiced = value − invoiced, each floored at 0, so
+ * outstanding = invoiced-unpaid + not-invoiced. Money fields are 0 when
+ * rows carry no money (margin-blind roles).
+ */
+export function summarizeBooked(rows: ProjectRow[], todayKey: string, soonKey: string): BookedSummary {
+  const s: BookedSummary = { count: 0, bookedCents: 0, collectedCents: 0, outstandingCents: 0, invoicedUnpaidCents: 0, notInvoicedCents: 0, overdueCount: 0, upcomingShoots: 0 }
+  for (const r of rows) {
+    if (!isBooked(r) || r.status === 'ARCHIVED') continue
+    s.count++
+    s.overdueCount += r.overdueInvoices
+    if (r.shootStart && r.shootStart >= todayKey && r.shootStart <= soonKey) s.upcomingShoots++
+    if (!r.money) continue
+    const { valueCents: v, invoicedCents: inv, collectedCents: col } = r.money
+    const out = Math.max(0, v - col)
+    const notInv = Math.min(out, Math.max(0, v - inv))
+    s.bookedCents += v
+    s.collectedCents += col
+    s.outstandingCents += out
+    s.notInvoicedCents += notInv
+    s.invoicedUnpaidCents += out - notInv
+  }
+  return s
 }
 
 export interface Filters {

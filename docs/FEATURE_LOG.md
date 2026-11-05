@@ -126,6 +126,18 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-05 — Projects page shows booked work: Booked / Collected / Outstanding / Not invoiced
+
+- /projects now lists only won work. That means projects past Lead, **plus leads that already have a sent invoice**: money is being collected, so it counts as booked. (Today that's Sheeshyams Testing, Salute and Grey Goose Atlanta. Without this, $8.5k of unpaid invoices would drop out of Outstanding.)
+- Leads moved to a separate "Leads" tab at the far right of the tab row (`?tab=leads`). Its count turns amber when a lead needs a follow-up, since leads are no longer in Needs attention. A workspace with no booked work opens on Leads.
+- **New stats:** Booked, Collected (% of booked), Outstanding (overdue count, or the invoiced-unpaid part), Not invoiced yet, and Shoots next 30 days.
+  - They're computed client-side by `summarizeBooked` (`src/lib/projects-table.ts`) over the filtered rows. Filtering by client gives that client's position. The tab doesn't change them, and archived projects are excluded.
+  - Per project: outstanding = value − collected, and not invoiced = value − invoiced, both floored at 0. That makes outstanding = invoiced-unpaid + not invoiced.
+- A row's value is now `max(expected, invoiced)`, so invoice-first projects with no budget show what they've billed rather than $0.
+- Pipeline and Won this quarter were removed from Projects. They belong on the Proposals revamp ("what am I bidding for"); mockups are in `docs/mockups/proposals/`.
+- Live on Nov 5: Booked $182,387 · Collected $113,588 · Outstanding $68,799 ($49,629 invoiced + $19,170 not invoiced yet).
+- Follow-up: the 3 invoiced leads should probably move to an active phase (data change, ask first).
+
 ### 2026-11-04 — Projects page → table, with Phase and a calculated Status
 - **Asked:** a table instead of cards on /projects (logo, project, client,
   status, phase, budget), in the shot list's Ramp style. Mockup approved

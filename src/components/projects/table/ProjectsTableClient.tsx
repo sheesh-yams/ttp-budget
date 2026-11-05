@@ -16,7 +16,7 @@ import { SL } from '@/components/shot-list/styles'
 import { formatMoney } from '@/lib/money'
 import { PHASES, phaseLabel, statusForPhase, type PhaseKey } from '@/lib/project-phase'
 import {
-  EMPTY_FILTERS, TABS, defaultDir, inTab, isSortKey, isTab, matches, sortRows,
+  EMPTY_FILTERS, TABS, defaultDir, inTab, isSortKey, isTab, matches, sortRows, summarizeBooked,
   type Filters, type ProjectRow, type SortDir, type SortKey, type TabKey,
 } from '@/lib/projects-table'
 import { archiveProject, setProjectPhase, unarchiveProject, wrapProject } from '@/server/actions/projects'
@@ -25,20 +25,10 @@ import { EditTeamModal } from '../EditTeamModal'
 import { COLUMNS, ProjectsPhoneList, ProjectsTable, type ColumnKey, type Group, type RowActions } from './ProjectsTable'
 import { SHOOT_TYPE_OPTIONS, shootTypeLabel } from './labels'
 
-export interface ProjectStats {
-  showMoney:           boolean
-  pipelineCents:       number
-  pipelineCount:       number
-  outstandingCents:    number
-  overdueCount:        number
-  wonThisQuarterCents: number
-  wonLastQuarterCents: number
-  upcomingShoots:      number
-}
-
 interface Props {
   rows:      ProjectRow[]
-  stats:     ProjectStats
+  /** False for margin-blind roles: rows carry no money and the money stats hide. */
+  showMoney: boolean
   canManageProjects: boolean
   clients:   Pick<Client, 'id' | 'name'>[]
   templates: Pick<BudgetTemplate, 'id' | 'name' | 'shootType' | 'description'>[]
@@ -48,7 +38,7 @@ const COLS_KEY = 'slatesuite.projects.columns'
 const ALL_COLS: ColumnKey[] = COLUMNS.map(c => c.key)
 const list = (v: string | null) => (v ? v.split(',').filter(Boolean) : [])
 
-export function ProjectsTableClient({ rows: serverRows, stats, canManageProjects, clients, templates }: Props) {
+export function ProjectsTableClient({ rows: serverRows, showMoney, canManageProjects, clients, templates }: Props) {
   const router   = useRouter()
   const pathname = usePathname()
   const params   = useSearchParams()
@@ -64,7 +54,9 @@ export function ProjectsTableClient({ rows: serverRows, stats, canManageProjects
 
   // ── URL-backed state ─────────────────────────────────────────────────────
   const urlTab = params.get('tab')
-  const defaultTab: TabKey = rows.some(r => r.status === 'ACTIVE') ? 'progress' : 'all'
+  // No booked work yet (e.g. a new workspace, where projects start as leads):
+  // open on Leads rather than an empty table.
+  const defaultTab: TabKey = rows.some(r => inTab(r, 'progress')) ? 'progress' : rows.some(r => inTab(r, 'all')) ? 'all' : rows.length ? 'leads' : 'all'
   const [tab, setTab]   = useState<TabKey>(isTab(urlTab) ? urlTab : defaultTab)
   const [filters, setFilters] = useState<Filters>({
     q:       params.get('q') ?? '',
@@ -107,7 +99,7 @@ export function ProjectsTableClient({ rows: serverRows, stats, canManageProjects
     try { localStorage.setItem(COLS_KEY, JSON.stringify(next)) } catch { /* ignore */ }
     return next
   })
-  const shownColumns = columns.filter(c => stats.showMoney || c !== 'budget')
+  const shownColumns = columns.filter(c => showMoney || c !== 'budget')
 
   // ── ?new=1 opens the new-project modal (top bar, mobile "+") ─────────────
   const [newOpen, setNewOpen] = useState(false)
@@ -122,16 +114,22 @@ export function ProjectsTableClient({ rows: serverRows, stats, canManageProjects
 
   // ── Derived lists ────────────────────────────────────────────────────────
   const filtered = useMemo(() => rows.filter(r => matches(r, filters)), [rows, filters])
-  const counts = useMemo(() => Object.fromEntries(TABS.map(t => [t.key, filtered.filter(r => inTab(r, t.key)).length])) as Record<TabKey, number>, [filtered])
+  const counts = useMemo(() => Object.fromEntries([...TABS.map(t => t.key), 'leads' as const].map(k => [k, filtered.filter(r => inTab(r, k)).length])) as Record<TabKey, number>, [filtered])
+  // Leads aren't in Needs attention any more; flag their follow-ups on the Leads tab.
+  const leadAttention = useMemo(() => filtered.filter(r => inTab(r, 'leads') && r.attention).length, [filtered])
+  const summary = useMemo(() => {
+    const now = new Date()
+    return summarizeBooked(filtered, now.toISOString().slice(0, 10), new Date(now.getTime() + 30 * 86_400_000).toISOString().slice(0, 10))
+  }, [filtered])
   const visible = useMemo(() => sortRows(filtered.filter(r => inTab(r, tab)), sort, dir), [filtered, tab, sort, dir])
   const groups: Group[] | null = useMemo(() => {
     if (!grouped) return null
     return PHASES.map(p => {
       const g = visible.filter(r => r.phase === p.key)
       const total = g.reduce((s, r) => s + (r.money?.valueCents ?? 0), 0)
-      return { key: p.key, label: p.label, rows: g, totalLabel: stats.showMoney && total > 0 ? formatMoney(total) : null }
+      return { key: p.key, label: p.label, rows: g, totalLabel: showMoney && total > 0 ? formatMoney(total) : null }
     }).filter(g => g.rows.length > 0)
-  }, [grouped, visible, stats.showMoney])
+  }, [grouped, visible, showMoney])
 
   const filterCount = filters.phases.length + filters.clients.length + filters.types.length + (filters.lead ? 1 : 0)
   const clientOptions = useMemo(() => {
@@ -197,12 +195,12 @@ export function ProjectsTableClient({ rows: serverRows, stats, canManageProjects
 
   function exportCsv() {
     const esc = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v)
-    const head = ['Project', 'Client', 'Type', 'Phase', 'Status', 'Next step', 'Shoot start', 'Shoot end', ...(stats.showMoney ? ['Value', 'Collected'] : [])]
+    const head = ['Project', 'Client', 'Type', 'Phase', 'Status', 'Next step', 'Shoot start', 'Shoot end', ...(showMoney ? ['Value', 'Collected'] : [])]
     const lines = visible.map(r => [
       r.name, r.client.name, shootTypeLabel(r.shootType), phaseLabel(r.phase),
       r.status === 'LEAD' ? 'Lead' : r.status === 'ACTIVE' ? 'Active' : r.status === 'WRAPPED' ? 'Wrapped' : 'Archived',
       r.step.label, r.shootStart ?? '', r.shootEnd ?? '',
-      ...(stats.showMoney ? [r.money ? (r.money.valueCents / 100).toFixed(2) : '', r.money ? (r.money.collectedCents / 100).toFixed(2) : ''] : []),
+      ...(showMoney ? [r.money ? (r.money.valueCents / 100).toFixed(2) : '', r.money ? (r.money.collectedCents / 100).toFixed(2) : ''] : []),
     ].map(esc).join(','))
     const blob = new Blob([[head.join(','), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' })
     const a = document.createElement('a')
@@ -212,9 +210,7 @@ export function ProjectsTableClient({ rows: serverRows, stats, canManageProjects
     setTimeout(() => URL.revokeObjectURL(a.href), 1000)
   }
 
-  const wonDelta = stats.wonLastQuarterCents > 0
-    ? Math.round(((stats.wonThisQuarterCents - stats.wonLastQuarterCents) / stats.wonLastQuarterCents) * 100)
-    : null
+  const pct = (n: number) => (summary.bookedCents > 0 ? Math.round((n / summary.bookedCents) * 100) : 0)
   const anyProjects = rows.length > 0
 
   return (
@@ -245,6 +241,15 @@ export function ProjectsTableClient({ rows: serverRows, stats, canManageProjects
                 <span className={`rounded-full px-2 text-xs ${tab === t.key || (t.key === 'attention' && counts.attention > 0) ? 'bg-accent font-medium text-accent-foreground' : 'bg-[#F0EFEC] text-[#6B6B6B]'}`}>{counts[t.key]}</span>
               </button>
             ))}
+            {/* Leads are bidding, not booked work — kept reachable, set apart. */}
+            {(counts.leads > 0 || tab === 'leads') && (
+              <button
+                type="button" role="tab" aria-selected={tab === 'leads'} onClick={() => setTab('leads')}
+                className={`-mb-px ml-auto flex items-center gap-2 whitespace-nowrap border-b-2 px-0.5 pb-3 pt-2 text-[14px] ${tab === 'leads' ? 'border-[#1A1A1A] text-[#1A1A1A]' : 'border-transparent text-[#8A8A8A] hover:text-[#1A1A1A]'}`}
+              >
+                Leads <span className={`rounded-full px-2 text-xs ${leadAttention > 0 ? 'bg-[#FEF3E2] font-medium text-[#B45309]' : 'bg-[#F0EFEC] text-[#6B6B6B]'}`} title={leadAttention > 0 ? `${leadAttention} need a follow-up` : undefined}>{counts.leads}</span>
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -252,14 +257,20 @@ export function ProjectsTableClient({ rows: serverRows, stats, canManageProjects
       {/* Stats */}
       {anyProjects && (
         <div className="grid grid-cols-2 gap-x-6 gap-y-5 px-4 py-6 md:flex md:flex-wrap md:gap-x-14 md:px-10 md:py-7">
-          {stats.showMoney && (
+          {showMoney && (
             <>
-              <Stat label="Pipeline"><span className="text-primary">{formatMoney(stats.pipelineCents)}</span><Sub>{stats.pipelineCount} {stats.pipelineCount === 1 ? 'proposal' : 'proposals'} out</Sub></Stat>
-              <Stat label="Outstanding">{formatMoney(stats.outstandingCents)}{stats.overdueCount > 0 && <Sub className="text-[#B42318]">{stats.overdueCount} overdue</Sub>}</Stat>
-              <Stat label="Won this quarter">{formatMoney(stats.wonThisQuarterCents)}{wonDelta !== null && <Sub className={wonDelta >= 0 ? 'text-[#027A48]' : 'text-[#B42318]'}>{wonDelta >= 0 ? '+' : ''}{wonDelta}% vs last</Sub>}</Stat>
+              <Stat label="Booked"><span className="text-primary">{formatMoney(summary.bookedCents)}</span><Sub>{summary.count} {summary.count === 1 ? 'project' : 'projects'}</Sub></Stat>
+              <Stat label="Collected">{formatMoney(summary.collectedCents)}<Sub>{pct(summary.collectedCents)}%</Sub></Stat>
+              <Stat label="Outstanding">
+                {formatMoney(summary.outstandingCents)}
+                {summary.overdueCount > 0
+                  ? <Sub className="text-[#B42318]">{summary.overdueCount} overdue</Sub>
+                  : summary.invoicedUnpaidCents > 0 && <Sub>{formatMoney(summary.invoicedUnpaidCents)} invoiced</Sub>}
+              </Stat>
+              <Stat label="Not invoiced yet">{formatMoney(summary.notInvoicedCents)}<Sub>{pct(summary.notInvoicedCents)}%</Sub></Stat>
             </>
           )}
-          <Stat label="Shoots next 30 days">{stats.upcomingShoots}</Stat>
+          <Stat label="Shoots next 30 days">{summary.upcomingShoots}</Stat>
         </div>
       )}
 
@@ -287,7 +298,7 @@ export function ProjectsTableClient({ rows: serverRows, stats, canManageProjects
               </PopoverTrigger>
               <PopoverContent align="end" className="w-52 rounded-[4px] p-1.5">
                 <p className={`px-2 pb-1.5 pt-1 text-xs ${SL.mut}`}>Columns</p>
-                {COLUMNS.filter(c => stats.showMoney || !c.money).map(c => (
+                {COLUMNS.filter(c => showMoney || !c.money).map(c => (
                   <label key={c.key} className="flex cursor-pointer items-center gap-2.5 rounded-[3px] px-2 py-1.5 text-sm hover:bg-[#FAF9F7]">
                     <input type="checkbox" checked={columns.includes(c.key)} onChange={() => toggleColumn(c.key)} className="accent-[var(--brand-primary,#5D00A4)]" />
                     {c.label}
