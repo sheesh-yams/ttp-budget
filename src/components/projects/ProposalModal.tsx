@@ -104,6 +104,8 @@ interface ExistingProposal {
   deliverables?: unknown[]
   contractEnabled?: boolean
   recipientEmails?: string[]
+  /** Saved To; null = the client's contact email. */
+  toEmail?: string | null
 }
 
 interface Props {
@@ -120,6 +122,8 @@ interface Props {
   proposalExpiryDays?: number
   /** Contract permission: NONE hides the Contract tab, VIEW shows it read-only. */
   contractAccess?: 'NONE' | 'VIEW' | 'EDIT'
+  /** The client's contact email — the default To. */
+  clientEmail?: string | null
 }
 
 const MODE_TITLE: Record<ProposalModalMode, string> = {
@@ -149,11 +153,13 @@ export function ProposalModal({
   onDone,
   proposalExpiryDays = 30,
   contractAccess = 'EDIT',
+  clientEmail = null,
 }: Props) {
   const [pending, startTransition] = useTransition()
   const [activeTab, setActiveTab]  = useState<'overview' | 'contract'>('overview')
 
   const [title,      setTitle]      = useState('')
+  const [to,         setTo]         = useState('')
   const [recipients, setRecipients] = useState('')
   const [expiresAt,  setExpiresAt]  = useState(() => defaultExpiry(proposalExpiryDays))
   const [milestones, setMilestones] = useState<LocalMilestone[]>(defaultMilestones)
@@ -176,11 +182,13 @@ export function ProposalModal({
     if (successTokenRef.current) return
     if (existing) {
       setTitle(existing.title)
+      setTo(existing.toEmail ?? clientEmail ?? '')
       setRecipients((existing.recipientEmails ?? []).join(', '))
       setExpiresAt(existing.expiresAt ? existing.expiresAt.split('T')[0] : defaultExpiry(proposalExpiryDays))
       setMilestones(existing.milestones?.length ? fromPaymentMilestones(existing.milestones) : defaultMilestones())
     } else {
       setTitle(`${projectName} — Proposal`)
+      setTo(clientEmail ?? '')
       setRecipients('')
       setExpiresAt(defaultExpiry(proposalExpiryDays))
       setMilestones(prefill?.milestones?.length ? fromPaymentMilestones(prefill.milestones) : defaultMilestones())
@@ -192,7 +200,7 @@ export function ProposalModal({
     setIsDraft(false)
     setIsSentManually(false)
     setActiveTab('overview')
-  }, [open, existing, projectName, prefill])
+  }, [open, existing, projectName, prefill, clientEmail])
 
   // ── Milestone helpers ──────────────────────────────────────────────────────
 
@@ -240,6 +248,7 @@ export function ProposalModal({
       expiresAt,
       totalCents,
       recipientEmails: parseRecipients(recipients),
+      toEmail: to.trim() || null,
     }
   }
 
@@ -274,6 +283,7 @@ export function ProposalModal({
 
   function handleSend() {
     if (!validate()) return
+    if (!to.trim()) { setError('Add a To address to send — or use "Mark as Sent".'); return }
     startTransition(async () => {
       if (mode === 'edit-draft' && existing) {
         const updateResult = await updateDraftProposal(existing.id, baseInput())
@@ -421,7 +431,7 @@ export function ProposalModal({
                 <p className="text-sm text-muted-foreground">
                   {isSentManually
                     ? 'Marked as sent — no email was sent. Share this link with your client manually.'
-                    : 'Your proposal has been emailed to the client.'}
+                    : `Your proposal has been emailed to ${to.trim() || clientEmail || 'the client'}.`}
                 </p>
                 <div className="flex items-center gap-2 rounded-lg border bg-secondary/30 p-3">
                   <code className="flex-1 text-xs text-foreground break-all">{publicUrl}</code>
@@ -454,9 +464,26 @@ export function ProposalModal({
               <Input id="pm-expiry" type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)} className="w-48" />
             </div>
 
-            {/* Additional recipients */}
+            {/* To */}
             <div className="grid gap-1.5">
-              <Label htmlFor="pm-recipients">Additional recipients</Label>
+              <Label htmlFor="pm-to">To</Label>
+              <Input
+                id="pm-to"
+                type="email"
+                value={to}
+                onChange={e => setTo(e.target.value)}
+                placeholder="client@example.com"
+              />
+              <p className="text-xs text-muted-foreground">
+                {clientEmail && to.trim().toLowerCase() !== clientEmail.toLowerCase()
+                  ? <>The client’s contact email is {clientEmail}. This proposal goes to the address above instead.</>
+                  : 'Starts as the client’s contact email. Change it to send this proposal to someone else.'}
+              </p>
+            </div>
+
+            {/* CC */}
+            <div className="grid gap-1.5">
+              <Label htmlFor="pm-recipients">CC</Label>
               <Input
                 id="pm-recipients"
                 value={recipients}
@@ -464,8 +491,8 @@ export function ProposalModal({
                 placeholder="colleague@client.com, approver@client.com"
               />
               <p className="text-xs text-muted-foreground">
-                Comma-separated. These addresses are emailed the proposal too, and — along with the
-                client contact email — are the only ones allowed to e-sign it.
+                Comma-separated. A copy also goes to you. Only the To, CC and client contact
+                addresses can e-sign it.
               </p>
             </div>
 

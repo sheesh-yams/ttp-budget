@@ -60,10 +60,11 @@ export async function POST(
 
   // ── Email verification ──────────────────────────────────────────────────────
   // The signer's email must match an address the proposal was actually sent to:
-  // the client's contact email, or one of the additional recipients.
+  // the client's contact email, the proposal's To address, or one of the CCs.
   const recipientEmails = (proposal as unknown as { recipientEmails: string[] }).recipientEmails ?? []
+  const toEmail = (proposal as unknown as { toEmail: string | null }).toEmail
   const allowedEmails = new Set(
-    [proposal.project.client.contactEmail, ...recipientEmails]
+    [proposal.project.client.contactEmail, toEmail, ...recipientEmails]
       .filter((e): e is string => !!e)
       .map(normEmail),
   )

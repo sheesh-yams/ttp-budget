@@ -129,6 +129,7 @@ export default async function ProjectDetailPage({
           budgetId:        true,
           contractEnabled: true,
           recipientEmails: true,
+          toEmail:         true,
         },
       },
       invoices: {
@@ -446,6 +447,10 @@ export default async function ProjectDetailPage({
           budgetId={budget?.id ?? null}
           totalCents={clientTotalCents}
           proposalExpiryDays={workspaceDefaults?.proposalExpiryDays ?? 30}
+          // Pre-fills the proposal's To. Only for people who can send a
+          // proposal (same as the invoice send window and Reopen dialog) —
+          // view-only roles without Clients access never get the address.
+          clientEmail={can.proposalsEdit ? project.client.contactEmail ?? null : null}
           invoiceExpiryDays={workspaceDefaults?.invoiceExpiryDays ?? 30}
           allowEdit={can.proposalsEdit}
           allowInvoice={can.invoicesEdit}

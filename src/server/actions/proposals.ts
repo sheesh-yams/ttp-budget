@@ -14,6 +14,7 @@ import { syncDeliverablesFromProposal } from './delivery'
 import { sendProposalEmail, normalizeRecipientEmails, buildCcList } from '@/lib/email'
 import { PHASE_TREE_INCLUDE, BUDGET_SNAPSHOT_SELECT, buildBudgetSnapshot, buildProposalContent, type SnapshotPhase } from '@/lib/proposal-snapshot'
 import { applyProposalWonEffects } from '@/lib/proposal-won'
+import { NO_TO_ERROR, proposalTo, storedToEmail } from '@/lib/proposal-recipients'
 import { canReopenProposal, defaultReopenDate, earliestReopenDate, reopenedLinkExpiry, reopenedStatus, type ProposalReopenInfo } from '@/lib/proposal-expiry'
 
 function uid() { return crypto.randomUUID().slice(0, 8) }
@@ -263,6 +264,8 @@ export async function createSentProposal(input: {
   totalCents: number
   /** Extra addresses to email + allow to e-sign, beyond the client contact email. */
   recipientEmails?: string[]
+  /** Main recipient; blank or the client's contact email = follow the client. */
+  toEmail?: string | null
   /** true = actually email the client (status only flips to SENT on success).
    *  false = "Mark as Sent" bypass — flips to SENT immediately, no email attempted. */
   sendEmail: boolean
@@ -276,13 +279,11 @@ export async function createSentProposal(input: {
 
     // Resolve the recipient up front — fail fast before creating anything if
     // we're about to email and there's nowhere to send it.
-    let emailCtx: Awaited<ReturnType<typeof resolveProposalEmailContext>> | null = null
-    if (input.sendEmail) {
-      emailCtx = await resolveProposalEmailContext(sdb, input.projectId)
-      if (!emailCtx.clientEmail) {
-        return { success: false, error: 'This client has no contact email on file. Add one in the client profile, or use "Mark as Sent" instead.' }
-      }
-    }
+    const emailCtx = await resolveProposalEmailContext(sdb, input.projectId)
+    const storedTo = storedToEmail(input.toEmail, emailCtx.clientEmail)
+    if (storedTo.error) return { success: false, error: storedTo.error }
+    const sendTo = proposalTo(storedTo.value, emailCtx.clientEmail)
+    if (input.sendEmail && !sendTo) return { success: false, error: NO_TO_ERROR }
 
     // Resolves the primary phase's content AND (when flagged) any other
     // visible phases in one pass — see captureBudgetSnapshot above.
@@ -316,6 +317,7 @@ export async function createSentProposal(input: {
         expiresAt: new Date(input.expiresAt),
         publicTokenExpiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) as unknown as undefined,
         recipientEmails,
+        toEmail: storedTo.value,
         version: nextVersion,
         createdById: user.id,
       } as unknown as Parameters<typeof sdb.proposal.create>[0]['data'],
@@ -323,8 +325,8 @@ export async function createSentProposal(input: {
 
     const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/p/${(proposal as unknown as { publicToken: string }).publicToken}`
 
-    if (input.sendEmail && emailCtx) {
-      const toEmail = emailCtx.clientEmail!
+    if (input.sendEmail && sendTo) {
+      const toEmail = sendTo
       const ccList  = buildCcList(toEmail, recipientEmails, user.email)
       try {
         const sent = await sendProposalEmail({
@@ -358,7 +360,7 @@ export async function createSentProposal(input: {
           action:      'proposal.email_failed',
           entityType:  'Proposal',
           entityId:    proposal.id,
-          metadata:    { to: emailCtx.clientEmail, error: message },
+          metadata:    { to: toEmail, error: message },
         })
         // Proposal stays as a DRAFT — not lost, just not sent. Surface the real reason.
         return { success: false, error: `Proposal saved as a draft, but the email failed to send: ${message}` }
@@ -392,6 +394,7 @@ export async function createDraftProposal(input: {
   expiresAt: string
   totalCents: number
   recipientEmails?: string[]
+  toEmail?: string | null
 }): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
     const gate = await requireMoneyPermission({ budgetId: input?.budgetId }, 'proposals', 'EDIT')
@@ -399,6 +402,8 @@ export async function createDraftProposal(input: {
     if (!gate.ok) return gate.error
 
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+    const storedTo = storedToEmail(input.toEmail, (await resolveProposalEmailContext(sdb, input.projectId)).clientEmail)
+    if (storedTo.error) return { success: false, error: storedTo.error }
 
     // sdb.phase.findFirst auto-scopes — blocks foreign budgetId cross-workspace reads.
     const primaryPhase = await sdb.phase.findFirst({
@@ -432,6 +437,7 @@ export async function createDraftProposal(input: {
         status: 'DRAFT',
         expiresAt: new Date(input.expiresAt),
         recipientEmails: normalizeRecipientEmails(input.recipientEmails),
+        toEmail: storedTo.value,
         version: nextVersion,
         createdById: user.id,
       } as unknown as Parameters<typeof sdb.proposal.create>[0]['data'],
@@ -454,6 +460,7 @@ export async function updateDraftProposal(
     expiresAt: string
     totalCents: number
     recipientEmails?: string[]
+    toEmail?: string | null
   }
 ): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
@@ -463,9 +470,14 @@ export async function updateDraftProposal(
     const sdb = await getScopedDb()
     const existing = await sdb.proposal.findFirst({
       where: { id: proposalId },
-      select: { budgetId: true },
+      select: { budgetId: true, projectId: true, status: true },
     })
     if (!existing) return { success: false, error: 'Proposal not found' }
+    // Sent proposals are frozen — and rewriting To / CC after sending would
+    // change who may e-sign it.
+    if (existing.status !== 'DRAFT') return { success: false, error: 'Only a draft can be edited. Create a revision instead.' }
+    const storedTo = storedToEmail(input.toEmail, (await resolveProposalEmailContext(sdb, existing.projectId)).clientEmail)
+    if (storedTo.error) return { success: false, error: storedTo.error }
     // budgetId comes from sdb-verified proposal; sdb.phase.findFirst also auto-scopes.
     const primaryPhase = await sdb.phase.findFirst({
       where: { budgetId: existing.budgetId as string, isPrimary: true },
@@ -486,6 +498,7 @@ export async function updateDraftProposal(
         content: content as object,
         expiresAt: new Date(input.expiresAt),
         recipientEmails: normalizeRecipientEmails(input.recipientEmails),
+        toEmail: storedTo.value,
         updatedAt: new Date(),
       } as unknown as Parameters<typeof sdb.proposal.update>[0]['data'],
     })
@@ -511,7 +524,7 @@ export async function sendDraftProposal(
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const existing = await sdb.proposal.findFirst({
       where: { id: proposalId },
-      select: { budgetId: true, projectId: true, content: true, title: true, publicToken: true, expiresAt: true, recipientEmails: true } as unknown as Parameters<typeof sdb.proposal.findFirst>[0]['select'],
+      select: { budgetId: true, projectId: true, content: true, title: true, publicToken: true, expiresAt: true, recipientEmails: true, toEmail: true } as unknown as Parameters<typeof sdb.proposal.findFirst>[0]['select'],
     })
     if (!existing) return { success: false, error: 'Proposal not found' }
 
@@ -520,10 +533,9 @@ export async function sendDraftProposal(
     let ccList: string[] = []
     if (sendEmail) {
       emailCtx = await resolveProposalEmailContext(sdb, existing.projectId)
-      if (!emailCtx.clientEmail) {
-        return { success: false, error: 'This client has no contact email on file. Add one in the client profile, or use "Mark as Sent" instead.' }
-      }
-      toEmail = emailCtx.clientEmail
+      const sendTo = proposalTo((existing as unknown as { toEmail?: string | null }).toEmail, emailCtx.clientEmail)
+      if (!sendTo) return { success: false, error: NO_TO_ERROR }
+      toEmail = sendTo
       ccList  = buildCcList(toEmail, (existing as unknown as { recipientEmails?: string[] }).recipientEmails, user.email)
     }
 
@@ -614,18 +626,19 @@ export async function getProposalReopenInfo(proposalId: string): Promise<ActionR
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const p = await sdb.proposal.findFirst({
       where:  { id: proposalId },
-      select: { status: true, expiresAt: true, lastViewedAt: true, projectId: true, recipientEmails: true },
+      select: { status: true, expiresAt: true, lastViewedAt: true, projectId: true, recipientEmails: true, toEmail: true },
     })
     if (!p) return { success: false, error: 'Proposal not found' }
     if (!canReopenProposal(p)) return { success: false, error: 'Only an expired proposal can be reopened.' }
     const ws = await sdb.workspace.findFirst({ where: { id: gate.workspaceId }, select: { proposalExpiryDays: true } })
     const ctx = await resolveProposalEmailContext(sdb, p.projectId)
+    const sendTo = proposalTo(p.toEmail, ctx.clientEmail)
     return { success: true, data: {
       expiredOn: p.expiresAt?.toISOString() ?? null,
       lastViewedAt: p.lastViewedAt?.toISOString() ?? null,
       defaultExpiresAt: defaultReopenDate(ws?.proposalExpiryDays ?? 30),
-      to: ctx.clientEmail,
-      cc: ctx.clientEmail ? buildCcList(ctx.clientEmail, (p as unknown as { recipientEmails?: string[] }).recipientEmails, user.email) : [],
+      to: sendTo,
+      cc: sendTo ? buildCcList(sendTo, (p as unknown as { recipientEmails?: string[] }).recipientEmails, user.email) : [],
     } }
   } catch (err) {
     console.error('[getProposalReopenInfo]', err)
@@ -659,15 +672,16 @@ export async function reopenProposal(
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const p = await sdb.proposal.findFirst({
       where:  { id: proposalId },
-      select: { status: true, expiresAt: true, publicTokenExpiresAt: true, firstViewedAt: true, projectId: true, title: true, publicToken: true, recipientEmails: true },
+      select: { status: true, expiresAt: true, publicTokenExpiresAt: true, firstViewedAt: true, projectId: true, title: true, publicToken: true, recipientEmails: true, toEmail: true },
     })
     if (!p) return { success: false, error: 'Proposal not found' }
     if (!canReopenProposal(p)) return { success: false, error: 'Only an expired proposal can be reopened.' }
 
     // Fail fast before changing anything if the email can't go anywhere.
     const emailCtx = input.notify ? await resolveProposalEmailContext(sdb, p.projectId) : null
-    if (input.notify && !emailCtx?.clientEmail) {
-      return { success: false, error: 'This client has no contact email on file — add one, or reopen without emailing.' }
+    const sendTo = emailCtx ? proposalTo(p.toEmail, emailCtx.clientEmail) : null
+    if (input.notify && !sendTo) {
+      return { success: false, error: 'This proposal has no To address and the client has no contact email — add one, or reopen without emailing.' }
     }
 
     const status = reopenedStatus(p)
@@ -690,25 +704,25 @@ export async function reopenProposal(
     revalidatePath('/proposals')
 
     const done = { status, expiresAt: validThrough.toISOString() }
-    if (!input.notify || !emailCtx?.clientEmail) return { success: true, data: { ...done, emailed: false } }
-    const ccList = buildCcList(emailCtx.clientEmail, (p as unknown as { recipientEmails?: string[] }).recipientEmails, user.email)
+    if (!input.notify || !emailCtx || !sendTo) return { success: true, data: { ...done, emailed: false } }
+    const ccList = buildCcList(sendTo, (p as unknown as { recipientEmails?: string[] }).recipientEmails, user.email)
     try {
       const sent = await sendProposalEmail({
-        to: emailCtx.clientEmail, cc: ccList, proposalTitle: p.title, projectName: emailCtx.projectName,
+        to: sendTo, cc: ccList, proposalTitle: p.title, projectName: emailCtx.projectName,
         proposalUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/p/${p.publicToken}`, expiresAt: validThrough,
         actorName: user.name ?? user.email, actorEmail: user.email,
         workspaceName: emailCtx.workspaceName, brandPrimary: emailCtx.brandPrimary, brandAccent: emailCtx.brandAccent,
       })
       await logAuditEvent({
         workspaceId: gate.workspaceId, actorId: user.id, action: 'proposal.email_sent', entityType: 'Proposal', entityId: proposalId,
-        metadata: { to: emailCtx.clientEmail, cc: ccList, messageId: sent.id, reason: 'reopened' },
+        metadata: { to: sendTo, cc: ccList, messageId: sent.id, reason: 'reopened' },
       })
       return { success: true, data: { ...done, emailed: true } }
     } catch (emailErr) {
       const message = emailErr instanceof Error ? emailErr.message : 'Unknown error'
       await logAuditEvent({
         workspaceId: gate.workspaceId, actorId: user.id, action: 'proposal.email_failed', entityType: 'Proposal', entityId: proposalId,
-        metadata: { to: emailCtx.clientEmail, cc: ccList, error: message, reason: 'reopened' },
+        metadata: { to: sendTo, cc: ccList, error: message, reason: 'reopened' },
       })
       return { success: true, data: { ...done, emailed: false, emailError: message } }
     }
@@ -746,6 +760,9 @@ export async function createProposalRevision(
         status:      'DRAFT',
         version:     nextVersion,
         expiresAt:   (source as unknown as { expiresAt: Date | null }).expiresAt,
+        // Same people as the version it revises.
+        recipientEmails: (source as unknown as { recipientEmails: string[] }).recipientEmails ?? [],
+        toEmail:     (source as unknown as { toEmail: string | null }).toEmail ?? null,
         createdById: user.id,
       } as unknown as Parameters<typeof sdb.proposal.create>[0]['data'],
     })

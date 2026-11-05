@@ -644,6 +644,8 @@ model Proposal {
   // Recipients — additional addresses the proposal was emailed to, beyond the
   // client's contactEmail. Also the set (plus contactEmail) allowed to e-sign.
   recipientEmails String[] @default([])
+  // Main recipient ("To"). Null = the client's contact email. May e-sign.
+  toEmail       String?
 
   // Approval (typed signature)
   approvedAt    DateTime?

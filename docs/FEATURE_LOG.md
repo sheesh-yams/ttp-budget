@@ -126,6 +126,29 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-05 — Proposals: editable "To" in the send window (CC kept)
+
+- **The proposal window** (new, edit draft, revision) now has a **To** field above **CC**.
+  - To starts as the client's contact email and can be changed per proposal.
+  - It's required for Send, but not for Save draft or Mark as sent.
+  - "Additional recipients" is now labelled **CC**, with the same behaviour as before.
+- **Invoices needed no change.** Every invoice send already goes through `SendInvoiceModal`, which has an editable To and CC.
+- **Storage:** new nullable `Proposal.toEmail` (migration `20261105000001_proposal_to_email`, applied in Neon).
+  - `null` means the client's contact email. `storedToEmail` (`src/lib/proposal-recipients.ts`) stores null when the field is blank or equal to that email, so the proposal keeps following the client profile.
+  - Existing proposals are unchanged.
+- **Every send uses `proposalTo(toEmail, clientEmail)`:** create & send, send draft (including from the success screen), the Reopen dialog's To / CC, and the reopen email.
+  - `createProposalRevision` now copies To and CC. It previously dropped CC.
+- **E-signature:** the approve route allows the client contact, the To address and the CC list.
+- **Access:**
+  - Only people with proposals EDIT get the client email pre-filled. A view-only role without Clients access never receives it.
+  - `updateDraftProposal` now refuses anything that isn't a DRAFT. It used to be able to rewrite content, To or CC on a sent proposal, which would have widened who may sign.
+- **Verified:**
+  - jest (new `proposal-recipients` tests).
+  - A throwaway script against the dev server: a stranger gets 403; To (any case), CC and the client contact pass the email check.
+  - Test row deleted.
+  - pitfall-reviewer.
+- **Follow-up:** `NewProposalModal` is dead code (never imported), alongside `sendProposal` / `createProposal`.
+
 ### 2026-11-05 — Proposals page: Inbox list + Ledger board ("what am I bidding for")
 
 - /proposals was rebuilt from the approved mockup (`docs/mockups/proposals/v4.html`). It uses the same flush Ramp page as Projects:
