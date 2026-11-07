@@ -8,7 +8,7 @@ import { checkRateLimit }         from '@/lib/rate-limit'
 import { trustedClientIp } from '@/lib/client-ip'
 import { safeHex, darken }        from '@/lib/color'
 import { RateLimitedPage }        from '@/components/public/RateLimitedPage'
-import { recordDeliverableView }  from '@/server/actions/delivery'
+import { recordDeliverableView }  from '@/lib/view-recording'
 
 interface Props {
   params: Promise<{ token: string; assetToken: string }>
@@ -106,7 +106,6 @@ export default async function MobileAssetPage({ params }: Props) {
       await recordDeliverableView(
         asset.id,
         asset.currentVersion.id,
-        asset.deliveryPage.workspaceId,
         ip,
         userAgent,
       )

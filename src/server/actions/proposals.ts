@@ -222,37 +222,6 @@ export async function sendProposal(proposalId: string): Promise<ActionResult<{ p
   }
 }
 
-// ─── Record view (called from public page — no auth, uses raw db) ─────────────
-
-export async function recordProposalView(
-  proposalId: string,
-  ip: string,
-  userAgent: string
-): Promise<void> {
-  try {
-    const now = new Date()
-    await db.proposalView.create({ data: { proposalId, ip, userAgent, viewedAt: now } })
-    // Only SENT advances to VIEWED. Every later status is a decision
-    // (APPROVED, DECLINED, CHANGES_NEEDED, LOST, EXPIRED) that a client or
-    // teammate re-opening the link must never undo — same guard as
-    // recordInvoiceView uses for PAID/VOID.
-    await db.proposal.update({
-      where: { id: proposalId },
-      data: { viewCount: { increment: 1 }, lastViewedAt: now },
-    })
-    await db.proposal.updateMany({
-      where: { id: proposalId, status: 'SENT' },
-      data: { status: 'VIEWED' },
-    })
-    await db.proposal.updateMany({
-      where: { id: proposalId, firstViewedAt: null },
-      data: { firstViewedAt: now },
-    })
-  } catch (err) {
-    console.error('Failed to record proposal view:', err)
-  }
-}
-
 // ─── Create + populate + send in one call (from NewProposalModal) ─────────────
 
 export async function createSentProposal(input: {

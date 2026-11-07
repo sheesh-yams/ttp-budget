@@ -146,7 +146,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Fire receipt emails after settlement — failure must not block the response
-    sendPaymentReceiptEmails(attempt.invoiceId).catch(err =>
+    sendPaymentReceiptEmails(attempt.invoiceId, attempt.amountCents).catch(err =>
       console.error('[confirm] payment receipt email failed', err),
     )
 

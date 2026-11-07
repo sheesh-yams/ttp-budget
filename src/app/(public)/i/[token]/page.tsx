@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import { db } from '@/lib/db'
 import { InvoicePublicView } from '@/components/invoice/InvoicePublicView'
-import { recordInvoiceView } from '@/server/actions/invoices'
+import { recordInvoiceView } from '@/lib/view-recording'
 import { headers } from 'next/headers'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { trustedClientIp } from '@/lib/client-ip'

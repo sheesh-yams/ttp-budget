@@ -5,6 +5,7 @@ import { requireProductionPermission } from '@/lib/production-access'
 import { getScopedDb }    from '@/lib/db-scoped'
 import { db }             from '@/lib/db'
 import { detectEmbed }    from '@/lib/embed-detection'
+import { parseShadeUrl }  from '@/lib/shade-url'
 import type { ActionResult } from '@/types'
 import type { DeliverableItemType } from '@/types'
 import type { DeliverableReviewStatus } from '@/lib/deliverable-status'
@@ -76,21 +77,53 @@ async function tryFetchThumbnail(provider: string, canonicalUrl: string): Promis
  * Fetches a fresh pre-signed thumbnail URL from the Shade API.
  * Shade thumbnails are AWS S3 signed URLs that expire, so they must be fetched
  * at render time rather than stored statically.
+ *
+ * Takes a deliverable version, never a raw Shade asset id: the server reads
+ * the version's stored URL, so callers can only reach assets on our own
+ * delivery pages. With `pageToken` (public delivery pages, no session) the
+ * version must be SHARED on that published page; without it the caller needs
+ * delivery View on the version's project.
  */
 export async function getShadeThumbnailUrl(
-  assetId: string,
-  driveId: string,
+  versionId: string,
+  pageToken?: string,
 ): Promise<ActionResult<string>> {
   try {
+    if (typeof versionId !== 'string' || !versionId) return { success: false, error: 'Not found' }
+
+    let url: string | null = null
+    if (pageToken) {
+      if (typeof pageToken !== 'string') return { success: false, error: 'Not found' }
+      const v = await db.deliverableVersion.findFirst({
+        where: {
+          id:          versionId,
+          provider:    'SHADE',
+          deliverable: { status: 'SHARED', deliveryPage: { publicToken: pageToken, status: 'PUBLISHED' } },
+        },
+        select: { url: true },
+      })
+      url = v?.url ?? null
+    } else {
+      const gate = await requireProductionPermission({ deliveryVersionId: versionId }, 'delivery', 'VIEW')
+      if (!gate.ok) return gate.error!
+      const sdb = await getScopedDb()
+      const v = await sdb.deliverableVersion.findFirst({
+        where:  { id: versionId, provider: 'SHADE' },
+        select: { url: true },
+      })
+      url = v?.url ?? null
+    }
+    const parsed = url ? parseShadeUrl(url) : null
+    if (!parsed) return { success: false, error: 'Not found' }
+
     const apiKey = process.env.SHADE_API_KEY
     if (!apiKey) {
       console.error('[Shade] SHADE_API_KEY not configured')
-      return { success: false, error: 'SHADE_API_KEY not configured' }
+      return { success: false, error: 'Thumbnail unavailable' }
     }
 
-    const qs       = driveId ? `?drive_id=${encodeURIComponent(driveId)}` : ''
-    const endpoint = `https://api.shade.inc/assets/${encodeURIComponent(assetId)}/previews${qs}`
-    console.log('[Shade] fetching:', endpoint)
+    const qs       = parsed.driveId ? `?drive_id=${encodeURIComponent(parsed.driveId)}` : ''
+    const endpoint = `https://api.shade.inc/assets/${encodeURIComponent(parsed.assetId)}/previews${qs}`
 
     const res = await fetch(endpoint, {
       headers: { Authorization: apiKey },
@@ -99,13 +132,12 @@ export async function getShadeThumbnailUrl(
 
     if (!res.ok) {
       const body = await res.text().catch(() => '')
-      console.error(`[Shade] API ${res.status}:`, body)
-      return { success: false, error: `Shade API ${res.status}` }
+      console.error(`[Shade] API ${res.status}:`, body.slice(0, 300))
+      return { success: false, error: 'Thumbnail unavailable' }
     }
 
     const data      = await res.json() as { signed_url: string | null }[]
-    console.log('[Shade] preview count:', data.length, '| first signed_url present:', !!data[0]?.signed_url)
-    const signedUrl = data[0]?.signed_url
+    const signedUrl = Array.isArray(data) ? data[0]?.signed_url : null
     if (!signedUrl) return { success: false, error: 'No preview image available' }
 
     return { success: true, data: signedUrl }
@@ -1082,44 +1114,6 @@ export async function getProposalDeliverables(
   } catch (err) {
     console.error('[delivery] getProposalDeliverables', err)
     return { success: false, error: 'Failed to load deliverables.' }
-  }
-}
-
-/**
- * Record that a client viewed a deliverable version.
- * Called server-side from the public asset page on load.
- * Uses db directly (no workspace scoping — called from a public route).
- * Hashes the IP with a salt so no raw IPs are stored.
- */
-export async function recordDeliverableView(
-  deliverableId: string,
-  versionId:     string,
-  workspaceId:   string,
-  ip:            string,
-  userAgent:     string | null,
-): Promise<void> {
-  try {
-    const salt    = process.env.DELIVERY_VIEW_SALT ?? 'delivery-view-salt'
-    const encoder = new TextEncoder()
-    const data    = encoder.encode(ip + salt)
-    const hashBuf = await crypto.subtle.digest('SHA-256', data)
-    const ipHash  = Array.from(new Uint8Array(hashBuf))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('')
-
-    await db.$transaction(async tx => {
-      await tx.deliverableView.create({
-        data: { deliverableId, versionId, workspaceId, ipHash, userAgent },
-      })
-      // Set firstClientViewAt on the version if this is the first real view
-      await tx.deliverableVersion.updateMany({
-        where: { id: versionId, firstClientViewAt: null },
-        data:  { firstClientViewAt: new Date() },
-      })
-    })
-  } catch (err) {
-    // Non-critical — don't crash the page if view recording fails
-    console.error('[delivery] recordDeliverableView', err)
   }
 }
 

@@ -54,7 +54,7 @@ export async function createInvoice(
     if ('error' in dates) return { success: false, error: dates.error }
 
     // Only take a number once the invoice is going to be created (no gaps).
-    const number = await generateInvoiceNumber(workspaceId)
+    const number = await generateInvoiceNumber(workspaceId, dates.issueDate)
     const workspace = await db.workspace.findUnique({
       where: { id: workspaceId },
       select: { defaultInvoiceTerms: true },
@@ -478,33 +478,6 @@ export async function setInvoiceArchived(invoiceId: string, archived: boolean): 
   } catch (err) {
     console.error('[setInvoiceArchived]', err)
     return { success: false, error: archived ? 'Failed to archive invoice' : 'Failed to unarchive invoice' }
-  }
-}
-
-export async function recordInvoiceView(invoiceId: string, ip: string, userAgent: string): Promise<void> {
-  // Public route — uses raw db (no user session)
-  try {
-    const now = new Date()
-    await db.invoiceView.create({ data: { invoiceId, ip, userAgent, viewedAt: now } })
-    // Only advance status to VIEWED if the invoice is in a viewable state.
-    // Never overwrite terminal statuses (VOID, PAID) — a client opening the link
-    // after a void must not un-void the invoice.
-    await db.invoice.updateMany({
-      where: { id: invoiceId, status: { in: ['SENT', 'OVERDUE'] } },
-      data: { viewCount: { increment: 1 }, lastViewedAt: now, status: 'VIEWED' },
-    })
-    // Still track view count + timestamp for already-VIEWED and DRAFT invoices,
-    // but don't change the status.
-    await db.invoice.updateMany({
-      where: { id: invoiceId, status: { notIn: ['SENT', 'OVERDUE'] } },
-      data: { viewCount: { increment: 1 }, lastViewedAt: now },
-    })
-    await db.invoice.updateMany({
-      where: { id: invoiceId, firstViewedAt: null },
-      data: { firstViewedAt: now },
-    })
-  } catch (err) {
-    console.error('Failed to record invoice view:', err)
   }
 }
 

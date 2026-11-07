@@ -180,7 +180,13 @@ export async function POST(req: NextRequest) {
       const { checkoutToken, secretToken } = result
       await pdb.paymentAttempt.update({
         where: { id: existing.id },
-        data:  { checkoutToken, secretTokenHash: sha256Hex(secretToken), checkoutRef },
+        // The new checkout charges today's balance; the attempt must expect
+        // that amount, or settle rejects the charge as a mismatch after the
+        // invoice was edited or part-paid since the first checkout. Known gap:
+        // if the client still pays in the earlier checkout (another tab), the
+        // confirm route refuses it (token replaced) and the webhook sees an
+        // amount mismatch, so that charge is logged but not recorded.
+        data:  { checkoutToken, secretTokenHash: sha256Hex(secretToken), checkoutRef, amountCents: balanceCents },
       })
 
       return NextResponse.json({ attemptId: existing.id, checkoutToken, secretToken })

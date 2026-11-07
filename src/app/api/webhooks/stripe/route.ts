@@ -193,7 +193,7 @@ async function handleCheckoutSessionCompleted(
   }
 
   if (settled.ok) {
-    sendPaymentReceiptEmails(attempt.invoiceId).catch(err =>
+    sendPaymentReceiptEmails(attempt.invoiceId, attempt.amountCents).catch(err =>
       console.error('[stripe-webhook] receipt email failed', err),
     )
   }

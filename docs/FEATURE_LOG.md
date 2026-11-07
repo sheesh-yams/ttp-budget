@@ -21,11 +21,6 @@ Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
   things on screen until a refresh (the server refuses). A proper read-only
   mode in DeliverablesManager / ClientPagePreview / CallSheetEditor would fix
   both. Only custom roles with View hit this; defaults are Edit or None.
-- **`getShadeThumbnailUrl` is an open proxy:** an ungated 'use server' export
-  that calls Shade with our API key for any asset id. Used by the
-  authenticated and public delivery pages. **`recordDeliverableView`** is a
-  'use server' export that takes a workspaceId argument; move it to `src/lib`
-  (same pattern as the invoice/proposal view recorders).
 - **Roles Phase 2 is converting area by area.**
   - Done: budget and overview; crew and deal memos; schedule, call sheets
     and delivery; money (proposals, invoices, actuals, contract, and the
@@ -47,12 +42,6 @@ Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
 - **Start from a template needs browse-all.** The budget empty state's picker
   mixes templates and other projects' budgets, so someone with costs EDIT but
   not Producer-level browse can only create a blank budget.
-- **Invoice numbers follow the creation year,** not a backdated invoice date
-  (`invoice-numbering.ts` keeps one sequence per year). An invoice backdated
-  into last year gets this year's number.
-- **Editing an invoice during an online checkout:** `settle.ts` charges the
-  balance captured when checkout started, then marks PAID. Editing the
-  invoice mid-checkout could leave it PAID for a different amount.
 - **Invited people get a throwaway personal workspace.** Every sign-up gets
   its own workspace (the `user.created` webhook, or a lazy create if a page
   loads first — "Ashish TEST's Workspace" has no Clerk org). Accepting an
@@ -60,16 +49,6 @@ Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
 - **Crew page shows edit controls to Collaborators.** Saving is refused by
   the server; roles Phase 2 hides the controls.
 
-- **Invoice first view counted twice.** `recordInvoiceView`
-  (`src/server/actions/invoices.ts`) flips SENT/OVERDUE → VIEWED with one
-  `updateMany`, then a second `updateMany` on `status notIn [SENT, OVERDUE]`
-  matches the same row and increments again. Fix the same way
-  `recordProposalView` was fixed in fe6d9e2.
-- **View recorders are public RPC endpoints.** `recordProposalView` and
-  `recordInvoiceView` are exported from `'use server'` files and take a raw id
-  with no token check, so anyone can inflate view counts or move SENT → VIEWED.
-  Move them to `src/lib` and call them only from the token pages. (Low —
-  found by pitfall-reviewer.)
 - **Concurrent won-effects can duplicate team placeholders.** A client
   e-signing while a producer marks Won manually runs two reconciles that both
   read the team before either writes. `updateProposalStatus` also re-runs the
@@ -125,6 +104,43 @@ Run each through `/feature`. Check the overlap first:
 ---
 
 ## Shipped
+
+### 2026-11-07 — Security + invoice bug batch
+
+Six logged follow-ups, fixed together.
+- **Shade thumbnails were an open proxy.**
+  - **Before:** `getShadeThumbnailUrl` took any Shade asset id from the browser and called Shade with our API key.
+  - **Now:** it takes a deliverable version id. The server reads that version's stored link (`src/lib/shade-url.ts`).
+  - **Public pages** (`/d`, `/m/d`) pass their page token. The version must be Shade, on a SHARED asset of that PUBLISHED page.
+  - **Signed in** (DeliverablesManager): delivery View on the version's project.
+- **View recorders were public RPC endpoints.** `recordProposalView`, `recordInvoiceView` and `recordDeliverableView` moved out of `'use server'` files into `src/lib/view-recording.ts` (server-only). Only the token pages call them.
+  - **Deliverable views** take the workspace from the version row, not a caller argument.
+- **An invoice's first view counted twice.** It's now one count per view, then the guarded SENT/OVERDUE → VIEWED.
+- **Invoice numbers follow the invoice date's year** (`src/lib/invoice-numbering.ts`):
+  - **Current year:** the running counter, as before.
+  - **Backdated into an earlier year:** one past the highest number that year has used, including numbers of deleted invoices. Those come from the `invoice.deleted` audit events, and `project.deleted` now records its `invoiceNumbers`. A number a client may hold is never reissued.
+  - **A future date or a typo** (e.g. 2062) numbers under the current year, so the counter can't be pushed ahead.
+  - **Changing the date later** doesn't renumber.
+- **Online payments when the invoice changed during checkout:**
+  - **Before:** `settle.ts` always marked the invoice PAID. If the total had gone up, it showed PAID for less than the total.
+  - **Now:** it records the payment and marks PAID only when payments cover the total (`settledInvoiceStatus`). Otherwise the balance stays due and the public page shows "Partially Paid". A VOID invoice stays VOID; the money is still recorded and an error is logged.
+  - **Reopened checkout:** it charges today's balance, and the payment attempt now expects that amount too. Before, a reopened checkout after an edit was refused as an amount mismatch: the client was charged and nothing was recorded.
+  - **Receipt email:** shows this payment, not the running total, plus "A balance of $X remains" when one does.
+- **Decision (mine):** invoices can still be edited during a checkout. Blocking edits for 2 hours after an abandoned checkout would get in the way, and settlement now records what actually happened.
+- **Verified:**
+  - jest (575; new `payment-and-view-fixes.test.ts`), tsc, lint
+  - next build up to the known Resend error
+  - **Throwaway scripts on the live DB:**
+    - Invoice views: SENT → VIEWED, one count per view; VOID stays VOID.
+    - Settle: short payment (not PAID), then the balance (PAID); a replay is a no-op; VOID stays VOID.
+    - Numbering inside rolled-back transactions: this year, a future/typo year, an empty past year, skipping deleted numbers. The real counter was untouched.
+    - Shade gate: passes for a shared version on its page. Refused for a wrong token, a draft asset, an unpublished page, and no token without a session.
+    - Deliverable views take the version's workspace; a mismatched pair records nothing.
+  - **Dev server:** `/d` and `/m/d` load with no errors, and thumbnail requests pass the gate.
+  - **pitfall-reviewer:** three findings, all fixed: deleted numbers reused and a typo year sticking the counter; a comment that overstated the reopened checkout; the receipt amount.
+- **Follow-ups:**
+  - **Reopened checkout, earlier window still open:** if the client pays in the earlier checkout (another tab) after reopening it at a new balance, the charge is logged but not recorded. The confirm route refuses it (token replaced) and the webhook sees an amount mismatch. Recording the Helcim amount on a webhook mismatch would close it.
+  - **Concurrent backdated invoices:** two invoices backdated into the same year at the same instant can compute the same number. The unique constraint refuses the second, with a generic error.
 
 ### 2026-11-07 — Delete projects permanently; archived projects out of the Dashboard pipeline
 

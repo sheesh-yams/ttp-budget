@@ -161,7 +161,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (settled.ok) {
-      sendPaymentReceiptEmails(attempt.invoiceId).catch(err =>
+      sendPaymentReceiptEmails(attempt.invoiceId, attempt.amountCents).catch(err =>
         console.error('[helcim-webhook] receipt email failed', err),
       )
     }

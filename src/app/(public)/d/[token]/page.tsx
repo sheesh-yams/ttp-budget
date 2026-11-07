@@ -233,7 +233,7 @@ export default async function PublicDeliveryPage({ params }: Props) {
                       href={`/d/${token}/${asset.publicToken}`}
                       style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}
                     >
-                      <AssetCard asset={asset} />
+                      <AssetCard asset={asset} pageToken={page.publicToken} />
                     </Link>
                   ))}
                 </div>
@@ -256,12 +256,14 @@ export default async function PublicDeliveryPage({ params }: Props) {
 // ─── Asset card ───────────────────────────────────────────────────────────────
 
 type AssetCardProps = {
+  pageToken: string
   asset: {
     title:       string
     description: string | null
     type:        string
     reviewStatus: string
     currentVersion: {
+      id:           string
       url:          string
       provider:     string
       renderMode:   string
@@ -271,7 +273,7 @@ type AssetCardProps = {
   }
 }
 
-function AssetCard({ asset }: AssetCardProps) {
+function AssetCard({ asset, pageToken }: AssetCardProps) {
   const isUnseen = asset.currentVersion && !asset.currentVersion.firstClientViewAt
   const provider = asset.currentVersion?.provider ?? null
   const providerLabel = provider ? PROVIDER_SHORT[provider] ?? provider : null
@@ -299,7 +301,8 @@ function AssetCard({ asset }: AssetCardProps) {
           />
         ) : asset.currentVersion?.provider === 'SHADE' ? (
           <ShadeThumbImg
-            canonicalUrl={asset.currentVersion.url}
+            versionId={asset.currentVersion.id}
+            pageToken={pageToken}
             fallback={
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
                 <span style={{ fontSize: 11, color: '#aaa', fontWeight: 600 }}>Shade</span>

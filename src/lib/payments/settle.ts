@@ -18,6 +18,7 @@ import 'server-only'
  */
 
 import { db } from '@/lib/db'
+import { settledInvoiceStatus } from '@/lib/payments/settle-status'
 
 // Single object shape (not a discriminated union): the repo compiles with
 // `strict: false`, which disables union narrowing on the `ok` discriminant —
@@ -65,14 +66,21 @@ export async function settlePaymentAttempt(params: {
       })
       if (res.count === 0) throw new AlreadyProcessed()
 
-      await t.invoice.update({
-        where: { id: attempt.invoiceId },
-        data: {
-          status:          'PAID',
-          amountPaidCents: { increment: attempt.amountCents },
-          paidAt:          new Date(),
-        },
+      // Record the money first (the row stays locked until commit), then
+      // decide the status from what's actually been paid. The invoice may
+      // have changed since checkout began — the charge is the balance at
+      // that moment — so PAID only when the payments now cover the total.
+      const inv = await t.invoice.update({
+        where:  { id: attempt.invoiceId },
+        data:   { amountPaidCents: { increment: attempt.amountCents } },
+        select: { status: true, totalCents: true, amountPaidCents: true },
       })
+      const status = settledInvoiceStatus(inv)
+      if (status === 'PAID') {
+        await t.invoice.update({ where: { id: attempt.invoiceId }, data: { status: 'PAID', paidAt: new Date() } })
+      } else if (inv.status === 'VOID') {
+        console.error('[settle] payment received on a voided invoice', { attemptId: attempt.id, invoiceId: attempt.invoiceId })
+      }
     })
     return { ok: true }
   } catch (err) {

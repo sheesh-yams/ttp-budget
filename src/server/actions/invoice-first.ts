@@ -150,7 +150,7 @@ async function createWithNewProject(
       })),
     })
 
-    const number  = await generateInvoiceNumber(workspaceId, tx)
+    const number  = await generateInvoiceNumber(workspaceId, dates.issueDate, tx)
     const invoice = await tx.invoice.create({
       data: {
         workspaceId,
@@ -240,7 +240,7 @@ async function createOnExistingProject(
   const scopeAddition = project.proposals.length > 0 && data.scopeAddition !== false
   const ws = await db.workspace.findUnique({ where: { id: gate.workspaceId }, select: { defaultInvoiceTerms: true } })
 
-  const number  = await generateInvoiceNumber(gate.workspaceId)
+  const number  = await generateInvoiceNumber(gate.workspaceId, dates.issueDate)
   const invoice = await sdb.invoice.create({
     data: buildInvoiceCreateData({
       projectId: project.id, clientId: project.clientId, budgetId: project.budgets[0]?.id ?? null,

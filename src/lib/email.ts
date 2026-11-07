@@ -1,6 +1,7 @@
 import { Resend } from 'resend'
 import { format } from 'date-fns'
 import { db } from '@/lib/db'
+import { formatMoney } from '@/lib/money'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 const FROM = process.env.RESEND_FROM_EMAIL ?? 'proposals@thethirdplace.co'
@@ -323,9 +324,13 @@ export async function sendInvitationEmail(payload: InvitationPayload): Promise<{
  *  2. Internal notice → invoice.createdBy.email
  *
  * Never throws — email failure must not affect an already-settled payment.
- * Call fire-and-forget: sendPaymentReceiptEmails(invoiceId).catch(console.error)
+ * Call fire-and-forget: sendPaymentReceiptEmails(invoiceId, chargedCents).catch(console.error)
  */
-export async function sendPaymentReceiptEmails(invoiceId: string): Promise<void> {
+export async function sendPaymentReceiptEmails(
+  invoiceId: string,
+  /** This payment's amount. Payments can be partial, so not the running total. */
+  chargedCents?: number,
+): Promise<void> {
   const inv = await (db as any).invoice.findUnique({
     where:  { id: invoiceId },
     select: {
@@ -349,9 +354,14 @@ export async function sendPaymentReceiptEmails(invoiceId: string): Promise<void>
   const brandName  = inv.workspace?.name          || 'SlateSuite'
   const clientName = inv.client?.contactName || inv.client?.name || 'Client'
   const projectName = inv.project?.name || '—'
-  const paidCents  = inv.amountPaidCents ?? inv.totalCents
+  const paidCents  = chargedCents ?? inv.amountPaidCents ?? inv.totalCents
   const paidAt     = inv.paidAt ? new Date(inv.paidAt) : new Date()
   const invoiceUrl = `${APP_URL}/i/${inv.publicToken}`
+  // A payment can leave a balance (the invoice total rose during checkout).
+  const balanceCents = Math.max(0, (inv.totalCents ?? 0) - (inv.amountPaidCents ?? 0))
+  const balanceLine  = balanceCents > 0
+    ? `A balance of ${formatMoney(balanceCents)} remains on this invoice.`
+    : 'Your account is up to date.'
 
   const amount = new Intl.NumberFormat('en-US', {
     style:    'currency',
@@ -388,7 +398,7 @@ export async function sendPaymentReceiptEmails(invoiceId: string): Promise<void>
             <p style="margin:0 0 8px;font-size:22px;font-weight:700;color:#0A0612">Payment received — thank you!</p>
             <p style="margin:0 0 24px;font-size:15px;color:#555;line-height:1.6">
               We've received your payment for <strong>${inv.number}${inv.title ? ` — ${inv.title}` : ''}</strong>.
-              Your account is up to date.
+              ${balanceLine}
             </p>
 
             <table cellpadding="0" cellspacing="0" style="background:#F7F4FA;border-radius:8px;padding:20px 24px;margin-bottom:28px;width:100%;box-sizing:border-box">

@@ -80,6 +80,7 @@ export default async function MobileDeliveryPage({ params }: Props) {
               reviewStatus: true,
               currentVersion: {
                 select: {
+                  id:                true,
                   url:               true,
                   provider:          true,
                   thumbnailUrl:      true,
@@ -204,7 +205,7 @@ export default async function MobileDeliveryPage({ params }: Props) {
                       href={`/m/d/${token}/${asset.publicToken}`}
                       style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}
                     >
-                      <MobileAssetCard asset={asset} brandPrimary={brandPrimary} />
+                      <MobileAssetCard asset={asset} brandPrimary={brandPrimary} pageToken={page.publicToken} />
                     </Link>
                   ))}
                 </div>
@@ -253,6 +254,7 @@ type MobileAssetCardProps = {
     type:        string
     reviewStatus: string
     currentVersion: {
+      id:                string
       url:               string
       provider:          string
       thumbnailUrl:      string | null
@@ -260,9 +262,10 @@ type MobileAssetCardProps = {
     } | null
   }
   brandPrimary: string
+  pageToken:    string
 }
 
-function MobileAssetCard({ asset, brandPrimary }: MobileAssetCardProps) {
+function MobileAssetCard({ asset, brandPrimary, pageToken }: MobileAssetCardProps) {
   const isUnseen    = asset.currentVersion && !asset.currentVersion.firstClientViewAt
   const provider    = asset.currentVersion?.provider ?? null
   const providerLabel = provider ? PROVIDER_SHORT[provider] ?? provider : null
@@ -285,7 +288,8 @@ function MobileAssetCard({ asset, brandPrimary }: MobileAssetCardProps) {
           <img src={asset.currentVersion.thumbnailUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         ) : asset.currentVersion?.provider === 'SHADE' ? (
           <ShadeThumbImg
-            canonicalUrl={asset.currentVersion.url}
+            versionId={asset.currentVersion.id}
+            pageToken={pageToken}
             fallback={
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
                 <span style={{ fontSize: 9, color: '#aaa', fontWeight: 600 }}>Shade</span>

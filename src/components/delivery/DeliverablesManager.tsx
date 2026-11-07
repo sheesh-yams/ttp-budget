@@ -884,7 +884,7 @@ function AssetCard({
           <img src={asset.currentVersion.thumbnailUrl} alt="" className="w-full h-full object-cover" />
         ) : asset.currentVersion?.provider === 'SHADE' ? (
           <ShadeThumbImg
-            canonicalUrl={asset.currentVersion.url}
+            versionId={asset.currentVersion.id}
             fallback={
               <span className="text-[10px] font-medium text-muted-foreground/60">
                 {PROVIDER_LABELS['SHADE']}

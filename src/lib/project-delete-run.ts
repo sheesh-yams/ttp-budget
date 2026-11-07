@@ -20,7 +20,8 @@ export async function runProjectDelete(args: {
 }) {
   const { workspaceId, projectId } = args
   await db.$transaction(async tx => {
-    const invoiceIds = (await tx.invoice.findMany({ where: { workspaceId, projectId }, select: { id: true } })).map(i => i.id)
+    const invoices   = await tx.invoice.findMany({ where: { workspaceId, projectId }, select: { id: true, number: true } })
+    const invoiceIds = invoices.map(i => i.id)
     if (invoiceIds.length) {
       const open = await tx.paymentAttempt.findMany({
         where:  { workspaceId, invoiceId: { in: invoiceIds }, status: 'INITIATED' },
@@ -40,7 +41,9 @@ export async function runProjectDelete(args: {
     await tx.auditEvent.create({
       data: {
         workspaceId, actorId: args.actorId, action: 'project.deleted', entityType: 'Project', entityId: projectId,
-        metadata: args.metadata as never,
+        // invoiceNumbers: backdated invoice numbering never reuses a deleted
+        // invoice's number (src/lib/invoice-numbering.ts reads them back).
+        metadata: { ...args.metadata, invoiceNumbers: invoices.map(i => i.number) } as never,
       },
     })
   })
