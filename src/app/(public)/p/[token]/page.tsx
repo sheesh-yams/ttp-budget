@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import { db } from '@/lib/db'
-import { isProposalExpired } from '@/lib/proposal-expiry'
+import { isProposalExpired, isProposalLinkExpired } from '@/lib/proposal-expiry'
 import { toScopeItems, type PhaseDeliverable } from '@/lib/deliverable-display'
 import { ProposalPublicView } from '@/components/proposal/ProposalPublicView'
 import { recordProposalView } from '@/server/actions/proposals'
@@ -89,8 +89,9 @@ export default async function PublicProposalPage({ params }: Props) {
     : []
 
   // ── Expiry check ──────────────────────────────────────────────────────────
+  // A won proposal is locked, not expired — the client keeps their signed copy.
   const proposalExpiry = (proposal as unknown as { publicTokenExpiresAt: Date | null }).publicTokenExpiresAt
-  if (proposalExpiry && proposalExpiry < new Date()) {
+  if (isProposalLinkExpired({ status: proposal.status, publicTokenExpiresAt: proposalExpiry })) {
     return <ExpiredLinkPage type="proposal" />
   }
 

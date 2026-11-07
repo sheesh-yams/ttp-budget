@@ -8,6 +8,7 @@ import { sumAccount, type AccountInput } from '@/lib/totals'
 import { parseLocalDate } from '@/lib/time-format'
 import { deliverableBadges } from '@/lib/deliverable-display'
 import type { ProposalContent, PaymentMilestone, ScopeItem } from '@/types'
+import { proposalTermLabel } from '@/lib/proposal-expiry'
 
 // ─── Brand colours ────────────────────────────────────────────────────────────
 const V    = '#5D00A4'
@@ -41,6 +42,8 @@ interface BudgetSection {
 interface ProposalData {
   id: string; title: string; publicToken: string; version: number;
   content: unknown; createdAt: string; expiresAt: string | null;
+  /** Won proposals show "Accepted" instead of the valid-through date. */
+  status?: string; approvedAt?: string | null;
   logoSrc?: string;
   project: {
     name: string; shootType: string;
@@ -308,7 +311,9 @@ export function ProposalPDF({
   const prefix       = proposal.workspace.invoiceNumberPrefix || 'TTP'
   const proposalNum  = `${prefix}-${new Date(proposal.createdAt).getFullYear()}-${String(proposal.version).padStart(3, '0')}`
   const shootType    = SHOOT_LABELS[proposal.project.shootType] ?? proposal.project.shootType
-  const validThrough = proposal.expiresAt ? fmtDate(proposal.expiresAt) : null
+  // Won: when it was accepted — a won proposal is locked, not expiring.
+  const term      = proposalTermLabel({ status: proposal.status ?? '', expiresAt: proposal.expiresAt, approvedAt: proposal.approvedAt })
+  const termValue = term ? (term.date ? fmtDate(term.date) : term.text) : null
 
   const shootDates = proposal.project.shootStartDate
     ? (() => {
@@ -645,10 +650,10 @@ export function ProposalPDF({
                 <Text style={s.metaLabel}>Type</Text>
                 <Text style={s.metaValue}>{shootType}</Text>
               </View>
-              {validThrough && (
+              {term && termValue && (
                 <View style={s.metaItem}>
-                  <Text style={s.metaLabel}>Valid Through</Text>
-                  <Text style={s.metaValue}>{validThrough}</Text>
+                  <Text style={s.metaLabel}>{term.label}</Text>
+                  <Text style={s.metaValue}>{termValue}</Text>
                 </View>
               )}
             </View>
@@ -711,7 +716,7 @@ export function ProposalPDF({
           </View>
           <View style={{ alignItems: 'flex-end' }}>
             <Text style={s.footerLbl}>{proposalNum}</Text>
-            {validThrough && <Text style={s.footerLbl}>Valid through {validThrough}</Text>}
+            {term && termValue && <Text style={s.footerLbl}>{term.label === 'Valid Through' ? `Valid through ${termValue}` : term.label === 'Accepted' ? `Accepted ${termValue}` : termValue}</Text>}
           </View>
         </View>
 

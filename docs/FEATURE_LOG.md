@@ -126,6 +126,41 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-07 — Won proposals lock instead of expiring
+
+- **Asked:** a won proposal still expired. It should never expire, and should become locked.
+- **What was still expiring:** the valid-through check already skipped APPROVED (`isProposalExpired`). Three things didn't:
+  - **The client's link (`publicTokenExpiresAt`).** It's set to 90 days after sending, then `/p/[token]` showed "This link has expired" and `/sign` redirected.
+    - 5 of 12 won proposals were already unreachable: Service95, PMH Social Content, Sheeshyams Project Testing, AMEX - Videographer, Chopstx v2.
+  - **"Valid through {date}"** on the public page, sign page, PDF and project page. The date had passed on 11 of the 12 won proposals.
+  - **`updateProposalStatus`.** It would move an APPROVED proposal to any status when called without `onlyFrom`.
+- **Fix (code only, no data change; the 5 links work again on deploy):**
+  - **`isProposalLinkExpired`** (`src/lib/proposal-expiry.ts`) is never true for APPROVED. The public page and sign page use it. To revoke a won proposal's link, regenerate it.
+  - **`proposalTermLabel`:** a won proposal shows **Accepted {approvedAt}** in place of Valid Through (manual wins with no date show "Status · Accepted"), on the public page header and footer, the sign page footer, and the PDF meta and footer. The PDF route now passes `status` / `approvedAt`.
+  - **Project page:** the Valid through column shows 🔒 **Locked** for won rows.
+  - **`updateProposalStatus`** refuses when the stored status is APPROVED ("This proposal is won and locked."). Its un-guarded write is now `updateMany` with `status: { not: 'APPROVED' }`, so an e-signature landing after the page loaded can't be overwritten.
+- **Already locked, unchanged:**
+  - contract edits (`CONTRACT_LOCKED_ERROR`)
+  - content edits (drafts only)
+  - reopen (not offered when won)
+  - the approve route (only SENT/VIEWED)
+  - Revisions still make a new draft. Delete keeps its "marked Won" warning.
+- **Verified:**
+  - jest (2 new tests, 567 total), tsc, lint
+  - next build up to the known Resend error
+  - **Dev server:**
+    - A won proposal whose link date had passed now renders, with "Accepted" in its header and footer.
+    - Its PDF reads "Accepted July 10, 2026".
+    - A lapsed VIEWED proposal still shows the expired page.
+  - **Throwaway script:** the guarded write refuses to move a won proposal and still moves an open one. The row was deleted.
+  - **pitfall-reviewer:**
+    - **Fixed:** the project page's status dropdown kept showing a change the server refused (it now rolls back and says why).
+    - **Fixed:** the header and footer label didn't flip to "Accepted" right after an inline signature.
+- **Follow-ups (pre-existing, found in review):**
+  - **"Accepted" date:** it uses the UTC date of `approvedAt` (via `parseLocalDate`), the same as the existing "Signed by … on" line, so a US evening signature reads as the next day. Fixing it needs a workspace timezone.
+  - **Won multi-option proposals:** they still open on the original primary option's tab. The option the client chose isn't recorded in `content`.
+  - **Won proposals with no `content.budgetSnapshot`** (legacy sends, or a draft marked Won from the dropdown) render the live budget. With links no longer expiring, that view now lasts.
+
 ### 2026-11-07 — Deal memos: Duplicate + "Start from" an earlier memo
 
 - **Asked:** duplicate a deal memo, or start a new one from earlier memos, so several people on a similar SOW can be set up quickly.

@@ -8,6 +8,7 @@ import { lighten, darken, safeHex } from '@/lib/color'
 import { parseLocalDate } from '@/lib/time-format'
 import { renderSmartText } from '@/lib/smart-text'
 import { resolveMergeTags, type MergeTagContext } from '@/lib/merge-tags'
+import { proposalTermLabel } from '@/lib/proposal-expiry'
 
 const V       = 'var(--brand-v, #5D00A4)'
 const V_TINT  = 'var(--brand-v-tint, #F5EDFA)'
@@ -108,6 +109,12 @@ export function ProposalSignView({ proposal, contractSections, optionPhaseId, is
   )
   const [sigError, setSigError] = useState('')
   const [signedAt, setSignedAt] = useState<string | null>(proposal.approvedAt)
+  // Won: shows when it was accepted — a won proposal is locked, not expiring.
+  // Follows an inline signature at once (before any reload).
+  const term      = proposalTermLabel(sigState === 'done'
+    ? { status: 'APPROVED', expiresAt: proposal.expiresAt, approvedAt: signedAt }
+    : proposal)
+  const termValue = term ? (term.date ? fmt(term.date) : term.text) : null
 
   async function handleApprove() {
     if (!agreed) { setSigError('Please check the box confirming you agree to the terms above.'); return }
@@ -376,10 +383,10 @@ export function ProposalSignView({ proposal, contractSections, optionPhaseId, is
               </a>
             )}
           </div>
-          {validThrough && (
+          {term && termValue && (
             <div style={{ textAlign: 'right' }}>
-              <p style={{ color: 'rgba(255,255,255,0.38)', fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 5px' }}>Valid Through</p>
-              <p style={{ color: '#fff', fontSize: 14, fontWeight: 500, margin: 0 }}>{validThrough}</p>
+              <p style={{ color: 'rgba(255,255,255,0.38)', fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 5px' }}>{term.label}</p>
+              <p style={{ color: '#fff', fontSize: 14, fontWeight: 500, margin: 0 }}>{termValue}</p>
             </div>
           )}
         </div>

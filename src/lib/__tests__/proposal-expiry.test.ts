@@ -1,4 +1,4 @@
-import { isProposalExpired, canReopenProposal, defaultReopenDate, reopenedLinkExpiry, reopenedStatus, earliestReopenDate } from '@/lib/proposal-expiry'
+import { isProposalExpired, isProposalLinkExpired, proposalTermLabel, canReopenProposal, defaultReopenDate, reopenedLinkExpiry, reopenedStatus, earliestReopenDate } from '@/lib/proposal-expiry'
 
 const now = new Date('2026-10-19T12:00:00Z')
 const past = '2026-09-30T00:00:00Z', future = '2026-11-30T00:00:00Z'
@@ -41,5 +41,23 @@ describe('proposal expiry', () => {
     // 9pm Oct 19 in New York is already Oct 20 in UTC — Oct 20 would expire at once.
     expect(earliestReopenDate(new Date('2026-10-20T01:00:00Z'))).toBe('2026-10-21')
     expect(defaultReopenDate(0, new Date('2026-10-20T01:00:00Z')) >= '2026-10-21').toBe(true)
+  })
+})
+
+describe('won proposals lock instead of expiring', () => {
+  it('the client link never expires once won', () => {
+    expect(isProposalLinkExpired({ status: 'APPROVED', publicTokenExpiresAt: past }, now)).toBe(false)
+    expect(isProposalLinkExpired({ status: 'SENT', publicTokenExpiresAt: past }, now)).toBe(true)
+    expect(isProposalLinkExpired({ status: 'LOST', publicTokenExpiresAt: past }, now)).toBe(true)
+    expect(isProposalLinkExpired({ status: 'VIEWED', publicTokenExpiresAt: future }, now)).toBe(false)
+    expect(isProposalLinkExpired({ status: 'SENT', publicTokenExpiresAt: null }, now)).toBe(false)
+  })
+  it('the valid-through slot shows the acceptance once won', () => {
+    expect(proposalTermLabel({ status: 'APPROVED', expiresAt: past, approvedAt: '2026-09-01T10:00:00Z' }))
+      .toEqual({ label: 'Accepted', date: '2026-09-01T10:00:00.000Z', text: null })
+    expect(proposalTermLabel({ status: 'APPROVED', expiresAt: past, approvedAt: null }))
+      .toEqual({ label: 'Status', date: null, text: 'Accepted' })
+    expect(proposalTermLabel({ status: 'VIEWED', expiresAt: past })).toEqual({ label: 'Valid Through', date: '2026-09-30T00:00:00.000Z', text: null })
+    expect(proposalTermLabel({ status: 'SENT', expiresAt: null })).toBeNull()
   })
 })

@@ -1,6 +1,6 @@
 import { notFound, redirect } from 'next/navigation'
 import { db } from '@/lib/db'
-import { isProposalExpired } from '@/lib/proposal-expiry'
+import { isProposalExpired, isProposalLinkExpired } from '@/lib/proposal-expiry'
 import { headers } from 'next/headers'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { trustedClientIp } from '@/lib/client-ip'
@@ -57,7 +57,8 @@ export default async function ProposalSignPage({ params, searchParams }: Props) 
 
   // Expiry check
   const tokenExpiry = (proposal as unknown as { publicTokenExpiresAt: Date | null }).publicTokenExpiresAt
-  if (tokenExpiry && tokenExpiry < new Date()) redirect(`/p/${token}`)
+  // A won proposal's link never expires (it's locked, not lapsed).
+  if (isProposalLinkExpired({ status: proposal.status, publicTokenExpiresAt: tokenExpiry })) redirect(`/p/${token}`)
 
   // Contract must be enabled with sections — otherwise sign inline on main page
   const contractEnabled = (proposal as unknown as { contractEnabled?: boolean }).contractEnabled ?? true

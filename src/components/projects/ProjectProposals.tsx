@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { Plus, ExternalLink, Eye, Clock, Send, FileText, Pencil, Receipt, CheckCircle, Trash2, TrendingDown, ChevronDown, RotateCcw } from 'lucide-react'
+import { Plus, ExternalLink, Eye, Clock, Send, FileText, Pencil, Receipt, CheckCircle, Trash2, TrendingDown, ChevronDown, RotateCcw, Lock } from 'lucide-react'
 import { ReopenProposalDialog } from '@/components/proposals/ReopenProposalDialog'
 import { canReopenProposal } from '@/lib/proposal-expiry'
 import { Button } from '@/components/ui/button'
@@ -101,10 +101,18 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
 
   // Status change (optimistic)
   const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({})
+  const [statusError, setStatusError] = useState<string | null>(null)
 
   async function handleStatusChange(proposalId: string, newStatus: string) {
+    setStatusError(null)
     setStatusOverrides(prev => ({ ...prev, [proposalId]: newStatus }))
-    await updateProposalStatus(proposalId, newStatus)
+    const res = await updateProposalStatus(proposalId, newStatus)
+    // Refused (e.g. the client e-signed meanwhile — a won proposal is locked):
+    // drop the optimistic status so the row shows what's really stored.
+    if (!res.success) {
+      setStatusOverrides(prev => { const next = { ...prev }; delete next[proposalId]; return next })
+      setStatusError((res as { success: false; error: string }).error)
+    }
     router.refresh()
   }
 
@@ -206,6 +214,8 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
         )}
       </div>
 
+      {statusError && <p className="mb-2 text-sm text-destructive">{statusError}</p>}
+
       {proposals.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-10 text-center">
           <p className="text-sm font-medium text-foreground">No proposals yet</p>
@@ -283,7 +293,12 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
                       {new Date(p.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                     </td>
                     <td className="hidden md:table-cell px-3 py-2.5 text-muted-foreground">
-                      {p.expiresAt
+                      {effectiveStatus === 'APPROVED' ? (
+                        // Won proposals are locked — the valid-through date no longer applies.
+                        <span className="inline-flex items-center gap-1" title="Won — locked; it no longer expires">
+                          <Lock className="h-3 w-3" /> Locked
+                        </span>
+                      ) : p.expiresAt
                         ? new Date(p.expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                         : '—'}
                     </td>

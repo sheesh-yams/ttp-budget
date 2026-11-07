@@ -833,6 +833,9 @@ export async function updateProposalStatus(
     const onlyFrom = opts?.onlyFrom
     const STALE = 'This proposal changed since the page loaded. Refresh and try again.'
     if (!proposal) return { success: false, error: 'Proposal not found' }
+    // Won is final: the proposal is locked (it no longer expires, and its
+    // status can't be changed from here).
+    if (proposal.status === 'APPROVED') return { success: false, error: 'This proposal is won and locked.' }
     if (onlyFrom && !onlyFrom.includes(proposal.status)) return { success: false, error: STALE }
 
     // When manually marking APPROVED, snapshot the gross total from content so
@@ -862,7 +865,13 @@ export async function updateProposalStatus(
       })
       if (res.count === 0) return { success: false, error: STALE }
     } else {
-      await sdb.proposal.update({ where: { id: proposalId }, data })
+      // Re-checks in the same statement that it wasn't won meanwhile (e.g. the
+      // client e-signed after the page loaded).
+      const res = await sdb.proposal.updateMany({
+        where: { id: proposalId, status: { not: 'APPROVED' } },
+        data:  data as Parameters<typeof sdb.proposal.updateMany>[0]['data'],
+      })
+      if (res.count === 0) return { success: false, error: STALE }
     }
 
     // ── Auto-advance project status based on proposal outcome ─────────────────

@@ -12,6 +12,7 @@ import { BudgetReadOnly } from '@/components/budget/BudgetReadOnly'
 import type { SerialAccount, SerialBudgetSection } from '@/components/budget/BudgetReadOnly'
 import { renderSmartText } from '@/lib/smart-text'
 import { resolveMergeTags, type MergeTagContext } from '@/lib/merge-tags'
+import { proposalTermLabel } from '@/lib/proposal-expiry'
 
 // ─── Brand tokens ─────────────────────────────────────────────────────────────
 // V / V_TINT / MINT / MINT_DK resolve to per-workspace CSS variables set on the
@@ -267,6 +268,13 @@ export function ProposalPublicView({
     isAlreadyApproved ? 'done' : 'idle'
   )
   const [sigError, setSigError] = useState('')
+  // Won: shows when it was accepted — a won proposal is locked, not expiring.
+  // Follows an inline signature at once (before any reload).
+  const [justSignedAt, setJustSignedAt] = useState<string | null>(null)
+  const term      = proposalTermLabel(justSignedAt
+    ? { status: 'APPROVED', expiresAt: proposal.expiresAt, approvedAt: justSignedAt }
+    : proposal)
+  const termValue = term ? (term.date ? fmt(term.date) : term.text) : null
 
   async function handleApprove() {
     const name = sigName.trim()
@@ -287,6 +295,8 @@ export function ProposalPublicView({
         }),
       })
       if (res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setJustSignedAt((d as { approvedAt?: string }).approvedAt ?? new Date().toISOString())
         setSigState('done')
       } else {
         const d = await res.json().catch(() => ({}))
@@ -363,10 +373,10 @@ export function ProposalPublicView({
                 <p style={{ color: 'rgba(255,255,255,0.42)', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Type</p>
                 <p style={{ color: 'rgba(255,255,255,0.92)', fontSize: 13, fontWeight: 700, margin: 0 }}>{SHOOT_LABELS[project.shootType] ?? project.shootType}</p>
               </div>
-              {validThrough && (
+              {term && termValue && (
                 <div>
-                  <p style={{ color: 'rgba(255,255,255,0.42)', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>Valid Through</p>
-                  <p style={{ color: 'rgba(255,255,255,0.92)', fontSize: 13, fontWeight: 700, margin: 0 }}>{validThrough}</p>
+                  <p style={{ color: 'rgba(255,255,255,0.42)', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>{term.label}</p>
+                  <p style={{ color: 'rgba(255,255,255,0.92)', fontSize: 13, fontWeight: 700, margin: 0 }}>{termValue}</p>
                 </div>
               )}
             </div>
@@ -765,12 +775,12 @@ export function ProposalPublicView({
               </a>
             )}
           </div>
-          {validThrough && (
+          {term && termValue && (
             <div style={{ textAlign: 'right' }}>
               <p style={{ color: 'rgba(255,255,255,0.38)', fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 5px' }}>
-                Valid Through
+                {term.label}
               </p>
-              <p style={{ color: '#fff', fontSize: 14, fontWeight: 500, margin: 0 }}>{validThrough}</p>
+              <p style={{ color: '#fff', fontSize: 14, fontWeight: 500, margin: 0 }}>{termValue}</p>
             </div>
           )}
         </div>

@@ -66,3 +66,34 @@ export function reopenedLinkExpiry(current: Date | null, newValidThrough: Date, 
   if (current) candidates.push(current.getTime())
   return new Date(Math.max(...candidates))
 }
+
+/**
+ * Whether the client's share link has run out. A won proposal never expires —
+ * it's locked, and the client keeps the signed copy, so its link stays open
+ * whatever `publicTokenExpiresAt` says (regenerate the link to revoke it).
+ */
+export function isProposalLinkExpired(
+  p: { status: string; publicTokenExpiresAt: Date | string | null },
+  now: Date = new Date(),
+): boolean {
+  if (p.status === 'APPROVED') return false
+  return !!p.publicTokenExpiresAt && new Date(p.publicTokenExpiresAt) < now
+}
+
+/**
+ * What the "Valid through" slot shows on the client page, sign page and PDF.
+ * A won proposal shows when it was accepted instead — its valid-through date
+ * no longer applies. `date` is ISO (the caller formats it); `text` is shown
+ * as is. Null = show nothing.
+ */
+export function proposalTermLabel(p: {
+  status: string; expiresAt: Date | string | null; approvedAt?: Date | string | null
+}): { label: string; date: string | null; text: string | null } | null {
+  const iso = (d: Date | string) => new Date(d).toISOString()
+  if (p.status === 'APPROVED') {
+    return p.approvedAt
+      ? { label: 'Accepted', date: iso(p.approvedAt), text: null }
+      : { label: 'Status', date: null, text: 'Accepted' }   // marked won by hand
+  }
+  return p.expiresAt ? { label: 'Valid Through', date: iso(p.expiresAt), text: null } : null
+}

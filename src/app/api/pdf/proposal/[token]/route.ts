@@ -202,6 +202,8 @@ export async function GET(
       content:      proposal.content,
       createdAt:    proposal.createdAt.toISOString(),
       expiresAt:    proposal.expiresAt?.toISOString()  ?? null,
+      status:       proposal.status,
+      approvedAt:   proposal.approvedAt?.toISOString() ?? null,
       logoSrc,
       project: {
         name:           proposal.project.name,
