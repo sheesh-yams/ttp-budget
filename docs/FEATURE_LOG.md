@@ -126,6 +126,18 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-07 — Data: legacy proposal discounts copied to their budgets
+
+- **Reported:** Chopstx's won proposal showed a $300 discount ($7,650), but the project total, Budget Breakdown and payment schedule used $7,950. New 50% invoices came to $3,975.
+- **Root cause:** before 28b631b (Jul 17) discounts lived on the proposal (`content.discount`). That commit moved them to the Budget but never copied existing ones over, so those budgets had no discount.
+- **Discovery (read-only):** 3 budgets had a proposal-level discount the budget lacked.
+  - **Definite:** Chopstx (v2 won, $300) and Service95 (archived, v4 won, $1,050). In both, the live total minus the discount equals `approvedTotalCents` exactly.
+  - **Left alone:** Project Test 2. It's archived and only had a draft.
+- **Fix (user approved):** a guarded `updateMany` on each budget (`discountType: null` in the where), with a flat discount set from the proposal, plus an AuditEvent `budget.discountBackfilled` per budget.
+- **Verified after:** live totals Chopstx $7,650 and Service95 $5,250 both match the signed totals. Chopstx's milestones are now $3,825 each, and the first is already paid.
+- **No code change.** Proposals can no longer carry their own discount, so this can't recur.
+- **Follow-up idea:** a /health-check drift check that flags won proposals whose `approvedTotalCents` differs from the live primary-phase total.
+
 ### 2026-11-07 — Won proposals lock instead of expiring
 
 - **Asked:** a won proposal still expired. It should never expire, and should become locked.
