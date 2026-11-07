@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
-import type { DealMemoStatus } from '@prisma/client'
+import type { DealMemoFeeKind, DealMemoStatus, RateUnit } from '@prisma/client'
 import { db } from '@/lib/db'
 import { getScopedDb, type ScopedDb } from '@/lib/db-scoped'
 import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
@@ -27,6 +27,8 @@ import {
 } from '@/lib/deal-memo-core'
 import { applyDealMemoAwardEffects } from '@/lib/deal-memo-effects'
 import { mergeTemplateSections, resolveTemplateBlocks } from '@/lib/contract-templates'
+import { buildDealMemoCopy, loadCopySource, type DealMemoSource } from '@/lib/deal-memo-copy'
+import { projectsWithArea } from '@/lib/money-access'
 import { Prisma } from '@prisma/client'
 import { generatePublicToken } from '@/lib/secure-token'
 import { toJsonSafe } from '@/lib/json-safe'
@@ -155,6 +157,8 @@ const createSchema = z.object({
   roleLabel:  z.string().trim().max(200).optional(),
   /** Contract template for the terms; omitted = the default template. */
   templateId: z.string().min(1).nullable().optional(),
+  /** Duplicate / "Start from": copy this memo's rates, fees, work day and terms. */
+  sourceMemoId: z.string().min(1).nullable().optional(),
 })
 
 export async function createDealMemo(input: z.infer<typeof createSchema>): Promise<ActionResult<{ id: string }>> {
@@ -184,42 +188,112 @@ export async function createDealMemo(input: z.infer<typeof createSchema>): Promi
     if (lineItemId && !line) return { success: false, error: 'That budget line isn’t on this project.' }
     if (!line && !roleLabel?.trim()) return { success: false, error: 'Give the role a name.' }
 
-    const prefill = buildDealMemoPrefill({
-      defaults: resolveDealMemoDefaults(workspace?.dealMemoDefaults),
-      line: line && !canSeeCosts ? { ...line, rateCents: 0 } : line,
-      contact, roleLabel, project,
-    })
-    // The chosen contract template's blocks, else the default template's,
-    // else (no templates yet) the blocks marked "attach by default".
-    const defaultBlocks = await resolveTemplateBlocks(sdb, 'VENDOR', parsed.data.templateId)
-    if (!defaultBlocks) return { success: false, error: 'That contract template isn’t in your crew & vendor library.' }
+    const sourceMemoId = parsed.data.sourceMemoId
+    let fields: Omit<ReturnType<typeof buildDealMemoPrefill>, 'fees'>
+    let fees: { kind: DealMemoFeeKind; label: string; rateCents: number; unit: RateUnit; quantity: number; termsText: string | null; budgetLineItemId?: string | null; isAutoRate: boolean; order: number }[]
+    let sections: { sourceBlockId: string | null; title: string; body: string; editedFromSource?: boolean; orderIndex: number }[]
+    let sourceProjectId: string | null = null
 
-    const { fees, ...memoFields } = prefill
+    if (sourceMemoId) {
+      // Copying an earlier memo — the caller must be able to see that project's deal memos.
+      const source = await loadCopySource(sdb, sourceMemoId)
+      if (!source || !(await getProjectAccess(source.projectId))?.can('dealMemos')) {
+        return { success: false, error: 'That deal memo isn’t available.' }
+      }
+      sourceProjectId = source.projectId
+      const copy = buildDealMemoCopy(source, {
+        projectId, line, project,
+        roleLabel: line?.description ?? roleLabel ?? source.roleLabel,
+      })
+      ;({ fees, sections, ...fields } = copy)
+    } else {
+      const prefill = buildDealMemoPrefill({
+        defaults: resolveDealMemoDefaults(workspace?.dealMemoDefaults),
+        line: line && !canSeeCosts ? { ...line, rateCents: 0 } : line,
+        contact, roleLabel, project,
+      })
+      // The chosen contract template's blocks, else the default template's,
+      // else (no templates yet) the blocks marked "attach by default".
+      const defaultBlocks = await resolveTemplateBlocks(sdb, 'VENDOR', parsed.data.templateId)
+      if (!defaultBlocks) return { success: false, error: 'That contract template isn’t in your crew & vendor library.' }
+      ;({ fees, ...fields } = prefill)
+      sections = defaultBlocks.map((b, i) => ({ sourceBlockId: b.id, title: b.title, body: b.body, orderIndex: i }))
+    }
+
     const memo = await sdb.$transaction(async tx => {
       const created = await tx.dealMemo.create({
         data: {
-          ...memoFields, workspaceId, projectId,
+          ...fields, workspaceId, projectId,
           lineItemId: line?.id ?? null, contactId: contact.id, createdById: user.id,
         },
         select: { id: true },
       })
       await tx.dealMemoFee.createMany({ data: fees.map(f => ({ ...f, workspaceId, dealMemoId: created.id })) })
-      if (defaultBlocks.length) {
+      if (sections.length) {
         await tx.dealMemoSection.createMany({
-          data: defaultBlocks.map((b, i) => ({
-            workspaceId, dealMemoId: created.id, sourceBlockId: b.id,
-            title: b.title, body: b.body, orderIndex: i,
-          })),
+          data: sections.map(s => ({ ...s, workspaceId, dealMemoId: created.id })),
         })
       }
       return created
     })
+
+    if (sourceMemoId) {
+      await logAuditEvent({
+        workspaceId, actorId: user.id, action: 'dealMemo.duplicated', entityType: 'DealMemo', entityId: memo.id,
+        metadata: { sourceMemoId, sourceProjectId, projectId },
+      })
+    }
 
     revalidateMemo(projectId)
     return { success: true, data: { id: memo.id } }
   } catch (err) {
     console.error('[createDealMemo]', err)
     return { success: false, error: 'Failed to create the bid.' }
+  }
+}
+
+/**
+ * Earlier memos a new bid can start from (Add bid → "Start from"): this
+ * project's first, then other projects' — only projects where the person can
+ * see deal memos. Archived projects count; past SOWs are the point.
+ */
+export async function listDealMemoSources(projectId: string): Promise<ActionResult<DealMemoSource[]>> {
+  try {
+    const gate = await requireProjectPermission(projectId, 'dealMemos', 'EDIT')
+    if (!gate.ok) return { success: true, data: [] }
+    const [sdb, visible] = await Promise.all([getScopedDb(), projectsWithArea('dealMemos')])
+    const select = {
+      id: true, projectId: true, position: true,
+      project: { select: { name: true } },
+      contact: { select: { name: true } },
+      fees:    { orderBy: { order: 'asc' as const }, select: { kind: true, rateCents: true, unit: true } },
+      _count:  { select: { sections: true } },
+    }
+    // This project's memos in full, then the 100 most recent elsewhere — so a
+    // busy workspace can't push this project's own memos out of the list.
+    const [here, elsewhere] = await Promise.all([
+      sdb.dealMemo.findMany({ where: { projectId }, orderBy: { updatedAt: 'desc' }, take: 200, select }),
+      sdb.dealMemo.findMany({
+        where:   visible === null ? { projectId: { not: projectId } } : { projectId: { in: visible.filter(id => id !== projectId) } },
+        orderBy: { updatedAt: 'desc' },
+        take:    100,
+        select,
+      }),
+    ])
+    const rows = [...here, ...elsewhere]
+    const data = rows.map((m): DealMemoSource => {
+      const dayRate = m.fees.find(f => f.kind === 'DAY_RATE')
+      return {
+        id: m.id, projectId: m.projectId, projectName: m.project.name, thisProject: m.projectId === projectId,
+        contactName: m.contact?.name ?? 'No contact', position: m.position,
+        dayRateCents: dayRate?.rateCents ?? 0, dayRateUnit: dayRate?.unit ?? 'DAY',
+        feeCount: m.fees.length, sectionCount: m._count.sections,
+      }
+    })
+    return { success: true, data }
+  } catch (err) {
+    console.error('[listDealMemoSources]', err)
+    return { success: false, error: 'Couldn’t load earlier deal memos.' }
   }
 }
 

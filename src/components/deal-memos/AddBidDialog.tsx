@@ -8,7 +8,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { searchContacts, createContact, type ContactSearchResult } from '@/server/actions/rolodex'
-import { createDealMemo } from '@/server/actions/deal-memos'
+import { createDealMemo, listDealMemoSources } from '@/server/actions/deal-memos'
+import type { DealMemoSource } from '@/lib/deal-memo-copy'
 import { listContractTemplateOptions, type ContractTemplateOption } from '@/server/actions/contract-templates'
 import { formatMoney } from '@/lib/money'
 import { UNIT_SUFFIX } from './labels'
@@ -20,9 +21,11 @@ interface Props {
   /** Budget line this bid is for; null = someone hired outside the budget. */
   lineItemId: string | null
   roleLabel:  string
+  /** Duplicate: start from this memo (rates, fees, work day, terms). */
+  sourceMemoId?: string | null
 }
 
-export function AddBidDialog({ projectId, open, onClose, lineItemId, roleLabel }: Props) {
+export function AddBidDialog({ projectId, open, onClose, lineItemId, roleLabel, sourceMemoId = null }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [query, setQuery]       = useState('')
@@ -37,19 +40,35 @@ export function AddBidDialog({ projectId, open, onClose, lineItemId, roleLabel }
   const [newEmail, setNewEmail] = useState('')
   const [newPhone, setNewPhone] = useState('')
   const [error, setError]       = useState<string | null>(null)
-  // Contract template for the memo's terms — the default one pre-selected.
+  // "Start from": a contract template (the default pre-selected) or an
+  // earlier memo to copy. Values: 'tpl:<id>' ('tpl:' = no template — the
+  // server uses the default template, or the blocks marked "attach by
+  // default") or 'memo:<id>'.
   const [templates, setTemplates] = useState<ContractTemplateOption[]>([])
-  const [templateId, setTemplateId] = useState('')
+  const [sources, setSources] = useState<DealMemoSource[]>([])
+  const [startFrom, setStartFrom] = useState(sourceMemoId ? `memo:${sourceMemoId}` : 'tpl:')
   useEffect(() => {
     if (!open) return
+    if (sourceMemoId) setStartFrom(`memo:${sourceMemoId}`)
     listContractTemplateOptions('VENDOR').then(r => {
       if (!r.success) return
       setTemplates(r.data)
-      // '' = no template: the server uses the default template, or (none set)
-      // the blocks marked "attach by default".
-      setTemplateId(r.data.find(t => t.isDefault)?.id ?? '')
+      // Pre-select the default template — unless a memo was already picked
+      // while this list was loading.
+      if (!sourceMemoId) setStartFrom(prev => (prev === 'tpl:' ? `tpl:${r.data.find(t => t.isDefault)?.id ?? ''}` : prev))
     }).catch(() => {})
-  }, [open])
+    listDealMemoSources(projectId).then(r => { if (r.success) setSources(r.data) }).catch(() => {})
+  }, [open, projectId, sourceMemoId])
+  const copyFrom = startFrom.startsWith('memo:') ? startFrom.slice(5) : null
+  const templateId = startFrom.startsWith('tpl:') ? startFrom.slice(4) : ''
+  const sourceLabel = (m: DealMemoSource) => [
+    `${m.contactName} — ${m.position}`,
+    m.thisProject ? null : m.projectName,
+    m.dayRateCents > 0 ? `${formatMoney(m.dayRateCents)}${UNIT_SUFFIX[m.dayRateUnit]}` : null,
+    `${m.sectionCount} section${m.sectionCount === 1 ? '' : 's'}`,
+  ].filter(Boolean).join(' · ')
+  const hereSources  = sources.filter(m => m.thisProject)
+  const otherSources = sources.filter(m => !m.thisProject)
 
   useEffect(() => {
     if (!open) return
@@ -73,7 +92,8 @@ export function AddBidDialog({ projectId, open, onClose, lineItemId, roleLabel }
     startTransition(async () => {
       const res = await createDealMemo({
         projectId, lineItemId, contactId, roleLabel: lineItemId ? undefined : roleName,
-        templateId: templateId || null,
+        templateId: copyFrom ? null : templateId || null,
+        sourceMemoId: copyFrom,
       })
       if (!res.success) { setError((res as { success: false; error: string }).error); return }
       reset()
@@ -101,7 +121,11 @@ export function AddBidDialog({ projectId, open, onClose, lineItemId, roleLabel }
     <Dialog open={open} onOpenChange={o => { if (!o) { reset(); onClose() } }}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>{lineItemId ? `Add a bid — ${roleLabel}` : 'Add someone outside the budget'}</DialogTitle>
+          <DialogTitle>
+            {sourceMemoId
+              ? `Duplicate — ${roleLabel || 'outside the budget'}`
+              : lineItemId ? `Add a bid — ${roleLabel}` : 'Add someone outside the budget'}
+          </DialogTitle>
         </DialogHeader>
 
         {!lineItemId && (
@@ -111,18 +135,35 @@ export function AddBidDialog({ projectId, open, onClose, lineItemId, roleLabel }
           </div>
         )}
 
-        {templates.length > 0 && (
+        {(templates.length > 0 || sources.length > 0 || copyFrom) && (
           <div className="space-y-1.5">
-            <Label htmlFor="bid-template">Contract template</Label>
+            <Label htmlFor="bid-template">Start from</Label>
             <select
-              id="bid-template" value={templateId} onChange={e => setTemplateId(e.target.value)}
+              id="bid-template" value={startFrom} onChange={e => setStartFrom(e.target.value)}
               className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
             >
-              {!templates.some(t => t.isDefault) && <option value="">Blocks marked default</option>}
-              {templates.map(t => (
-                <option key={t.id} value={t.id}>{t.name}{t.isDefault ? ' (default)' : ''} · {t.blockCount} block{t.blockCount === 1 ? '' : 's'}</option>
-              ))}
+              <optgroup label="Contract templates">
+                {!templates.some(t => t.isDefault) && <option value="tpl:">Blocks marked default</option>}
+                {templates.map(t => (
+                  <option key={t.id} value={`tpl:${t.id}`}>{t.name}{t.isDefault ? ' (default)' : ''} · {t.blockCount} block{t.blockCount === 1 ? '' : 's'}</option>
+                ))}
+              </optgroup>
+              {hereSources.length > 0 && (
+                <optgroup label="Copy a memo on this project">
+                  {hereSources.map(m => <option key={m.id} value={`memo:${m.id}`}>{sourceLabel(m)}</option>)}
+                </optgroup>
+              )}
+              {otherSources.length > 0 && (
+                <optgroup label="Copy a memo from another project">
+                  {otherSources.map(m => <option key={m.id} value={`memo:${m.id}`}>{sourceLabel(m)}</option>)}
+                </optgroup>
+              )}
+              {/* Still loading the list: keep the chosen memo selectable. */}
+              {copyFrom && !sources.some(m => m.id === copyFrom) && <option value={startFrom}>The selected deal memo</option>}
             </select>
+            {copyFrom && (
+              <p className="text-xs text-muted-foreground">Copies the rates, fees, work day and terms. Pick the next person below.</p>
+            )}
           </div>
         )}
 

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useTransition } from 'react'
 import { WorkDayPicker } from './WorkDayPicker'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowDown, ArrowLeft, ArrowUp, Eye, ListChecks, Lock, Plus, RotateCcw, X } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowUp, Copy, Eye, ListChecks, Lock, Plus, RotateCcw, X } from 'lucide-react'
 import type { ContractBlockCategory, DealMemoFeeKind, DealMemoStatus, RateUnit } from '@prisma/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,6 +28,7 @@ import {
 import { SaveGeneration, SaveScope, SaveStatusLine, useSaveQueue, useSaveScope } from '@/components/autosave/SaveScope'
 import { UseTemplateMenu } from '@/components/contracts/UseTemplateMenu'
 import { DealMemoDocument } from './DealMemoDocument'
+import { AddBidDialog } from './AddBidDialog'
 import { FEE_KIND_LABEL, STATUS_META, UNIT_OPTIONS, UNIT_SUFFIX, VENDOR_STAGE_META, vendorStage } from './labels'
 import { DealMemoVendorActions, type VendorLinkInfo } from './DealMemoVendorActions'
 
@@ -160,6 +161,14 @@ function DealMemoEditorInner({ projectId, memo, lines, library, vendorView, show
   const [dtAfter, setDtAfter] = useState(memo.doubleTimeAfterHours)
   useEffect(() => { if (!memoQueue.busy) setDtAfter(memo.doubleTimeAfterHours) }, [memo.doubleTimeAfterHours, memoQueue])
 
+  // Duplicate copies the saved memo — save what's typed first.
+  const [duplicating, setDuplicating] = useState(false)
+  async function openDuplicate() {
+    setError(null)
+    if (!(await flushAll())) { setError('Some changes couldn’t be saved — retry or discard them before duplicating.'); return }
+    setDuplicating(true)
+  }
+
   async function openPreview() {
     await flushAll()
     router.refresh()
@@ -257,6 +266,11 @@ function DealMemoEditorInner({ projectId, memo, lines, library, vendorView, show
             <DealMemoVendorActions
               memoId={memo.id} vendorName={memo.contact?.name ?? 'the vendor'} roleLabel={memo.roleLabel} link={vendor}
             />
+          )}
+          {canEdit && (
+            <Button variant="outline" size="sm" disabled={isPending} onClick={() => void openDuplicate()}>
+              <Copy className="mr-1.5 h-3.5 w-3.5" /> Duplicate
+            </Button>
           )}
           <Button variant="outline" size="sm" onClick={() => void openPreview()}>
             <Eye className="mr-1.5 h-3.5 w-3.5" /> Preview as vendor
@@ -458,6 +472,15 @@ function DealMemoEditorInner({ projectId, memo, lines, library, vendorView, show
           </section>
         </div>
       </div>
+
+      {duplicating && (
+        <AddBidDialog
+          projectId={projectId} open onClose={() => setDuplicating(false)}
+          // Same role; a line no longer on the budget duplicates off budget.
+          lineItemId={roleLine?.id ?? null} roleLabel={roleLine?.description ?? memo.roleLabel}
+          sourceMemoId={memo.id}
+        />
+      )}
 
       <Dialog open={showPreview} onOpenChange={setShowPreview}>
         <DialogContent className="max-w-none w-screen h-[100dvh] top-0 left-0 translate-x-0 translate-y-0 rounded-none sm:rounded-none gap-0 p-0 overflow-y-auto bg-[#FAFAF8] [&>button]:hidden">

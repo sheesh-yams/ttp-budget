@@ -27,7 +27,7 @@ export function DealMemosBoard({ projectId, board, showBudget = true, canEdit = 
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const { confirm, ConfirmDialog } = useConfirm()
-  const [bidFor, setBidFor] = useState<{ lineItemId: string | null; roleLabel: string } | null>(null)
+  const [bidFor, setBidFor] = useState<{ lineItemId: string | null; roleLabel: string; sourceMemoId?: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const confirmedCents = [...board.roles.flatMap(r => r.memos), ...board.unbudgeted]
@@ -99,6 +99,12 @@ export function DealMemosBoard({ projectId, board, showBudget = true, canEdit = 
         {memo.status === 'CONFIRMED' && (
           <button type="button" disabled={isPending} onClick={() => handleCancel(memo)} className="text-muted-foreground hover:text-destructive">Cancel</button>
         )}
+        {/* Same SOW for the next person — off-budget memos (role is null) stay off budget. */}
+        <button
+          type="button" disabled={isPending}
+          onClick={() => setBidFor({ lineItemId: role?.lineItemId ?? null, roleLabel: role?.description ?? memo.roleLabel, sourceMemoId: memo.id })}
+          className="text-muted-foreground hover:text-foreground"
+        >Duplicate</button>
         {(memo.status === 'BID' || memo.status === 'NOT_SELECTED') && (
           <button type="button" disabled={isPending} onClick={() => handleDelete(memo)} className="text-muted-foreground hover:text-destructive">Delete</button>
         )}
@@ -272,6 +278,7 @@ export function DealMemosBoard({ projectId, board, showBudget = true, canEdit = 
           onClose={() => setBidFor(null)}
           lineItemId={bidFor.lineItemId}
           roleLabel={bidFor.roleLabel}
+          sourceMemoId={bidFor.sourceMemoId ?? null}
         />
       )}
     </div>

@@ -126,6 +126,53 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-07 — Deal memos: Duplicate + "Start from" an earlier memo
+
+- **Asked:** duplicate a deal memo, or start a new one from earlier memos, so several people on a similar SOW can be set up quickly.
+- **Decision (user):** Duplicate, plus "Start from" any earlier memo on any project. No saved-template table and no schema change.
+- **Duplicate:**
+  - On every memo row on the board, and as a button on the memo page (pending edits are saved first).
+  - It opens Add bid for the same role (titled "Duplicate — {role}") with that memo pre-selected, so you only pick the next person.
+  - Off-budget memos stay off budget, with the role name prefilled.
+- **Add bid → "Start from"** (it was "Contract template"). The options are grouped:
+  - contract templates (as before)
+  - memos on this project
+  - memos from other projects
+  - Each memo shows name — title · project · day rate · section count.
+  - To copy someone onto a *different* role, use that role's Add bid and pick the memo there.
+- **What a copy carries** (`buildDealMemoCopy`, `src/lib/deal-memo-copy.ts`, jest-tested):
+  - the work day and OT/DT terms
+  - every fee: rate, unit, quantity, terms and auto-OT
+  - every terms section as written, including edited library sections and ad-hoc ones
+  - The copy uses the working rows, not the signed snapshot.
+- **What a copy doesn't carry:** the person, internal notes, status, vendor link, sent/viewed/signed stamps, crew link. The copy is always a new **BID**.
+- **Rules:**
+  - The custom vendor title carries over only for the same role. A different role takes its own name.
+  - **Same project, same line** (a true duplicate): days, dates and fee → budget-line mappings are kept.
+  - **Same project, another line:**
+    - dates are kept (same shoot)
+    - days come from the new line
+    - fees pinned to the source's own line reset to the default mapping, so the new role's actuals don't book there
+    - mappings to other lines are kept
+  - **Another project:**
+    - days come from the new line (or the source's days if there's no line)
+    - dates come from the new project's shoot dates
+    - fees billed per day whose quantity equalled the memo's days follow the new days
+    - mappings are cleared
+- **Access:**
+  - `createDealMemo({ sourceMemoId })` needs dealMemos EDIT on the target project and dealMemos VIEW on the source's project.
+  - `listDealMemoSources` returns this project's memos first, in their own query, then the 100 most recent elsewhere, limited by `projectsWithArea('dealMemos')` (archived projects included). It returns nothing without EDIT on the target.
+  - Each copy logs a `dealMemo.duplicated` audit event.
+- **Verified:**
+  - jest (7 new tests, 565 total) and tsc
+  - next build up to the known Resend error
+  - a throwaway script on the live DB: it made a signed source memo with notes, an edited section and an ad-hoc section, then confirmed the copy is a clean BID with equal fees and sections, the source is unchanged, and another workspace can't load the source. The rows were deleted.
+  - the dev server logs are clean
+  - pitfall-reviewer: 3 findings, all fixed:
+    - the same-project, different-line days and mapping
+    - the template list overriding a memo picked while it loaded
+    - the 100-row cap hiding this project's memos
+
 ### 2026-11-05 — Proposals: editable "To" in the send window (CC kept)
 
 - **The proposal window** (new, edit draft, revision) now has a **To** field above **CC**.
