@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import type { Project, Proposal } from '@prisma/client'
+import type { Project } from '@prisma/client'
 import { formatMoney } from '@/lib/money'
 
 // ── Lightweight invoice shape (no relations needed for metrics) ───────────────
@@ -15,16 +15,15 @@ interface InvoiceLite {
 interface Props {
   projects:  Project[]
   invoices:  InvoiceLite[]
-  proposals: Proposal[]
+  /** Open proposals (SENT / VIEWED) on non-archived projects — counted server-side. */
+  proposalsSentCount: number
 }
 
-export function DashboardMetrics({ projects, invoices, proposals }: Props) {
+export function DashboardMetrics({ projects, invoices, proposalsSentCount }: Props) {
   const now = new Date()
 
   // ── Proposals sent (active with client, not yet closed) ───────────────────
-  const proposalsSent = proposals.filter(p =>
-    ['SENT', 'VIEWED'].includes(p.status)
-  ).length
+  const proposalsSent = proposalsSentCount
 
   // ── Active projects (LEAD + ACTIVE = everything in the pipeline) ──────────
   const pipelineProjects  = projects.filter(p => ['LEAD', 'ACTIVE'].includes(p.status))

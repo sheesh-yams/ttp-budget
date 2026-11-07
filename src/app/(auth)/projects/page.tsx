@@ -118,6 +118,7 @@ export default async function ProjectsPage() {
       rows={rows}
       showMoney={canSeeFin}
       canManageProjects={access.can('projects', 'EDIT')}
+      isOwner={access.isOwner}
       clients={clients}
       templates={templates}
     />

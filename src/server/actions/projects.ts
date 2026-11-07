@@ -11,6 +11,9 @@ import { Prisma } from '@prisma/client'
 import { createBudget } from './budgets'
 import { applyStage, effectivePhase, isPhase, restoredStatus, statusForPhase, type StageKey } from '@/lib/project-phase'
 import { logAuditEvent } from '@/lib/audit'
+import { db as rawDb } from '@/lib/db'
+import { deleteNameMatches, type ProjectDeletePreview } from '@/lib/project-delete'
+import { PROJECT_NOT_ARCHIVED, PROJECT_PAYMENT_IN_PROGRESS, runProjectDelete } from '@/lib/project-delete-run'
 
 // ─── Create project + budget from template ────────────────────────────────────
 
@@ -214,6 +217,85 @@ export async function archiveProject(projectId: string): Promise<ActionResult> {
   } catch (err) {
     console.error(err)
     return { success: false, error: 'Failed to archive project' }
+  }
+}
+
+// ─── Delete project permanently (owners, archived projects only) ─────────────
+
+/** Owner gate + the archived project in this workspace. Not exported (RPC rule). */
+async function loadDeletableProject(projectId: string) {
+  const access = await getAccess()
+  if (!access.isOwner) return { error: 'Only workspace owners can delete projects.' as const }
+  if (typeof projectId !== 'string' || !projectId) return { error: 'Project not found' as const }
+  const project = await rawDb.project.findFirst({
+    where:  { id: projectId, workspaceId: access.workspaceId },
+    select: { id: true, name: true, clientId: true, status: true, archivedAt: true },
+  })
+  if (!project) return { error: 'Project not found' as const }
+  // Archive is the reversible step; delete is only offered after it.
+  if (project.status !== 'ARCHIVED' || !project.archivedAt) return { error: 'Archive the project first.' as const }
+  return { project, access }
+}
+
+async function deletePreviewFor(workspaceId: string, projectId: string, name: string): Promise<ProjectDeletePreview> {
+  const where = { workspaceId, projectId }
+  const [budgets, proposals, invoices, paid, callSheets, dealMemos, receipts] = await Promise.all([
+    rawDb.budget.count({ where }),
+    rawDb.proposal.count({ where }),
+    rawDb.invoice.count({ where }),
+    rawDb.invoice.aggregate({ where, _sum: { amountPaidCents: true } }),
+    rawDb.callSheet.count({ where }),
+    rawDb.dealMemo.count({ where }),
+    rawDb.receipt.count({ where }),
+  ])
+  return { name, budgets, proposals, invoices, paidCents: paid._sum.amountPaidCents ?? 0, callSheets, dealMemos, receipts }
+}
+
+/** What a permanent delete would remove (for the confirm dialog). */
+export async function getProjectDeletePreview(projectId: string): Promise<ActionResult<ProjectDeletePreview>> {
+  try {
+    const loaded = await loadDeletableProject(projectId)
+    if ('error' in loaded) return { success: false, error: loaded.error as string }
+    return { success: true, data: await deletePreviewFor(loaded.access.workspaceId, loaded.project.id, loaded.project.name) }
+  } catch (err) {
+    console.error('[getProjectDeletePreview]', err)
+    return { success: false, error: 'Couldn’t load the project.' }
+  }
+}
+
+/**
+ * Permanently deletes an archived project and everything under it (budgets,
+ * proposals, invoices and their payment records, call sheets, deal memos,
+ * actuals, receipts, shot list…). Owners only; the caller types the project's
+ * name. Nothing is refunded in Helcim. Files in R2 are left in storage.
+ */
+export async function deleteProject(projectId: string, confirmName: string): Promise<ActionResult> {
+  try {
+    const loaded = await loadDeletableProject(projectId)
+    if ('error' in loaded) return { success: false, error: loaded.error as string }
+    const { project, access } = loaded
+    if (typeof confirmName !== 'string' || !deleteNameMatches(confirmName, project.name)) {
+      return { success: false, error: 'Type the project name exactly to confirm.' }
+    }
+    const workspaceId = access.workspaceId
+    const preview = await deletePreviewFor(workspaceId, project.id, project.name)
+
+    try {
+      await runProjectDelete({
+        workspaceId, projectId: project.id, actorId: access.userId,
+        metadata: { name: project.name, clientId: project.clientId, ...preview },
+      })
+    } catch (err) {
+      if (err === PROJECT_NOT_ARCHIVED) return { success: false, error: 'This project was restored meanwhile — archive it again to delete it.' }
+      if (err === PROJECT_PAYMENT_IN_PROGRESS) return { success: false, error: 'A client is paying one of this project’s invoices right now — try again in a little while.' }
+      throw err
+    }
+
+    for (const path of ['/projects', '/proposals', '/dashboard', '/invoices']) revalidatePath(path)
+    return { success: true, data: undefined }
+  } catch (err) {
+    console.error('[deleteProject]', err)
+    return { success: false, error: 'Failed to delete the project.' }
   }
 }
 

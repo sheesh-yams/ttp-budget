@@ -126,6 +126,54 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-07 — Delete projects permanently; archived projects out of the Dashboard pipeline
+
+- **Asked:** do archived projects affect the sales pipeline? There are many test projects to remove, beyond archiving.
+- **Pipeline:** /proposals and /projects already excluded archived projects. The **Dashboard** didn't. Its proposal figures now filter `project.archivedAt: null`:
+  - **"Proposals sent":** this is now a real server-side count. It used to count from the 5-item queue, so it could never show more than 5.
+  - **The ProposalQueue:** the same filter.
+  - **Added-scope totals:** the same filter.
+  - In The Third Place, 14 proposals on archived projects dropped out.
+- **Deliberately unchanged:** "Outstanding" and "Collected this month" (and the invoice tracker) still include archived projects' invoices. That money is real, the invoices can still be paid, and it matches /invoices.
+- **Delete permanently** (`deleteProject` / `getProjectDeletePreview` in `src/server/actions/projects.ts`, transaction in `src/lib/project-delete-run.ts`):
+  - **Decisions (user):**
+    - owners only
+    - allowed even when invoices were paid, behind a warning
+  - **Decision (mine):** archived projects only. Archive stays the reversible step.
+  - **`DeleteProjectDialog`:**
+    - lists what goes (budgets, proposals, invoices, call sheets, deal memos, receipts)
+    - a red warning with the amount paid ("No money is refunded")
+    - the user types the project name to confirm
+  - **Where:** the Projects row menu (archived rows) and the archived project's header.
+  - **The transaction (raw db, workspaceId in every where):**
+    1. refuses while a client is mid-checkout on one of its invoices, using `paymentInProgress`, the same rule as `deleteInvoice`
+    2. deletes proposals first, because `Proposal.budget` is `onDelete: Restrict`
+    3. a guarded `project.deleteMany`; `status ARCHIVED` and `archivedAt` are re-checked so a restore meanwhile rolls back
+    4. FK cascades remove the rest
+    5. `PaymentAttempt` rows are deleted afterwards (a soft ref with no FK)
+    6. an AuditEvent `project.deleted` with the name and counts
+  - The mobile "+" sheet forgets a deleted project (`forgetLastProject`).
+- **Verified:**
+  - jest (2 new tests, 569 total), tsc, lint
+  - next build up to the known Resend error
+  - **Throwaway scripts on the live DB:**
+    - Every child row was gone: budget, phase, proposal, invoice, payment attempt, call sheet, deal memo and fee.
+    - A non-archived project was refused and rolled back.
+    - Another workspace couldn't delete it.
+    - A mid-checkout attempt blocked the delete and rolled back.
+    - An abandoned attempt didn't block.
+    - Rows were cleaned up.
+  - The read-only dashboard counts were checked.
+  - **pitfall-reviewer:** findings fixed:
+    - the mid-checkout payment guard
+    - money metrics restored to unfiltered
+    - the "Proposals sent" count capped at 5
+    - forgetting the last project
+- **Follow-ups:**
+  - Uploaded files (receipts, shot-list images) stay in R2 after a delete.
+  - DeliverableView analytics rows (no FK) are left behind.
+  - Already there before this change: the Dashboard money queries aren't limited to assigned projects for ASSIGNED-scope roles with Dashboard money access.
+
 ### 2026-11-07 — Data: legacy proposal discounts copied to their budgets
 
 - **Reported:** Chopstx's won proposal showed a $300 discount ($7,650), but the project total, Budget Breakdown and payment schedule used $7,950. New 50% invoices came to $3,975.

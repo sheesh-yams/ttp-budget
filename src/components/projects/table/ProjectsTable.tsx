@@ -32,6 +32,8 @@ export interface RowActions {
   onArchive: (row: ProjectRow) => void
   onRestore: (row: ProjectRow) => void
   onTeam:    (row: ProjectRow) => void
+  /** Owners only: permanently delete an archived project. */
+  onDelete?: (row: ProjectRow) => void
   canManageProjects: boolean
 }
 
@@ -233,6 +235,11 @@ function RowMenu({ row, actions }: { row: ProjectRow; actions: RowActions }) {
               ? <DropdownMenuItem onSelect={() => actions.onRestore(row)}>Restore</DropdownMenuItem>
               : <DropdownMenuItem onSelect={() => actions.onArchive(row)}>Archive…</DropdownMenuItem>}
           </>
+        )}
+        {archived && actions.onDelete && (
+          <DropdownMenuItem onSelect={() => actions.onDelete!(row)} className="text-destructive focus:text-destructive">
+            Delete permanently…
+          </DropdownMenuItem>
         )}
       </DropdownMenuContent>
     </DropdownMenu>

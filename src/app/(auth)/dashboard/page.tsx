@@ -20,7 +20,7 @@ export default async function DashboardPage() {
   // ── Parallel fetches ─────────────────────────────────────────────────────────
   // invoicesAll  → lightweight, no relations, used for metric calculations
   // invoicesWidget → includes relations, limited to 5, used for the tracker widget
-  const [projectsRaw, invoicesAll, invoicesWidget, proposals, primaryPhases, scopeByProject] = await Promise.all([
+  const [projectsRaw, invoicesAll, invoicesWidget, proposals, primaryPhases, scopeByProject, proposalsSentCount] = await Promise.all([
     db.project.findMany({
       where:   {
         workspaceId, archivedAt: null,
@@ -36,6 +36,8 @@ export default async function DashboardPage() {
         actualSheets:{ select: { updatedAt: true }, orderBy: { updatedAt: 'desc' }, take: 1 },
       },
     }),
+    // Receivables and collections include archived projects — that money is
+    // real and matches /invoices. The sales side (proposals) leaves them out.
     isCollaborator ? Promise.resolve([]) : db.invoice.findMany({
       where:   { workspaceId },
       select:  {
@@ -54,7 +56,7 @@ export default async function DashboardPage() {
       take:    5,
     }),
     isCollaborator ? Promise.resolve([]) : db.proposal.findMany({
-      where:   { workspaceId, status: { in: ['SENT', 'VIEWED', 'APPROVED'] } },
+      where:   { workspaceId, status: { in: ['SENT', 'VIEWED', 'APPROVED'] }, project: { archivedAt: null } },
       include: { project: { include: { client: true } } },
       orderBy: { updatedAt: 'desc' },
       take:    5,
@@ -91,8 +93,13 @@ export default async function DashboardPage() {
     // ── Added scope billed on top of each project's budget (invoice-first) ──
     isCollaborator ? Promise.resolve([]) : db.invoice.groupBy({
       by:    ['projectId'],
-      where: { workspaceId, isScopeAddition: true, status: { not: 'VOID' } },
+      where: { workspaceId, isScopeAddition: true, status: { not: 'VOID' }, project: { archivedAt: null } },
       _sum:  { totalCents: true },
+    }),
+
+    // "Proposals sent": every open proposal (the queue above is only the latest 5).
+    isCollaborator ? Promise.resolve(0) : db.proposal.count({
+      where: { workspaceId, status: { in: ['SENT', 'VIEWED'] }, project: { archivedAt: null } },
     }),
   ])
 
@@ -150,7 +157,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <DashboardMetrics projects={projects} invoices={invoicesAll} proposals={proposals} />
+      <DashboardMetrics projects={projects} invoices={invoicesAll} proposalsSentCount={proposalsSentCount} />
       <RecentProjects projects={projects} />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <InvoiceTracker invoices={invoicesWidget} />

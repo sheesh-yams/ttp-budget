@@ -25,12 +25,15 @@ import { EditTeamModal } from '../EditTeamModal'
 import { COLUMNS, ProjectsPhoneList, ProjectsTable, type ColumnKey, type Group, type RowActions } from './ProjectsTable'
 import { SHOOT_TYPE_OPTIONS, shootTypeLabel } from './labels'
 import { FilterChip } from './FilterChip'
+import { DeleteProjectDialog } from '../DeleteProjectDialog'
 
 interface Props {
   rows:      ProjectRow[]
   /** False for margin-blind roles: rows carry no money and the money stats hide. */
   showMoney: boolean
   canManageProjects: boolean
+  /** Workspace owner — may permanently delete archived projects. */
+  isOwner?:  boolean
   clients:   Pick<Client, 'id' | 'name'>[]
   templates: Pick<BudgetTemplate, 'id' | 'name' | 'shootType' | 'description'>[]
 }
@@ -39,7 +42,8 @@ const COLS_KEY = 'slatesuite.projects.columns'
 const ALL_COLS: ColumnKey[] = COLUMNS.map(c => c.key)
 const list = (v: string | null) => (v ? v.split(',').filter(Boolean) : [])
 
-export function ProjectsTableClient({ rows: serverRows, showMoney, canManageProjects, clients, templates }: Props) {
+export function ProjectsTableClient({ rows: serverRows, showMoney, canManageProjects, isOwner = false, clients, templates }: Props) {
+  const [deleting, setDeleting] = useState<ProjectRow | null>(null)
   const router   = useRouter()
   const pathname = usePathname()
   const params   = useSearchParams()
@@ -192,6 +196,7 @@ export function ProjectsTableClient({ rows: serverRows, showMoney, canManageProj
       if (!res.success) setError((res as { success: false; error: string }).error)
       else router.refresh()
     },
+    ...(isOwner ? { onDelete: (row: ProjectRow) => setDeleting(row) } : {}),
   }
 
   function exportCsv() {
@@ -218,6 +223,13 @@ export function ProjectsTableClient({ rows: serverRows, showMoney, canManageProj
     // Flush white page, Ramp-style: escape the content padding (p-4 / md:p-6).
     <div className="-mx-4 min-h-[calc(100vh-52px)] bg-white pb-24 text-[#1A1A1A] md:-m-6 md:pb-10">
       {ConfirmDialog}
+      {deleting && (
+        <DeleteProjectDialog
+          projectId={deleting.id} projectName={deleting.name} open
+          onClose={() => setDeleting(null)}
+          onDeleted={() => { setDeleting(null); router.refresh() }}
+        />
+      )}
 
       {/* Header */}
       <div className="px-4 pt-6 md:px-10 md:pt-8">

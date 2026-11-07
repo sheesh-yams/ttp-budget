@@ -31,3 +31,18 @@ export function writeLastProject(workspaceId: string, project: LastProject): voi
     // Private mode / blocked storage — no default, nothing else breaks.
   }
 }
+
+/** A project was deleted: drop it as the default wherever it's remembered. */
+export function forgetLastProject(projectId: string): void {
+  try {
+    for (let i = window.localStorage.length - 1; i >= 0; i--) {
+      const k = window.localStorage.key(i)
+      if (!k?.startsWith('ss:lastProject:')) continue
+      try {
+        if ((JSON.parse(window.localStorage.getItem(k) ?? '{}') as { id?: unknown }).id === projectId) window.localStorage.removeItem(k)
+      } catch { /* unreadable entry — leave it */ }
+    }
+  } catch {
+    // Blocked storage — nothing remembered, nothing to forget.
+  }
+}
