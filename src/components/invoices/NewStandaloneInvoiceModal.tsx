@@ -29,6 +29,8 @@ export interface InvoiceableProject {
   clientName: string
   /** Has an approved proposal — an invoice on it is added scope. */
   won:        boolean
+  /** Days to due from the client's payment terms (else invoiceExpiryDays). */
+  dueDays?:   number
 }
 
 interface Props {
@@ -36,7 +38,8 @@ interface Props {
   onOpenChange:     (open: boolean) => void
   /** Projects this person can invoice (Invoices edit), non-archived. */
   projects?:        InvoiceableProject[]
-  clients?:         { id: string; name: string }[]
+  /** `dueDays`: the client's payment terms, for a new project's first invoice. */
+  clients?:         { id: string; name: string; dueDays?: number }[]
   /** Projects + budget + proposals + invoices edit — may start a new project. */
   canCreateProject?: boolean
   /** Opened from a project page: billing is for this project only. */
@@ -81,6 +84,12 @@ export function NewStandaloneInvoiceModal({
   const [sendAfter, setSendAfter]   = useState(false)
   const [countAsScope, setCountAsScope] = useState(true)
 
+  /** Days to due for a selection: the project's/client's payment terms, else the default. */
+  function termsFor(m: Mode, pid: string, cid: string, isNewClient: boolean): number {
+    if (m === 'existing') return (lockedProject ?? projects.find(p => p.id === pid))?.dueDays ?? invoiceExpiryDays
+    return (isNewClient ? undefined : clients.find(c => c.id === cid)?.dueDays) ?? invoiceExpiryDays
+  }
+
   // Fresh form each time it opens.
   useEffect(() => {
     if (!open) return
@@ -88,13 +97,22 @@ export function NewStandaloneInvoiceModal({
     setProjectName(''); setClientId(defaultClientId); setNewClient(false); setClientName('')
     setProjectId(lockedProject?.id ?? ''); setSearch('')
     setRows([blankRow()]); setTitle('')
-    setIssueDate(localISODate()); setDueDate(addDaysISO(localISODate(), invoiceExpiryDays)); setDueTouched(false)
+    setIssueDate(localISODate())
+    setDueDate(addDaysISO(localISODate(), termsFor(initialMode, lockedProject?.id ?? '', defaultClientId, false)))
+    setDueTouched(false)
     setTaxText('0'); setDiscountText(''); setNotes('')
     setSubmitting(false); setError(''); setCreated(null); setSendAfter(false); setCountAsScope(true)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   const selectedProject = lockedProject ?? projects.find(p => p.id === projectId) ?? null
+  const termDays = termsFor(mode, projectId, clientId, newClient)
+  // The client's payment terms set the due date until the person picks one.
+  // Called from the handlers that change project/client (not an effect, so a
+  // reopen never applies the previous session's dates).
+  function retarget(days: number) {
+    if (!dueTouched) setDueDate(addDaysISO(issueDate, days))
+  }
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return q ? projects.filter(p => `${p.name} ${p.clientName}`.toLowerCase().includes(q)) : projects
@@ -214,12 +232,12 @@ export function NewStandaloneInvoiceModal({
                 <ModeButton
                   active={mode === 'new'} disabled={!canCreateProject}
                   title="New project" hint={canCreateProject ? 'Creates a won project behind the invoice' : 'Needs project and budget edit access'}
-                  onClick={() => setMode('new')}
+                  onClick={() => { setMode('new'); retarget(termsFor('new', projectId, clientId, newClient)) }}
                 />
                 <ModeButton
                   active={mode === 'existing'} disabled={projects.length === 0}
                   title="Existing project" hint={projects.length ? 'Bill a project — added scope if it’s won' : 'No projects you can invoice'}
-                  onClick={() => setMode('existing')}
+                  onClick={() => { setMode('existing'); retarget(termsFor('existing', projectId, clientId, newClient)) }}
                 />
               </div>
             </div>
@@ -237,7 +255,7 @@ export function NewStandaloneInvoiceModal({
                   <button
                     type="button"
                     className="text-xs text-violet-600 hover:underline"
-                    onClick={() => { setNewClient(v => !v); setClientId(''); setClientName('') }}
+                    onClick={() => { setNewClient(!newClient); setClientId(''); setClientName(''); retarget(termsFor(mode, projectId, '', !newClient)) }}
                   >
                     {newClient ? 'Select existing' : '+ New client'}
                   </button>
@@ -245,7 +263,7 @@ export function NewStandaloneInvoiceModal({
                 {newClient ? (
                   <Input placeholder="Client name" value={clientName} onChange={e => setClientName(e.target.value)} />
                 ) : (
-                  <Select value={clientId} onValueChange={setClientId}>
+                  <Select value={clientId} onValueChange={v => { setClientId(v); retarget(termsFor(mode, projectId, v, newClient)) }}>
                     <SelectTrigger><SelectValue placeholder="Select client…" /></SelectTrigger>
                     <SelectContent>
                       {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
@@ -268,7 +286,7 @@ export function NewStandaloneInvoiceModal({
                   <button
                     key={p.id}
                     type="button"
-                    onClick={() => setProjectId(p.id)}
+                    onClick={() => { setProjectId(p.id); retarget(termsFor(mode, p.id, clientId, newClient)) }}
                     className={cn(
                       'flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-muted/40',
                       projectId === p.id && 'bg-[#F5EDFA]',
@@ -339,7 +357,7 @@ export function NewStandaloneInvoiceModal({
                   const v = e.target.value
                   setIssueDate(v)
                   // Keep the usual payment window unless the due date was set by hand.
-                  if (v && !dueTouched) setDueDate(addDaysISO(v, invoiceExpiryDays))
+                  if (v && !dueTouched) setDueDate(addDaysISO(v, termDays))
                 }}
               />
             </div>

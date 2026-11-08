@@ -41,7 +41,12 @@ export interface ClientPageData {
     billingAddress: string | null; website: string | null
     notes: string | null; specialNotes: string | null
     archived: boolean; createdAt: string
+    paymentTermsDays: number | null
+    invoiceCcEmails: string[]
+    proposalCcEmails: string[]
   }
+  /** Extra people at the client (the main contact is on `client`). */
+  contacts: { id: string; name: string; title: string | null; email: string | null; phone: string | null; isBilling: boolean }[]
   projects: ClientPageProject[]
   /** Empty when the invoices area is hidden. */
   invoices: ClientPageInvoice[]
@@ -65,7 +70,12 @@ export async function loadClientPage(db: PrismaClient, workspaceId: string, clie
     select: {
       id: true, name: true, legalName: true, logoUrl: true, contactName: true, contactEmail: true,
       contactPhone: true, billingAddress: true, website: true, notes: true, specialNotes: true,
-      archivedAt: true, createdAt: true,
+      archivedAt: true, createdAt: true, paymentTermsDays: true, invoiceCcEmails: true, proposalCcEmails: true,
+      contacts: {
+        where:   { workspaceId },
+        orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+        select:  { id: true, name: true, title: true, email: true, phone: true, isBilling: true },
+      },
     },
   })
   if (!client) return null
@@ -122,7 +132,11 @@ export async function loadClientPage(db: PrismaClient, workspaceId: string, clie
       billingAddress: client.billingAddress, website: client.website,
       notes: client.notes, specialNotes: client.specialNotes,
       archived: !!client.archivedAt, createdAt: client.createdAt.toISOString(),
+      paymentTermsDays: client.paymentTermsDays,
+      invoiceCcEmails: client.invoiceCcEmails,
+      proposalCcEmails: client.proposalCcEmails,
     },
+    contacts: client.contacts,
     projects: projects.map(p => {
       const inv = allInvoices.filter(i => i.projectId === p.id)
       const budget = budgetTotal.get(p.id) ?? 0

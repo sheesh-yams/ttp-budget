@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
 import {
-  AlertCircle, Archive, ArrowLeft, Check, Globe, Mail, MapPin, Pencil, Phone, Plus, User,
+  AlertCircle, Archive, ArrowLeft, Check, Pencil, Plus,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -16,6 +16,7 @@ import { STATUS_LABEL, type DealStage } from '@/lib/proposals-board'
 import type { ClientPageData } from '@/lib/client-page'
 import { archiveClient, updateClientNotes } from '@/server/actions/clients'
 import { ClientModal } from './ClientModal'
+import { ClientPeople, ClientDefaults } from './ClientPeople'
 import { NewProjectModal } from '@/components/projects/NewProjectModal'
 import { NewInvoiceButton } from '@/components/invoices/NewInvoiceButton'
 import type { InvoiceableProject } from '@/components/invoices/NewStandaloneInvoiceModal'
@@ -45,6 +46,8 @@ interface Props {
   canEdit:      boolean
   newProject:   { templates: { id: string; name: string; shootType: ShootType; description: string | null }[] } | null
   newInvoice:   { projects: InvoiceableProject[]; canCreateProject: boolean; invoiceExpiryDays: number } | null
+  /** The workspace's default days to due (used when the client has no terms). */
+  workspaceDueDays: number
 }
 
 const card = 'rounded-[10px] border border-[#E8E0F0] bg-white shadow-sm'
@@ -111,7 +114,7 @@ function invoiceChip(inv: ClientPageData['invoices'][number], now: number): { la
 
 const PREVIEW = 8
 
-export function ClientDetail({ data, proposals, showInvoices, pipeline, canEdit, newProject, newInvoice }: Props) {
+export function ClientDetail({ data, proposals, showInvoices, pipeline, canEdit, newProject, newInvoice, workspaceDueDays }: Props) {
   const router = useRouter()
   const { confirm, ConfirmDialog } = useConfirm()
   const { client, projects, invoices, money, activity } = data
@@ -158,8 +161,6 @@ export function ClientDetail({ data, proposals, showInvoices, pipeline, canEdit,
     })
   }
 
-  const website = client.website ? (client.website.startsWith('http') ? client.website : `https://${client.website}`) : null
-
   return (
     <div className="space-y-5">
       {ConfirmDialog}
@@ -200,7 +201,7 @@ export function ClientDetail({ data, proposals, showInvoices, pipeline, canEdit,
             <NewInvoiceButton
               variant="outline"
               projects={newInvoice.projects}
-              clients={[{ id: client.id, name: client.name }]}
+              clients={[{ id: client.id, name: client.name, dueDays: newInvoice.invoiceExpiryDays }]}
               canCreateProject={newInvoice.canCreateProject}
               invoiceExpiryDays={newInvoice.invoiceExpiryDays}
               defaultClientId={client.id}
@@ -389,34 +390,9 @@ export function ClientDetail({ data, proposals, showInvoices, pipeline, canEdit,
 
         {/* ── Right: contact, notes, activity ── */}
         <div className="space-y-5">
-          <section className={`${card} space-y-2.5 px-4 py-4`}>
-            <h2 className={sectionTitle}>Contact</h2>
-            {!client.contactName && !client.contactEmail && !client.contactPhone && !website && !client.billingAddress && (
-              <p className="text-sm text-muted-foreground">No contact details yet.</p>
-            )}
-            {client.contactName && <p className="flex items-center gap-2 text-sm"><User className="h-3.5 w-3.5 text-muted-foreground" />{client.contactName}</p>}
-            {client.contactEmail && (
-              <a href={`mailto:${client.contactEmail}`} className="flex items-center gap-2 text-sm text-foreground hover:underline">
-                <Mail className="h-3.5 w-3.5 text-muted-foreground" /><span className="truncate">{client.contactEmail}</span>
-              </a>
-            )}
-            {client.contactPhone && (
-              <a href={`tel:${client.contactPhone}`} className="flex items-center gap-2 text-sm text-foreground hover:underline">
-                <Phone className="h-3.5 w-3.5 text-muted-foreground" />{client.contactPhone}
-              </a>
-            )}
-            {website && (
-              <a href={website} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-sm text-foreground hover:underline">
-                <Globe className="h-3.5 w-3.5 text-muted-foreground" /><span className="truncate">{website.replace(/^https?:\/\//, '')}</span>
-              </a>
-            )}
-            {client.billingAddress && (
-              <p className="flex items-start gap-2 text-sm">
-                <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="whitespace-pre-line">{client.billingAddress}</span>
-              </p>
-            )}
-          </section>
+          <ClientPeople client={client} contacts={data.contacts} canEdit={canEdit} />
+
+          <ClientDefaults client={client} workspaceDueDays={workspaceDueDays} canEdit={canEdit} />
 
           <NotesEditor key={client.notes ?? ''} clientId={client.id} initial={client.notes ?? ''} canEdit={canEdit} />
 

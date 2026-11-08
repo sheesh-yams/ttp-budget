@@ -8,6 +8,7 @@ import { formatMoney } from '@/lib/money'
 import { InvoicesTable } from '@/components/invoices/InvoicesTable'
 import { NewInvoiceButton } from '@/components/invoices/NewInvoiceButton'
 import { getAccess } from '@/lib/access'
+import { invoiceDueDays } from '@/lib/client-recipients'
 import { canCreateProjectFromInvoice } from '@/lib/invoice-first'
 
 export const metadata = { title: 'Invoices' }
@@ -29,20 +30,23 @@ export default async function InvoicesPage({ searchParams }: { searchParams: Pro
       orderBy: { updatedAt: 'desc' },
       select:  {
         id: true, name: true,
-        client:    { select: { name: true } },
+        client:    { select: { name: true, paymentTermsDays: true } },
         proposals: { where: { status: 'APPROVED' }, select: { id: true }, take: 1 },
       },
     }),
     canCreateProject
-      ? db.client.findMany({ where: { workspaceId, archivedAt: null }, orderBy: { name: 'asc' }, select: { id: true, name: true } })
+      ? db.client.findMany({ where: { workspaceId, archivedAt: null }, orderBy: { name: 'asc' }, select: { id: true, name: true, paymentTermsDays: true } })
       : Promise.resolve([]),
     db.workspace.findUnique({ where: { id: workspaceId }, select: { invoiceExpiryDays: true } }),
   ])
-  const billableProjects = billable.map(p => ({ id: p.id, name: p.name, clientName: p.client.name, won: p.proposals.length > 0 }))
+  // Each client's payment terms set its invoices' due date.
+  const workspaceDays    = workspace?.invoiceExpiryDays ?? 30
+  const billableProjects = billable.map(p => ({ id: p.id, name: p.name, clientName: p.client.name, won: p.proposals.length > 0, dueDays: invoiceDueDays(p.client, workspaceDays) }))
+  const clientOptions    = clients.map(c => ({ id: c.id, name: c.name, dueDays: invoiceDueDays(c, workspaceDays) }))
   const newInvoice = (canCreateProject || billableProjects.length > 0) && (
     <NewInvoiceButton
       projects={billableProjects}
-      clients={clients}
+      clients={clientOptions}
       canCreateProject={canCreateProject}
       invoiceExpiryDays={workspace?.invoiceExpiryDays ?? 30}
       autoOpen={autoOpenNew}

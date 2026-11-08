@@ -6,6 +6,7 @@ import { db } from '@/lib/db'
 import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
 import { requireMoneyPermission } from '@/lib/money-access'
 import { generateInvoiceNumber } from '@/lib/invoice-numbering'
+import { invoiceSendRecipients } from '@/lib/client-recipients'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import { logAuditEvent } from '@/lib/audit'
@@ -144,12 +145,25 @@ export async function getInvoiceSendData(invoiceId: string) {
         dueDate: true,
         publicToken: true,
         recipientEmails: true,
-        client: { select: { name: true, contactEmail: true } },
+        sentAt: true,
+        client: {
+          select: {
+            name: true, contactEmail: true, invoiceCcEmails: true,
+            contacts: { where: { isBilling: true, workspaceId }, select: { email: true, isBilling: true }, take: 1 },
+          },
+        },
         project: { select: { name: true } },
       },
     })
 
     if (!invoice) return null
+
+    // Only people who can send get the billing contact / standard CC addresses.
+    const canSend    = (await requireMoneyPermission({ invoiceId }, 'invoices', 'EDIT')).ok
+    const recipients = invoiceSendRecipients({
+      client: invoice.client, contacts: invoice.client.contacts,
+      sentAt: invoice.sentAt, savedCc: invoice.recipientEmails ?? [], withDefaults: canSend,
+    })
 
     const workspace = await db.workspace.findUnique({
       where: { id: workspaceId },
@@ -165,8 +179,8 @@ export async function getInvoiceSendData(invoiceId: string) {
       dueDate:       invoice.dueDate,
       publicToken:   invoice.publicToken,
       clientName:    (invoice.client as { name: string }).name,
-      clientEmail:   (invoice.client as { contactEmail: string | null }).contactEmail ?? '',
-      recipientEmails: invoice.recipientEmails ?? [],
+      clientEmail:   recipients.to,
+      recipientEmails: recipients.cc,
       projectName:   (invoice.project as { name: string }).name,
       workspaceName: workspace?.name ?? '',
       fromEmail:     workspace?.contactEmail ?? '',

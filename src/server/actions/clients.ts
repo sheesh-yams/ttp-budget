@@ -13,6 +13,8 @@ import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { r2, R2_BUCKET } from '@/lib/r2'
 import { generatePublicToken } from '@/lib/secure-token'
+import { logAuditEvent } from '@/lib/audit'
+import { normalizeEmails, MAX_DEFAULT_CC, type ClientContactInput } from '@/lib/client-recipients'
 
 // =============================================================================
 // Validation schemas
@@ -95,6 +97,144 @@ export async function updateClientNotes(id: string, notes: string): Promise<Acti
     return { success: true, data: undefined }
   } catch {
     return { success: false, error: 'Failed to save notes' }
+  }
+}
+
+// =============================================================================
+// Client contacts (extra people; the main contact stays on Client) + defaults
+// =============================================================================
+
+const contactSchema = z.object({
+  name:      z.string().trim().min(1, 'Add a name.').max(200),
+  title:     z.string().trim().max(200).optional().or(z.literal('')),
+  email:     z.string().trim().toLowerCase().email('That email isn’t valid.').optional().or(z.literal('')),
+  phone:     z.string().trim().max(60).optional().or(z.literal('')),
+  isBilling: z.boolean().optional(),
+})
+
+function contactData(input: z.infer<typeof contactSchema>) {
+  return {
+    name:  input.name,
+    title: input.title || null,
+    email: input.email || null,
+    phone: input.phone || null,
+    isBilling: !!input.isBilling,
+  }
+}
+
+function firstIssue(err: z.ZodError): string {
+  return err.issues[0]?.message ?? 'Invalid input'
+}
+
+export async function addClientContact(clientId: string, input: ClientContactInput): Promise<ActionResult<{ id: string }>> {
+  try {
+    const gate = await requirePermission('clients', 'EDIT')
+    if (!gate.ok) return gate.error
+    const parsed = contactSchema.safeParse(input)
+    if (!parsed.success) return { success: false, error: firstIssue(parsed.error) }
+    const data = contactData(parsed.data)
+    if (data.isBilling && !data.email) return { success: false, error: 'A billing contact needs an email.' }
+
+    const db = await getScopedDb()
+    const client = await db.client.findFirst({ where: { id: clientId }, select: { id: true } })
+    if (!client) return { success: false, error: 'Client not found' }
+
+    const created = await db.$transaction(async tx => {
+      // One billing contact per client: setting it here clears the others.
+      if (data.isBilling) await tx.clientContact.updateMany({ where: { clientId, workspaceId: gate.workspaceId }, data: { isBilling: false } })
+      const last = await tx.clientContact.findFirst({ where: { clientId, workspaceId: gate.workspaceId }, orderBy: { order: 'desc' }, select: { order: true } })
+      return tx.clientContact.create({ data: { ...data, clientId, workspaceId: gate.workspaceId, order: (last?.order ?? -1) + 1 }, select: { id: true } })
+    })
+    await logAuditEvent({ workspaceId: gate.workspaceId, actorId: gate.userId, action: 'client.contact.added', entityType: 'Client', entityId: clientId, metadata: { contactId: created.id, name: data.name, isBilling: data.isBilling } })
+    revalidatePath(`/clients/${clientId}`)
+    return { success: true, data: { id: created.id } }
+  } catch (err) {
+    console.error('[addClientContact]', err)
+    return { success: false, error: 'Failed to add contact' }
+  }
+}
+
+export async function updateClientContact(id: string, input: ClientContactInput): Promise<ActionResult> {
+  try {
+    const gate = await requirePermission('clients', 'EDIT')
+    if (!gate.ok) return gate.error
+    const parsed = contactSchema.safeParse(input)
+    if (!parsed.success) return { success: false, error: firstIssue(parsed.error) }
+    const data = contactData(parsed.data)
+    if (data.isBilling && !data.email) return { success: false, error: 'A billing contact needs an email.' }
+
+    const db = await getScopedDb()
+    const existing = await db.clientContact.findFirst({ where: { id }, select: { clientId: true } })
+    if (!existing) return { success: false, error: 'Contact not found' }
+
+    await db.$transaction(async tx => {
+      if (data.isBilling) {
+        await tx.clientContact.updateMany({ where: { clientId: existing.clientId, workspaceId: gate.workspaceId, id: { not: id } }, data: { isBilling: false } })
+      }
+      await tx.clientContact.updateMany({ where: { id, workspaceId: gate.workspaceId }, data })
+    })
+    await logAuditEvent({ workspaceId: gate.workspaceId, actorId: gate.userId, action: 'client.contact.updated', entityType: 'Client', entityId: existing.clientId, metadata: { contactId: id, name: data.name, isBilling: data.isBilling } })
+    revalidatePath(`/clients/${existing.clientId}`)
+    return { success: true, data: undefined }
+  } catch (err) {
+    console.error('[updateClientContact]', err)
+    return { success: false, error: 'Failed to save contact' }
+  }
+}
+
+export async function deleteClientContact(id: string): Promise<ActionResult> {
+  try {
+    const gate = await requirePermission('clients', 'EDIT')
+    if (!gate.ok) return gate.error
+    const db = await getScopedDb()
+    const existing = await db.clientContact.findFirst({ where: { id }, select: { clientId: true, name: true } })
+    if (!existing) return { success: false, error: 'Contact not found' }
+    await db.clientContact.deleteMany({ where: { id } })
+    await logAuditEvent({ workspaceId: gate.workspaceId, actorId: gate.userId, action: 'client.contact.removed', entityType: 'Client', entityId: existing.clientId, metadata: { contactId: id, name: existing.name } })
+    revalidatePath(`/clients/${existing.clientId}`)
+    return { success: true, data: undefined }
+  } catch (err) {
+    console.error('[deleteClientContact]', err)
+    return { success: false, error: 'Failed to remove contact' }
+  }
+}
+
+const defaultsSchema = z.object({
+  paymentTermsDays: z.number().int().min(0).max(365).nullable(),
+  invoiceCcEmails:  z.array(z.string()).max(50),
+  proposalCcEmails: z.array(z.string()).max(50),
+})
+
+/** Payment terms + standard CC lists that pre-fill new invoices and proposals. */
+export async function updateClientDefaults(clientId: string, input: { paymentTermsDays: number | null; invoiceCcEmails: string[]; proposalCcEmails: string[] }): Promise<ActionResult> {
+  try {
+    const gate = await requirePermission('clients', 'EDIT')
+    if (!gate.ok) return gate.error
+    const parsed = defaultsSchema.safeParse(input)
+    if (!parsed.success) return { success: false, error: 'Payment terms must be 0–365 days.' }
+    const d = parsed.data
+    // Every non-blank entry must be an address; duplicates collapse.
+    const bad = [...d.invoiceCcEmails, ...d.proposalCcEmails].map(e => e.trim()).find(e => e && normalizeEmails([e]).length === 0)
+    if (bad) return { success: false, error: `“${bad}” isn’t a valid email.` }
+    const unique = (list: string[]) => new Set(list.map(e => e.trim().toLowerCase()).filter(Boolean)).size
+    if (unique(d.invoiceCcEmails) > MAX_DEFAULT_CC || unique(d.proposalCcEmails) > MAX_DEFAULT_CC) {
+      return { success: false, error: `Up to ${MAX_DEFAULT_CC} addresses per list.` }
+    }
+    const invoiceCc  = normalizeEmails(d.invoiceCcEmails)
+    const proposalCc = normalizeEmails(d.proposalCcEmails)
+
+    const db = await getScopedDb()
+    const res = await db.client.updateMany({
+      where: { id: clientId },
+      data:  { paymentTermsDays: d.paymentTermsDays, invoiceCcEmails: invoiceCc, proposalCcEmails: proposalCc },
+    })
+    if (res.count === 0) return { success: false, error: 'Client not found' }
+    await logAuditEvent({ workspaceId: gate.workspaceId, actorId: gate.userId, action: 'client.defaults.updated', entityType: 'Client', entityId: clientId, metadata: { paymentTermsDays: d.paymentTermsDays, invoiceCcEmails: invoiceCc, proposalCcEmails: proposalCc } })
+    revalidatePath(`/clients/${clientId}`)
+    return { success: true, data: undefined }
+  } catch (err) {
+    console.error('[updateClientDefaults]', err)
+    return { success: false, error: 'Failed to save defaults' }
   }
 }
 

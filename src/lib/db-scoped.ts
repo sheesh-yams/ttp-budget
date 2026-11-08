@@ -32,6 +32,7 @@ import { getWorkspaceId } from '@/lib/auth'
 export const SCOPED_MODELS = new Set([
   // Top-level workspace-owned models
   'Client',
+  'ClientContact',
   'Project',
   'RateCard',
   'BudgetTemplate',

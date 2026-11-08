@@ -105,6 +105,50 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-08 — Client page (Phase 2): people + billing defaults
+
+- **Asked:** several contacts per client, and defaults that fill in by themselves.
+  - **Decisions (user):**
+    - With a billing contact, invoices go To billing, with the main contact CC'd.
+    - Defaults: payment terms, standard invoice CC, standard proposal CC. No "PO required".
+    - Contacts live on the client, not in the Rolodex.
+- **Migration** `20261108000001_client_contacts_defaults` (run by the user in Neon):
+  - **`Client`** gains `paymentTermsDays INT NULL`, plus `invoiceCcEmails` and `proposalCcEmails` (`TEXT[]`, default empty).
+  - **New `ClientContact` table:** name, title, email, phone, `isBilling`, order. It cascades with the client and is in `SCOPED_MODELS`.
+- **The main contact stays on `Client.contact*`.** E-sign allowed emails, PDFs, public pages and call sheets are unchanged. Extra people sit in `ClientContact`, with at most one billing contact, enforced in the action's transaction.
+- **Client page:**
+  - **People card** (`ClientPeople.tsx`): Main first, then extra people with a Billing tag. Add, edit and remove through a dialog. A line says where invoices go.
+  - **Billing defaults card:** payment terms in days (blank = the workspace default), "Always CC on invoices" and "Always CC on proposals".
+  - **Actions:** `addClientContact`, `updateClientContact`, `deleteClientContact` and `updateClientDefaults`. All need Clients EDIT and log AuditEvents (`client.contact.*`, `client.defaults.updated`).
+- **Where the defaults apply** (`src/lib/client-recipients.ts`, jest-tested):
+  - **Invoice send window** (`getInvoiceSendData` → `invoiceSendRecipients`):
+    - **To:** always follows the client (the billing contact, else the main contact). The To isn't stored on an invoice.
+    - **CC on a never-sent invoice:** main contact (when billing is the To) + standard invoice CC.
+    - **CC after sending:** the saved list, plus the main contact whenever the To is someone else.
+    - The billing and CC addresses only go to people who can send (Invoices EDIT).
+  - **Proposal window:** a new proposal, or a never-sent draft with no CC, pre-fills the client's proposal CC. Revisions keep what they were sent with. Anyone CC'd can e-sign, same as a typed CC; the defaults card says so.
+  - **Due dates:** the client's terms replace the workspace default. This covers the project page (`NewInvoiceModal`), the project invoices page, /invoices and the client page. `NewStandaloneInvoiceModal` updates the due date when the project or client changes, until the user edits it.
+- **Verified:**
+  - jest (595; new `client-recipients.test.ts`), tsc, lint, `audit:scoping`
+  - next build up to the known Resend error
+  - **Throwaway live-DB script, on a test client, cleaned up:**
+    - Only one billing contact.
+    - Never-sent invoice: To billing, CC main + AP.
+    - A sent invoice keeps its recipients.
+    - Terms → due days.
+    - The page loader returns contacts and defaults.
+    - Contacts are workspace-scoped.
+  - **pitfall-reviewer**, all fixed:
+    - **High:** a resend would have dropped the billing contact. The To is never stored, so the old rule fell back to the main contact.
+    - The client page ignored the client's terms.
+    - Reopening the invoice window carried over a stale due date.
+    - The "Saved" checkmark vanished early.
+    - Invoices VIEW-only roles could read the billing and CC addresses.
+- **Follow-ups:**
+  - The due-date fallback is the workspace's `invoiceExpiryDays`. `Workspace.defaultPaymentTermsDays` is editable in Settings but nothing reads it. Decide which one is "payment terms".
+  - Contacts can't be reordered yet (they keep the order they were added in).
+  - The billing contact isn't used on the invoice PDF or public page; those still show the client's main contact.
+
 ### 2026-11-08 — Client page (Phase 1)
 
 - **Asked:** one place for everything about a client. Internal only; the user doesn't want a client-facing portal.

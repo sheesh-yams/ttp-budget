@@ -39,6 +39,8 @@ interface Props {
   invoiceExpiryDays?: number
   /** The client's contact email — the default To. */
   clientEmail?: string | null
+  /** The client's standard proposal CC — pre-fills a new or never-sent proposal. */
+  defaultCc?: string[]
   /** Proposals EDIT — otherwise view-only (roles Phase 2a). */
   allowEdit?: boolean
   /** Invoices EDIT — "Create invoice" from a proposal. */
@@ -84,7 +86,7 @@ function extractFromContent(content: unknown): {
   }
 }
 
-export function ProjectProposals({ proposals, projectId, projectName, clientId, budgetId, totalCents, clientEmail = null, proposalExpiryDays = 30, invoiceExpiryDays = 30, allowEdit = true, allowInvoice = true, contractAccess = 'EDIT' }: Props) {
+export function ProjectProposals({ proposals, projectId, projectName, clientId, budgetId, totalCents, clientEmail = null, defaultCc = [], proposalExpiryDays = 30, invoiceExpiryDays = 30, allowEdit = true, allowInvoice = true, contractAccess = 'EDIT' }: Props) {
   const router = useRouter()
 
   // Proposal modal state
@@ -410,6 +412,7 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
           proposalExpiryDays={proposalExpiryDays}
           contractAccess={contractAccess}
           clientEmail={clientEmail}
+          defaultCc={defaultCc}
         />
       )}
 

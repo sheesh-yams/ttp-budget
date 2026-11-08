@@ -19,6 +19,7 @@ import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountCon
 import { addedScopeCents } from '@/lib/project-value'
 import { parseLocalDate } from '@/lib/time-format'
 import { stageLabel } from '@/lib/project-phase'
+import { invoiceDueDays, proposalCcDefaults } from '@/lib/client-recipients'
 import { captureSinglePhaseSnapshot, type SnapshotPhase } from '@/lib/proposal-snapshot'
 
 const SHOOT_LABELS: Record<string, string> = {
@@ -458,7 +459,10 @@ export default async function ProjectDetailPage({
           // proposal (same as the invoice send window and Reopen dialog) —
           // view-only roles without Clients access never get the address.
           clientEmail={can.proposalsEdit ? project.client.contactEmail ?? null : null}
-          invoiceExpiryDays={workspaceDefaults?.invoiceExpiryDays ?? 30}
+          // The client's standard proposal CC (same gate as the To).
+          defaultCc={can.proposalsEdit ? proposalCcDefaults(project.client) : []}
+          // The client's payment terms set new invoices' due date.
+          invoiceExpiryDays={invoiceDueDays(project.client, workspaceDefaults?.invoiceExpiryDays ?? 30)}
           allowEdit={can.proposalsEdit}
           allowInvoice={can.invoicesEdit}
           contractAccess={projectAccess.permissions.contract}

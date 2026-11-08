@@ -7,6 +7,7 @@
  *   2. All existing invoices for this project.
  */
 
+import { invoiceDueDays } from '@/lib/client-recipients'
 import { notFound } from 'next/navigation'
 import { requireProjectAccess, requireProjectArea } from '@/lib/project-access'
 import { db } from '@/lib/db'
@@ -39,7 +40,7 @@ export default async function InvoicesSubPage({ params }: Props) {
       id:       true,
       name:     true,
       clientId: true,
-      client:   { select: { name: true } },
+      client:   { select: { name: true, paymentTermsDays: true } },
       budgets: {
         orderBy: { createdAt: 'asc' },
         take: 1,
@@ -178,7 +179,7 @@ export default async function InvoicesSubPage({ params }: Props) {
       budgetDiscountCents={budgetDiscountCents}
       invoices={serializedInvoices}
       allowEdit={projectAccess.can('invoices', 'EDIT')}
-      invoiceExpiryDays={workspaceDefaults?.invoiceExpiryDays ?? 30}
+      invoiceExpiryDays={invoiceDueDays(project.client, workspaceDefaults?.invoiceExpiryDays ?? 30)}
     />
   )
 }

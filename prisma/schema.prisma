@@ -157,15 +157,41 @@ model Client {
   specialNotes   String?  @db.Text  // high-priority account callouts shown on the CRM card
   notes          String?  @db.Text
 
+  // Defaults that pre-fill new invoices/proposals (client page → Billing defaults).
+  paymentTermsDays Int?                    // null = workspace default
+  invoiceCcEmails  String[] @default([])   // always CC'd on this client's invoices
+  proposalCcEmails String[] @default([])   // always CC'd on this client's proposals
+
   archivedAt     DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   projects       Project[]
   invoices       Invoice[]
+  contacts       ClientContact[]
 
   @@index([workspaceId])
   @@index([workspaceId, archivedAt])
+}
+
+// Extra people at a client. The main contact stays on Client.contact*.
+model ClientContact {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name        String
+  title       String?
+  email       String?
+  phone       String?
+  // Invoices default To this person (main contact CC'd). At most one per client.
+  isBilling   Boolean  @default(false)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([clientId])
+  @@index([workspaceId])
 }
 
 enum ShootType {

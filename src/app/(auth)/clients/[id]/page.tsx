@@ -9,6 +9,7 @@ import { loadClientPage } from '@/lib/client-page'
 import { loadDeals } from '@/lib/proposals-deals'
 import { stage, closedAt, effectiveStatus } from '@/lib/proposals-board'
 import { canCreateProjectFromInvoice } from '@/lib/invoice-first'
+import { invoiceDueDays } from '@/lib/client-recipients'
 import { ClientDetail, type ClientDeal, type ClientPipeline } from '@/components/clients/ClientDetail'
 
 interface Props { params: Promise<{ id: string }> }
@@ -96,6 +97,8 @@ export default async function ClientPage({ params }: Props) {
     db.workspace.findUnique({ where: { id: workspaceId }, select: { invoiceExpiryDays: true } }),
   ])
   const canCreateFromInvoice = canNewInvoice && canCreateProjectFromInvoice(acc)
+  // This client's payment terms set new invoices' due date.
+  const dueDays = invoiceDueDays(data.client, workspace?.invoiceExpiryDays ?? 30)
 
   return (
     <ClientDetail
@@ -104,11 +107,12 @@ export default async function ClientPage({ params }: Props) {
       showInvoices={canInvoices}
       pipeline={pipeline}
       canEdit={access.can('clients', 'EDIT')}
+      workspaceDueDays={workspace?.invoiceExpiryDays ?? 30}
       newProject={canCreateProjects ? { templates } : null}
       newInvoice={canNewInvoice && (billable.length > 0 || canCreateFromInvoice) ? {
         projects: billable.map(p => ({ id: p.id, name: p.name, clientName: data.client.name, won: p.proposals.length > 0 })),
         canCreateProject: canCreateFromInvoice,
-        invoiceExpiryDays: workspace?.invoiceExpiryDays ?? 30,
+        invoiceExpiryDays: dueDays,
       } : null}
     />
   )

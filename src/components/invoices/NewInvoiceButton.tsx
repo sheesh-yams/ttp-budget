@@ -13,7 +13,7 @@ export function NewInvoiceButton({ label = 'New invoice', variant = 'default', a
   autoOpen?:          boolean
   variant?:           'default' | 'outline'
   projects?:          InvoiceableProject[]
-  clients?:           { id: string; name: string }[]
+  clients?:           { id: string; name: string; dueDays?: number }[]
   canCreateProject?:  boolean
   lockedProject?:     InvoiceableProject
   invoiceExpiryDays?: number

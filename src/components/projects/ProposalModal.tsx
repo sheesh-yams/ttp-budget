@@ -124,6 +124,8 @@ interface Props {
   contractAccess?: 'NONE' | 'VIEW' | 'EDIT'
   /** The client's contact email — the default To. */
   clientEmail?: string | null
+  /** The client's standard proposal CC — fills a new proposal or a draft with no CC yet. */
+  defaultCc?: string[]
 }
 
 const MODE_TITLE: Record<ProposalModalMode, string> = {
@@ -154,7 +156,10 @@ export function ProposalModal({
   proposalExpiryDays = 30,
   contractAccess = 'EDIT',
   clientEmail = null,
+  defaultCc = [],
 }: Props) {
+  // A string, so a re-render with an equal list doesn't reset the form.
+  const defaultCcText = defaultCc.join(', ')
   const [pending, startTransition] = useTransition()
   const [activeTab, setActiveTab]  = useState<'overview' | 'contract'>('overview')
 
@@ -183,13 +188,15 @@ export function ProposalModal({
     if (existing) {
       setTitle(existing.title)
       setTo(existing.toEmail ?? clientEmail ?? '')
-      setRecipients((existing.recipientEmails ?? []).join(', '))
+      // A draft that was never sent and has no CC yet takes the client's
+      // standard CC; anything already sent keeps what it went to.
+      setRecipients(existing.recipientEmails?.length ? existing.recipientEmails.join(', ') : mode === 'edit-draft' ? defaultCcText : '')
       setExpiresAt(existing.expiresAt ? existing.expiresAt.split('T')[0] : defaultExpiry(proposalExpiryDays))
       setMilestones(existing.milestones?.length ? fromPaymentMilestones(existing.milestones) : defaultMilestones())
     } else {
       setTitle(`${projectName} — Proposal`)
       setTo(clientEmail ?? '')
-      setRecipients('')
+      setRecipients(defaultCcText)
       setExpiresAt(defaultExpiry(proposalExpiryDays))
       setMilestones(prefill?.milestones?.length ? fromPaymentMilestones(prefill.milestones) : defaultMilestones())
     }
@@ -200,7 +207,7 @@ export function ProposalModal({
     setIsDraft(false)
     setIsSentManually(false)
     setActiveTab('overview')
-  }, [open, existing, projectName, prefill, clientEmail])
+  }, [open, existing, projectName, prefill, clientEmail, defaultCcText, mode])
 
   // ── Milestone helpers ──────────────────────────────────────────────────────
 
