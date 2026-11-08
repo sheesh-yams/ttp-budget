@@ -3,6 +3,7 @@ import { requireWorkspaceArea } from '@/lib/project-access'
 import { ViewOnly } from '@/components/ui/view-only'
 import { getWorkspaceId } from '@/lib/auth'
 import { ClientsPageClient } from '@/components/clients/ClientsPageClient'
+import { clientMoney } from '@/lib/client-money'
 
 export const metadata = { title: 'Clients' }
 
@@ -10,27 +11,22 @@ export default async function ClientsPage() {
   // Roles 2b: the workspace clients permission.
   const access = await requireWorkspaceArea('clients')
   const workspaceId = await getWorkspaceId()
+  // Margin-blind roles: no money figures (same gate as Projects).
+  const showMoney = access.can('dashboardMoney')
 
   const clients = await db.client.findMany({
     where: { workspaceId, archivedAt: null },
     orderBy: { name: 'asc' },
     include: {
       projects: {
-        where: { archivedAt: null },
         orderBy: { updatedAt: 'desc' },
         select: {
           id: true,
           name: true,
           status: true,
           phase: true,
+          archivedAt: true,
           updatedAt: true,
-          invoices: {
-            select: {
-              totalCents: true,
-              status: true,
-              updatedAt: true,
-            },
-          },
           teamMembers: {
             where:  { unassignedAt: null, projectRole: { systemKey: 'ACCOUNT_MANAGER' } },
             orderBy: { assignedAt: 'asc' },
@@ -39,35 +35,24 @@ export default async function ClientsPage() {
           },
         },
       },
+      // Money comes from every invoice, archived projects included — that
+      // money is real (same call as the Dashboard).
+      invoices: {
+        select: { status: true, totalCents: true, amountPaidCents: true, dueDate: true, paidAt: true, updatedAt: true },
+      },
     },
   })
 
-  const PAID_STATUSES       = new Set(['PAID'])
-  const OUTSTANDING_STATUSES = new Set(['SENT', 'VIEWED', 'OVERDUE'])
-
+  const now = new Date()
   const enriched = clients.map(client => {
-    let ltvCents         = 0
-    let outstandingCents = 0
-    let activeProjects   = 0
+    const live = client.projects.filter(p => !p.archivedAt)
+    const activeProjects = live.filter(p => p.status === 'ACTIVE').length
+    const money = clientMoney(client.invoices, now)
+
+    // "Last engagement": the latest invoice or live-project activity.
     let lastEngagementAt: Date | null = null
-
-    for (const project of client.projects) {
-      if (project.status === 'ACTIVE') activeProjects++
-
-      for (const inv of project.invoices) {
-        if (PAID_STATUSES.has(inv.status))       ltvCents         += inv.totalCents
-        if (OUTSTANDING_STATUSES.has(inv.status)) outstandingCents += inv.totalCents
-
-        // Track most recent invoice activity as the "last engagement" signal
-        if (!lastEngagementAt || inv.updatedAt > lastEngagementAt) {
-          lastEngagementAt = inv.updatedAt
-        }
-      }
-
-      // Fall back to project update time if no invoices
-      if (!lastEngagementAt || project.updatedAt > lastEngagementAt) {
-        lastEngagementAt = project.updatedAt
-      }
+    for (const d of [...client.invoices.map(i => i.updatedAt), ...live.map(p => p.updatedAt)]) {
+      if (!lastEngagementAt || d > lastEngagementAt) lastEngagementAt = d
     }
 
     return {
@@ -83,12 +68,12 @@ export default async function ClientsPage() {
       notes:            client.notes,
       specialNotes:     (client as unknown as { specialNotes: string | null }).specialNotes,
       createdAt:        client.createdAt.toISOString(),
-      projectCount:     client.projects.length,
+      projectCount:     live.length,
       activeProjects,
-      ltvCents,
-      outstandingCents,
+      collectedCents:   showMoney ? money.collectedCents : null,
+      outstandingCents: showMoney ? money.outstandingCents : null,
       lastEngagementAt: lastEngagementAt?.toISOString() ?? null,
-      projects: client.projects.map(p => ({
+      projects: live.map(p => ({
         id:             p.id,
         name:           p.name,
         status:         p.status,

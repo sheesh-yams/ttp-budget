@@ -26,14 +26,16 @@ interface Props {
   onOpenChange: (open: boolean) => void
   clients: Pick<Client, 'id' | 'name'>[]
   templates: Pick<BudgetTemplate, 'id' | 'name' | 'shootType' | 'description'>[]
+  /** Preselected client (opened from a client's page). */
+  defaultClientId?: string
 }
 
-export function NewProjectModal({ open, onOpenChange, clients, templates }: Props) {
+export function NewProjectModal({ open, onOpenChange, clients, templates, defaultClientId = '' }: Props) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
 
   const [name, setName]           = useState('')
-  const [clientId, setClientId]   = useState('')
+  const [clientId, setClientId]   = useState(defaultClientId)
   const [clientName, setClientName] = useState('') // for "new client" mode
   const [newClient, setNewClient] = useState(false)
   const [shootType, setShootType] = useState<ShootType>('MUSIC_VIDEO')
@@ -54,7 +56,7 @@ export function NewProjectModal({ open, onOpenChange, clients, templates }: Prop
 
   function reset() {
     setName('')
-    setClientId('')
+    setClientId(defaultClientId)
     setClientName('')
     setNewClient(false)
     setShootType('MUSIC_VIDEO')

@@ -42,6 +42,8 @@ interface Props {
   /** Opened from a project page: billing is for this project only. */
   lockedProject?:   InvoiceableProject
   invoiceExpiryDays?: number
+  /** Preselected client for a new project (opened from a client's page). */
+  defaultClientId?: string
 }
 
 type Mode = 'new' | 'existing'
@@ -50,6 +52,7 @@ interface Created { invoiceId: string; number: string; projectId: string; scopeA
 
 export function NewStandaloneInvoiceModal({
   open, onOpenChange, projects = [], clients = [], canCreateProject = false, lockedProject, invoiceExpiryDays = 30,
+  defaultClientId = '',
 }: Props) {
   const router = useRouter()
   const initialMode: Mode = lockedProject || !canCreateProject ? 'existing' : 'new'
@@ -57,7 +60,7 @@ export function NewStandaloneInvoiceModal({
   const [mode, setMode]             = useState<Mode>(initialMode)
   // New project
   const [projectName, setProjectName] = useState('')
-  const [clientId, setClientId]     = useState('')
+  const [clientId, setClientId]     = useState(defaultClientId)
   const [newClient, setNewClient]   = useState(false)
   const [clientName, setClientName] = useState('')
   // Existing project
@@ -82,7 +85,7 @@ export function NewStandaloneInvoiceModal({
   useEffect(() => {
     if (!open) return
     setMode(initialMode)
-    setProjectName(''); setClientId(''); setNewClient(false); setClientName('')
+    setProjectName(''); setClientId(defaultClientId); setNewClient(false); setClientName('')
     setProjectId(lockedProject?.id ?? ''); setSearch('')
     setRows([blankRow()]); setTitle('')
     setIssueDate(localISODate()); setDueDate(addDaysISO(localISODate(), invoiceExpiryDays)); setDueTouched(false)

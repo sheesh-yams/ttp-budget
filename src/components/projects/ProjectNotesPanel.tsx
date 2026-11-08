@@ -228,13 +228,6 @@ export function ProjectNotesPanel({ projectId, client, isEditor, canEditClient =
           website:          client.website,
           notes:            client.notes,
           specialNotes:     client.specialNotes,
-          createdAt:        '',
-          projectCount:     0,
-          activeProjects:   0,
-          ltvCents:         0,
-          outstandingCents: 0,
-          lastEngagementAt: null,
-          projects:         [],
         }}
         onSaved={() => { setEditClientOpen(false); router.refresh() }}
       />

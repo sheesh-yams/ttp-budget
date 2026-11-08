@@ -9,10 +9,15 @@ import { upsertClient, getClientLogoUploadUrl, updateClientLogo } from '@/server
 import { Upload, Loader2 } from 'lucide-react'
 import type { ClientRow } from './ClientCard'
 
+/** What the modal edits — a /clients card row or the client page's client. */
+export type ClientEditFields = Pick<ClientRow,
+  'id' | 'name' | 'legalName' | 'contactName' | 'contactEmail' | 'contactPhone' |
+  'billingAddress' | 'website' | 'notes' | 'specialNotes' | 'logoUrl'>
+
 interface Props {
   open:         boolean
   onOpenChange: (v: boolean) => void
-  existing:     ClientRow | null
+  existing:     ClientEditFields | null
   onSaved:      () => void
 }
 

@@ -17,6 +17,7 @@ export function NewInvoiceButton({ label = 'New invoice', variant = 'default', a
   canCreateProject?:  boolean
   lockedProject?:     InvoiceableProject
   invoiceExpiryDays?: number
+  defaultClientId?:   string
 }) {
   const [open, setOpen] = useState(false)
   const router   = useRouter()

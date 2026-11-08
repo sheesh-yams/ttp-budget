@@ -24,8 +24,10 @@ export interface ClientRow {
   createdAt:        string
   projectCount:     number
   activeProjects:   number
-  ltvCents:         number
-  outstandingCents: number
+  /** Paid so far (partial payments included). Null without money access. */
+  collectedCents:   number | null
+  /** Balance still owed on sent invoices. Null without money access. */
+  outstandingCents: number | null
   lastEngagementAt: string | null
   projects: {
     id:             string
@@ -135,7 +137,7 @@ export function ClientCard({ client: c, onEdit, onArchive }: Props) {
       <div className="flex flex-col gap-4 p-5">
 
         {/* ── Identity ── */}
-        <div className="flex items-start gap-3 pr-6">
+        <Link href={`/clients/${c.id}`} className="group/name flex items-start gap-3 pr-6">
           {c.logoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={c.logoUrl} alt={c.name} className="h-10 w-10 shrink-0 rounded-full object-contain border border-border/40" />
@@ -143,31 +145,33 @@ export function ClientCard({ client: c, onEdit, onArchive }: Props) {
             <Initials name={c.name} />
           )}
           <div className="min-w-0">
-            <h2 className="text-[15px] font-semibold text-foreground leading-snug">{c.name}</h2>
+            <h2 className="text-[15px] font-semibold text-foreground leading-snug group-hover/name:underline">{c.name}</h2>
             {c.contactName && (
               <p className="text-[12px] text-muted-foreground mt-0.5">{c.contactName}</p>
             )}
           </div>
-        </div>
+        </Link>
 
-        {/* ── Financials ── */}
-        <div
-          className="grid grid-cols-2 gap-2 rounded-lg px-3 py-2.5"
-          style={{ background: '#F7F4FA' }}
-        >
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60 mb-0.5">Lifetime Value</p>
-            <p className={`text-[14px] font-bold tabular-nums ${c.ltvCents > 0 ? 'text-emerald-600' : 'text-muted-foreground/40'}`}>
-              {c.ltvCents > 0 ? formatMoney(c.ltvCents) : '—'}
-            </p>
+        {/* ── Financials (hidden without money access) ── */}
+        {c.collectedCents !== null && c.outstandingCents !== null && (
+          <div
+            className="grid grid-cols-2 gap-2 rounded-lg px-3 py-2.5"
+            style={{ background: '#F7F4FA' }}
+          >
+            <div>
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60 mb-0.5">Collected</p>
+              <p className={`text-[14px] font-bold tabular-nums ${c.collectedCents > 0 ? 'text-emerald-600' : 'text-muted-foreground/40'}`}>
+                {c.collectedCents > 0 ? formatMoney(c.collectedCents) : '—'}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60 mb-0.5">Outstanding</p>
+              <p className={`text-[14px] font-bold tabular-nums ${c.outstandingCents > 0 ? 'text-red-500' : 'text-muted-foreground/40'}`}>
+                {c.outstandingCents > 0 ? formatMoney(c.outstandingCents) : '—'}
+              </p>
+            </div>
           </div>
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60 mb-0.5">Outstanding</p>
-            <p className={`text-[14px] font-bold tabular-nums ${c.outstandingCents > 0 ? 'text-red-500' : 'text-muted-foreground/40'}`}>
-              {c.outstandingCents > 0 ? formatMoney(c.outstandingCents) : '—'}
-            </p>
-          </div>
-        </div>
+        )}
 
         {/* ── Projects list ── */}
         {c.projects.length > 0 ? (

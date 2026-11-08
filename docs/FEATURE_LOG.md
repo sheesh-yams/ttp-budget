@@ -105,6 +105,52 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-08 — Client page (Phase 1)
+
+- **Asked:** one place for everything about a client. Internal only; the user doesn't want a client-facing portal.
+- **New `/clients/[id]`** (`ClientDetail.tsx`, loader `src/lib/client-page.ts`):
+  - **Header:** logo, name, legal name, "client since", plus the actions:
+    - New project, with the client preselected (`defaultClientId` on `NewProjectModal`)
+    - New invoice, with the client preselected (`defaultClientId` through `NewInvoiceButton`)
+    - Edit (`ClientModal`)
+    - Archive
+  - **Account note** callout.
+  - **Money strip:** Billed · Collected · Outstanding · Overdue · Open pipeline · Win rate (won of decided, plus the average won value).
+  - **Projects:** value and collected; archived projects behind a toggle.
+  - **Proposals:** the same deal rows as /proposals, via `loadDeals` with a new `clientId` filter.
+  - **Invoices:** open first and overdue at the top. Archived invoices are behind a toggle and tagged, as on /invoices.
+  - **Contact and billing address.**
+  - **Notes, edited in place:** new `updateClientNotes`, which needs Clients EDIT.
+  - **Activity:** built from row timestamps (`src/lib/client-activity.ts`), not the audit log. It covers project created; proposal sent / opened / won / declined; invoice sent / opened / paid; and a deliverable's first view. Latest 25.
+- **Links in:** a client card's name and logo, and the client name on the project page (with Clients VIEW).
+- **Who sees what:**
+  - **Page:** Clients VIEW. The edit controls are hidden without Clients EDIT, rather than greying out the whole page, so New project and New invoice still work for someone who can create those.
+  - **Projects:** same scope rule as /projects (ASSIGNED → their assignments).
+  - **Proposals, invoices, delivery activity:** `projectsWithArea` for each area.
+  - **Money:** only with `dashboardMoney`. Before, the /clients cards showed money to anyone with Clients VIEW.
+  - **Tab title:** checks Clients access before reading the client name.
+- **Card money fixed** (`src/lib/client-money.ts`, shared with the page):
+  - **"Lifetime value" → "Collected":** what's actually been paid, partial payments included. Before, it summed the totals of fully PAID invoices only.
+  - **"Outstanding":** the balance still owed, not the full total.
+  - Both now include archived projects' invoices (real money, same call as the Dashboard).
+  - **Example:** Taptap Send - India went from LTV $35,568 to Collected $35,568 of $71,136 billed.
+- **Cleanup:** `ClientModal`'s `existing` prop narrowed to the fields it edits. `ProjectNotesPanel` no longer pads it with fake money fields.
+- **Verified:**
+  - jest (581; new `client-page.test.ts`), tsc, lint
+  - next build up to the known Resend error
+  - **Read-only live-DB script, 4 clients:**
+    - Collected and outstanding match an independent recompute from the invoice rows.
+    - Deals match /proposals filtered to the client.
+    - Another workspace gets null.
+    - No openable projects leak nothing.
+    - No money access shows no money and no invoices.
+  - **pitfall-reviewer:** two low findings, both fixed: archived invoices in the list and feed; the client name in the tab title before the access check.
+  - The page itself still needs a signed-in pass.
+- **Follow-ups:**
+  - **Phase 2 (planned, needs a migration):** several named contacts per client (billing vs. creative, as the default To for invoices and proposals), and client defaults (payment terms, PO required, standard CC).
+  - **Dead code:** `src/components/projects/ClientInfoPanel.tsx` isn't imported anywhere.
+  - **ASSIGNED scope on /clients:** the cards still list every project and workspace-wide money for these roles (money only with `dashboardMoney`). Same as the existing Dashboard follow-up.
+
 ### 2026-11-07 — Security + invoice bug batch
 
 Six logged follow-ups, fixed together.

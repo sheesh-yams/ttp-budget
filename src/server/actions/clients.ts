@@ -58,6 +58,7 @@ export async function upsertClient(
       ? await db.client.update({ where: { id }, data })
       : await db.client.create({ data } as unknown as { data: Prisma.ClientUncheckedCreateInput })
     revalidatePath('/clients')
+    revalidatePath(`/clients/${client.id}`)
     return { success: true, data: { id: client.id } }
   } catch {
     return { success: false, error: 'Failed to save client' }
@@ -75,6 +76,25 @@ export async function archiveClient(id: string): Promise<ActionResult> {
     return { success: true, data: undefined }
   } catch {
     return { success: false, error: 'Failed to archive client' }
+  }
+}
+
+/** The client page's notes, edited in place. */
+export async function updateClientNotes(id: string, notes: string): Promise<ActionResult> {
+  try {
+    const gate = await requirePermission('clients', 'EDIT')
+    if (!gate.ok) return gate.error
+    if (typeof id !== 'string' || typeof notes !== 'string') return { success: false, error: 'Invalid input' }
+    if (notes.length > 20_000) return { success: false, error: 'Notes are too long.' }
+
+    const db = await getScopedDb()
+    const res = await db.client.updateMany({ where: { id }, data: { notes: notes.trim() || null } })
+    if (res.count === 0) return { success: false, error: 'Client not found' }
+    revalidatePath('/clients')
+    revalidatePath(`/clients/${id}`)
+    return { success: true, data: undefined }
+  } catch {
+    return { success: false, error: 'Failed to save notes' }
   }
 }
 

@@ -306,10 +306,17 @@ export default async function ProjectDetailPage({
           </div>
           <h1 className="text-xl md:text-2xl font-semibold text-foreground">{project.name}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <User className="h-3.5 w-3.5" />
-              {project.client.name}
-            </span>
+            {can.clientInfo ? (
+              <Link href={`/clients/${project.client.id}`} className="flex items-center gap-1 hover:text-foreground hover:underline">
+                <User className="h-3.5 w-3.5" />
+                {project.client.name}
+              </Link>
+            ) : (
+              <span className="flex items-center gap-1">
+                <User className="h-3.5 w-3.5" />
+                {project.client.name}
+              </span>
+            )}
             {project.shootStartDate && (
               <span className="flex items-center gap-1">
                 <Calendar className="h-3.5 w-3.5" />

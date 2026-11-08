@@ -14,14 +14,17 @@ export async function loadDeals(db: PrismaClient, workspaceId: string, opts: {
   /** Project ids with Proposals edit; null = all. */
   editable: string[] | null
   showMoney: boolean
+  /** Only this client's deals (the client page). */
+  clientId?: string
 }): Promise<DealRow[]> {
-  const { visible, editable, showMoney } = opts
+  const { visible, editable, showMoney, clientId } = opts
   // Deals: every live project with a proposal, plus leads with none yet.
   const projects = await db.project.findMany({
     where: {
       workspaceId,
       archivedAt: null,
       ...(visible ? { id: { in: visible } } : {}),
+      ...(clientId ? { clientId } : {}),
       OR: [{ proposals: { some: {} } }, { status: 'LEAD' }],
     },
     orderBy: { updatedAt: 'desc' },
