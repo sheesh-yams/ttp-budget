@@ -108,6 +108,7 @@ export default async function ClientPage({ params }: Props) {
       pipeline={pipeline}
       canEdit={access.can('clients', 'EDIT')}
       workspaceDueDays={workspace?.invoiceExpiryDays ?? 30}
+      invoiceProjectIds={invoiceEditIds === false ? [] : invoiceEditIds}
       newProject={canCreateProjects ? { templates } : null}
       newInvoice={canNewInvoice && (billable.length > 0 || canCreateFromInvoice) ? {
         projects: billable.map(p => ({ id: p.id, name: p.name, clientName: data.client.name, won: p.proposals.length > 0 })),

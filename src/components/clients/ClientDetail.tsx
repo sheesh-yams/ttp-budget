@@ -48,6 +48,8 @@ interface Props {
   newInvoice:   { projects: InvoiceableProject[]; canCreateProject: boolean; invoiceExpiryDays: number } | null
   /** The workspace's default days to due (used when the client has no terms). */
   workspaceDueDays: number
+  /** Projects whose invoices this person can edit (null = all) — gates the Invoice buttons. */
+  invoiceProjectIds: string[] | null
 }
 
 const card = 'rounded-[10px] border border-[#E8E0F0] bg-white shadow-sm'
@@ -114,7 +116,7 @@ function invoiceChip(inv: ClientPageData['invoices'][number], now: number): { la
 
 const PREVIEW = 8
 
-export function ClientDetail({ data, proposals, showInvoices, pipeline, canEdit, newProject, newInvoice, workspaceDueDays }: Props) {
+export function ClientDetail({ data, proposals, showInvoices, pipeline, canEdit, newProject, newInvoice, workspaceDueDays, invoiceProjectIds }: Props) {
   const router = useRouter()
   const { confirm, ConfirmDialog } = useConfirm()
   const { client, projects, invoices, money, activity } = data
@@ -237,8 +239,12 @@ export function ClientDetail({ data, proposals, showInvoices, pipeline, canEdit,
           <Stat label="Billed" value={formatMoney(money.billedCents)} />
           <Stat label="Collected" value={formatMoney(money.collectedCents)} tone={money.collectedCents > 0 ? 'green' : undefined}
             sub={money.lastPaidAt ? `Last paid ${ago(money.lastPaidAt)}` : undefined} />
-          <Stat label="Outstanding" value={money.outstandingCents > 0 ? formatMoney(money.outstandingCents) : '—'}
-            sub={money.openCount ? `${money.openCount} open invoice${money.openCount === 1 ? '' : 's'}` : undefined} />
+          <Stat label="Outstanding"
+            value={money.outstandingCents + money.toInvoiceCents > 0 ? formatMoney(money.outstandingCents + money.toInvoiceCents) : '—'}
+            tone={money.toInvoiceCents > 0 ? 'amber' : undefined}
+            sub={money.toInvoiceCents > 0
+              ? `${formatMoney(money.toInvoiceCents)} not invoiced yet`
+              : money.openCount ? `${money.openCount} open invoice${money.openCount === 1 ? '' : 's'}` : undefined} />
           <Stat label="Overdue" value={money.overdueCents > 0 ? formatMoney(money.overdueCents) : '—'} tone={money.overdueCents > 0 ? 'red' : undefined}
             sub={money.overdueCount ? `${money.overdueCount} invoice${money.overdueCount === 1 ? '' : 's'}` : undefined} />
           {pipeline && (
@@ -252,6 +258,33 @@ export function ClientDetail({ data, proposals, showInvoices, pipeline, canEdit,
                 ? `${pipeline.wonCount} of ${pipeline.decidedCount}${pipeline.avgWonCents ? ` · avg ${formatMoney(pipeline.avgWonCents)}` : ''}`
                 : 'Nothing decided yet'} />
           )}
+        </div>
+      )}
+
+      {money && money.toInvoice.length > 0 && (
+        <div className="rounded-lg border border-amber-300/60 bg-amber-50 px-4 py-3">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-amber-900">
+                {formatMoney(money.toInvoiceCents)} of booked work hasn&rsquo;t been invoiced yet
+              </p>
+              <ul className="mt-1.5 space-y-1">
+                {money.toInvoice.map(t => (
+                  <li key={t.projectId} className="flex items-center gap-3 text-sm text-amber-900">
+                    <span className="min-w-0 flex-1 truncate">{t.name}</span>
+                    <span className="tabular-nums">{formatMoney(t.cents)}</span>
+                    {(invoiceProjectIds === null || invoiceProjectIds.includes(t.projectId)) && (
+                      <Link href={`/projects/${t.projectId}/invoices`} className="shrink-0 rounded-md border border-amber-400 bg-white px-2 py-0.5 text-xs font-medium text-amber-900 hover:bg-amber-100">
+                        Invoice
+                      </Link>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1.5 text-[11px] text-amber-800/80">The project&rsquo;s value (its budget, or the signed total without one) minus what&rsquo;s been sent on invoices. Wrapped and archived projects aren&rsquo;t counted.</p>
+            </div>
+          </div>
         </div>
       )}
 
@@ -284,6 +317,7 @@ export function ClientDetail({ data, proposals, showInvoices, pipeline, canEdit,
                         <div className="hidden text-right sm:block">
                           <p className="text-sm font-semibold tabular-nums">{p.valueCents > 0 ? formatMoney(p.valueCents) : '—'}</p>
                           {!!p.collectedCents && <p className="text-[11px] tabular-nums text-emerald-600">{formatMoney(p.collectedCents)} collected</p>}
+                          {!!p.toInvoiceCents && <p className="text-[11px] tabular-nums text-amber-600">{formatMoney(p.toInvoiceCents)} to invoice</p>}
                         </div>
                       )}
                       <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${PROJECT_CHIP[p.archived ? 'ARCHIVED' : p.status] ?? 'bg-gray-100 text-gray-500'}`}>

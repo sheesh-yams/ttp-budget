@@ -9,6 +9,7 @@ import { primaryPhaseTotals, PRIMARY_PHASE_TOTALS_SELECT, type PrimaryPhaseRow }
 import { addedScopeCents } from '@/lib/project-value'
 import { clientMoney, type ClientMoney } from '@/lib/client-money'
 import { buildClientActivity, type ActivityEntry } from '@/lib/client-activity'
+import { projectToInvoiceCents, type ToInvoice } from '@/lib/project-billing'
 
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null)
 
@@ -23,6 +24,8 @@ export interface ClientPageProject {
   /** Null without money access. */
   valueCents: number | null
   collectedCents: number | null
+  /** Booked but not yet invoiced. Null without money access. */
+  toInvoiceCents: number | null
 }
 
 export interface ClientPageInvoice {
@@ -51,7 +54,11 @@ export interface ClientPageData {
   /** Empty when the invoices area is hidden. */
   invoices: ClientPageInvoice[]
   /** Null without money access. Over every invoice on the projects they can see. */
-  money: ClientMoney | null
+  money: (ClientMoney & {
+    /** Booked work not invoiced yet (live projects), and which projects. */
+    toInvoiceCents: number
+    toInvoice: ToInvoice[]
+  }) | null
   activity: ActivityEntry[]
 }
 
@@ -85,7 +92,8 @@ export async function loadClientPage(db: PrismaClient, workspaceId: string, clie
     orderBy: { updatedAt: 'desc' },
     select: {
       id: true, name: true, status: true, phase: true, archivedAt: true, shootStartDate: true, createdAt: true,
-      proposals: { where: { status: 'APPROVED' }, select: { approvedTotalCents: true }, take: 1 },
+      // Newest won version — a project can have more than one approved.
+          proposals: { where: { status: 'APPROVED' }, orderBy: { version: 'desc' }, select: { approvedTotalCents: true }, take: 1 },
     },
   })
   const projectIds = projects.map(p => p.id)
@@ -125,6 +133,31 @@ export async function loadClientPage(db: PrismaClient, workspaceId: string, clie
     select:  { firstClientViewAt: true, deliverable: { select: { title: true, deliveryPage: { select: { projectId: true } } } } },
   }) : []
 
+  const projectRows: ClientPageProject[] = projects.map(p => {
+    const inv = allInvoices.filter(i => i.projectId === p.id)
+    const budget = budgetTotal.get(p.id) ?? 0
+    // Same as the Projects page: budget (or the won total without one) plus
+    // added scope, never less than what's been billed.
+    const expected = (budget > 0 ? budget : (p.proposals[0]?.approvedTotalCents ?? 0)) + addedScopeCents(inv)
+    const invoiced = inv.reduce((s, i) => s + (i.status === 'VOID' || i.status === 'DRAFT' ? 0 : i.totalCents), 0)
+    const archived = !!p.archivedAt || p.status === 'ARCHIVED'
+    return {
+      id: p.id, name: p.name, status: p.status, phase: p.phase, archived,
+      shootStart: iso(p.shootStartDate)?.slice(0, 10) ?? null,
+      createdAt: p.createdAt.toISOString(),
+      valueCents:     opts.showMoney ? Math.max(expected, invoiced) : null,
+      collectedCents: opts.showMoney ? inv.reduce((s, i) => s + (i.status === 'VOID' ? 0 : i.amountPaidCents), 0) : null,
+      toInvoiceCents: opts.showMoney ? projectToInvoiceCents({
+        budgetCents: budget, approvedTotalCents: p.proposals[0]?.approvedTotalCents ?? null,
+        won: p.proposals.length > 0, archived, wrapped: p.status === 'WRAPPED', invoices: inv,
+      }) : null,
+    }
+  })
+  const toInvoice: ToInvoice[] = projectRows
+    .filter(p => (p.toInvoiceCents ?? 0) > 0)
+    .map(p => ({ projectId: p.id, name: p.name, cents: p.toInvoiceCents! }))
+    .sort((a, b) => b.cents - a.cents)
+
   return {
     client: {
       id: client.id, name: client.name, legalName: client.legalName, logoUrl: client.logoUrl,
@@ -137,22 +170,7 @@ export async function loadClientPage(db: PrismaClient, workspaceId: string, clie
       proposalCcEmails: client.proposalCcEmails,
     },
     contacts: client.contacts,
-    projects: projects.map(p => {
-      const inv = allInvoices.filter(i => i.projectId === p.id)
-      const budget = budgetTotal.get(p.id) ?? 0
-      // Same as the Projects page: budget (or the won total without one) plus
-      // added scope, never less than what's been billed.
-      const expected = (budget > 0 ? budget : (p.proposals[0]?.approvedTotalCents ?? 0)) + addedScopeCents(inv)
-      const invoiced = inv.reduce((s, i) => s + (i.status === 'VOID' || i.status === 'DRAFT' ? 0 : i.totalCents), 0)
-      return {
-        id: p.id, name: p.name, status: p.status, phase: p.phase,
-        archived: !!p.archivedAt || p.status === 'ARCHIVED',
-        shootStart: iso(p.shootStartDate)?.slice(0, 10) ?? null,
-        createdAt: p.createdAt.toISOString(),
-        valueCents:     opts.showMoney ? Math.max(expected, invoiced) : null,
-        collectedCents: opts.showMoney ? inv.reduce((s, i) => s + (i.status === 'VOID' ? 0 : i.amountPaidCents), 0) : null,
-      }
-    }),
+    projects: projectRows,
     invoices: invoices.map(i => ({
       id: i.id, number: i.number, title: i.title, status: i.status,
       totalCents: i.totalCents, amountPaidCents: i.amountPaidCents,
@@ -160,7 +178,11 @@ export async function loadClientPage(db: PrismaClient, workspaceId: string, clie
       archived: !!i.archivedAt,
       project: { id: i.projectId, name: projectName.get(i.projectId) ?? '' },
     })),
-    money: opts.showMoney ? clientMoney(allInvoices, now) : null,
+    money: opts.showMoney ? {
+      ...clientMoney(allInvoices, now),
+      toInvoiceCents: toInvoice.reduce((s, p) => s + p.cents, 0),
+      toInvoice,
+    } : null,
     activity: buildClientActivity({
       projects,
       proposals: proposals.map(p => ({ ...p, projectName: projectName.get(p.projectId) ?? '' })),

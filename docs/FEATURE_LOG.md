@@ -105,6 +105,31 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-08 — Clients: "Outstanding" includes work not invoiced yet
+
+- **Asked:** a client's Outstanding should include booked work that hasn't been invoiced, with a nudge to finish invoicing.
+- **`src/lib/project-billing.ts`** (jest-tested): `projectToInvoiceCents` = the project's value minus the totals of sent invoices.
+  - **Value:** the live primary-phase total, else the newest won version's signed total, plus added scope. This is the same base as the Projects page and the project invoices page the button opens.
+  - **What counts:** booked projects only (won, or already billing). Drafts don't count as invoiced; void invoices are ignored. Wrapped and archived projects count as done, so a write-off doesn't flag forever.
+- **/clients cards:**
+  - Outstanding = owed on invoices + not invoiced, in amber when part of it isn't invoiced yet.
+  - An amber "$X not invoiced · Project — Review →" line links to the client page.
+- **Client page:**
+  - The Outstanding stat includes not-invoiced work, with a note.
+  - An amber callout lists each project with its amount and an **Invoice** button to `/projects/[id]/invoices`. The button only shows where the person has Invoices EDIT.
+  - Each project row shows "$X to invoice".
+- **Live:** PMH Social Content $11,100 (budget $23,100 − $12,000 invoiced), Salute $3,945, VXB3 Dinner $6,270.
+- **Decision (mine, after review):** the base is the live budget, not the signed total, so the number matches the invoices page the button opens. PMH's budget ($23,100) is above its signed total ($18,250). The health-check drift check would flag that.
+- **Verified:**
+  - jest (603; new `project-billing.test.ts`), tsc, lint
+  - next build up to the known Resend error
+  - A read-only live check of every client.
+  - **pitfall-reviewer**, all fixed:
+    - a different base from the invoices page
+    - the won proposal picked without `orderBy` (now newest version)
+    - wrapped projects flagged forever
+    - Invoice links shown without Invoices access
+
 ### 2026-11-08 — Client page (Phase 2): people + billing defaults
 
 - **Asked:** several contacts per client, and defaults that fill in by themselves.

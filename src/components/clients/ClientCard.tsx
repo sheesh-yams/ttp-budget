@@ -28,6 +28,8 @@ export interface ClientRow {
   collectedCents:   number | null
   /** Balance still owed on sent invoices. Null without money access. */
   outstandingCents: number | null
+  /** Booked projects with work not invoiced yet, largest first. Null without money access. */
+  toInvoice:        { projectId: string; name: string; cents: number }[] | null
   lastEngagementAt: string | null
   projects: {
     id:             string
@@ -89,6 +91,9 @@ export function ClientCard({ client: c, onEdit, onArchive }: Props) {
   const [expanded,      setExpanded]      = useState(false)
   const [showAllProjects, setShowAllProjects] = useState(false)
 
+  const toInvoiceCents   = (c.toInvoice ?? []).reduce((s, p) => s + p.cents, 0)
+  // Outstanding = owed on sent invoices + booked work not invoiced yet.
+  const outstandingTotal = (c.outstandingCents ?? 0) + toInvoiceCents
   const hasSpecialNotes = !!c.specialNotes?.trim()
   const visibleProjects = showAllProjects ? c.projects : c.projects.slice(0, PREVIEW_COUNT)
   const hiddenCount     = c.projects.length - PREVIEW_COUNT
@@ -166,11 +171,29 @@ export function ClientCard({ client: c, onEdit, onArchive }: Props) {
             </div>
             <div>
               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60 mb-0.5">Outstanding</p>
-              <p className={`text-[14px] font-bold tabular-nums ${c.outstandingCents > 0 ? 'text-red-500' : 'text-muted-foreground/40'}`}>
-                {c.outstandingCents > 0 ? formatMoney(c.outstandingCents) : '—'}
+              <p className={`text-[14px] font-bold tabular-nums ${outstandingTotal > 0 ? (toInvoiceCents > 0 ? 'text-amber-600' : 'text-red-500') : 'text-muted-foreground/40'}`}>
+                {outstandingTotal > 0 ? formatMoney(outstandingTotal) : '—'}
               </p>
+              {toInvoiceCents > 0 && c.outstandingCents > 0 && (
+                <p className="text-[10px] tabular-nums text-muted-foreground">{formatMoney(c.outstandingCents)} on invoices</p>
+              )}
             </div>
           </div>
+        )}
+
+        {/* ── Booked work not invoiced yet ── */}
+        {c.toInvoice && c.toInvoice.length > 0 && (
+          <Link
+            href={`/clients/${c.id}`}
+            className="-mt-2 flex items-center gap-2 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-[12px] text-amber-900 transition-colors hover:bg-amber-100"
+          >
+            <AlertCircle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+            <span className="min-w-0 flex-1 truncate">
+              <strong className="font-semibold tabular-nums">{formatMoney(toInvoiceCents)}</strong> not invoiced
+              {c.toInvoice.length === 1 ? ` · ${c.toInvoice[0].name}` : ` · ${c.toInvoice.length} projects`}
+            </span>
+            <span className="shrink-0 font-medium">Review →</span>
+          </Link>
         )}
 
         {/* ── Projects list ── */}
