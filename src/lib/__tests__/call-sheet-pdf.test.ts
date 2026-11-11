@@ -63,6 +63,23 @@ describe('call sheet PDF data', () => {
     expect(d.keyContacts.some(c => c.label === 'Client')).toBe(false)
   })
 
+  it('picked client contacts replace the main contact; the first with a phone is the key contact', () => {
+    const d = buildCallSheetPdfData(base({ clientContacts: [
+      { contactId: 'a', name: 'Jamie Lee', title: 'Brand Producer', email: 'jamie@x.co', phone: null },
+      { contactId: 'b', name: 'Sam Ko', title: null, email: null, phone: '2125550111' },
+    ] }), { dayLabel: null })
+    expect(d.keyContacts.find(c => c.label === 'Client')?.name).toBe('Sam Ko')
+    const client = d.contacts.filter(c => (c.role ?? '').includes('Client ·'))
+    expect(client.map(c => c.name)).toEqual(['Jamie Lee', 'Sam Ko'])
+    expect(client[0].role).toContain('Brand Producer')
+  })
+
+  it('an empty pick list shows no client on the sheet', () => {
+    const d = buildCallSheetPdfData(base({ clientContacts: [] }), { dayLabel: null })
+    expect(d.clientName).toBeNull()
+    expect(d.keyContacts.some(c => c.label === 'Client')).toBe(false)
+  })
+
   it('copes with a bare draft (no client, weather, crew or schedule)', () => {
     const d = buildCallSheetPdfData(base({
       status: 'DRAFT', sentAt: null, crew: [], talent: [], schedule: [], otherContacts: [], pointOfContact: null, weather: null, hospitalInfo: null,

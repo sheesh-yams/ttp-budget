@@ -111,3 +111,27 @@ describe('changes and confirmations', () => {
     expect(recipientStatus({ lastSentAt: t, firstViewedAt: null, confirmedAt: t })).toBe('CONFIRMED')
   })
 })
+
+
+describe('peopleOnSheet with client contacts', () => {
+  it('adds them last in a CLIENT group keyed by their client contact id', () => {
+    const people = peopleOnSheet([], [], [], [
+      { contactId: 'cc1', name: 'Jamie Lee', title: 'Brand Producer', email: 'jamie@x.co' },
+      { contactId: null, name: 'Legacy Pat', title: null, email: 'pat@x.co' },
+    ])
+    expect(people.map(p => [p.group, p.personKey, p.role, p.contactId])).toEqual([
+      ['CLIENT', 'client:cc1', 'Brand Producer', null],
+      ['CLIENT', 'email:pat@x.co|legacy pat', 'Client', null],
+    ])
+  })
+})
+
+
+describe('peopleOnSheet: a client contact also typed into Other contacts', () => {
+  it('is listed once (the existing entry), not twice', () => {
+    const people = peopleOnSheet([], [], [{ name: 'Jamie Lee', email: 'jamie@x.co', role: 'Client rep' } as never], [
+      { contactId: 'cc1', name: 'Jamie Lee', title: null, email: 'JAMIE@x.co' },
+    ])
+    expect(people.map(p => p.group)).toEqual(['OTHER'])
+  })
+})

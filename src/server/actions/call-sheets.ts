@@ -1,5 +1,6 @@
 'use server'
 
+import { defaultOnSet, snapshotOf } from '@/lib/client-people'
 import { revalidatePath } from 'next/cache'
 import { getScopedDb } from '@/lib/db-scoped'
 import type { ScopedDb } from '@/lib/db-scoped'
@@ -401,6 +402,25 @@ export async function importScheduleIntoCallSheet(
 // CRUD
 // =============================================================================
 
+/**
+ * Snapshots of the client people picked for a sheet, in pick order — only the
+ * project's client's people count (scoped). Removed people simply drop out.
+ */
+async function sheetClientSnapshots(sdb: ScopedDb, projectId: string, ids: string[]): Promise<object[]> {
+  const clean = [...new Set((Array.isArray(ids) ? ids : []).filter((x): x is string => typeof x === 'string'))].slice(0, 20)
+  if (!clean.length) return []
+  const project = await sdb.project.findFirst({ where: { id: projectId }, select: { clientId: true } })
+  if (!project) return []
+  const people = await sdb.clientContact.findMany({
+    where:  { id: { in: clean }, clientId: project.clientId },
+    select: { id: true, name: true, title: true, email: true, phone: true, isMain: true, roles: true },
+  })
+  return clean.flatMap(id => {
+    const p = people.find(x => x.id === id)
+    return p ? [snapshotOf(p) as unknown as object] : []
+  })
+}
+
 export async function createCallSheet(
   projectId: string,
   input: { title: string; shootDate: string; generalCall?: string; shootDayId?: string }
@@ -410,9 +430,15 @@ export async function createCallSheet(
     if (!(await canEditCallSheets(projectId))) return { success: false, error: 'Project not found' }
     const project = await sdb.project.findFirst({
       where: { id: projectId },
-      select: { id: true },
+      select: { id: true, clientId: true },
     })
     if (!project) return { success: false, error: 'Project not found' }
+    // Client contacts on a new sheet: the client's On-set people, else Main.
+    const onSet = defaultOnSet(await sdb.clientContact.findMany({
+      where:   { clientId: project.clientId },
+      orderBy: [{ isMain: 'desc' }, { order: 'asc' }, { createdAt: 'asc' }],
+      select:  { id: true, name: true, title: true, email: true, phone: true, isMain: true, roles: true },
+    })).map(p => snapshotOf(p) as unknown as object)
 
     // If linked to a shoot day, pull in that day's stripboard schedule + location
     // immediately so the call sheet starts populated instead of blank.
@@ -487,6 +513,7 @@ export async function createCallSheet(
         generalCall: input.generalCall ?? shootDayFields.generalCall ?? '07:00',
         publicToken: generatePublicToken(),
         crew:        initialCrew as unknown as Prisma.InputJsonValue,
+        clientContacts: onSet as unknown as Prisma.InputJsonValue,
         ...(shootDayFields.shootDayId        ? { shootDayId: shootDayFields.shootDayId } : {}),
         ...(shootDayFields.schedule          ? { schedule: shootDayFields.schedule } : {}),
         ...(shootDayFields.scheduleSnapshot  ? { scheduleSnapshot: shootDayFields.scheduleSnapshot, scheduleSyncedAt: shootDayFields.scheduleSyncedAt } : {}),
@@ -519,6 +546,8 @@ export async function updateCallSheet(
     crew: CrewDept[]
     schedule: ScheduleBlock[]
     otherContacts: OtherContact[]
+    /** Client people on the sheet (ClientContact ids, in order). */
+    clientContactIds: string[]
     hospitalInfo: HospitalInfo | null
     cateringInfo: string
     notes: string
@@ -528,6 +557,10 @@ export async function updateCallSheet(
     const sdb = await getScopedDb()
     const cs = await getOwnedSheet(id, sdb)
     if (cs.status === 'FINAL') return { success: false, error: 'Cannot edit a finalized call sheet' }
+
+    const clientContacts = input.clientContactIds !== undefined
+      ? await sheetClientSnapshots(sdb, cs.projectId, input.clientContactIds)
+      : undefined
 
     // Clear cached geo + weather when the address changes
     const addressChanging = input.locationAddress !== undefined && input.locationAddress !== cs.locationAddress
@@ -547,6 +580,7 @@ export async function updateCallSheet(
         ...(input.crew               !== undefined && { crew:          toJsonSafe(input.crew) }),
         ...(input.schedule           !== undefined && { schedule:      toJsonSafe(input.schedule) }),
         ...(input.otherContacts      !== undefined && { otherContacts: toJsonSafe(input.otherContacts) }),
+        ...(clientContacts           !== undefined && { clientContacts: clientContacts as unknown as Prisma.InputJsonValue }),
         ...(input.hospitalInfo       !== undefined && !addressChanging && { hospitalInfo: input.hospitalInfo ? toJsonSafe(input.hospitalInfo) : null }),
         ...(input.cateringInfo       !== undefined && { cateringInfo:  input.cateringInfo }),
         ...(input.notes              !== undefined && { notes:            input.notes }),

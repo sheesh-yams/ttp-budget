@@ -105,6 +105,31 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-11 — Client contacts on documents, Phase D: call sheets list (and can send to) client contacts
+
+- **`CallSheet.clientContacts`** (snapshots):
+  - **New sheets:** default to the client's On-set people, else Main.
+  - **Saving:** `updateCallSheet` saves the editor's picks (`clientContactIds`; only this project's client's people, scoped).
+  - **Older sheets** (null) keep showing the main contact until saved; the Main person starts ticked.
+- **Editor:** a client contacts checklist replaces the fixed "from project" block. People are loaded only with Call sheets EDIT; others see a read-only list.
+- **Display:** the public `/cs` page and the PDF (`sheetClientContacts`) list every picked person with title, phone and email. The first one with a phone is the "Client" key contact. An empty pick list shows no client, so a code-named brand stays off the sheet.
+- **Sending:**
+  - New `CLIENT` recipient group (`peopleOnSheet` takes the client snapshots, keyed `client:<ClientContact id>`, never written to the Rolodex).
+  - The send dialog has a **Client** group, unticked by default unless they were sent before and something changed.
+  - "Select shown" skips client contacts without an email. There's no type-in for clients (their email lives on the client).
+  - A client contact already typed into Other contacts (same name and email) is listed once.
+  - Older sheets have no client recipients.
+- **Verified:**
+  - jest (626; new PDF and `peopleOnSheet` tests), tsc, lint
+  - next build up to the known Resend error
+  - **Live:** a throwaway sheet's send list included `CLIENT: Jamie Lee`; its `/cs` page and PDF showed Jamie (Brand Producer), not the main contact; no server errors. Cleaned up.
+  - **pitfall-reviewer**, both fixed:
+    - the recipient row was keyed by email instead of `client:<id>` (a double email if the person was also in Other contacts)
+    - Select all ticked client contacts without an email, which blocked sending
+- **Follow-ups:**
+  - The call sheet email to a client says "your call", the same as crew; a client-specific line could follow.
+  - `ClientContact.isBilling` is dead; drop it in a cleanup migration.
+
 ### 2026-11-11 — Client contacts on documents, Phase C: proposals are "Prepared for" people
 
 - **`Proposal.clientContacts`** (snapshots, in pick order) is saved by `createSentProposal`, `createDraftProposal` and `updateDraftProposal` from `clientContactIds`. `preparedForSnapshots` only accepts this project's client's people (scoped).

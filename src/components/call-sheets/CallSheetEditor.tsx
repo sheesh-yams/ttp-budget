@@ -1,5 +1,7 @@
 'use client'
 
+import { ClientPeopleChecklist } from '@/components/clients/ClientPersonPicker'
+import type { ClientPerson, PersonSnapshot } from '@/lib/client-people'
 import { DietaryNeedsPanel } from './DietaryNeedsPanel'
 import type { Dietary } from '@/lib/dietary'
 import { useState, useTransition, useCallback } from 'react'
@@ -72,11 +74,12 @@ export interface CallSheetData {
   weather: WeatherInfo | null
   hospitalInfo: HospitalInfo | null
   otherContacts: OtherContact[]
-  clientContact: {
+  /** Client contacts on the sheet: shown now, the people to pick from (editors), and who's ticked. */
+  client: {
     companyName: string
-    contactName?: string | null
-    contactEmail?: string | null
-    contactPhone?: string | null
+    shown:       PersonSnapshot[]
+    people:      ClientPerson[]
+    pickedIds:   string[]
   } | null
 }
 
@@ -126,6 +129,9 @@ export function CallSheetEditor({
   )
   const [talent,          setTalent]          = useState<TalentMember[]>(initial.talent ?? [])
   const [otherContacts,   setOtherContacts]   = useState<OtherContact[]>(initial.otherContacts ?? [])
+  const [clientIds,       setClientIds]       = useState<string[]>(initial.client?.pickedIds ?? [])
+  // Only sent when the client's people are pickable here (editors).
+  const clientPayload = initial.client?.people.length ? { clientContactIds: clientIds } : {}
   const [crew,            setCrew]            = useState<CrewDept[]>(initial.crew)
   const [schedule,        setSchedule]        = useState<ScheduleBlock[]>(initial.schedule)
   const [cateringInfo,    setCateringInfo]    = useState(initial.cateringInfo ?? '')
@@ -179,6 +185,7 @@ export function CallSheetEditor({
         pointOfContact:   pointOfContact.name.trim() ? pointOfContact : null,
         talent,
         otherContacts,
+        ...clientPayload,
         hospitalInfo:     hospital,
         crew,
         schedule,
@@ -207,7 +214,7 @@ export function CallSheetEditor({
           title, shootDate, generalCall,
           locationName, locationAddress, parkingAddress, locationNotes,
           pointOfContact: pointOfContact.name.trim() ? pointOfContact : null,
-          talent, otherContacts, hospitalInfo: hospital, crew, schedule, cateringInfo, notes,
+          talent, otherContacts, ...clientPayload, hospitalInfo: hospital, crew, schedule, cateringInfo, notes,
         })
         if (!saveResult.success) { setError((saveResult as { success: false; error: string }).error); return }
         setDirty(false)
@@ -227,7 +234,7 @@ export function CallSheetEditor({
           title, shootDate, generalCall,
           locationName, locationAddress, parkingAddress, locationNotes,
           pointOfContact: pointOfContact.name.trim() ? pointOfContact : null,
-          talent, otherContacts, hospitalInfo: hospital, crew, schedule, cateringInfo, notes,
+          talent, otherContacts, ...clientPayload, hospitalInfo: hospital, crew, schedule, cateringInfo, notes,
         })
         if (!saveResult.success) {
           tab?.close()
@@ -251,7 +258,7 @@ export function CallSheetEditor({
           title, shootDate, generalCall,
           locationName, locationAddress, parkingAddress, locationNotes,
           pointOfContact: pointOfContact.name.trim() ? pointOfContact : null,
-          talent, otherContacts, hospitalInfo: hospital, crew, schedule, cateringInfo, notes,
+          talent, otherContacts, ...clientPayload, hospitalInfo: hospital, crew, schedule, cateringInfo, notes,
         })
         if (!saveResult.success) { setError((saveResult as { success: false; error: string }).error); return }
       }
@@ -669,25 +676,35 @@ export function CallSheetEditor({
 
         {/* ── Client / Other Contacts ── */}
         <Section title="Client / Other Contacts">
-          {initial.clientContact && (
-            <div className="divide-y rounded-lg border mb-3">
-              <div className="flex items-center justify-between px-3 py-2 gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground">{initial.clientContact.companyName}</p>
-                  {initial.clientContact.contactName && (
-                    <p className="text-xs text-muted-foreground">{initial.clientContact.contactName}</p>
-                  )}
-                  <div className="flex flex-wrap gap-x-3 mt-0.5">
-                    {initial.clientContact.contactPhone && (
-                      <p className="text-xs text-muted-foreground">{initial.clientContact.contactPhone}</p>
-                    )}
-                    {initial.clientContact.contactEmail && (
-                      <p className="text-xs text-muted-foreground">{initial.clientContact.contactEmail}</p>
-                    )}
-                  </div>
-                </div>
-                <p className="text-[10px] text-muted-foreground/60 italic shrink-0">from project</p>
-              </div>
+          {initial.client && (
+            <div className="mb-3 rounded-lg border px-3 py-2.5">
+              <p className="mb-1.5 text-xs font-medium text-muted-foreground">
+                {initial.client.companyName} — who&rsquo;s on this sheet for the client
+              </p>
+              {!isLocked && initial.client.people.length > 0 ? (
+                <>
+                  <ClientPeopleChecklist
+                    people={initial.client.people}
+                    selected={clientIds}
+                    onChange={ids => { setClientIds(ids); markDirty() }}
+                  />
+                  <p className="mt-1.5 text-[11px] text-muted-foreground">
+                    Listed on the sheet. You choose whether they get it emailed when you send.
+                  </p>
+                </>
+              ) : initial.client.shown.length > 0 ? (
+                <ul className="space-y-1">
+                  {initial.client.shown.map((c, i) => (
+                    <li key={i} className="text-sm">
+                      <span className="font-medium text-foreground">{c.name}</span>
+                      {c.title && <span className="ml-1.5 text-xs text-muted-foreground">{c.title}</span>}
+                      <span className="block text-xs text-muted-foreground">{[c.phone, c.email].filter(Boolean).join(' · ')}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-muted-foreground">No client contact on this sheet. Add people on the client&rsquo;s page.</p>
+              )}
             </div>
           )}
           {!isLocked && (

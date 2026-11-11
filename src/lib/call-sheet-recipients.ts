@@ -5,13 +5,16 @@
 import { formatTime, type TimeFormat } from '@/lib/time-format'
 import type { CrewDept, OtherContact, TalentMember } from '@/server/actions/call-sheets'
 
-export type RecipientGroup = 'CREW' | 'TALENT' | 'OTHER'
+export type RecipientGroup = 'CREW' | 'TALENT' | 'OTHER' | 'CLIENT'
 
 /** Where a person sits in the call sheet's JSON — to write a typed email back. */
 export type RowRef =
   | { group: 'CREW'; dept: number; member: number }
   | { group: 'TALENT'; index: number }
   | { group: 'OTHER'; index: number }
+  /** A client contact picked on the sheet (CallSheet.clientContacts) — their
+   *  details live on the client, so nothing is written back to the sheet. */
+  | { group: 'CLIENT'; index: number }
 
 export interface SheetPerson {
   /** Identity across edits: "contact:<id>" when linked to the Rolodex, else
@@ -49,16 +52,26 @@ const blank = (s: string | null | undefined) => !s || !s.trim()
  * other contacts). Empty rows are skipped; someone listed twice (same contact
  * or email) appears once, with their earliest call time.
  */
-export function peopleOnSheet(crew: CrewDept[], talent: TalentMember[], others: OtherContact[]): SheetPerson[] {
+export function peopleOnSheet(
+  crew: CrewDept[], talent: TalentMember[], others: OtherContact[],
+  /** Client contacts on the sheet (snapshots), listed after everyone else. */
+  clients: { contactId: string | null; name: string; title: string | null; email: string | null }[] = [],
+): SheetPerson[] {
   const out: SheetPerson[] = []
   const byKey = new Map<string, SheetPerson>()
-  const add = (p: Omit<SheetPerson, 'personKey' | 'ref'>) => {
+  const add = (p: Omit<SheetPerson, 'personKey' | 'ref'> & { clientContactId?: string | null }) => {
     if (blank(p.name) && blank(p.email)) return
-    const personKey = personKeyFor(p.contactId, p.email, p.name)
+    // Client contacts are keyed by their ClientContact id (not the Rolodex's).
+    const { clientContactId, ...rest } = p
+    p = rest
+    const personKey = clientContactId ? `client:${clientContactId}` : personKeyFor(p.contactId, p.email, p.name)
     // The same person listed once linked to the Rolodex and once not (same
     // email and name) is one person.
     const existing = (personKey ? byKey.get(personKey) : undefined)
       ?? (!p.contactId && p.email ? out.find(x => x.contactId && norm(x.email) === norm(p.email) && norm(x.name) === norm(p.name)) : undefined)
+      // A client contact already on the sheet (e.g. typed into Other contacts
+      // with the same name and email) is one person, not two.
+      ?? (clientContactId && p.email ? out.find(x => norm(x.email) === norm(p.email) && norm(x.name) === norm(p.name)) : undefined)
     if (existing) {
       if (p.callTime && (!existing.callTime || p.callTime < existing.callTime)) existing.callTime = p.callTime
       if (!existing.email && p.email) existing.email = p.email
@@ -80,6 +93,11 @@ export function peopleOnSheet(crew: CrewDept[], talent: TalentMember[], others: 
     rowRef: { group: 'OTHER', index: i }, group: 'OTHER', name: o.name?.trim() ?? '',
     role: [o.role, o.company].filter(x => x?.trim()).join(' · ') || null, email: o.email?.trim() || null,
     callTime: null, contactId: null,
+  }))
+  clients.forEach((c, i) => add({
+    rowRef: { group: 'CLIENT', index: i }, group: 'CLIENT', name: c.name?.trim() ?? '',
+    role: c.title?.trim() || 'Client', email: c.email?.trim() || null,
+    callTime: null, contactId: null, clientContactId: c.contactId,
   }))
   return out
 }

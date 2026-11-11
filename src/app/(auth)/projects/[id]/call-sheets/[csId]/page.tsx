@@ -1,3 +1,5 @@
+import { loadClientPeople } from '@/lib/client-people-load'
+import { readSnapshots, sheetClientContacts } from '@/lib/client-people'
 import { getAccess } from '@/lib/access'
 import { notFound } from 'next/navigation'
 import { requireProjectAccess, requireProjectArea } from '@/lib/project-access'
@@ -46,6 +48,7 @@ export default async function CallSheetPage({
         name: true,
         client: {
           select: {
+            id: true,
             name: true,
             contactName: true,
             contactEmail: true,
@@ -110,6 +113,16 @@ export default async function CallSheetPage({
     }
   }
 
+  const canEditSheet = projectAccess.can('callSheets', 'EDIT')
+  const clientPeople = canEditSheet && project.client ? await loadClientPeople(db, workspaceId, project.client.id) : []
+  const storedClient = readSnapshots((cs as unknown as { clientContacts?: unknown }).clientContacts)
+  const shownClient  = sheetClientContacts(storedClient, project.client)
+  // Picked: the stored people still on the client; an older sheet (nothing
+  // stored) shows the main contact, so the Main person starts ticked.
+  const pickedClientIds = storedClient
+    ? storedClient.flatMap(x => (x.contactId && clientPeople.some(p => p.id === x.contactId) ? [x.contactId] : []))
+    : clientPeople.filter(p => p.isMain).map(p => p.id)
+
   const initial = {
     id:              cs.id,
     projectId:       project.id,
@@ -147,21 +160,21 @@ export default async function CallSheetPage({
     weather:         cs.weather       as unknown as WeatherInfo | null,
     hospitalInfo:    cs.hospitalInfo  as unknown as HospitalInfo | null,
     otherContacts:   ((cs as any).otherContacts as unknown as import('@/server/actions/call-sheets').OtherContact[]) ?? [],
-    clientContact:   project.client
-      ? {
-          companyName:  project.client.name,
-          contactName:  project.client.contactName,
-          contactEmail: project.client.contactEmail,
-          contactPhone: project.client.contactPhone,
-        }
-      : null,
+    // Client contacts on the sheet: what it shows now, and (for editors) the
+    // client's people to pick from, preticked with what's shown.
+    client: project.client ? {
+      companyName: project.client.name,
+      shown:       shownClient,
+      people:      clientPeople,
+      pickedIds:   pickedClientIds,
+    } : null,
   }
 
   const timeFormat = (workspace?.callTimeFormat as TimeFormat | null) ?? '12H'
 
   return (
     <div className="pb-24">
-      <CallSheetEditor initial={initial} rolodexContacts={rolodexContacts} dietary={dietary} timeFormat={timeFormat} readOnly={!projectAccess.can('callSheets', 'EDIT')} />
+      <CallSheetEditor initial={initial} rolodexContacts={rolodexContacts} dietary={dietary} timeFormat={timeFormat} readOnly={!canEditSheet} />
     </div>
   )
 }

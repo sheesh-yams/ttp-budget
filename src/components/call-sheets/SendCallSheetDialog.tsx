@@ -12,7 +12,7 @@ import { formatTime, type TimeFormat } from '@/lib/time-format'
 import { getCallSheetSendList, sendCallSheetEmails, type SendListPerson, type CrewDept, type TalentMember, type OtherContact } from '@/server/actions/call-sheets'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-const GROUP_LABEL = { CREW: 'Crew', TALENT: 'Talent', OTHER: 'Other contacts' } as const
+const GROUP_LABEL = { CREW: 'Crew', TALENT: 'Talent', OTHER: 'Other contacts', CLIENT: 'Client' } as const
 type Filter = 'ALL' | 'UNCONFIRMED' | 'CHANGED'
 
 function ago(iso: string | null): string {
@@ -71,7 +71,11 @@ export function SendCallSheetDialog({ open, callSheetId, timeFormat, onClose, on
       const anySent = list.some(p => p.status !== 'NOT_SENT')
       // First send: everyone with an email. Re-send: new people and anyone
       // whose details changed since their last email.
-      setSelected(new Set(list.filter(p => p.email && (!anySent || p.status === 'NOT_SENT' || p.changes.length > 0)).map(p => p.ref)))
+      // Client contacts start unticked — sending them the sheet is a choice —
+      // unless they've had it before and something changed.
+      setSelected(new Set(list.filter(p => p.email && (p.group === 'CLIENT'
+        ? p.status !== 'NOT_SENT' && p.changes.length > 0
+        : (!anySent || p.status === 'NOT_SENT' || p.changes.length > 0))).map(p => p.ref)))
     }
   }
 
@@ -112,7 +116,11 @@ export function SendCallSheetDialog({ open, callSheetId, timeFormat, onClose, on
   function selectFiltered(on: boolean) {
     setSelected(prev => {
       const next = new Set(prev)
-      for (const p of visible) if (on) next.add(p.ref); else next.delete(p.ref)
+      // Client contacts without an email can't be fixed here — don't tick them.
+      for (const p of visible) {
+        if (!on) next.delete(p.ref)
+        else if (p.group !== 'CLIENT' || p.email) next.add(p.ref)
+      }
       return next
     })
   }
@@ -178,7 +186,7 @@ export function SendCallSheetDialog({ open, callSheetId, timeFormat, onClose, on
             </div>
 
             <div className="space-y-4">
-              {(['CREW', 'TALENT', 'OTHER'] as const).map(g => {
+              {(['CREW', 'TALENT', 'OTHER', 'CLIENT'] as const).map(g => {
                 const rows = visible.filter(p => p.group === g)
                 if (rows.length === 0) return null
                 return (
@@ -201,6 +209,8 @@ export function SendCallSheetDialog({ open, callSheetId, timeFormat, onClose, on
                               </p>
                               {p.email ? (
                                 <p className="truncate text-xs text-muted-foreground">{p.email}</p>
+                              ) : p.group === 'CLIENT' ? (
+                                <p className="text-xs text-muted-foreground">No email — add one on the client&rsquo;s page.</p>
                               ) : (
                                 <Input
                                   type="email" value={typed[p.ref] ?? ''} placeholder="Add their email"

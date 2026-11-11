@@ -13,6 +13,7 @@ import {
   type RecipientGroup, type RecipientStatus, type SheetPerson,
 } from '@/lib/call-sheet-recipients'
 import { renderCallSheetEmail } from '@/lib/call-sheet-email'
+import { readSnapshots } from '@/lib/client-people'
 import type { CrewDept, TalentMember, OtherContact, ScheduleBlock, WeatherInfo, HospitalInfo } from '@/server/actions/call-sheets'
 
 export interface SendListPerson {
@@ -52,6 +53,9 @@ async function loadForSending(sdb: ScopedDb, id: string) {
   const people = peopleOnSheet(
     (cs.crew as unknown as CrewDept[]) ?? [], (cs.talent as unknown as TalentMember[]) ?? [],
     (cs.otherContacts as unknown as OtherContact[]) ?? [],
+    // Client contacts picked on the sheet (older sheets with none picked
+    // send to no client, as before).
+    readSnapshots(cs.clientContacts) ?? [],
   )
   const fmt = ((cs.workspace.callTimeFormat as TimeFormat | null) ?? '12H')
   return { cs, people, fmt }
@@ -130,12 +134,13 @@ export async function runCallSheetSend(deps: {
     const others = structuredClone((cs.otherContacts as unknown as OtherContact[]) ?? [])
     for (const t of typed) {
       const p = people.find(x => x.ref === t.ref)
-      if (!p || p.email) continue
+      // Client contacts' emails live on the client, not the sheet.
+      if (!p || p.email || p.group === 'CLIENT') continue
       typedKey.set(t.ref, personKeyFor(p.contactId, t.email, p.name)!)
       const r = p.rowRef
       if (r.group === 'CREW') { const m = crew[r.dept]?.members?.[r.member]; if (m) m.email = t.email }
       else if (r.group === 'TALENT') { if (talent[r.index]) talent[r.index]!.email = t.email }
-      else if (others[r.index]) others[r.index]!.email = t.email
+      else if (r.group === 'OTHER' && others[r.index]) others[r.index]!.email = t.email
       if (p.contactId) {
         await sdb.contact.updateMany({ where: { id: p.contactId, OR: [{ email: null }, { email: '' }] }, data: { email: t.email } })
       }
@@ -168,7 +173,8 @@ export async function runCallSheetSend(deps: {
   type Row = (typeof cs.recipients)[number]
   const prepared: { p: SheetPerson; row: Row }[] = []
   for (const p of chosen) {
-    const key = personKeyFor(p.contactId, p.email, p.name)!
+    // A client contact's identity is their ClientContact id (client:<id>).
+    const key = p.personKey ?? personKeyFor(p.contactId, p.email, p.name)!
     let row: Row | null | undefined = matched.get(p.ref)
     if (row && row.personKey !== key) {
       // Same person, new identity (now linked to the Rolodex, email fixed):

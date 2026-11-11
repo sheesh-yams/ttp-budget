@@ -2,6 +2,7 @@
 // it. Server-only plain module; the route is /api/pdf/call-sheet/[token].
 // `buildCallSheetPdfData` is pure (tested in __tests__/call-sheet-pdf.test.ts).
 
+import { sheetClientContacts } from '@/lib/client-people'
 import React from 'react'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { CallSheetPDF, type CallSheetPDFData } from '@/components/call-sheets/CallSheetPDF'
@@ -24,6 +25,8 @@ export interface CallSheetForPdf {
   talent: unknown
   schedule: unknown
   otherContacts: unknown
+  /** Picked client contacts (snapshots); null = legacy (the main contact). */
+  clientContacts?: unknown
   pointOfContact: unknown
   weather: unknown
   hospitalInfo: unknown
@@ -81,10 +84,11 @@ export function buildCallSheetPdfData(cs: CallSheetForPdf, extras: { dayLabel: s
   const weather = cs.weather as WeatherInfo | null
   const hospital = cs.hospitalInfo as HospitalInfo | null
   const poc = cs.pointOfContact as PointOfContact | null
-  // Like the public /cs page: the client only appears with their contact
-  // details (a code-named job's brand stays off a sheet with no client contact).
-  const rawClient = cs.project.client
-  const client = rawClient && (clean(rawClient.contactName) || clean(rawClient.contactPhone) || clean(rawClient.contactEmail)) ? rawClient : null
+  // Like the public /cs page: the client only appears with a contact on the
+  // sheet (a code-named job's brand stays off a sheet with no client contact).
+  // The sheet's picked client contacts, or the main contact on older sheets.
+  const clientPeople = sheetClientContacts(cs.clientContacts ?? null, cs.project.client)
+  const client = clientPeople.length && cs.project.client ? cs.project.client : null
 
   // Key contacts: the first crew member in each key role, then the client.
   const everyone = crew.flatMap(d => d.members ?? []).filter(m => !blank(m.name))
@@ -93,9 +97,9 @@ export function buildCallSheetPdfData(cs: CallSheetForPdf, extras: { dayLabel: s
     const m = everyone.find(x => k.re.test(x.role?.trim() ?? ''))
     if (m) keyContacts.push({ label: k.label, name: m.name.trim(), phone: prettyPhone(m.phone) })
   }
-  if (client && (clean(client.contactName) || clean(client.contactPhone))) {
-    keyContacts.push({ label: 'Client', name: clean(client.contactName) ?? client.name, phone: prettyPhone(client.contactPhone) })
-  }
+  // The first client contact with a phone (else the first) is the key one.
+  const keyClient = clientPeople.find(c => clean(c.phone)) ?? clientPeople[0]
+  if (keyClient) keyContacts.push({ label: 'Client', name: keyClient.name, phone: prettyPhone(keyClient.phone) })
 
   const crewCalls = everyone.map(m => m.callTime).filter((x): x is string => !blank(x)).sort()
   const firstScene = blocks.find(b => /^Sc\b/i.test(b.label ?? ''))
@@ -110,8 +114,8 @@ export function buildCallSheetPdfData(cs: CallSheetForPdf, extras: { dayLabel: s
   const sunset = weather?.sunset ? fmtClock(weather.sunset) : null
 
   const contacts: CallSheetPDFData['contacts'] = []
-  if (client && (clean(client.contactName) || clean(client.contactPhone) || clean(client.contactEmail))) {
-    contacts.push({ name: clean(client.contactName) ?? client.name, role: `Client · ${client.name}`, phone: prettyPhone(client.contactPhone), email: clean(client.contactEmail) })
+  for (const c of clientPeople) {
+    contacts.push({ name: c.name, role: [clean(c.title), `Client · ${client?.name ?? ''}`].filter(Boolean).join(' · '), phone: prettyPhone(c.phone), email: clean(c.email) })
   }
   for (const o of others) {
     if (blank(o.name)) continue

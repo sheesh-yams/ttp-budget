@@ -4,6 +4,7 @@ import { db } from '@/lib/db'
 import { headers } from 'next/headers'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { trustedClientIp } from '@/lib/client-ip'
+import { readSnapshots, sheetClientContacts } from '@/lib/client-people'
 import { ExpiredLinkPage } from '@/components/public/ExpiredLinkPage'
 import { RateLimitedPage } from '@/components/public/RateLimitedPage'
 import { PrintTrigger } from '@/components/public/PrintTrigger'
@@ -107,6 +108,8 @@ export default async function PublicCallSheetPage({
   const pointOfContact = (cs as any).pointOfContact as unknown as PointOfContact | null
   const otherContacts  = ((cs as any).otherContacts as unknown as OtherContact[])  ?? []
   const client         = cs.project.client
+  // The sheet's picked client contacts, or the main contact on older sheets.
+  const clientPeople   = sheetClientContacts((cs as unknown as { clientContacts?: unknown }).clientContacts ?? null, client)
 
   const shootDateDisplay = new Date(cs.shootDate).toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC',
@@ -131,7 +134,9 @@ export default async function PublicCallSheetPage({
   // the Rolodex or an email fix still finds them).
   const me = recipient
     ? await (async () => {
-        const people = peopleOnSheet(crew, talent, otherContacts)
+        // Same people as sending: crew, talent, other contacts, then the
+        // client contacts picked on the sheet.
+        const people = peopleOnSheet(crew, talent, otherContacts, readSnapshots((cs as unknown as { clientContacts?: unknown }).clientContacts) ?? [])
         const rows = await db.callSheetRecipient.findMany({
           where: { callSheetId: cs.id }, select: { id: true, personKey: true, contactId: true, email: true, name: true, group: true },
         })
@@ -141,9 +146,7 @@ export default async function PublicCallSheetPage({
     : null
 
   // Combine client contact + other contacts for the unified section
-  const hasAnyContacts =
-    (client && (client.contactName || client.contactEmail || client.contactPhone)) ||
-    otherContacts.length > 0
+  const hasAnyContacts = clientPeople.length > 0 || otherContacts.length > 0
 
   return (
     <div className="min-h-screen bg-gray-50 pb-16">
@@ -287,30 +290,28 @@ export default async function PublicCallSheetPage({
             {hasAnyContacts && (
               <Card title="Client / Other Contacts" icon={<Phone className="h-4 w-4 text-muted-foreground" />}>
                 <div className="divide-y divide-border/60 -mx-4 -mb-4">
-                  {/* Client contact (from project) */}
-                  {client && (client.contactName || client.contactEmail || client.contactPhone) && (
-                    <div className="px-4 py-3">
+                  {/* Client contacts picked on the sheet */}
+                  {clientPeople.map((c, i) => (
+                    <div key={`client-${i}`} className="px-4 py-3">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <p className="text-sm font-semibold text-foreground">{client.name}</p>
-                          {client.contactName && (
-                            <p className="text-xs text-muted-foreground">{client.contactName}</p>
-                          )}
-                          {client.contactPhone && (
-                            <a href={`tel:${client.contactPhone}`} className="text-sm text-blue-600 hover:underline block mt-1">
-                              📞 {client.contactPhone}
+                          <p className="text-sm font-semibold text-foreground">{c.name}</p>
+                          <p className="text-xs text-muted-foreground">{[c.title, client?.name].filter(Boolean).join(' · ')}</p>
+                          {c.phone && (
+                            <a href={`tel:${c.phone}`} className="text-sm text-blue-600 hover:underline block mt-1">
+                              📞 {c.phone}
                             </a>
                           )}
-                          {client.contactEmail && (
-                            <a href={`mailto:${client.contactEmail}`} className="text-sm text-blue-600 hover:underline block mt-0.5">
-                              ✉️ {client.contactEmail}
+                          {c.email && (
+                            <a href={`mailto:${c.email}`} className="text-sm text-blue-600 hover:underline block mt-0.5">
+                              ✉️ {c.email}
                             </a>
                           )}
                         </div>
                         <span className="text-[10px] text-muted-foreground/50 shrink-0 mt-0.5">Client</span>
                       </div>
                     </div>
-                  )}
+                  ))}
                   {/* Other contacts */}
                   {otherContacts.map((c, i) => (
                     <div key={i} className="px-4 py-3">
