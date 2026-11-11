@@ -116,3 +116,25 @@ export function greetingName(person: { name: string } | null | undefined, compan
   const first = person?.name?.trim().split(/\s+/)[0]
   return first || companyName
 }
+
+/** "Jamie Lee, Pat Doe" for a stored snapshot list; null when none. */
+export function attnNames(v: unknown): string | null {
+  const list = readSnapshots(v)
+  return list && list.length ? list.map(s => s.name).join(', ') : null
+}
+
+/**
+ * Who an invoice is for right now. The stored snapshot's person, refreshed
+ * from the client's current people (their email may have changed). If that
+ * person is gone: a never-sent invoice follows the client's role default
+ * (drafts stay live); a sent one keeps the stored snapshot (what it went to).
+ */
+export function resolveBillTo<T extends ClientPerson>(stored: PersonSnapshot | null, people: T[], sent: boolean): { person: T | null; snapshot: PersonSnapshot | null } {
+  const live = stored?.contactId ? people.find(p => p.id === stored.contactId && p.email) ?? null : null
+  if (live) return { person: live, snapshot: snapshotOf(live) }
+  if (!sent) {
+    const d = defaultBillTo(people)
+    return { person: d, snapshot: d ? snapshotOf(d) : null }
+  }
+  return { person: null, snapshot: stored }
+}

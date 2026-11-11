@@ -16,6 +16,7 @@ import { getAccess } from '@/lib/access'
 import { getCurrentUser } from '@/lib/auth'
 import { requireMoneyPermission } from '@/lib/money-access'
 import { generateInvoiceNumber } from '@/lib/invoice-numbering'
+import { defaultBillToSnapshot } from '@/lib/client-people-load'
 import { logAuditEvent } from '@/lib/audit'
 import { generatePublicToken } from '@/lib/secure-token'
 import { buildInvoiceCreateData, invoiceLineItemSchema, resolveInvoiceDates } from '@/lib/invoice-create'
@@ -151,10 +152,12 @@ async function createWithNewProject(
     })
 
     const number  = await generateInvoiceNumber(workspaceId, dates.issueDate, tx)
+    const billTo  = await defaultBillToSnapshot(tx, workspaceId, clientId)
     const invoice = await tx.invoice.create({
       data: {
         workspaceId,
         ...buildInvoiceCreateData({
+          billTo,
           projectId: project.id, clientId, budgetId: budget.id, number, kind: 'STANDALONE',
           title: data.title, issueDate: dates.issueDate, dueDate: dates.dueDate, lineItems: lines,
           taxPct: data.taxPct, discountCents: discount, notes: data.notes, poNumber: data.poNumber,
@@ -240,9 +243,11 @@ async function createOnExistingProject(
   const scopeAddition = project.proposals.length > 0 && data.scopeAddition !== false
   const ws = await db.workspace.findUnique({ where: { id: gate.workspaceId }, select: { defaultInvoiceTerms: true } })
 
+  const billTo  = await defaultBillToSnapshot(db, gate.workspaceId, project.clientId)
   const number  = await generateInvoiceNumber(gate.workspaceId, dates.issueDate)
   const invoice = await sdb.invoice.create({
     data: buildInvoiceCreateData({
+      billTo,
       projectId: project.id, clientId: project.clientId, budgetId: project.budgets[0]?.id ?? null,
       number, kind: 'STANDALONE', title: data.title, issueDate: dates.issueDate, dueDate: dates.dueDate,
       lineItems: lines, taxPct: data.taxPct, discountCents: data.discountCents, notes: data.notes,

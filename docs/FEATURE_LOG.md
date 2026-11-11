@@ -105,6 +105,35 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-11 — Client contacts on documents, Phase B: invoices have a Bill-to person
+
+- **`Invoice.billTo`** (a snapshot `{ contactId, name, title, email, phone }`) is set on every create path (`createInvoice`, both invoice-first paths) by `defaultBillToSnapshot`: the client's first Billing person with an email, else Main.
+- **Who an invoice is for now** (`resolveBillTo`): the stored person, refreshed from the client's people (e.g. a corrected email).
+  - **Person gone, never sent:** it follows the role default (drafts stay live).
+  - **Person gone, already sent:** it keeps what it was sent to.
+- **Send window:**
+  - A **Bill to** picker (`ClientPersonSelect`). Picking fills To and the "Hi {first name}," greeting (only if the message is untouched).
+  - The send saves the picked person as the bill-to.
+  - People data only reaches Invoices EDIT.
+  - Sending a paid or void invoice is refused, and the status write is guarded (`updateMany` with `status notIn PAID/VOID`), so a payment that lands while you're composing isn't flipped back to SENT.
+- **Edit window:** a Bill to picker (`getInvoiceBillTo` / `setInvoiceBillTo`; Invoices EDIT; refused on paid or void). It writes when the pick differs from what's stored, so replacing a removed person saves.
+- **Readers:**
+  - The public page and PDF show "Attn: {bill-to}", else the main contact.
+  - The payment receipt goes to the bill-to's email, else the main contact.
+  - The team-notice dedupe compares against the actual receipt address.
+- **New shared components:** `ClientPersonSelect` / `ClientPeopleChecklist` (`src/components/clients/ClientPersonPicker.tsx`); `loadClientPeople` / `defaultBillToSnapshot` (`src/lib/client-people-load.ts`).
+- **Verified:**
+  - jest (617), tsc, lint
+  - next build up to the known Resend error
+  - **A live-DB script:**
+    - default Main vs Billing
+    - snapshot stored
+    - Attn and receipt resolution
+    - send To/CC
+    - the snapshot survives person deletion
+    - legacy fallback
+  - **pitfall-reviewer**, all fixed: stale draft bill-to, the edit picker not saving a replacement, re-sending paid/void invoices, the greeting not updating.
+
 ### 2026-11-11 — Client contacts on documents, Phase A: one People list with roles
 
 - **Asked:** each document (invoice, proposal, call sheet) should name the right client person, e.g. AP on invoices and the client producer on a call sheet.

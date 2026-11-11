@@ -57,8 +57,9 @@ export function invoiceRecipientDefaults(client: RecipientClient, contacts: Reci
 }
 
 /**
- * What the invoice send window pre-fills. The To isn't stored on an invoice,
- * so it always follows the client: the billing contact, else the main contact.
+ * What the invoice send window pre-fills. To: the invoice's bill-to person
+ * (`billToEmail`, already refreshed from the client's people by
+ * resolveBillTo), else the client's Billing person, else the main contact.
  * CC: the client defaults until the invoice has been sent or has its own list;
  * after that the saved list (a resend keeps what it was sent with), plus the
  * main contact whenever the To is someone else — so an invoice sent before a

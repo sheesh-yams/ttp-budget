@@ -7,6 +7,8 @@ import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
 import { requireMoneyPermission } from '@/lib/money-access'
 import { generateInvoiceNumber } from '@/lib/invoice-numbering'
 import { invoiceSendRecipients } from '@/lib/client-recipients'
+import { defaultBillToSnapshot, loadClientPeople } from '@/lib/client-people-load'
+import { readSnapshot, resolveBillTo, snapshotOf, type ClientPerson } from '@/lib/client-people'
 import { z } from 'zod'
 import type { ActionResult } from '@/types'
 import { logAuditEvent } from '@/lib/audit'
@@ -61,8 +63,12 @@ export async function createInvoice(
       select: { defaultInvoiceTerms: true },
     })
 
+    // Addressed to the client's Billing person (else Main) by default.
+    const billTo = await defaultBillToSnapshot(db, workspaceId, data.clientId)
+
     const invoice = await scopedDb.invoice.create({
       data: buildInvoiceCreateData({
+        billTo,
         projectId:     data.projectId,
         clientId:      data.clientId,
         budgetId:      data.budgetId ?? null,
@@ -146,10 +152,15 @@ export async function getInvoiceSendData(invoiceId: string) {
         publicToken: true,
         recipientEmails: true,
         sentAt: true,
+        billTo: true,
         client: {
           select: {
             name: true, contactEmail: true, invoiceCcEmails: true,
-            contacts: { where: { roles: { has: 'BILLING' }, workspaceId }, orderBy: [{ order: 'asc' }, { createdAt: 'asc' }], select: { email: true, roles: true } },
+            contacts: {
+              where:   { workspaceId },
+              orderBy: [{ isMain: 'desc' }, { order: 'asc' }, { createdAt: 'asc' }],
+              select:  { id: true, name: true, title: true, email: true, phone: true, isMain: true, roles: true },
+            },
           },
         },
         project: { select: { name: true } },
@@ -160,9 +171,15 @@ export async function getInvoiceSendData(invoiceId: string) {
 
     // Only people who can send get the billing contact / standard CC addresses.
     const canSend    = (await requireMoneyPermission({ invoiceId }, 'invoices', 'EDIT')).ok
+    // Who it's for: the invoice's own bill-to person, refreshed from the
+    // client's current people; a never-sent invoice whose person is gone
+    // follows the client's role default (resolveBillTo).
+    const resolved   = resolveBillTo(readSnapshot(invoice.billTo), invoice.client.contacts, !!invoice.sentAt)
+    const billTo     = resolved.snapshot
     const recipients = invoiceSendRecipients({
       client: invoice.client, contacts: invoice.client.contacts,
       sentAt: invoice.sentAt, savedCc: invoice.recipientEmails ?? [], withDefaults: canSend,
+      billToEmail: billTo?.email ?? null,
     })
 
     const workspace = await db.workspace.findUnique({
@@ -181,6 +198,12 @@ export async function getInvoiceSendData(invoiceId: string) {
       clientName:    (invoice.client as { name: string }).name,
       clientEmail:   recipients.to,
       recipientEmails: recipients.cc,
+      /** The person it's addressed to (for the greeting and the picker). */
+      billTo:        canSend ? billTo : null,
+      /** The picker's starting person (null = none of the client's people). */
+      billToId:      canSend ? resolved.person?.id ?? null : null,
+      /** The client's people with an email — the Bill to picker. Only for people who can send. */
+      people:        canSend ? invoice.client.contacts.filter(p => p.email) : [],
       projectName:   (invoice.project as { name: string }).name,
       workspaceName: workspace?.name ?? '',
       fromEmail:     workspace?.contactEmail ?? '',
@@ -192,9 +215,58 @@ export async function getInvoiceSendData(invoiceId: string) {
   }
 }
 
+/** The edit window's Bill to picker: the client's people with an email, and who it's for now. */
+export async function getInvoiceBillTo(invoiceId: string): Promise<ActionResult<{ people: ClientPerson[]; billToId: string | null; savedId: string | null }>> {
+  try {
+    const gate = await requireMoneyPermission({ invoiceId }, 'invoices', 'EDIT')
+    if (!gate.ok) return gate.error
+    const sdb = await getScopedDb()
+    const invoice = await sdb.invoice.findFirst({ where: { id: invoiceId }, select: { clientId: true, billTo: true, sentAt: true } })
+    if (!invoice) return { success: false, error: 'Invoice not found' }
+    const people = (await loadClientPeople(db, gate.workspaceId, invoice.clientId)).filter(p => p.email)
+    const snap = readSnapshot(invoice.billTo)
+    // Who it's for now (shown preselected) vs. what's stored — the edit window
+    // writes when the pick differs from what's stored, so fixing a removed
+    // person by picking the suggested one still saves.
+    const billToId = resolveBillTo(snap, people, !!invoice.sentAt).person?.id ?? null
+    return { success: true, data: { people, billToId, savedId: snap?.contactId ?? null } }
+  } catch (err) {
+    console.error('[getInvoiceBillTo]', err)
+    return { success: false, error: 'Failed to load the client’s people' }
+  }
+}
+
+/** Who an invoice is for (Attn on the invoice, the payment receipt). Not on paid or void invoices. */
+export async function setInvoiceBillTo(invoiceId: string, contactId: string): Promise<ActionResult> {
+  try {
+    const gate = await requireMoneyPermission({ invoiceId }, 'invoices', 'EDIT')
+    if (!gate.ok) return gate.error
+    const sdb = await getScopedDb()
+    const invoice = await sdb.invoice.findFirst({ where: { id: invoiceId }, select: { clientId: true, status: true, projectId: true } })
+    if (!invoice) return { success: false, error: 'Invoice not found' }
+    if (invoice.status === 'PAID' || invoice.status === 'VOID') return { success: false, error: 'Paid and void invoices can’t change who they’re for.' }
+    const person = await sdb.clientContact.findFirst({
+      where:  { id: contactId, clientId: invoice.clientId },
+      select: { id: true, name: true, title: true, email: true, phone: true, isMain: true, roles: true },
+    })
+    if (!person) return { success: false, error: 'That person isn’t on this client any more.' }
+    const res = await sdb.invoice.updateMany({
+      where: { id: invoiceId, status: { notIn: ['PAID', 'VOID'] } },
+      data:  { billTo: snapshotOf(person) as unknown as object },
+    })
+    if (res.count === 0) return { success: false, error: 'Paid and void invoices can’t change who they’re for.' }
+    revalidatePath(`/projects/${invoice.projectId}`)
+    revalidatePath(`/projects/${invoice.projectId}/invoices`)
+    return { success: true, data: undefined }
+  } catch (err) {
+    console.error('[setInvoiceBillTo]', err)
+    return { success: false, error: 'Failed to change who the invoice is for' }
+  }
+}
+
 export async function sendInvoice(
   invoiceId: string,
-  emailOpts: { to: string; cc?: string[]; subject: string; message: string },
+  emailOpts: { to: string; cc?: string[]; subject: string; message: string; billToContactId?: string | null },
 ): Promise<ActionResult<{ publicUrl: string }>> {
   try {
     const gate = await requireMoneyPermission({ invoiceId }, 'invoices', 'EDIT')
@@ -213,6 +285,8 @@ export async function sendInvoice(
       where: { id: invoiceId },
       select: {
         workspaceId: true,
+        clientId: true,
+        status: true,
         publicToken: true,
         number: true,
         totalCents: true,
@@ -223,6 +297,21 @@ export async function sendInvoice(
     })
 
     if (!existing) return { success: false, error: 'Invoice not found' }
+    if (existing.status === 'PAID' || existing.status === 'VOID') {
+      return { success: false, error: `This invoice is ${existing.status === 'PAID' ? 'paid' : 'void'} — it can’t be sent again.` }
+    }
+
+    // A person picked in the send window becomes the invoice's bill-to
+    // (Attn on the invoice, the receipt's recipient). Must be this client's.
+    let billToUpdate: { billTo: object } | Record<string, never> = {}
+    if (emailOpts.billToContactId) {
+      const person = await scopedDb.clientContact.findFirst({
+        where:  { id: emailOpts.billToContactId, clientId: existing.clientId },
+        select: { id: true, name: true, title: true, email: true, phone: true, isMain: true, roles: true },
+      })
+      if (!person) return { success: false, error: 'That person isn’t on this client any more.' }
+      billToUpdate = { billTo: snapshotOf(person) as unknown as object }
+    }
 
     // Build the canonical URL for client-facing invoice links.
     // Priority: APP_URL (server-only, always production) → NEXT_PUBLIC_APP_URL → empty fallback.
@@ -274,12 +363,15 @@ export async function sendInvoice(
       return { success: false, error: `Email failed to send: ${message}` }
     }
 
-    await scopedDb.invoice.update({
-      where: { id: invoiceId },
+    // Guarded: a payment that lands while composing (PAID) or a void must not
+    // be flipped back to SENT.
+    await scopedDb.invoice.updateMany({
+      where: { id: invoiceId, status: { notIn: ['PAID', 'VOID'] } },
       data: {
         status: 'SENT',
         sentAt: new Date(),
         recipientEmails: ccRecipients,
+        ...billToUpdate,
         publicTokenExpiresAt: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
       } as unknown as Parameters<typeof scopedDb.invoice.update>[0]['data'],
     })

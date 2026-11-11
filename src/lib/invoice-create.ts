@@ -2,6 +2,7 @@
 // createInvoice (from a proposal) and createInvoiceFirst (invoice-first:
 // new project or existing project). Plain module, not 'use server'.
 
+import type { PersonSnapshot } from '@/lib/client-people'
 import { z } from 'zod'
 import { calcInvoiceTotals, calendarDateToStored } from '@/lib/invoice-totals'
 import { generatePublicToken } from '@/lib/secure-token'
@@ -68,6 +69,8 @@ export function buildInvoiceCreateData(input: {
   poNumber?:        string | null
   isScopeAddition?: boolean
   createdById:      string
+  /** Who it's for (client-people snapshot); omitted = the client's main contact. */
+  billTo?:          PersonSnapshot | null
 }) {
   const totals = calcInvoiceTotals({
     lineTotalsCents: input.lineItems.map(li => li.lineTotalCents),
@@ -96,5 +99,6 @@ export function buildInvoiceCreateData(input: {
     poNumber:        input.poNumber ?? null,
     isScopeAddition: input.isScopeAddition ?? false,
     createdById:     input.createdById,
+    ...(input.billTo ? { billTo: input.billTo as unknown as object } : {}),
   }
 }

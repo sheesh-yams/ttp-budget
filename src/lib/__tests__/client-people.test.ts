@@ -48,3 +48,25 @@ describe('helpers', () => {
     expect(greetingName(null, 'Brand')).toBe('Brand')
   })
 })
+
+import { resolveBillTo } from '@/lib/client-people'
+
+describe('resolveBillTo', () => {
+  const main = p('main', { isMain: true })
+  const ap = p('ap', { roles: ['BILLING'] })
+  const stored = { contactId: 'ap', name: 'AP', title: null, email: 'old@x.co', phone: null }
+  it('refreshes the stored person from the client (new email)', () => {
+    const r = resolveBillTo(stored, [main, { ...ap, email: 'new@x.co' }], false)
+    expect([r.person?.id, r.snapshot?.email]).toEqual(['ap', 'new@x.co'])
+  })
+  it('person gone, never sent: follows the role default', () => {
+    expect(resolveBillTo(stored, [main], false).snapshot?.contactId).toBe('main')
+  })
+  it('person gone, already sent: keeps what it went to', () => {
+    const r = resolveBillTo(stored, [main], true)
+    expect([r.person, r.snapshot?.email]).toEqual([null, 'old@x.co'])
+  })
+  it('legacy invoice (nothing stored), never sent: role default', () => {
+    expect(resolveBillTo(null, [main, ap], false).person?.id).toBe('ap')
+  })
+})

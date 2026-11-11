@@ -20,6 +20,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { getInvoiceSendData, sendInvoice } from '@/server/actions/invoices'
+import { ClientPersonSelect, SOMEONE_ELSE } from '@/components/clients/ClientPersonPicker'
+import { greetingName } from '@/lib/client-people'
 import { formatMoney } from '@/lib/money'
 import { format } from 'date-fns'
 
@@ -36,13 +38,24 @@ interface SendInvoiceModalProps {
 
 type Tab = 'compose' | 'preview'
 
+/** The greeting's person for a picker value: the picked person, else the invoice's bill-to. */
+function personFor(data: NonNullable<SendData>, id: string): { name: string } | null {
+  return data.people.find(p => p.id === id) ?? data.billTo
+}
+
+/** The person whose email matches the To, else SOMEONE_ELSE. */
+function personIdFor(people: { id: string; email: string | null }[], email: string | null | undefined): string {
+  const e = (email ?? '').trim().toLowerCase()
+  return people.find(p => p.email && p.email.toLowerCase() === e)?.id ?? SOMEONE_ELSE
+}
+
 // ── Default message builder ────────────────────────────────────────────────
 
-function buildDefaultMessage(data: NonNullable<SendData>) {
+function buildDefaultMessage(data: NonNullable<SendData>, person?: { name: string } | null) {
   const amount = formatMoney(data.totalCents)
   const due    = format(new Date(data.dueDate), 'MMMM d, yyyy')
   return [
-    `Hi ${data.clientName},`,
+    `Hi ${greetingName(person, data.clientName)},`,
     '',
     `Please find Invoice ${data.number} attached for ${data.projectName}.`,
     '',
@@ -160,6 +173,8 @@ export function SendInvoiceModal({ invoiceId, trigger, onSent }: SendInvoiceModa
   const [data, setData]         = useState<NonNullable<SendData> | null>(null)
   const [loading, setLoading]   = useState(false)
   const [to, setTo]             = useState('')
+  // The bill-to person (a ClientContact id) or SOMEONE_ELSE for a typed address.
+  const [billToId, setBillToId] = useState(SOMEONE_ELSE)
   const [cc, setCc]             = useState('')
   const [subject, setSubject]   = useState('')
   const [message, setMessage]   = useState('')
@@ -183,9 +198,11 @@ export function SendInvoiceModal({ invoiceId, trigger, onSent }: SendInvoiceModa
       }
       setData(result)
       setTo(result.clientEmail ?? '')
+      const startId = result.billToId ?? personIdFor(result.people, result.clientEmail)
+      setBillToId(startId)
       setCc((result.recipientEmails ?? []).join(', '))
       setSubject(buildDefaultSubject(result))
-      setMessage(buildDefaultMessage(result))
+      setMessage(buildDefaultMessage(result, personFor(result, startId)))
       setLoading(false)
     })
   }, [open, invoiceId])
@@ -199,6 +216,19 @@ export function SendInvoiceModal({ invoiceId, trigger, onSent }: SendInvoiceModa
     setOpen(false)
   }
 
+  /** Picking a person sets the To (and the greeting, if the message is untouched). */
+  function pickBillTo(person: { id: string; name: string; email: string | null } | null) {
+    if (!data) return
+    if (!person) { setBillToId(SOMEONE_ELSE); return }
+    setBillToId(person.id)
+    if (person.email) setTo(person.email)
+    if (message === buildDefaultMessage(data, currentPerson())) setMessage(buildDefaultMessage(data, person))
+  }
+
+  function currentPerson() {
+    return data ? personFor(data, billToId) : null
+  }
+
   function handleSend() {
     if (!to.trim()) { setError('Recipient email is required.'); return }
     setError(null)
@@ -209,6 +239,7 @@ export function SendInvoiceModal({ invoiceId, trigger, onSent }: SendInvoiceModa
         cc:      cc.split(/[,\n;]+/).map(s => s.trim()).filter(Boolean),
         subject: subject.trim() || buildDefaultSubject(data!),
         message: message.trim(),
+        billToContactId: billToId !== SOMEONE_ELSE ? billToId : null,
       })
 
       if (result.success) {
@@ -275,13 +306,22 @@ export function SendInvoiceModal({ invoiceId, trigger, onSent }: SendInvoiceModa
               {/* Compose tab */}
               {tab === 'compose' && (
                 <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+                  {data.people.length > 0 && (
+                    <div>
+                      <Label htmlFor="inv-billto">Bill to</Label>
+                      <div className="mt-1">
+                        <ClientPersonSelect id="inv-billto" people={data.people} value={billToId} onChange={pickBillTo} />
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">Shown as “Attn:” on the invoice, and they get the payment receipt.</p>
+                    </div>
+                  )}
                   <div>
                     <Label htmlFor="inv-to">To</Label>
                     <Input
                       id="inv-to"
                       type="email"
                       value={to}
-                      onChange={e => setTo(e.target.value)}
+                      onChange={e => { setTo(e.target.value); setBillToId(personIdFor(data.people, e.target.value)) }}
                       placeholder="client@example.com"
                       className="mt-1"
                     />

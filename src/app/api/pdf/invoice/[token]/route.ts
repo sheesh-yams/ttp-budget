@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { db } from '@/lib/db'
 import { InvoicePDF } from '@/components/invoice/InvoicePDF'
+import { readSnapshot } from '@/lib/client-people'
 import type { InvoiceLineItem } from '@/types'
 import React from 'react'
 import fs from 'fs'
@@ -101,7 +102,8 @@ export async function GET(
       client: {
         name:           invoice.client.name,
         legalName:      (invoice.client as unknown as { legalName: string | null }).legalName,
-        contactName:    invoice.client.contactName,
+        // "Attn:" — the invoice's bill-to person, else the main contact.
+        contactName:    readSnapshot((invoice as unknown as { billTo?: unknown }).billTo)?.name ?? invoice.client.contactName,
         contactEmail:   invoice.client.contactEmail,
         billingAddress: invoice.client.billingAddress,
       },

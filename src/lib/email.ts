@@ -2,6 +2,7 @@ import { Resend } from 'resend'
 import { format } from 'date-fns'
 import { db } from '@/lib/db'
 import { formatMoney } from '@/lib/money'
+import { readSnapshot } from '@/lib/client-people'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 const FROM = process.env.RESEND_FROM_EMAIL ?? 'proposals@thethirdplace.co'
@@ -320,7 +321,7 @@ export async function sendInvitationEmail(payload: InvitationPayload): Promise<{
 /**
  * Fire "payment received" emails after a successful settlement.
  * Sends two emails:
- *  1. Client receipt  → client.contactEmail
+ *  1. Client receipt  → the invoice's bill-to person (else client.contactEmail)
  *  2. Internal notice → invoice.createdBy.email
  *
  * Never throws — email failure must not affect an already-settled payment.
@@ -340,6 +341,7 @@ export async function sendPaymentReceiptEmails(
       amountPaidCents: true,
       paidAt: true,
       publicToken: true,
+      billTo:    true,
       project:   { select: { name: true } },
       client:    { select: { name: true, contactName: true, contactEmail: true } },
       createdBy: { select: { name: true, email: true } },
@@ -352,7 +354,11 @@ export async function sendPaymentReceiptEmails(
   const primary    = inv.workspace?.primaryColor  || '#5D00A4'
   const accent     = inv.workspace?.accentColor   || '#04FFCC'
   const brandName  = inv.workspace?.name          || 'SlateSuite'
-  const clientName = inv.client?.contactName || inv.client?.name || 'Client'
+  // The receipt goes to whoever the invoice is for: its bill-to person, else
+  // the client's main contact.
+  const billTo     = readSnapshot(inv.billTo)
+  const receiptTo  = billTo?.email || inv.client?.contactEmail || null
+  const clientName = billTo?.name || inv.client?.contactName || inv.client?.name || 'Client'
   const projectName = inv.project?.name || '—'
   const paidCents  = chargedCents ?? inv.amountPaidCents ?? inv.totalCents
   const paidAt     = inv.paidAt ? new Date(inv.paidAt) : new Date()
@@ -501,11 +507,11 @@ export async function sendPaymentReceiptEmails(
 
   const sends: Promise<{ id: string }>[] = []
 
-  if (inv.client?.contactEmail) {
+  if (receiptTo) {
     sends.push(
       resend.emails.send({
         from:    FROM,
-        to:      inv.client.contactEmail,
+        to:      receiptTo,
         subject: `Payment received — ${inv.number} (${amount})`,
         html:    clientReceipt,
       }).then(checkSend),
@@ -515,7 +521,7 @@ export async function sendPaymentReceiptEmails(
   // Only send the team notification if the address differs from the client's —
   // avoids duplicate emails when the invoice owner and client contact are the same.
   const teamEmail = inv.createdBy?.email
-  if (teamEmail && teamEmail !== inv.client?.contactEmail) {
+  if (teamEmail && teamEmail !== receiptTo) {
     sends.push(
       resend.emails.send({
         from:    FROM,

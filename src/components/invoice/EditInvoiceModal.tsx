@@ -29,7 +29,9 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { formatMoney } from '@/lib/money'
 import { calcInvoiceTotals, localISODate } from '@/lib/invoice-totals'
-import { updateInvoiceLineItems } from '@/server/actions/invoices'
+import { getInvoiceBillTo, setInvoiceBillTo, updateInvoiceLineItems } from '@/server/actions/invoices'
+import { ClientPersonSelect } from '@/components/clients/ClientPersonPicker'
+import type { ClientPerson } from '@/lib/client-people'
 import type { InvoiceLineItem } from '@/types'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -147,6 +149,10 @@ export function EditInvoiceModal({
   const [issueDate, setIssueDate] = useState(initialIssueDate)
   const [discountCents, setDiscountCents] = useState(currentDiscountCents)
   const [discountText, setDiscountText]   = useState<string | null>(null) // while typing
+  // Bill to: the client's people (loaded on open), who it's for now, and the pick.
+  const [people, setPeople]       = useState<ClientPerson[]>([])
+  const [billToId, setBillToId]   = useState<string | null>(null)
+  const [savedBillTo, setSavedBillTo] = useState<string | null>(null)
 
   function handleOpen() {
     setRows(existingItems.length > 0 ? existingItems.map(toRow) : [blankRow()])
@@ -160,6 +166,11 @@ export function EditInvoiceModal({
     setError(null)
     setSaved(false)
     setOpen(true)
+    setPeople([]); setBillToId(null); setSavedBillTo(null)
+    getInvoiceBillTo(invoiceId).then(res => {
+      if (!res.success) return
+      setPeople(res.data.people); setBillToId(res.data.billToId); setSavedBillTo(res.data.savedId)
+    }).catch(() => { /* the picker just doesn't show */ })
   }
 
   function updateRow(idx: number, patch: Partial<Row>) {
@@ -201,6 +212,10 @@ export function EditInvoiceModal({
         dueDate,
         { issueDate: issueDate && issueDate !== initialIssueDate ? issueDate : undefined, discountCents },
       )
+      if (result.success && billToId && billToId !== savedBillTo) {
+        const r = await setInvoiceBillTo(invoiceId, billToId)
+        if (!r.success) { setError((r as { success: false; error: string }).error); return }
+      }
       if (result.success) {
         setSaved(true)
         setTimeout(() => {
@@ -237,6 +252,20 @@ export function EditInvoiceModal({
           {!saved && (
             <>
               <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+
+                {people.length > 0 && (
+                  <div>
+                    <Label htmlFor="ei-billto">Bill to</Label>
+                    <div className="mt-1 max-w-md">
+                      <ClientPersonSelect
+                        id="ei-billto" people={people} value={billToId ?? ''}
+                        onChange={p => { if (p) setBillToId(p.id) }}
+                        otherLabel="Keep as is"
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">Shown as “Attn:” on the invoice, and they get the payment receipt.</p>
+                  </div>
+                )}
 
                 {/* Title + dates */}
                 <div className="grid grid-cols-3 gap-4">

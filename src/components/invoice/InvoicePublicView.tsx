@@ -1,6 +1,7 @@
 'use client'
 
 import { formatMoney } from '@/lib/money'
+import { readSnapshot } from '@/lib/client-people'
 import { lighten, darken, safeHex } from '@/lib/color'
 import type { InvoiceWithRelations, InvoiceLineItem } from '@/types'
 import { HelcimPayButton } from './HelcimPayButton'
@@ -177,6 +178,8 @@ export function InvoicePublicView({
               workspace.postalCode,
             ].filter(Boolean).join('\n')
             const clAddr = (client as unknown as { billingAddress: string | null }).billingAddress
+            // The invoice's own bill-to person (snapshot), else the main contact.
+            const attn = readSnapshot((invoice as unknown as { billTo?: unknown }).billTo)?.name ?? client.contactName
             const clLegal = (client as unknown as { legalName: string | null }).legalName
             const clPaymentTerms = (invoice as unknown as { paymentTerms: string | null }).paymentTerms
             return (
@@ -206,8 +209,8 @@ export function InvoicePublicView({
                   {clLegal && clLegal !== client.name && (
                     <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, margin: '0 0 2px' }}>{client.name}</p>
                   )}
-                  {client.contactName && (
-                    <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, margin: '0 0 2px' }}>Attn: {client.contactName}</p>
+                  {attn && (
+                    <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, margin: '0 0 2px' }}>Attn: {attn}</p>
                   )}
                   {clAddr && (
                     <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, margin: 0, whiteSpace: 'pre-line' }}>{clAddr}</p>
