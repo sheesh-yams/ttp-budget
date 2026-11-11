@@ -138,3 +138,48 @@ export function resolveBillTo<T extends ClientPerson>(stored: PersonSnapshot | n
   }
   return { person: null, snapshot: stored }
 }
+
+/**
+ * The client contacts a call sheet shows: its stored picks, or — on a sheet
+ * saved before picking existed (null) — the client's main contact, as before.
+ */
+export function sheetClientContacts(stored: unknown, client: {
+  name: string; contactName: string | null; contactEmail: string | null; contactPhone: string | null
+} | null): PersonSnapshot[] {
+  const picked = readSnapshots(stored)
+  if (picked) return picked
+  if (!client) return []
+  const name = client.contactName?.trim() || null
+  const email = client.contactEmail?.trim() || null
+  const phone = client.contactPhone?.trim() || null
+  if (!name && !email && !phone) return []
+  return [{ contactId: null, name: name ?? client.name, title: null, email: email ? email.toLowerCase() : null, phone }]
+}
+
+/**
+ * A proposal's To/CC after the "Prepared for" ticks change from `prev` to
+ * `next` (ids). Only the ticked/unticked people's own addresses move:
+ * unticked → removed from To/CC; ticked → fills an empty To, else joins CC.
+ * Everything else (typed, standard CC, other people) stays. If the To was
+ * unticked, the next picked person moves up to To.
+ */
+export function retargetPreparedFor(args: {
+  to: string; cc: string[]; prev: string[]; next: string[]
+  emailOf: (id: string) => string | null
+}): { to: string; cc: string[] } {
+  const low = (e: string) => e.trim().toLowerCase()
+  const added   = args.next.filter(id => !args.prev.includes(id)).map(args.emailOf).filter((e): e is string => !!e).map(low)
+  const removed = new Set(args.prev.filter(id => !args.next.includes(id)).map(args.emailOf).filter((e): e is string => !!e).map(low))
+  let to = args.to.trim()
+  let cc = args.cc.filter(e => !removed.has(low(e)))
+  if (removed.has(low(to))) to = ''
+  for (const e of added) {
+    if (!to) to = e
+    else if (e !== low(to) && !cc.some(c => low(c) === e)) cc.push(e)
+  }
+  if (!to) {
+    const next = args.next.map(args.emailOf).find((e): e is string => !!e)
+    if (next) { to = low(next); cc = cc.filter(c => low(c) !== low(next)) }
+  }
+  return { to, cc }
+}

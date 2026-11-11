@@ -308,6 +308,7 @@ export function ProposalPDF({
   const milestones: PaymentMilestone[] = termsSection?.type === 'terms' ? termsSection.milestones : []
 
   const clientName   = proposal.project.client.name
+  const attn         = (proposal as unknown as { attn?: string | null }).attn ?? null
   const prefix       = proposal.workspace.invoiceNumberPrefix || 'TTP'
   const proposalNum  = `${prefix}-${new Date(proposal.createdAt).getFullYear()}-${String(proposal.version).padStart(3, '0')}`
   const shootType    = SHOOT_LABELS[proposal.project.shootType] ?? proposal.project.shootType
@@ -626,7 +627,7 @@ export function ProposalPDF({
             <Text style={s.propNum}>PROPOSAL · {proposalNum}</Text>
           </View>
 
-          <Text style={s.coverLabel}>Prepared for {clientName}</Text>
+          <Text style={s.coverLabel}>Prepared for {clientName}{attn ? ` · Attn: ${attn}` : ''}</Text>
           <Text style={s.coverTitle}>{proposal.title}</Text>
           {coverOverview ? (
             <Text style={s.coverDesc}>

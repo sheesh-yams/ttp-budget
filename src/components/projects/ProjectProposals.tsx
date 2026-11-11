@@ -1,5 +1,6 @@
 'use client'
 
+import type { ClientPerson } from '@/lib/client-people'
 import { useEffect, useRef, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Plus, ExternalLink, Eye, Clock, Send, FileText, Pencil, Receipt, CheckCircle, Trash2, TrendingDown, ChevronDown, RotateCcw, Lock } from 'lucide-react'
@@ -26,6 +27,7 @@ interface ProposalRow {
   contractEnabled: boolean
   recipientEmails?: string[]
   toEmail?: string | null
+  clientContacts?: unknown
 }
 
 interface Props {
@@ -41,6 +43,8 @@ interface Props {
   clientEmail?: string | null
   /** The client's standard proposal CC — pre-fills a new or never-sent proposal. */
   defaultCc?: string[]
+  /** The client's people (only for people who can send) — the Prepared for list. */
+  people?: ClientPerson[]
   /** Proposals EDIT — otherwise view-only (roles Phase 2a). */
   allowEdit?: boolean
   /** Invoices EDIT — "Create invoice" from a proposal. */
@@ -86,7 +90,7 @@ function extractFromContent(content: unknown): {
   }
 }
 
-export function ProjectProposals({ proposals, projectId, projectName, clientId, budgetId, totalCents, clientEmail = null, defaultCc = [], proposalExpiryDays = 30, invoiceExpiryDays = 30, allowEdit = true, allowInvoice = true, contractAccess = 'EDIT' }: Props) {
+export function ProjectProposals({ proposals, projectId, projectName, clientId, budgetId, totalCents, clientEmail = null, defaultCc = [], people = [], proposalExpiryDays = 30, invoiceExpiryDays = 30, allowEdit = true, allowInvoice = true, contractAccess = 'EDIT' }: Props) {
   const router = useRouter()
 
   // Proposal modal state
@@ -191,6 +195,7 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
           contractEnabled: editingProposal.contractEnabled,
           recipientEmails: editingProposal.recipientEmails ?? [],
           toEmail: editingProposal.toEmail ?? null,
+          clientContacts: editingProposal.clientContacts ?? null,
         }
       })()
     : undefined
@@ -413,6 +418,7 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
           contractAccess={contractAccess}
           clientEmail={clientEmail}
           defaultCc={defaultCc}
+          people={people}
         />
       )}
 

@@ -70,3 +70,30 @@ describe('resolveBillTo', () => {
     expect(resolveBillTo(null, [main, ap], false).person?.id).toBe('ap')
   })
 })
+
+import { retargetPreparedFor } from '@/lib/client-people'
+
+describe('retargetPreparedFor', () => {
+  const emails: Record<string, string | null> = { jamie: 'jamie@x.co', sam: 'sam@x.co', pat: 'pat@x.co', nomail: null }
+  const emailOf = (id: string) => emails[id] ?? null
+  it('ticking someone adds only them; standard CC and typed addresses stay', () => {
+    expect(retargetPreparedFor({ to: 'jamie@x.co', cc: ['pat@x.co', 'typed@else.co'], prev: ['jamie'], next: ['jamie', 'sam'], emailOf }))
+      .toEqual({ to: 'jamie@x.co', cc: ['pat@x.co', 'typed@else.co', 'sam@x.co'] })
+  })
+  it('unticking removes only that person', () => {
+    expect(retargetPreparedFor({ to: 'jamie@x.co', cc: ['sam@x.co', 'pat@x.co'], prev: ['jamie', 'sam'], next: ['jamie'], emailOf }))
+      .toEqual({ to: 'jamie@x.co', cc: ['pat@x.co'] })
+  })
+  it('unticking the To moves the next picked person up', () => {
+    expect(retargetPreparedFor({ to: 'jamie@x.co', cc: ['sam@x.co'], prev: ['jamie', 'sam'], next: ['sam'], emailOf }))
+      .toEqual({ to: 'sam@x.co', cc: [] })
+  })
+  it('a To set to someone not picked stays put', () => {
+    expect(retargetPreparedFor({ to: 'pat@x.co', cc: [], prev: [], next: ['jamie'], emailOf }))
+      .toEqual({ to: 'pat@x.co', cc: ['jamie@x.co'] })
+  })
+  it('people without an email change nothing', () => {
+    expect(retargetPreparedFor({ to: 'jamie@x.co', cc: [], prev: ['jamie'], next: ['jamie', 'nomail'], emailOf }))
+      .toEqual({ to: 'jamie@x.co', cc: [] })
+  })
+})

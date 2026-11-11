@@ -184,6 +184,7 @@ export function ProposalPublicView({
   const project   = proposal.project
   const workspace = proposal.workspace
   const clientName = project.client.name
+  const attn       = (proposal as unknown as { attn?: string | null }).attn ?? null
 
   // Per-workspace brand → CSS variables consumed by V / V_TINT / MINT / MINT_DK.
   // Falls back to the SlateSuite palette when the workspace hasn't set colors.
@@ -345,7 +346,7 @@ export function ProposalPublicView({
         {/* Main content — compact */}
         <div style={{ position: 'relative', zIndex: 1 }}>
           <p style={{ color: MINT, fontSize: 11, fontWeight: 700, letterSpacing: '0.22em', textTransform: 'uppercase', margin: '0 0 12px' }}>
-            Prepared for {clientName}
+            Prepared for {clientName}{attn ? ` · Attn: ${attn}` : ''}
           </p>
           <h1 style={{ color: '#fff', fontSize: 'clamp(24px, 3.5vw, 46px)', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.02em', margin: '0 0 14px', maxWidth: '75%' }}>
             {proposal.title}

@@ -4,6 +4,7 @@ import { isProposalExpired, isProposalLinkExpired } from '@/lib/proposal-expiry'
 import { toScopeItems, type PhaseDeliverable } from '@/lib/deliverable-display'
 import { ProposalPublicView } from '@/components/proposal/ProposalPublicView'
 import { recordProposalView } from '@/lib/view-recording'
+import { attnNames } from '@/lib/client-people'
 import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 import { headers } from 'next/headers'
 import { checkRateLimit } from '@/lib/rate-limit'
@@ -290,6 +291,8 @@ export default async function PublicProposalPage({ params }: Props) {
     firstViewedAt: proposal.firstViewedAt?.toISOString() ?? null,
     lastViewedAt:  proposal.lastViewedAt?.toISOString()  ?? null,
     declinedAt:    proposal.declinedAt?.toISOString()    ?? null,
+    // "Prepared for {client} · Attn: …" — the people it was prepared for.
+    attn:          attnNames((proposal as unknown as { clientContacts?: unknown }).clientContacts),
   }
 
   // Record view — fire and forget (skip for draft previews)

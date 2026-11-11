@@ -15,6 +15,7 @@ import { sendProposalEmail, normalizeRecipientEmails, buildCcList } from '@/lib/
 import { PHASE_TREE_INCLUDE, BUDGET_SNAPSHOT_SELECT, buildBudgetSnapshot, buildProposalContent, type SnapshotPhase } from '@/lib/proposal-snapshot'
 import { applyProposalWonEffects } from '@/lib/proposal-won'
 import { NO_TO_ERROR, proposalTo, storedToEmail } from '@/lib/proposal-recipients'
+import { readSnapshots, snapshotOf } from '@/lib/client-people'
 import { canReopenProposal, defaultReopenDate, earliestReopenDate, reopenedLinkExpiry, reopenedStatus, type ProposalReopenInfo } from '@/lib/proposal-expiry'
 
 function uid() { return crypto.randomUUID().slice(0, 8) }
@@ -224,6 +225,27 @@ export async function sendProposal(proposalId: string): Promise<ActionResult<{ p
 
 // ─── Create + populate + send in one call (from NewProposalModal) ─────────────
 
+/**
+ * Snapshots of the client people a proposal is prepared for, in the order
+ * picked. Only this project's client's people count (ids from elsewhere are
+ * dropped). undefined in → undefined out ("leave as is").
+ */
+async function preparedForSnapshots(sdb: ScopedDb, projectId: string, ids: string[] | undefined): Promise<object[] | undefined> {
+  if (ids === undefined) return undefined
+  const clean = [...new Set((Array.isArray(ids) ? ids : []).filter((x): x is string => typeof x === 'string'))].slice(0, 20)
+  if (!clean.length) return []
+  const project = await sdb.project.findFirst({ where: { id: projectId }, select: { clientId: true } })
+  if (!project) return []
+  const people = await sdb.clientContact.findMany({
+    where:  { id: { in: clean }, clientId: project.clientId },
+    select: { id: true, name: true, title: true, email: true, phone: true, isMain: true, roles: true },
+  })
+  return clean.flatMap(id => {
+    const p = people.find(x => x.id === id)
+    return p ? [snapshotOf(p) as unknown as object] : []
+  })
+}
+
 export async function createSentProposal(input: {
   projectId: string
   budgetId: string
@@ -235,6 +257,8 @@ export async function createSentProposal(input: {
   recipientEmails?: string[]
   /** Main recipient; blank or the client's contact email = follow the client. */
   toEmail?: string | null
+  /** The client people it's prepared for (ClientContact ids, in order). */
+  clientContactIds?: string[]
   /** true = actually email the client (status only flips to SENT on success).
    *  false = "Mark as Sent" bypass — flips to SENT immediately, no email attempted. */
   sendEmail: boolean
@@ -259,6 +283,7 @@ export async function createSentProposal(input: {
     const snapshot = await captureBudgetSnapshot(sdb, input.budgetId)
     const content = buildProposalContent({ ...input, overview: snapshot.overview, about: snapshot.about, deliverables: snapshot.deliverables })
     const recipientEmails = normalizeRecipientEmails(input.recipientEmails)
+    const preparedFor = await preparedForSnapshots(sdb, input.projectId, input.clientContactIds)
     const fullContent = {
       ...content,
       budgetSnapshot: snapshot.budgetSnapshot,
@@ -287,6 +312,7 @@ export async function createSentProposal(input: {
         publicTokenExpiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) as unknown as undefined,
         recipientEmails,
         toEmail: storedTo.value,
+        ...(preparedFor !== undefined ? { clientContacts: preparedFor } : {}),
         version: nextVersion,
         createdById: user.id,
       } as unknown as Parameters<typeof sdb.proposal.create>[0]['data'],
@@ -364,6 +390,7 @@ export async function createDraftProposal(input: {
   totalCents: number
   recipientEmails?: string[]
   toEmail?: string | null
+  clientContactIds?: string[]
 }): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
     const gate = await requireMoneyPermission({ budgetId: input?.budgetId }, 'proposals', 'EDIT')
@@ -372,6 +399,7 @@ export async function createDraftProposal(input: {
 
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const storedTo = storedToEmail(input.toEmail, (await resolveProposalEmailContext(sdb, input.projectId)).clientEmail)
+    const preparedFor = await preparedForSnapshots(sdb, input.projectId, input.clientContactIds)
     if (storedTo.error) return { success: false, error: storedTo.error }
 
     // sdb.phase.findFirst auto-scopes — blocks foreign budgetId cross-workspace reads.
@@ -407,6 +435,7 @@ export async function createDraftProposal(input: {
         expiresAt: new Date(input.expiresAt),
         recipientEmails: normalizeRecipientEmails(input.recipientEmails),
         toEmail: storedTo.value,
+        ...(preparedFor !== undefined ? { clientContacts: preparedFor } : {}),
         version: nextVersion,
         createdById: user.id,
       } as unknown as Parameters<typeof sdb.proposal.create>[0]['data'],
@@ -430,6 +459,7 @@ export async function updateDraftProposal(
     totalCents: number
     recipientEmails?: string[]
     toEmail?: string | null
+    clientContactIds?: string[]
   }
 ): Promise<ActionResult<{ id: string; publicToken: string }>> {
   try {
@@ -446,6 +476,7 @@ export async function updateDraftProposal(
     // change who may e-sign it.
     if (existing.status !== 'DRAFT') return { success: false, error: 'Only a draft can be edited. Create a revision instead.' }
     const storedTo = storedToEmail(input.toEmail, (await resolveProposalEmailContext(sdb, existing.projectId)).clientEmail)
+    const preparedFor = await preparedForSnapshots(sdb, existing.projectId, input.clientContactIds)
     if (storedTo.error) return { success: false, error: storedTo.error }
     // budgetId comes from sdb-verified proposal; sdb.phase.findFirst also auto-scopes.
     const primaryPhase = await sdb.phase.findFirst({
@@ -468,6 +499,7 @@ export async function updateDraftProposal(
         expiresAt: new Date(input.expiresAt),
         recipientEmails: normalizeRecipientEmails(input.recipientEmails),
         toEmail: storedTo.value,
+        ...(preparedFor !== undefined ? { clientContacts: preparedFor } : {}),
         updatedAt: new Date(),
       } as unknown as Parameters<typeof sdb.proposal.update>[0]['data'],
     })
@@ -493,9 +525,22 @@ export async function sendDraftProposal(
     const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const existing = await sdb.proposal.findFirst({
       where: { id: proposalId },
-      select: { budgetId: true, projectId: true, content: true, title: true, publicToken: true, expiresAt: true, recipientEmails: true, toEmail: true } as unknown as Parameters<typeof sdb.proposal.findFirst>[0]['select'],
+      select: { budgetId: true, projectId: true, content: true, title: true, publicToken: true, expiresAt: true, recipientEmails: true, toEmail: true, clientContacts: true } as unknown as Parameters<typeof sdb.proposal.findFirst>[0]['select'],
     })
     if (!existing) return { success: false, error: 'Proposal not found' }
+
+    // Freezing now: the draft's "prepared for" people, refreshed from the
+    // client (a rename since the draft was saved shows); removed people keep
+    // their saved details.
+    const storedFor = readSnapshots((existing as unknown as { clientContacts?: unknown }).clientContacts)
+    const refreshedFor = storedFor
+      ? await (async () => {
+          const ids = storedFor.flatMap(x => (x.contactId ? [x.contactId] : []))
+          const fresh = ids.length ? await preparedForSnapshots(sdb, (existing as unknown as { projectId: string }).projectId, ids) : []
+          const byId = new Map((fresh ?? []).map(f => [(f as { contactId: string }).contactId, f]))
+          return storedFor.map(x => (x.contactId && byId.get(x.contactId)) || (x as unknown as object))
+        })()
+      : undefined
 
     let emailCtx: Awaited<ReturnType<typeof resolveProposalEmailContext>> | null = null
     let toEmail = ''
@@ -574,6 +619,7 @@ export async function sendDraftProposal(
         sentAt:  new Date(),
         content: mergedContent as object,
         publicTokenExpiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+        ...(refreshedFor !== undefined ? { clientContacts: refreshedFor } : {}),
       } as unknown as Parameters<typeof sdb.proposal.update>[0]['data'],
     })
     revalidatePath(`/projects/${existing.projectId}`)

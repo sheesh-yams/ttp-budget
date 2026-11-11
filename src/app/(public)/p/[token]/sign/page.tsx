@@ -6,6 +6,7 @@ import { checkRateLimit } from '@/lib/rate-limit'
 import { trustedClientIp } from '@/lib/client-ip'
 import { RateLimitedPage } from '@/components/public/RateLimitedPage'
 import { ProposalSignView } from '@/components/proposal/ProposalSignView'
+import { attnNames } from '@/lib/client-people'
 import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 
 interface Props {
@@ -166,6 +167,7 @@ export default async function ProposalSignPage({ params, searchParams }: Props) 
   }
 
   const serialisedProposal = {
+    attn:          attnNames((proposal as unknown as { clientContacts?: unknown }).clientContacts),
     id:            proposal.id,
     title:         proposal.title,
     publicToken:   proposal.publicToken,

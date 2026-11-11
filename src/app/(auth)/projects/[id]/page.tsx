@@ -20,6 +20,7 @@ import { addedScopeCents } from '@/lib/project-value'
 import { parseLocalDate } from '@/lib/time-format'
 import { stageLabel } from '@/lib/project-phase'
 import { invoiceDueDays, proposalCcDefaults } from '@/lib/client-recipients'
+import { loadClientPeople } from '@/lib/client-people-load'
 import { captureSinglePhaseSnapshot, type SnapshotPhase } from '@/lib/proposal-snapshot'
 
 const SHOOT_LABELS: Record<string, string> = {
@@ -131,6 +132,7 @@ export default async function ProjectDetailPage({
           contractEnabled: true,
           recipientEmails: true,
           toEmail:         true,
+          clientContacts:  true,
         },
       },
       invoices: {
@@ -228,6 +230,10 @@ export default async function ProjectDetailPage({
   // The client price — what proposals and invoices are built on. Proposals and
   // Invoices are their own areas (not budget margin), so editors there get the
   // real total even when their budget view is stripped (roles Phase 2a).
+  // The client's people for a proposal's "Prepared for" — only for people who
+  // can send proposals (same gate as the client's email).
+  const clientPeople = can.proposalsEdit ? await loadClientPeople(db, workspaceId, project.clientId) : []
+
   const clientTotalCents = (can.proposalsEdit || can.invoicesEdit)
     ? primaryGrandTotal((project.budgets[0] ?? null) as unknown as typeof budget)
     : grandTotalCents
@@ -461,6 +467,8 @@ export default async function ProjectDetailPage({
           clientEmail={can.proposalsEdit ? project.client.contactEmail ?? null : null}
           // The client's standard proposal CC (same gate as the To).
           defaultCc={can.proposalsEdit ? proposalCcDefaults(project.client) : []}
+          // The client's people for "Prepared for" (same gate as the To).
+          people={clientPeople}
           // The client's payment terms set new invoices' due date.
           invoiceExpiryDays={invoiceDueDays(project.client, workspaceDefaults?.invoiceExpiryDays ?? 30)}
           allowEdit={can.proposalsEdit}

@@ -1,5 +1,7 @@
 'use client'
 
+import { ClientPeopleChecklist } from '@/components/clients/ClientPersonPicker'
+import { defaultPreparedFor, readSnapshots, retargetPreparedFor, type ClientPerson } from '@/lib/client-people'
 import { useState, useTransition, useEffect, useRef } from 'react'
 import { Copy, Check, ExternalLink, Plus, X } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
@@ -106,6 +108,8 @@ interface ExistingProposal {
   recipientEmails?: string[]
   /** Saved To; null = the client's contact email. */
   toEmail?: string | null
+  /** Who it was prepared for — stored snapshots ([{ contactId, name, … }]). */
+  clientContacts?: unknown
 }
 
 interface Props {
@@ -126,6 +130,8 @@ interface Props {
   clientEmail?: string | null
   /** The client's standard proposal CC — fills a new proposal or a draft with no CC yet. */
   defaultCc?: string[]
+  /** The client's people (only for people who can send) — the Prepared for list. */
+  people?: ClientPerson[]
 }
 
 const MODE_TITLE: Record<ProposalModalMode, string> = {
@@ -157,15 +163,38 @@ export function ProposalModal({
   contractAccess = 'EDIT',
   clientEmail = null,
   defaultCc = [],
+  people = [],
 }: Props) {
   // A string, so a re-render with an equal list doesn't reset the form.
   const defaultCcText = defaultCc.join(', ')
+  // Read inside the reset effect without re-running it when the list re-renders.
+  const peopleRef = useRef(people)
+  peopleRef.current = people
+
+  /**
+   * Ticking or unticking people only touches their own addresses: someone
+   * unticked leaves To/CC; someone ticked fills an empty To, else joins CC.
+   * Everything else in To/CC (typed, standard CC, other people) stays.
+   */
+  function togglePreparedFor(ids: string[]) {
+    const r = retargetPreparedFor({
+      to, cc: parseRecipients(recipients), prev: preparedFor, next: ids,
+      emailOf: id => people.find(p => p.id === id)?.email ?? null,
+    })
+    setPreparedFor(ids)
+    setTo(r.to)
+    setRecipients(r.cc.join(', '))
+  }
+
+
   const [pending, startTransition] = useTransition()
   const [activeTab, setActiveTab]  = useState<'overview' | 'contract'>('overview')
 
   const [title,      setTitle]      = useState('')
   const [to,         setTo]         = useState('')
   const [recipients, setRecipients] = useState('')
+  // Prepared for: ClientContact ids, in the order picked (the first is To).
+  const [preparedFor, setPreparedFor] = useState<string[]>([])
   const [expiresAt,  setExpiresAt]  = useState(() => defaultExpiry(proposalExpiryDays))
   const [milestones, setMilestones] = useState<LocalMilestone[]>(defaultMilestones)
   const [error,      setError]      = useState('')
@@ -188,6 +217,14 @@ export function ProposalModal({
     if (existing) {
       setTitle(existing.title)
       setTo(existing.toEmail ?? clientEmail ?? '')
+      const saved = readSnapshots(existing.clientContacts)
+      setPreparedFor(saved
+        ? saved.flatMap(x => (x.contactId && peopleRef.current.some(p => p.id === x.contactId) ? [x.contactId] : []))
+        // Saved before "Prepared for" existed: the people already in To/CC.
+        : (() => {
+            const addrs = [existing.toEmail ?? clientEmail ?? '', ...(existing.recipientEmails ?? [])].map(e => e.trim().toLowerCase())
+            return addrs.flatMap(a => peopleRef.current.filter(p => p.email && p.email.toLowerCase() === a).map(p => p.id))
+          })())
       // A draft that was never sent and has no CC yet takes the client's
       // standard CC; anything already sent keeps what it went to.
       setRecipients(existing.recipientEmails?.length ? existing.recipientEmails.join(', ') : mode === 'edit-draft' ? defaultCcText : '')
@@ -195,8 +232,13 @@ export function ProposalModal({
       setMilestones(existing.milestones?.length ? fromPaymentMilestones(existing.milestones) : defaultMilestones())
     } else {
       setTitle(`${projectName} — Proposal`)
-      setTo(clientEmail ?? '')
-      setRecipients(defaultCcText)
+      // Prepared for the client's Proposals people (else Main): the first is
+      // To, the others are copied — on top of the standard proposal CC.
+      const picked = defaultPreparedFor(peopleRef.current)
+      const emails = picked.map(p => p.email).filter((e): e is string => !!e)
+      setPreparedFor(picked.map(p => p.id))
+      setTo(emails[0] ?? clientEmail ?? '')
+      setRecipients([...new Set([...emails.slice(1), ...(defaultCcText ? defaultCcText.split(', ') : [])])].join(', '))
       setExpiresAt(defaultExpiry(proposalExpiryDays))
       setMilestones(prefill?.milestones?.length ? fromPaymentMilestones(prefill.milestones) : defaultMilestones())
     }
@@ -256,6 +298,7 @@ export function ProposalModal({
       totalCents,
       recipientEmails: parseRecipients(recipients),
       toEmail: to.trim() || null,
+      ...(people.length ? { clientContactIds: preparedFor } : {}),
     }
   }
 
@@ -470,6 +513,17 @@ export function ProposalModal({
               <Label htmlFor="pm-expiry">Valid through</Label>
               <Input id="pm-expiry" type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)} className="w-48" />
             </div>
+
+            {/* Prepared for */}
+            {people.length > 0 && (
+              <div className="grid gap-1.5">
+                <Label>Prepared for</Label>
+                <ClientPeopleChecklist people={people} selected={preparedFor} onChange={togglePreparedFor} />
+                <p className="text-xs text-muted-foreground">
+                  Shown as “Attn:” on the proposal. The first person picked is the To; the others are copied.
+                </p>
+              </div>
+            )}
 
             {/* To */}
             <div className="grid gap-1.5">

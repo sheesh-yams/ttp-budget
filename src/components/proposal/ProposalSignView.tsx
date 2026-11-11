@@ -75,6 +75,7 @@ interface Props {
 export function ProposalSignView({ proposal, contractSections, optionPhaseId, isExpired = false }: Props) {
   const workspace  = proposal.workspace
   const clientName = proposal.project.client.name
+  const attn       = (proposal as unknown as { attn?: string | null }).attn ?? null
 
   const brandPrimary = safeHex(workspace.primaryColor)
   const brandAccent  = safeHex(workspace.accentColor)
@@ -182,6 +183,7 @@ export function ProposalSignView({ proposal, contractSections, optionPhaseId, is
           </h1>
           <p style={{ fontSize: 14, color: MUTED, margin: 0, lineHeight: 1.6 }}>
             Prepared for <strong style={{ color: BODY }}>{clientName}</strong>
+            {attn && <> · Attn: {attn}</>}
             {proposal.totalCents > 0 && <> · Total: <strong style={{ color: BODY }}>{formatMoney(proposal.totalCents)}</strong></>}
           </p>
         </div>

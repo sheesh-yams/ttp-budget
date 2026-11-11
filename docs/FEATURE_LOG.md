@@ -105,6 +105,25 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-11 — Client contacts on documents, Phase C: proposals are "Prepared for" people
+
+- **`Proposal.clientContacts`** (snapshots, in pick order) is saved by `createSentProposal`, `createDraftProposal` and `updateDraftProposal` from `clientContactIds`. `preparedForSnapshots` only accepts this project's client's people (scoped).
+- **When a draft is sent,** `sendDraftProposal` refreshes the names and emails from the client. Removed people keep their saved details. Sent proposals stay frozen.
+- **Proposal window:** a "Prepared for" checklist. People are loaded only with Proposals EDIT, the same gate as the client email.
+  - **New proposal:** the Proposals-tagged people, else Main. The first is To, the others are CC'd, plus the standard proposal CC.
+  - **Ticking or unticking** (`retargetPreparedFor`, jest-tested) moves only that person's own address. Typed addresses, the standard CC and an unpicked To stay.
+  - **Existing proposals** restore their saved picks. Older ones preselect the people already in To/CC.
+- **Display:** the public page, sign page and PDF show "Prepared for {client} · Attn: {names}".
+- **E-sign:** the allow-list is unchanged.
+- **Verified:**
+  - jest (622), tsc, lint (one exhaustive-deps warning that was already there)
+  - next build up to the known Resend error
+  - **Live:** a throwaway proposal's public page and PDF showed "Attn: Sam Ko, Jamie Lee" in pick order; a foreign client's contact id was dropped. Cleaned up.
+  - **pitfall-reviewer**, all fixed:
+    - the saved picks weren't loaded, so reopening a draft guessed and overwrote them
+    - toggling removed unrelated CC recipients and overrode a deliberate To
+    - draft snapshots weren't refreshed at send
+
 ### 2026-11-11 — Client contacts on documents, Phase B: invoices have a Bill-to person
 
 - **`Invoice.billTo`** (a snapshot `{ contactId, name, title, email, phone }`) is set on every create path (`createInvoice`, both invoice-first paths) by `defaultBillToSnapshot`: the client's first Billing person with an email, else Main.

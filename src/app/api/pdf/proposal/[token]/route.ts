@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { db } from '@/lib/db'
 import { ProposalPDF } from '@/components/proposal/ProposalPDF'
+import { attnNames } from '@/lib/client-people'
 import { calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 import { resolveMergeTagsPlain, type MergeTagContext } from '@/lib/merge-tags'
 import React from 'react'
@@ -195,6 +196,7 @@ export async function GET(
 
   try {
     const serialisedProposal = {
+      attn:         attnNames((proposal as unknown as { clientContacts?: unknown }).clientContacts),
       id:           proposal.id,
       title:        proposal.title,
       publicToken:  proposal.publicToken,
