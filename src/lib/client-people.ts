@@ -139,21 +139,52 @@ export function resolveBillTo<T extends ClientPerson>(stored: PersonSnapshot | n
   return { person: null, snapshot: stored }
 }
 
+/** The call sheet editor's pick for one client person. */
+export interface ClientContactPick { id: string; hidePhone?: boolean; hideEmail?: boolean }
+
+/** A client contact on a call sheet — plus what the crew may see of them. */
+export interface SheetClientContact extends PersonSnapshot {
+  /** Leave their phone off the sheet the crew sees (public page + PDF). */
+  hidePhone: boolean
+  /** Leave their email off it. It's still used to send them their copy. */
+  hideEmail: boolean
+}
+
+/** A call sheet's stored client contacts; null when never picked (legacy). */
+export function readSheetContacts(v: unknown): SheetClientContact[] | null {
+  if (v == null) return null
+  if (!Array.isArray(v)) return []
+  return v.flatMap(raw => {
+    const snap = readSnapshot(raw)
+    if (!snap) return []
+    const o = raw as Record<string, unknown>
+    return [{ ...snap, hidePhone: o.hidePhone === true, hideEmail: o.hideEmail === true }]
+  })
+}
+
 /**
  * The client contacts a call sheet shows: its stored picks, or — on a sheet
  * saved before picking existed (null) — the client's main contact, as before.
+ * Hidden phones/emails are blanked: this is what the crew sees.
  */
 export function sheetClientContacts(stored: unknown, client: {
   name: string; contactName: string | null; contactEmail: string | null; contactPhone: string | null
-} | null): PersonSnapshot[] {
-  const picked = readSnapshots(stored)
-  if (picked) return picked
+} | null): SheetClientContact[] {
+  const picked = readSheetContacts(stored)
+  if (picked) return picked.map(c => ({
+    ...c,
+    // A person saved with only an email is named by it — don't let the name
+    // show what hideEmail hides.
+    name:  c.hideEmail && /@/.test(c.name) ? (c.title || 'Client contact') : c.name,
+    phone: c.hidePhone ? null : c.phone,
+    email: c.hideEmail ? null : c.email,
+  }))
   if (!client) return []
   const name = client.contactName?.trim() || null
   const email = client.contactEmail?.trim() || null
   const phone = client.contactPhone?.trim() || null
   if (!name && !email && !phone) return []
-  return [{ contactId: null, name: name ?? client.name, title: null, email: email ? email.toLowerCase() : null, phone }]
+  return [{ contactId: null, name: name ?? client.name, title: null, email: email ? email.toLowerCase() : null, phone, hidePhone: false, hideEmail: false }]
 }
 
 /**

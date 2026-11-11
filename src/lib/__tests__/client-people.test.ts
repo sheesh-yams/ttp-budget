@@ -97,3 +97,34 @@ describe('retargetPreparedFor', () => {
       .toEqual({ to: 'jamie@x.co', cc: [] })
   })
 })
+
+import { readSheetContacts, sheetClientContacts } from '@/lib/client-people'
+
+describe('call sheet client contacts — what the crew sees', () => {
+  const stored = [
+    { contactId: 'a', name: 'Jamie Lee', title: null, email: 'jamie@x.co', phone: '2125550111', hidePhone: true },
+    { contactId: 'b', name: 'Sam Ko', title: null, email: 'sam@x.co', phone: '2125550122', hideEmail: true },
+  ]
+  it('keeps the flags (and the real email, for sending)', () => {
+    expect(readSheetContacts(stored)?.map(c => [c.email, c.hidePhone, c.hideEmail])).toEqual([['jamie@x.co', true, false], ['sam@x.co', false, true]])
+  })
+  it('blanks hidden details on the crew copy', () => {
+    expect(sheetClientContacts(stored, null).map(c => [c.name, c.phone, c.email])).toEqual([
+      ['Jamie Lee', null, 'jamie@x.co'],
+      ['Sam Ko', '2125550122', null],
+    ])
+  })
+  it('legacy sheet: the main contact, shown in full', () => {
+    expect(sheetClientContacts(null, { name: 'Co', contactName: 'Pat', contactEmail: 'P@x.co', contactPhone: '1' })[0])
+      .toMatchObject({ name: 'Pat', email: 'p@x.co', phone: '1', hidePhone: false })
+  })
+})
+
+describe('call sheet: a person named by their email', () => {
+  it('a hidden email doesn’t leak through the name', () => {
+    const [c] = sheetClientContacts([{ contactId: 'a', name: 'jamie@brand.co', title: null, email: 'jamie@brand.co', phone: '1', hideEmail: true }], null)
+    expect([c.name, c.email, c.phone]).toEqual(['Client contact', null, '1'])
+    const [t] = sheetClientContacts([{ contactId: 'a', name: 'jamie@brand.co', title: 'Producer', email: 'jamie@brand.co', phone: null, hideEmail: true }], null)
+    expect(t.name).toBe('Producer')
+  })
+})

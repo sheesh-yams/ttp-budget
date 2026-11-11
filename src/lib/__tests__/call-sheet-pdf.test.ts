@@ -74,6 +74,16 @@ describe('call sheet PDF data', () => {
     expect(client[0].role).toContain('Brand Producer')
   })
 
+  it('hidden phone/email stay off the PDF; the key contact skips a hidden phone', () => {
+    const d = buildCallSheetPdfData(base({ clientContacts: [
+      { contactId: 'a', name: 'Jamie Lee', title: null, email: 'jamie@x.co', phone: '2125550111', hidePhone: true, hideEmail: true },
+      { contactId: 'b', name: 'Sam Ko', title: null, email: null, phone: '2125550122' },
+    ] }), { dayLabel: null })
+    const jamie = d.contacts.find(c => c.name === 'Jamie Lee')
+    expect([jamie?.phone ?? null, jamie?.email ?? null]).toEqual([null, null])
+    expect(d.keyContacts.find(c => c.label === 'Client')?.name).toBe('Sam Ko')
+  })
+
   it('an empty pick list shows no client on the sheet', () => {
     const d = buildCallSheetPdfData(base({ clientContacts: [] }), { dayLabel: null })
     expect(d.clientName).toBeNull()

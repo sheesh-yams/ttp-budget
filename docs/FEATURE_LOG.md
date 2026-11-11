@@ -105,6 +105,21 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-11 — Call sheets: hide a client contact's phone and/or email from the crew
+
+- **Asked:** a way to keep the client's phone number and/or email off the call sheet the rest of the crew sees.
+- **Per person, per sheet:** in the editor's client contacts (`ClientSheetPicker`), each ticked person has **Phone** and **Email** checkboxes. These are stored as `hidePhone` / `hideEmail` inside the existing `CallSheet.clientContacts` JSON, so there's no migration.
+- **What the crew sees** (`sheetClientContacts`): hidden details are blanked on the public `/cs` page and the PDF, including the "Client" key contact (it skips a hidden phone).
+  - The name and title stay.
+  - A person named by their own email (saved with only an email) shows their title or "Client contact" instead when the email is hidden.
+- **Sending is unaffected:** `readSnapshots` keeps the real email, so a client with a hidden email can still be sent their copy. Crew emails never carried other people's details.
+- **Older sheets** show the main contact in full until saved with choices.
+- **Verified:**
+  - jest (631), tsc, lint
+  - next build up to the known Resend error
+  - **Live:** with both details hidden, the `/cs` page HTML (incl. the RSC payload) and the PDF had the name but not the email or phone; the send list kept the email.
+  - **pitfall-reviewer:** one finding, fixed (an email-named person leaked the hidden email through their name).
+
 ### 2026-11-11 — Client contacts on documents, Phase D: call sheets list (and can send to) client contacts
 
 - **`CallSheet.clientContacts`** (snapshots):

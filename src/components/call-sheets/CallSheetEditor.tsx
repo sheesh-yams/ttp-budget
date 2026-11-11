@@ -1,7 +1,7 @@
 'use client'
 
-import { ClientPeopleChecklist } from '@/components/clients/ClientPersonPicker'
-import type { ClientPerson, PersonSnapshot } from '@/lib/client-people'
+import type { ClientContactPick, ClientPerson, PersonSnapshot } from '@/lib/client-people'
+import { ClientSheetPicker } from './ClientSheetPicker'
 import { DietaryNeedsPanel } from './DietaryNeedsPanel'
 import type { Dietary } from '@/lib/dietary'
 import { useState, useTransition, useCallback } from 'react'
@@ -77,9 +77,10 @@ export interface CallSheetData {
   /** Client contacts on the sheet: shown now, the people to pick from (editors), and who's ticked. */
   client: {
     companyName: string
+    /** What the crew sees now (hidden details already blanked). */
     shown:       PersonSnapshot[]
     people:      ClientPerson[]
-    pickedIds:   string[]
+    picked:      ClientContactPick[]
   } | null
 }
 
@@ -129,9 +130,10 @@ export function CallSheetEditor({
   )
   const [talent,          setTalent]          = useState<TalentMember[]>(initial.talent ?? [])
   const [otherContacts,   setOtherContacts]   = useState<OtherContact[]>(initial.otherContacts ?? [])
-  const [clientIds,       setClientIds]       = useState<string[]>(initial.client?.pickedIds ?? [])
+  // Client people on the sheet, in order, with what the crew may see of them.
+  const [clientPicks,     setClientPicks]     = useState<ClientContactPick[]>(initial.client?.picked ?? [])
   // Only sent when the client's people are pickable here (editors).
-  const clientPayload = initial.client?.people.length ? { clientContactIds: clientIds } : {}
+  const clientPayload = initial.client?.people.length ? { clientContactPicks: clientPicks } : {}
   const [crew,            setCrew]            = useState<CrewDept[]>(initial.crew)
   const [schedule,        setSchedule]        = useState<ScheduleBlock[]>(initial.schedule)
   const [cateringInfo,    setCateringInfo]    = useState(initial.cateringInfo ?? '')
@@ -683,13 +685,14 @@ export function CallSheetEditor({
               </p>
               {!isLocked && initial.client.people.length > 0 ? (
                 <>
-                  <ClientPeopleChecklist
+                  <ClientSheetPicker
                     people={initial.client.people}
-                    selected={clientIds}
-                    onChange={ids => { setClientIds(ids); markDirty() }}
+                    picks={clientPicks}
+                    onChange={next => { setClientPicks(next); markDirty() }}
                   />
                   <p className="mt-1.5 text-[11px] text-muted-foreground">
-                    Listed on the sheet. You choose whether they get it emailed when you send.
+                    Ticked people are listed on the sheet. Untick Phone or Email to keep it off the crew&rsquo;s copy —
+                    you can still send them the sheet.
                   </p>
                 </>
               ) : initial.client.shown.length > 0 ? (

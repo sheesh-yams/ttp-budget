@@ -1,6 +1,6 @@
 'use server'
 
-import { defaultOnSet, snapshotOf } from '@/lib/client-people'
+import { defaultOnSet, snapshotOf, type ClientContactPick } from '@/lib/client-people'
 import { revalidatePath } from 'next/cache'
 import { getScopedDb } from '@/lib/db-scoped'
 import type { ScopedDb } from '@/lib/db-scoped'
@@ -403,21 +403,24 @@ export async function importScheduleIntoCallSheet(
 // =============================================================================
 
 /**
- * Snapshots of the client people picked for a sheet, in pick order — only the
- * project's client's people count (scoped). Removed people simply drop out.
+ * Snapshots of the client people picked for a sheet, in pick order, with
+ * whether the crew may see each one's phone and email — only the project's
+ * client's people count (scoped). Removed people simply drop out.
  */
-async function sheetClientSnapshots(sdb: ScopedDb, projectId: string, ids: string[]): Promise<object[]> {
-  const clean = [...new Set((Array.isArray(ids) ? ids : []).filter((x): x is string => typeof x === 'string'))].slice(0, 20)
+async function sheetClientSnapshots(sdb: ScopedDb, projectId: string, picks: ClientContactPick[]): Promise<object[]> {
+  const list = (Array.isArray(picks) ? picks : []).filter(x => x && typeof x.id === 'string')
+  const seen = new Set<string>()
+  const clean = list.filter(x => (seen.has(x.id) ? false : (seen.add(x.id), true))).slice(0, 20)
   if (!clean.length) return []
   const project = await sdb.project.findFirst({ where: { id: projectId }, select: { clientId: true } })
   if (!project) return []
   const people = await sdb.clientContact.findMany({
-    where:  { id: { in: clean }, clientId: project.clientId },
+    where:  { id: { in: clean.map(x => x.id) }, clientId: project.clientId },
     select: { id: true, name: true, title: true, email: true, phone: true, isMain: true, roles: true },
   })
-  return clean.flatMap(id => {
-    const p = people.find(x => x.id === id)
-    return p ? [snapshotOf(p) as unknown as object] : []
+  return clean.flatMap(pick => {
+    const p = people.find(x => x.id === pick.id)
+    return p ? [{ ...snapshotOf(p), hidePhone: pick.hidePhone === true, hideEmail: pick.hideEmail === true }] : []
   })
 }
 
@@ -546,8 +549,8 @@ export async function updateCallSheet(
     crew: CrewDept[]
     schedule: ScheduleBlock[]
     otherContacts: OtherContact[]
-    /** Client people on the sheet (ClientContact ids, in order). */
-    clientContactIds: string[]
+    /** Client people on the sheet, in order, and what the crew may see of them. */
+    clientContactPicks: ClientContactPick[]
     hospitalInfo: HospitalInfo | null
     cateringInfo: string
     notes: string
@@ -558,8 +561,8 @@ export async function updateCallSheet(
     const cs = await getOwnedSheet(id, sdb)
     if (cs.status === 'FINAL') return { success: false, error: 'Cannot edit a finalized call sheet' }
 
-    const clientContacts = input.clientContactIds !== undefined
-      ? await sheetClientSnapshots(sdb, cs.projectId, input.clientContactIds)
+    const clientContacts = input.clientContactPicks !== undefined
+      ? await sheetClientSnapshots(sdb, cs.projectId, input.clientContactPicks)
       : undefined
 
     // Clear cached geo + weather when the address changes

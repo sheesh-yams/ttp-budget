@@ -1,5 +1,5 @@
 import { loadClientPeople } from '@/lib/client-people-load'
-import { readSnapshots, sheetClientContacts } from '@/lib/client-people'
+import { readSheetContacts, sheetClientContacts, type ClientContactPick } from '@/lib/client-people'
 import { getAccess } from '@/lib/access'
 import { notFound } from 'next/navigation'
 import { requireProjectAccess, requireProjectArea } from '@/lib/project-access'
@@ -115,13 +115,16 @@ export default async function CallSheetPage({
 
   const canEditSheet = projectAccess.can('callSheets', 'EDIT')
   const clientPeople = canEditSheet && project.client ? await loadClientPeople(db, workspaceId, project.client.id) : []
-  const storedClient = readSnapshots((cs as unknown as { clientContacts?: unknown }).clientContacts)
+  const storedClient = readSheetContacts((cs as unknown as { clientContacts?: unknown }).clientContacts)
+  // What the crew sees (hidden phones/emails blanked).
   const shownClient  = sheetClientContacts(storedClient, project.client)
-  // Picked: the stored people still on the client; an older sheet (nothing
-  // stored) shows the main contact, so the Main person starts ticked.
-  const pickedClientIds = storedClient
-    ? storedClient.flatMap(x => (x.contactId && clientPeople.some(p => p.id === x.contactId) ? [x.contactId] : []))
-    : clientPeople.filter(p => p.isMain).map(p => p.id)
+  // Picked: the stored people still on the client, with their hide settings;
+  // an older sheet (nothing stored) shows the main contact, so the Main
+  // person starts ticked.
+  const pickedClient: ClientContactPick[] = storedClient
+    ? storedClient.flatMap(x => (x.contactId && clientPeople.some(p => p.id === x.contactId)
+        ? [{ id: x.contactId, hidePhone: x.hidePhone, hideEmail: x.hideEmail }] : []))
+    : clientPeople.filter(p => p.isMain).map(p => ({ id: p.id }))
 
   const initial = {
     id:              cs.id,
@@ -166,7 +169,7 @@ export default async function CallSheetPage({
       companyName: project.client.name,
       shown:       shownClient,
       people:      clientPeople,
-      pickedIds:   pickedClientIds,
+      picked:      pickedClient,
     } : null,
   }
 
