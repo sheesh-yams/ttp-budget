@@ -105,6 +105,48 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-11 — Client contacts on documents, Phase A: one People list with roles
+
+- **Asked:** each document (invoice, proposal, call sheet) should name the right client person, e.g. AP on invoices and the client producer on a call sheet.
+  - **Decisions (user):**
+    - Defaults come from **roles on the client** (Billing / Proposals / On-set), and any single document can change the person.
+    - Call sheets list the chosen client contacts, who can optionally be sent the sheet.
+    - The main contact becomes a regular person marked **Main**.
+    - E-sign stays "anyone it's sent to".
+- **Migration** `20261111000001_client_contact_roles` (run by the user):
+  - `ClientContact.isMain` (partial unique index: one per client) and `roles TEXT[]`. `isBilling` is folded into roles and no longer read.
+  - Snapshot columns for the next phases: `Invoice.billTo`, `Proposal.clientContacts`, `CallSheet.clientContacts`.
+- **Backfill (approved):** 17 clients' main contacts were copied into their People list as Main, one AuditEvent each (`client.contact.backfilled_main`). The City Unlimited's "phone" (which held an email) was left blank on the person. No client rows changed.
+- **The mirror rule** (also in CLAUDE.md): `Client.contactName/Email/Phone` mirrors the Main person and is written only by `syncClientMain` / `setMainFromFields` (`src/lib/client-main.ts`), in the same transaction.
+  - `upsertClient` (the client form, incl. edit-from-project) saves the client and its Main person in **one** transaction.
+  - Blanking the form unsets Main without deleting the person.
+  - Clearing a Billing or Proposals Main person's email from the form is refused.
+  - Promoting someone by email only fills in their details, never blanks them.
+- **E-sign safety:** a sent proposal addressed to the main contact stores `toEmail = null` and is checked live. When the main email changes, open proposals (SENT / VIEWED / CHANGES_NEEDED / EXPIRED) get the address they were sent to pinned, with an AuditEvent `proposal.to_pinned`. Drafts keep following the client.
+- **People card:**
+  - role chips and a Main badge
+  - a dialog with role checkboxes and a Main toggle; the first person added starts as Main
+  - a routing summary (who invoices / proposals / call sheets go to by default)
+  - Billing and Proposals people need an email
+- **Invoice defaults** now use roles (`invoiceRecipientDefaults`):
+  - To: the first Billing person.
+  - CC: the other Billing people + Main + the standard CC.
+  - Ready for a chosen bill-to (Phase B).
+- **`src/lib/client-people.ts`:** roles, snapshots and the per-document default rules, jest-tested.
+- **Verified:**
+  - jest (613), tsc, lint, `audit:scoping`
+  - next build up to the known Resend error
+  - **Live-DB scripts:**
+    - the form creates or updates Main
+    - Main switching, with the DB refusing two Mains
+    - blank form
+    - promote by email
+    - proposal To pinning (sent pinned, draft and won untouched)
+    - the refused email blanking
+    - another workspace can't sync
+  - **pitfall-reviewer:** three findings, all fixed: e-sign breaking on a Main change, a non-atomic client save, and the form clobbering a person's fields.
+- **Next:** Phase B invoices (bill-to picker, Attn, receipt, greeting), then C proposals and D call sheets.
+
 ### 2026-11-08 — Clients: "Outstanding" includes work not invoiced yet
 
 - **Asked:** a client's Outstanding should include booked work that hasn't been invoiced, with a nudge to finish invoicing.

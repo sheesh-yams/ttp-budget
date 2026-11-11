@@ -15,6 +15,9 @@ import { r2, R2_BUCKET } from '@/lib/r2'
 import { generatePublicToken } from '@/lib/secure-token'
 import { logAuditEvent } from '@/lib/audit'
 import { normalizeEmails, MAX_DEFAULT_CC, type ClientContactInput } from '@/lib/client-recipients'
+import { CLIENT_ROLES, normalizeRoles } from '@/lib/client-people'
+import { setMainFromFields, syncClientMain } from '@/lib/client-main'
+import { db as baseDb } from '@/lib/db'
 
 // =============================================================================
 // Validation schemas
@@ -54,15 +57,36 @@ export async function upsertClient(
     const gate = await requirePermission('clients', 'EDIT')
     if (!gate.ok) return gate.error
 
-    const [db] = await Promise.all([getScopedDb(), getCurrentUser()])
     const data = clientSchema.parse(input)
-    const client = id
-      ? await db.client.update({ where: { id }, data })
-      : await db.client.create({ data } as unknown as { data: Prisma.ClientUncheckedCreateInput })
+    const ws = gate.workspaceId
+    // The contact fields belong to the Main person (the client's columns only
+    // mirror it). The client and its Main person save together or not at all.
+    const { contactName, contactEmail, contactPhone, ...clientData } = data
+    class Refused extends Error {}
+    let client: { id: string }
+    try {
+      client = await baseDb.$transaction(async tx => {
+        let row: { id: string }
+        if (id) {
+          const res = await tx.client.updateMany({ where: { id, workspaceId: ws }, data: clientData })
+          if (res.count === 0) throw new Refused('Client not found')
+          row = { id }
+        } else {
+          row = await tx.client.create({ data: { ...clientData, workspaceId: ws } as Prisma.ClientUncheckedCreateInput, select: { id: true } })
+        }
+        const refused = await setMainFromFields(tx, ws, row.id, { contactName, contactEmail, contactPhone }, gate.userId)
+        if (refused) throw new Refused(refused)
+        return row
+      })
+    } catch (err) {
+      if (err instanceof Refused) return { success: false, error: err.message }
+      throw err
+    }
     revalidatePath('/clients')
     revalidatePath(`/clients/${client.id}`)
     return { success: true, data: { id: client.id } }
-  } catch {
+  } catch (err) {
+    console.error('[upsertClient]', err)
     return { success: false, error: 'Failed to save client' }
   }
 }
@@ -101,25 +125,37 @@ export async function updateClientNotes(id: string, notes: string): Promise<Acti
 }
 
 // =============================================================================
-// Client contacts (extra people; the main contact stays on Client) + defaults
+// Client people — one list; one may be Main (mirrored onto Client.contact*),
+// roles pick who each document defaults to. Raw-db transactions carry
+// workspaceId in every where.
 // =============================================================================
 
 const contactSchema = z.object({
-  name:      z.string().trim().min(1, 'Add a name.').max(200),
-  title:     z.string().trim().max(200).optional().or(z.literal('')),
-  email:     z.string().trim().toLowerCase().email('That email isn’t valid.').optional().or(z.literal('')),
-  phone:     z.string().trim().max(60).optional().or(z.literal('')),
-  isBilling: z.boolean().optional(),
+  name:   z.string().trim().min(1, 'Add a name.').max(200),
+  title:  z.string().trim().max(200).optional().or(z.literal('')),
+  email:  z.string().trim().toLowerCase().email('That email isn’t valid.').optional().or(z.literal('')),
+  phone:  z.string().trim().max(60).optional().or(z.literal('')),
+  isMain: z.boolean().optional(),
+  roles:  z.array(z.enum(CLIENT_ROLES)).max(CLIENT_ROLES.length).optional(),
 })
 
 function contactData(input: z.infer<typeof contactSchema>) {
   return {
-    name:  input.name,
-    title: input.title || null,
-    email: input.email || null,
-    phone: input.phone || null,
-    isBilling: !!input.isBilling,
+    name:   input.name,
+    title:  input.title || null,
+    email:  input.email || null,
+    phone:  input.phone || null,
+    isMain: !!input.isMain,
+    roles:  normalizeRoles(input.roles ?? []),
   }
+}
+
+/** Emails are needed to send them anything; on-set contacts can be phone-only. */
+function missingEmail(d: ReturnType<typeof contactData>): string | null {
+  if (d.email) return null
+  if (d.roles.includes('BILLING'))   return 'A billing contact needs an email.'
+  if (d.roles.includes('PROPOSALS')) return 'A proposals contact needs an email.'
+  return null
 }
 
 function firstIssue(err: z.ZodError): string {
@@ -133,20 +169,24 @@ export async function addClientContact(clientId: string, input: ClientContactInp
     const parsed = contactSchema.safeParse(input)
     if (!parsed.success) return { success: false, error: firstIssue(parsed.error) }
     const data = contactData(parsed.data)
-    if (data.isBilling && !data.email) return { success: false, error: 'A billing contact needs an email.' }
+    const noEmail = missingEmail(data)
+    if (noEmail) return { success: false, error: noEmail }
 
-    const db = await getScopedDb()
-    const client = await db.client.findFirst({ where: { id: clientId }, select: { id: true } })
+    const ws = gate.workspaceId
+    const client = await baseDb.client.findFirst({ where: { id: clientId, workspaceId: ws }, select: { id: true } })
     if (!client) return { success: false, error: 'Client not found' }
 
-    const created = await db.$transaction(async tx => {
-      // One billing contact per client: setting it here clears the others.
-      if (data.isBilling) await tx.clientContact.updateMany({ where: { clientId, workspaceId: gate.workspaceId }, data: { isBilling: false } })
-      const last = await tx.clientContact.findFirst({ where: { clientId, workspaceId: gate.workspaceId }, orderBy: { order: 'desc' }, select: { order: true } })
-      return tx.clientContact.create({ data: { ...data, clientId, workspaceId: gate.workspaceId, order: (last?.order ?? -1) + 1 }, select: { id: true } })
+    const created = await baseDb.$transaction(async tx => {
+      // One Main per client (also a partial unique index): clear it first.
+      if (data.isMain) await tx.clientContact.updateMany({ where: { clientId, workspaceId: ws, isMain: true }, data: { isMain: false } })
+      const last = await tx.clientContact.findFirst({ where: { clientId, workspaceId: ws }, orderBy: { order: 'desc' }, select: { order: true } })
+      const row = await tx.clientContact.create({ data: { ...data, clientId, workspaceId: ws, order: (last?.order ?? -1) + 1 }, select: { id: true } })
+      await syncClientMain(tx, ws, clientId, gate.userId)
+      return row
     })
-    await logAuditEvent({ workspaceId: gate.workspaceId, actorId: gate.userId, action: 'client.contact.added', entityType: 'Client', entityId: clientId, metadata: { contactId: created.id, name: data.name, isBilling: data.isBilling } })
+    await logAuditEvent({ workspaceId: ws, actorId: gate.userId, action: 'client.contact.added', entityType: 'Client', entityId: clientId, metadata: { contactId: created.id, name: data.name, isMain: data.isMain, roles: data.roles } })
     revalidatePath(`/clients/${clientId}`)
+    revalidatePath('/clients')
     return { success: true, data: { id: created.id } }
   } catch (err) {
     console.error('[addClientContact]', err)
@@ -161,20 +201,23 @@ export async function updateClientContact(id: string, input: ClientContactInput)
     const parsed = contactSchema.safeParse(input)
     if (!parsed.success) return { success: false, error: firstIssue(parsed.error) }
     const data = contactData(parsed.data)
-    if (data.isBilling && !data.email) return { success: false, error: 'A billing contact needs an email.' }
+    const noEmail = missingEmail(data)
+    if (noEmail) return { success: false, error: noEmail }
 
-    const db = await getScopedDb()
-    const existing = await db.clientContact.findFirst({ where: { id }, select: { clientId: true } })
+    const ws = gate.workspaceId
+    const existing = await baseDb.clientContact.findFirst({ where: { id, workspaceId: ws }, select: { clientId: true } })
     if (!existing) return { success: false, error: 'Contact not found' }
 
-    await db.$transaction(async tx => {
-      if (data.isBilling) {
-        await tx.clientContact.updateMany({ where: { clientId: existing.clientId, workspaceId: gate.workspaceId, id: { not: id } }, data: { isBilling: false } })
+    await baseDb.$transaction(async tx => {
+      if (data.isMain) {
+        await tx.clientContact.updateMany({ where: { clientId: existing.clientId, workspaceId: ws, isMain: true, id: { not: id } }, data: { isMain: false } })
       }
-      await tx.clientContact.updateMany({ where: { id, workspaceId: gate.workspaceId }, data })
+      await tx.clientContact.updateMany({ where: { id, workspaceId: ws }, data })
+      await syncClientMain(tx, ws, existing.clientId, gate.userId)
     })
-    await logAuditEvent({ workspaceId: gate.workspaceId, actorId: gate.userId, action: 'client.contact.updated', entityType: 'Client', entityId: existing.clientId, metadata: { contactId: id, name: data.name, isBilling: data.isBilling } })
+    await logAuditEvent({ workspaceId: ws, actorId: gate.userId, action: 'client.contact.updated', entityType: 'Client', entityId: existing.clientId, metadata: { contactId: id, name: data.name, isMain: data.isMain, roles: data.roles } })
     revalidatePath(`/clients/${existing.clientId}`)
+    revalidatePath('/clients')
     return { success: true, data: undefined }
   } catch (err) {
     console.error('[updateClientContact]', err)
@@ -186,12 +229,18 @@ export async function deleteClientContact(id: string): Promise<ActionResult> {
   try {
     const gate = await requirePermission('clients', 'EDIT')
     if (!gate.ok) return gate.error
-    const db = await getScopedDb()
-    const existing = await db.clientContact.findFirst({ where: { id }, select: { clientId: true, name: true } })
+    const ws = gate.workspaceId
+    const existing = await baseDb.clientContact.findFirst({ where: { id, workspaceId: ws }, select: { clientId: true, name: true, isMain: true } })
     if (!existing) return { success: false, error: 'Contact not found' }
-    await db.clientContact.deleteMany({ where: { id } })
-    await logAuditEvent({ workspaceId: gate.workspaceId, actorId: gate.userId, action: 'client.contact.removed', entityType: 'Client', entityId: existing.clientId, metadata: { contactId: id, name: existing.name } })
+    // Documents keep their own snapshot of this person; removing the Main
+    // person clears the client's main contact until another is picked.
+    await baseDb.$transaction(async tx => {
+      await tx.clientContact.deleteMany({ where: { id, workspaceId: ws } })
+      if (existing.isMain) await syncClientMain(tx, ws, existing.clientId, gate.userId)
+    })
+    await logAuditEvent({ workspaceId: ws, actorId: gate.userId, action: 'client.contact.removed', entityType: 'Client', entityId: existing.clientId, metadata: { contactId: id, name: existing.name, wasMain: existing.isMain } })
     revalidatePath(`/clients/${existing.clientId}`)
+    revalidatePath('/clients')
     return { success: true, data: undefined }
   } catch (err) {
     console.error('[deleteClientContact]', err)

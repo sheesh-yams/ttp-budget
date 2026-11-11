@@ -3,23 +3,23 @@ import { invoiceSendRecipients, invoiceRecipientDefaults, proposalCcDefaults, in
 describe('invoiceRecipientDefaults', () => {
   const client = { contactEmail: 'Main@Brand.com', invoiceCcEmails: ['ap@brand.com', 'AP@brand.com'] }
   it('billing contact: To billing, main copied, plus the standard CC (deduped)', () => {
-    expect(invoiceRecipientDefaults(client, [{ email: 'Billing@Brand.com ', isBilling: true }])).toEqual({
+    expect(invoiceRecipientDefaults(client, [{ email: 'Billing@Brand.com ', roles: ['BILLING'] }])).toEqual({
       to: 'billing@brand.com', cc: ['main@brand.com', 'ap@brand.com'],
     })
   })
   it('no billing contact: To main, standard CC only', () => {
-    expect(invoiceRecipientDefaults(client, [{ email: 'x@brand.com', isBilling: false }])).toEqual({ to: 'main@brand.com', cc: ['ap@brand.com'] })
+    expect(invoiceRecipientDefaults(client, [{ email: 'x@brand.com', roles: [] }])).toEqual({ to: 'main@brand.com', cc: ['ap@brand.com'] })
   })
   it('a billing contact without an email is ignored', () => {
-    expect(invoiceRecipientDefaults(client, [{ email: null, isBilling: true }]).to).toBe('main@brand.com')
+    expect(invoiceRecipientDefaults(client, [{ email: null, roles: ['BILLING'] }]).to).toBe('main@brand.com')
   })
   it('never repeats the To in CC', () => {
     expect(invoiceRecipientDefaults({ contactEmail: 'a@b.co', invoiceCcEmails: ['A@b.co', 'c@b.co'] }, []).cc).toEqual(['c@b.co'])
-    expect(invoiceRecipientDefaults({ contactEmail: 'a@b.co', invoiceCcEmails: ['bill@b.co'] }, [{ email: 'bill@b.co', isBilling: true }]).cc).toEqual(['a@b.co'])
+    expect(invoiceRecipientDefaults({ contactEmail: 'a@b.co', invoiceCcEmails: ['bill@b.co'] }, [{ email: 'bill@b.co', roles: ['BILLING'] }]).cc).toEqual(['a@b.co'])
   })
   it('no main contact email: empty To, billing still works', () => {
     expect(invoiceRecipientDefaults({ contactEmail: null }, [])).toEqual({ to: '', cc: [] })
-    expect(invoiceRecipientDefaults({ contactEmail: null }, [{ email: 'b@x.co', isBilling: true }])).toEqual({ to: 'b@x.co', cc: [] })
+    expect(invoiceRecipientDefaults({ contactEmail: null }, [{ email: 'b@x.co', roles: ['BILLING'] }])).toEqual({ to: 'b@x.co', cc: [] })
   })
 })
 
@@ -49,7 +49,7 @@ describe('parseEmailList / normalizeEmails', () => {
 
 describe('invoiceSendRecipients', () => {
   const client   = { contactEmail: 'pm@x.co', invoiceCcEmails: ['ap-inbox@x.co'] }
-  const billing  = [{ email: 'ap@x.co', isBilling: true }]
+  const billing  = [{ email: 'ap@x.co', roles: ['BILLING'] }]
   it('never sent: the client defaults', () => {
     expect(invoiceSendRecipients({ client, contacts: billing, sentAt: null, savedCc: [], withDefaults: true }))
       .toEqual({ to: 'ap@x.co', cc: ['pm@x.co', 'ap-inbox@x.co'] })
@@ -69,5 +69,16 @@ describe('invoiceSendRecipients', () => {
   it('without send permission: no billing/CC defaults leak', () => {
     expect(invoiceSendRecipients({ client, contacts: billing, sentAt: null, savedCc: [], withDefaults: false }))
       .toEqual({ to: 'pm@x.co', cc: [] })
+  })
+})
+
+describe('invoiceRecipientDefaults with several Billing people and a chosen bill-to', () => {
+  const client = { contactEmail: 'pm@x.co', invoiceCcEmails: ['inbox@x.co'] }
+  const people = [{ email: 'ap1@x.co', roles: ['BILLING'] }, { email: 'ap2@x.co', roles: ['BILLING', 'PROPOSALS'] }, { email: 'p@x.co', roles: ['ON_SET'] }]
+  it('To the first Billing person; the other Billing people, main and standard CC copied', () => {
+    expect(invoiceRecipientDefaults(client, people)).toEqual({ to: 'ap1@x.co', cc: ['ap2@x.co', 'pm@x.co', 'inbox@x.co'] })
+  })
+  it('a chosen bill-to wins', () => {
+    expect(invoiceRecipientDefaults(client, people, 'AP2@x.co')).toEqual({ to: 'ap2@x.co', cc: ['ap1@x.co', 'pm@x.co', 'inbox@x.co'] })
   })
 })

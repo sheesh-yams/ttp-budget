@@ -149,7 +149,7 @@ export async function getInvoiceSendData(invoiceId: string) {
         client: {
           select: {
             name: true, contactEmail: true, invoiceCcEmails: true,
-            contacts: { where: { isBilling: true, workspaceId }, select: { email: true, isBilling: true }, take: 1 },
+            contacts: { where: { roles: { has: 'BILLING' }, workspaceId }, orderBy: [{ order: 'asc' }, { createdAt: 'asc' }], select: { email: true, roles: true } },
           },
         },
         project: { select: { name: true } },

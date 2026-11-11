@@ -76,6 +76,12 @@ Stack: Next.js 15 App Router · Prisma 5 + Postgres (Neon) · Clerk (orgs = work
 - Winning a proposal (manually or by e-signature) runs `applyProposalWonEffects`
   (`src/lib/proposal-won.ts`). "Won" is the UI label for `APPROVED`.
 - `sendProposal` / `createProposal` in `proposals.ts` are dead legacy code.
+- A client's people are `ClientContact` rows (one `isMain`, `roles` BILLING /
+  PROPOSALS / ON_SET pick document defaults — `src/lib/client-people.ts`).
+  `Client.contactName/Email/Phone` only **mirrors** the Main person: write it
+  through `syncClientMain` / `setMainFromFields` (`src/lib/client-main.ts`) in
+  the same transaction, never directly. Documents store a snapshot of who
+  they're for, so later edits don't change sent documents.
 
 **UI**
 - `useConfirm()` defaults to a red **Delete** button — pass `confirmLabel` for

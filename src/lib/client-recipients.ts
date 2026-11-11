@@ -35,20 +35,25 @@ export interface RecipientClient {
   paymentTermsDays?: number | null
 }
 
-export interface RecipientContact { email: string | null; isBilling: boolean }
+export interface RecipientContact { email: string | null; roles: string[] }
 
 /**
- * Invoice To/CC for a never-sent invoice. With a billing contact that has an
- * email: To the billing contact, the main contact CC'd. Otherwise To the main
- * contact. The client's standard invoice CC is added either way, never
- * repeating the To address.
+ * Invoice To/CC for a never-sent invoice. With Billing people: To the first
+ * one with an email, the other Billing people and the main contact CC'd.
+ * Otherwise To the main contact. The client's standard invoice CC is added
+ * either way, never repeating the To address. `billToEmail` (the invoice's
+ * chosen person) wins over the role default.
  */
-export function invoiceRecipientDefaults(client: RecipientClient, contacts: RecipientContact[]): { to: string; cc: string[] } {
-  const billing = contacts.find(c => c.isBilling && c.email && EMAIL_RE.test(c.email.trim().toLowerCase()))
+export function invoiceRecipientDefaults(client: RecipientClient, contacts: RecipientContact[], billToEmail?: string | null): { to: string; cc: string[] } {
+  const valid = (e: string | null) => !!e && EMAIL_RE.test(e.trim().toLowerCase())
+  const billing = contacts.filter(c => c.roles.includes('BILLING') && valid(c.email)).map(c => c.email!.trim().toLowerCase())
   const main = (client.contactEmail ?? '').trim().toLowerCase()
-  const to = billing ? billing.email!.trim().toLowerCase() : main
-  const cc = normalizeEmails([...(billing ? [main] : []), ...(client.invoiceCcEmails ?? [])]).filter(e => e !== to)
-  return { to, cc }
+  const chosen = valid(billToEmail ?? null) ? billToEmail!.trim().toLowerCase() : null
+  const to = chosen ?? billing[0] ?? main
+  const cc = normalizeEmails([...billing, main, ...(client.invoiceCcEmails ?? [])]).filter(e => e !== to)
+  // Without any Billing people or a chosen bill-to, To is the main contact and
+  // only the standard CC applies.
+  return { to, cc: chosen || billing.length ? cc : normalizeEmails(client.invoiceCcEmails ?? []).filter(e => e !== to) }
 }
 
 /**
@@ -67,10 +72,12 @@ export function invoiceSendRecipients(args: {
   sentAt:       Date | string | null
   savedCc:      string[]
   withDefaults: boolean
+  /** The invoice's chosen bill-to person's email (Invoice.billTo), if any. */
+  billToEmail?: string | null
 }): { to: string; cc: string[] } {
   const main = (args.client.contactEmail ?? '').trim().toLowerCase()
   if (!args.withDefaults) return { to: args.client.contactEmail ?? '', cc: args.savedCc }
-  const d = invoiceRecipientDefaults(args.client, args.contacts)
+  const d = invoiceRecipientDefaults(args.client, args.contacts, args.billToEmail)
   if (!args.sentAt && args.savedCc.length === 0) return d
   const cc = normalizeEmails([...args.savedCc, ...(main && d.to !== main ? [main] : [])]).filter(e => e !== d.to)
   return { to: d.to, cc }
@@ -90,9 +97,11 @@ export function invoiceDueDays(client: Pick<RecipientClient, 'paymentTermsDays'>
 
 /** Add / edit a client contact (client page → People). */
 export interface ClientContactInput {
-  name:       string
-  title?:     string
-  email?:     string
-  phone?:     string
-  isBilling?: boolean
+  name:    string
+  title?:  string
+  email?:  string
+  phone?:  string
+  isMain?: boolean
+  /** BILLING | PROPOSALS | ON_SET */
+  roles?:  string[]
 }

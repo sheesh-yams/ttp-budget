@@ -10,6 +10,7 @@ import { addedScopeCents } from '@/lib/project-value'
 import { clientMoney, type ClientMoney } from '@/lib/client-money'
 import { buildClientActivity, type ActivityEntry } from '@/lib/client-activity'
 import { projectToInvoiceCents, type ToInvoice } from '@/lib/project-billing'
+import type { ClientPerson } from '@/lib/client-people'
 
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null)
 
@@ -49,7 +50,7 @@ export interface ClientPageData {
     proposalCcEmails: string[]
   }
   /** Extra people at the client (the main contact is on `client`). */
-  contacts: { id: string; name: string; title: string | null; email: string | null; phone: string | null; isBilling: boolean }[]
+  contacts: ClientPerson[]
   projects: ClientPageProject[]
   /** Empty when the invoices area is hidden. */
   invoices: ClientPageInvoice[]
@@ -80,8 +81,9 @@ export async function loadClientPage(db: PrismaClient, workspaceId: string, clie
       archivedAt: true, createdAt: true, paymentTermsDays: true, invoiceCcEmails: true, proposalCcEmails: true,
       contacts: {
         where:   { workspaceId },
-        orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
-        select:  { id: true, name: true, title: true, email: true, phone: true, isBilling: true },
+        // Main first, then in the order they were added.
+        orderBy: [{ isMain: 'desc' }, { order: 'asc' }, { createdAt: 'asc' }],
+        select:  { id: true, name: true, title: true, email: true, phone: true, isMain: true, roles: true },
       },
     },
   })

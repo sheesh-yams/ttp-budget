@@ -184,8 +184,13 @@ model ClientContact {
   title       String?
   email       String?
   phone       String?
-  // Invoices default To this person (main contact CC'd). At most one per client.
+  // Legacy flag, folded into roles (BILLING) — no longer read; dropped later.
   isBilling   Boolean  @default(false)
+  // The client's main contact. At most one per client (partial unique index
+  // in SQL). Mirrored onto Client.contactName/Email/Phone by syncClientMain.
+  isMain      Boolean  @default(false)
+  // BILLING | PROPOSALS | ON_SET — which documents default to this person.
+  roles       String[] @default([])
   order       Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -672,6 +677,9 @@ model Proposal {
   recipientEmails String[] @default([])
   // Main recipient ("To"). Null = the client's contact email. May e-sign.
   toEmail       String?
+  // The client's people this proposal is prepared for — snapshots
+  // [{ contactId, name, title, email, phone }]; the first is To. Null = not chosen.
+  clientContacts Json?
 
   // Approval (typed signature)
   approvedAt    DateTime?
@@ -754,6 +762,10 @@ model Invoice {
   dueDate       DateTime
   paymentTerms  String?  // human-readable label, e.g. "Net 30", "Due on Receipt"
   poNumber      String?  // client's PO
+
+  // Who the invoice is for — snapshot { contactId, name, title, email, phone }
+  // of a ClientContact. Null = the client's main contact (legacy behaviour).
+  billTo        Json?
 
   // Additional recipients (CC) the invoice email was sent to, beyond the client
   // contact email. The sender is bcc'd separately at send time.
@@ -907,6 +919,9 @@ model CallSheet {
   // Additional contacts (venue POC, client rep, etc.)
   // [{ name, role, company, phone, email }]
   otherContacts   Json     @default("[]")
+  // Client contacts shown on the sheet (and sendable) — snapshots
+  // [{ contactId, name, title, email, phone }]. Null = legacy: the client's main contact.
+  clientContacts  Json?
 
   // Logistics
   cateringInfo    String?  @db.Text
