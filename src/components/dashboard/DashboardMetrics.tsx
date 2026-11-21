@@ -56,39 +56,39 @@ export function DashboardMetrics({ projects, invoices, proposalsSentCount }: Pro
     {
       label:      'Proposals sent',
       value:      String(proposalsSent),
-      valueColor: proposalsSent > 0 ? '#5D00A4' : '#2C2C2A',
+      valueColor: proposalsSent > 0 ? 'var(--primary-text)' : 'var(--color-body)',
       sub:        proposalsSent === 0
         ? 'None out right now'
         : `${proposalsSent} awaiting approval`,
-      subColor:   proposalsSent > 0 ? '#7C3AED' : '#888780',
+      subColor:   proposalsSent > 0 ? 'var(--tone-violet)' : 'var(--color-muted)',
       href:       '/proposals',
     },
     {
       label:      'Active projects',
       value:      String(pipelineProjects.length),
-      valueColor: pipelineProjects.length > 0 ? '#2C2C2A' : '#BBBBBB',
+      valueColor: pipelineProjects.length > 0 ? 'var(--color-body)' : 'var(--text-faint)',
       sub:        inProductionCount > 0
         ? `${inProductionCount} in production`
         : pipelineProjects.length > 0
         ? `${pipelineProjects.length} in pipeline`
         : 'No active projects',
-      subColor: '#888780',
+      subColor: 'var(--color-muted)',
       href:     undefined,
     },
     {
       label:      'Outstanding invoices',
       value:      formatMoney(outstanding),
-      valueColor: '#2C2C2A',
+      valueColor: 'var(--color-body)',
       sub:        overdueCount > 0 ? `${overdueCount} overdue` : 'All on track',
-      subColor:   overdueCount > 0 ? '#dc2626' : '#888780',
+      subColor:   overdueCount > 0 ? 'var(--tone-red-2)' : 'var(--color-muted)',
       href:       '/invoices',
     },
     {
       label:      'Collected this month',
       value:      formatMoney(collectedThisMonth),
-      valueColor: collectedThisMonth > 0 ? '#059669' : '#2C2C2A',
+      valueColor: collectedThisMonth > 0 ? 'var(--tone-green-2)' : 'var(--color-body)',
       sub:        'Cash received',
-      subColor:   '#888780',
+      subColor:   'var(--color-muted)',
       href:       undefined,
     },
   ]
@@ -114,7 +114,7 @@ function MetricTile({
 }) {
   const content = (
     <>
-      <p className="text-[10.5px] font-medium uppercase tracking-[0.07em]" style={{ color: '#888780' }}>
+      <p className="text-[10.5px] font-medium uppercase tracking-[0.07em]" style={{ color: 'var(--color-muted)' }}>
         {label}
       </p>
       <p
@@ -134,7 +134,7 @@ function MetricTile({
       <Link
         href={href}
         className="block min-w-0 rounded-[10px] bg-white px-3.5 py-3.5 md:px-4 md:py-4 transition-colors hover:bg-muted/40"
-        style={{ border: '0.5px solid #E8E0F0' }}
+        style={{ border: '0.5px solid var(--color-border)' }}
       >
         {content}
       </Link>
@@ -142,7 +142,7 @@ function MetricTile({
   }
 
   return (
-    <div className="min-w-0 rounded-[10px] bg-white px-3.5 py-3.5 md:px-4 md:py-4" style={{ border: '0.5px solid #E8E0F0' }}>
+    <div className="min-w-0 rounded-[10px] bg-white px-3.5 py-3.5 md:px-4 md:py-4" style={{ border: '0.5px solid var(--color-border)' }}>
       {content}
     </div>
   )

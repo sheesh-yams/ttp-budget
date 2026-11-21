@@ -101,7 +101,7 @@ export function ClientCard({ client: c, onEdit, onArchive }: Props) {
   return (
     <div
       className="group relative flex flex-col rounded-[10px] border bg-white shadow-sm transition-shadow hover:shadow-md"
-      style={{ borderColor: '#E8E0F0' }}
+      style={{ borderColor: 'var(--color-border)' }}
     >
       {/* ── Three-dot menu ── */}
       <div className="absolute right-3 top-3 z-10">
@@ -117,7 +117,7 @@ export function ClientCard({ client: c, onEdit, onArchive }: Props) {
             <div className="fixed inset-0 z-[5]" onClick={() => setMenuOpen(false)} />
             <div
               className="absolute right-0 top-7 z-10 min-w-[140px] rounded-lg border bg-white py-1 shadow-lg"
-              style={{ borderColor: '#E8E0F0' }}
+              style={{ borderColor: 'var(--color-border)' }}
             >
               <button
                 type="button"
@@ -161,7 +161,7 @@ export function ClientCard({ client: c, onEdit, onArchive }: Props) {
         {c.collectedCents !== null && c.outstandingCents !== null && (
           <div
             className="grid grid-cols-2 gap-2 rounded-lg px-3 py-2.5"
-            style={{ background: '#F7F4FA' }}
+            style={{ background: 'var(--color-canvas)' }}
           >
             <div>
               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60 mb-0.5">Collected</p>

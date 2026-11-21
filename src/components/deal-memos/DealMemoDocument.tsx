@@ -16,7 +16,8 @@ export function DealMemoDocument({ memo }: { memo: VendorDealMemo }) {
     : null
 
   return (
-    <article className="mx-auto max-w-3xl bg-white px-8 py-10 text-[#2C2C2A] sm:px-12">
+    // The vendor-facing document (also previewed in the app) — always light.
+    <article className="light-scope mx-auto max-w-3xl bg-white px-8 py-10 text-[#2C2C2A] sm:px-12">
       <header className="mb-8 border-b-2 border-[#5D00A4] pb-6">
         <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#5D00A4]">Deal memo</p>
         <h1 className="mt-2 text-2xl font-semibold">{memo.position}</h1>

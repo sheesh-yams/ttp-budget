@@ -78,7 +78,7 @@ export function PreviewPanel({ invoiceId, invoiceNumber, trigger }: PreviewPanel
           right: 0,
           bottom: 0,
           width: 'min(780px, 92vw)',
-          background: '#fff',
+          background: 'var(--surface-card)',
           zIndex: 1001,
           boxShadow: '-8px 0 40px rgba(0,0,0,0.18)',
           transform: open ? 'translateX(0)' : 'translateX(100%)',
@@ -93,16 +93,16 @@ export function PreviewPanel({ invoiceId, invoiceNumber, trigger }: PreviewPanel
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '14px 20px',
-          borderBottom: '1px solid #E8E3EF',
+          borderBottom: '1px solid var(--color-border)',
           flexShrink: 0,
-          background: '#fff',
+          background: 'var(--surface-card)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Eye style={{ width: 15, height: 15, color: 'var(--brand-primary, #5D00A4)' }} />
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#0A0612' }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
               Invoice Preview
               {invoiceNumber && (
-                <span style={{ fontWeight: 400, color: '#888', marginLeft: 6, fontFamily: 'monospace', fontSize: 12 }}>
+                <span style={{ fontWeight: 400, color: 'var(--color-muted)', marginLeft: 6, fontFamily: 'monospace', fontSize: 12 }}>
                   {invoiceNumber}
                 </span>
               )}
@@ -114,7 +114,7 @@ export function PreviewPanel({ invoiceId, invoiceNumber, trigger }: PreviewPanel
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               width: 28, height: 28, borderRadius: 6,
               background: 'none', border: 'none', cursor: 'pointer',
-              color: '#888',
+              color: 'var(--color-muted)',
             }}
             title="Close preview"
           >

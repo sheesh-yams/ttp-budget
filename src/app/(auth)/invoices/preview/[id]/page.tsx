@@ -13,6 +13,7 @@ import { requireMoneyPermission } from '@/lib/money-access'
 import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { InvoicePublicView } from '@/components/invoice/InvoicePublicView'
+import { ForceLight } from '@/components/theme/ForceLight'
 
 interface Props {
   params: Promise<{ id: string }>
@@ -100,7 +101,9 @@ export default async function InvoicePreviewPage({ params }: Props) {
       </div>
 
       {/* Offset content below the banner */}
-      <div style={{ paddingTop: 44 }}>
+      {/* "How your client will see it" — always light. */}
+      <ForceLight />
+      <div className="light-scope" style={{ paddingTop: 44 }}>
         <InvoicePublicView invoice={invoice} paymentEnabled={false} />
       </div>
     </>

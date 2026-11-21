@@ -116,6 +116,9 @@ model User {
   email        String   @unique
   name         String?
   avatarUrl    String?
+  // Appearance of the signed-in app for this person: LIGHT | DARK | SYSTEM
+  // (follow the device). Client-facing pages/PDFs/emails never change.
+  themePreference String @default("LIGHT")
   // (legacy `role` removed — a person's role is their WorkspaceMember.role)
   onboarded    Boolean  @default(false)
 

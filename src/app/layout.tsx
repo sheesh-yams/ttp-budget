@@ -3,6 +3,7 @@ import { ClerkProvider } from '@clerk/nextjs'
 import { GeistSans } from 'geist/font/sans'
 import { GeistMono } from 'geist/font/mono'
 import '@/styles/globals.css'
+import '@/styles/dark-overrides.css'
 
 export const metadata: Metadata = {
   title: {
@@ -23,7 +24,9 @@ export default function RootLayout({
     // step; route it through /join so a pending invitation wins over
     // "create your own org".
     <ClerkProvider taskUrls={{ 'choose-organization': '/join' }}>
-      <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
+      {/* suppressHydrationWarning: the signed-in layout's theme script may add
+          class="dark" before React hydrates (src/lib/theme.ts). */}
+      <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`} suppressHydrationWarning>
         <body className="min-h-screen bg-background antialiased">
           {children}
         </body>

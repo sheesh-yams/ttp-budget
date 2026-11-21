@@ -282,7 +282,7 @@ export function BudgetSummaryBar({ accounts, budgetMarkupPct, budgetTaxPct, disc
             </p>
             <p
               className="mt-1 text-2xl font-bold tabular-nums leading-none"
-              style={{ color: '#5D00A4' }}
+              style={{ color: 'var(--primary-text)' }}
             >
               {formatCents(b.grandTotalCents)}
             </p>

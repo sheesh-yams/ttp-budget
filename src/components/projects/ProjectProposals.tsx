@@ -53,15 +53,15 @@ interface Props {
   contractAccess?: 'NONE' | 'VIEW' | 'EDIT'
 }
 
-const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; fg: string; icon: React.ReactNode }> = {
-  DRAFT:           { label: 'Draft',           color: 'bg-gray-100 text-gray-600',     bg: '#F3F4F6', fg: '#374151', icon: <FileText     className="h-3 w-3" /> },
-  SENT:            { label: 'Sent',            color: 'bg-blue-100 text-blue-700',     bg: '#DBEAFE', fg: '#1E40AF', icon: <Send         className="h-3 w-3" /> },
-  VIEWED:          { label: 'Viewed',          color: 'bg-violet-100 text-violet-700', bg: '#EDE9FE', fg: '#5B21B6', icon: <Clock        className="h-3 w-3" /> },
-  CHANGES_NEEDED:  { label: 'Changes Needed',  color: 'bg-amber-100 text-amber-700',   bg: '#FEF3C7', fg: '#92400E', icon: <Clock        className="h-3 w-3" /> },
-  APPROVED:        { label: 'Won',             color: 'bg-green-100 text-green-700',   bg: '#D1FAE5', fg: '#065F46', icon: <CheckCircle  className="h-3 w-3" /> },
-  DECLINED:        { label: 'Declined',        color: 'bg-red-100 text-red-700',       bg: '#FEE2E2', fg: '#991B1B', icon: <Clock        className="h-3 w-3" /> },
-  EXPIRED:         { label: 'Expired',         color: 'bg-amber-100 text-amber-700',   bg: '#FEF3C7', fg: '#78350F', icon: <Clock        className="h-3 w-3" /> },
-  LOST:            { label: 'Lost',            color: 'bg-rose-50 text-rose-800',      bg: '#FFF1F2', fg: '#9F1239', icon: <TrendingDown className="h-3 w-3" /> },
+const STATUS_CONFIG: Record<string, { label: string; color: string; select: string; icon: React.ReactNode }> = {
+  DRAFT:           { label: 'Draft',           color: 'bg-gray-100 text-gray-600', select: 'bg-[#F3F4F6] text-[#374151]', icon: <FileText     className="h-3 w-3" /> },
+  SENT:            { label: 'Sent',            color: 'bg-blue-100 text-blue-700', select: 'bg-[#DBEAFE] text-[#1E40AF]', icon: <Send         className="h-3 w-3" /> },
+  VIEWED:          { label: 'Viewed',          color: 'bg-violet-100 text-violet-700', select: 'bg-[#EDE9FE] text-[#5B21B6]', icon: <Clock        className="h-3 w-3" /> },
+  CHANGES_NEEDED:  { label: 'Changes Needed',  color: 'bg-amber-100 text-amber-700', select: 'bg-[#FEF3C7] text-[#92400E]', icon: <Clock        className="h-3 w-3" /> },
+  APPROVED:        { label: 'Won',             color: 'bg-green-100 text-green-700', select: 'bg-[#D1FAE5] text-[#065F46]', icon: <CheckCircle  className="h-3 w-3" /> },
+  DECLINED:        { label: 'Declined',        color: 'bg-red-100 text-red-700', select: 'bg-[#FEE2E2] text-[#991B1B]', icon: <Clock        className="h-3 w-3" /> },
+  EXPIRED:         { label: 'Expired',         color: 'bg-amber-100 text-amber-700', select: 'bg-[#FEF3C7] text-[#78350F]', icon: <Clock        className="h-3 w-3" /> },
+  LOST:            { label: 'Lost',            color: 'bg-rose-50 text-rose-800', select: 'bg-[#FFF1F2] text-[#9F1239]', icon: <TrendingDown className="h-3 w-3" /> },
 }
 
 function extractFromContent(content: unknown): {
@@ -278,12 +278,11 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
                           {isExpiredEff ? 'Expired' : effectiveStatus === 'APPROVED' ? 'Won' : cfg.label}
                         </span>
                       ) : (
-                        <div className="relative inline-flex items-center">
+                        <div className={`relative inline-flex items-center rounded-full ${cfg.select}`}>
                           <select
                             value={effectiveStatus}
                             onChange={e => handleStatusChange(p.id, e.target.value)}
-                            style={{ background: cfg.bg, color: cfg.fg }}
-                            className="rounded-full pl-2 pr-6 py-0.5 text-[11px] font-medium border-0 outline-none cursor-pointer appearance-none leading-none"
+                            className="rounded-full bg-transparent pl-2 pr-6 py-0.5 text-[11px] font-medium border-0 outline-none cursor-pointer appearance-none leading-none"
                           >
                             <option value="DRAFT">Draft</option>
                             <option value="SENT">Sent</option>
@@ -292,7 +291,7 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
                             <option value="APPROVED">Won</option>
                             <option value="LOST">Lost</option>
                           </select>
-                          <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 h-2.5 w-2.5 pointer-events-none opacity-60" style={{ color: cfg.fg }} />
+                          <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 h-2.5 w-2.5 pointer-events-none opacity-60" />
                         </div>
                       )}
                     </td>

@@ -106,7 +106,8 @@ function EmailPreview({
   const invoiceUrl = `${window.location.origin}/i/${data.publicToken}`
 
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', background: '#F7F4FA', padding: 24, minHeight: '100%' }}>
+    // The email as the client receives it — always light (.light-scope).
+    <div className="light-scope" style={{ fontFamily: 'system-ui, sans-serif', background: '#F7F4FA', padding: 24, minHeight: '100%' }}>
       {/* Subject line */}
       <div style={{ marginBottom: 16, padding: '10px 16px', background: '#fff', borderRadius: 6, border: '1px solid #E8E3EF' }}>
         <span style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>Subject: </span>

@@ -27,10 +27,10 @@ const RATE_UNIT_LABEL: Record<string, string> = {
   MILE:     'per mile',
 }
 
-const STATUS_LABEL: Record<string, { label: string; bg: string; color: string }> = {
-  DRAFT: { label: 'Draft', bg: '#f3f4f6', color: '#4b5563' },
-  SENT:  { label: 'Sent',  bg: '#dbeafe', color: '#1d4ed8' },
-  FINAL: { label: 'Final', bg: '#dcfce7', color: '#15803d' },
+const STATUS_LABEL: Record<string, { label: string; className: string }> = {
+  DRAFT: { label: 'Draft', className: 'bg-[#f3f4f6] text-[#4b5563]' },
+  SENT:  { label: 'Sent',  className: 'bg-[#dbeafe] text-[#1d4ed8]' },
+  FINAL: { label: 'Final', className: 'bg-[#dcfce7] text-[#15803d]' },
 }
 
 
@@ -216,10 +216,7 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
                       <Calendar className="h-3 w-3" />
                       {cs.shootDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                     </span>
-                    <span
-                      className="text-xs font-medium px-2 py-0.5 rounded-full"
-                      style={{ background: st.bg, color: st.color }}
-                    >
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${st.className}`}>
                       {st.label}
                     </span>
                   </div>

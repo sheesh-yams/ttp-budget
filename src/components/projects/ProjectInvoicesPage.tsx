@@ -273,8 +273,8 @@ export function ProjectInvoicesPage({
                   <div
                     className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
                     style={{
-                      background: matchedInv ? '#5D00A4' : '#F0EBF7',
-                      color: matchedInv ? '#fff' : '#8B4FC3',
+                      background: matchedInv ? 'var(--violet-solid)' : 'var(--violet-tint-2)',
+                      color: matchedInv ? '#fff' : 'var(--violet-text-2)',
                     }}
                   >
                     {idx + 1}

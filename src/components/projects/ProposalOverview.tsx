@@ -463,7 +463,8 @@ export function ProposalOverview({ phases, project, workspace, canEdit = true, c
           edits included), so you can check before hitting Save. */}
       {phase.preview && <Dialog open={showPreview} onOpenChange={setShowPreview}>
         <DialogContent
-          className="max-w-none w-screen h-[100dvh] top-0 left-0 translate-x-0 translate-y-0 rounded-none sm:rounded-none gap-0 p-0 overflow-y-auto [&>button]:hidden"
+          // "What the client would see" — always light (.light-scope).
+          className="light-scope max-w-none w-screen h-[100dvh] top-0 left-0 translate-x-0 translate-y-0 rounded-none sm:rounded-none gap-0 p-0 overflow-y-auto [&>button]:hidden"
         >
           {/* Custom close button — the default one assumes a light modal
               background; this preview's cover section is dark, so it needs

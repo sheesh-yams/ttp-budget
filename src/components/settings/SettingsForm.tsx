@@ -1,5 +1,6 @@
 'use client'
 
+import { MyProfileCard } from './MyProfileCard'
 import { useState, useRef, useTransition } from 'react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -277,6 +278,7 @@ interface CurrentUser {
   id:        string
   name:      string
   avatarUrl: string | null
+  themePreference?: string
 }
 
 export function SettingsForm({
@@ -328,10 +330,6 @@ export function SettingsForm({
   // ── Production settings ────────────────────────────────────────────────────
   const [callTimeFormat, setCallTimeFormat] = useState<TimeFormat>(workspace.callTimeFormat ?? '12H')
   const productionSave = useSave()
-
-  // ── My Profile ─────────────────────────────────────────────────────────────
-  const [profileAvatarUrl, setProfileAvatarUrl] = useState<string | null>(currentUser?.avatarUrl ?? null)
-  const profileSave = useSave()
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
@@ -646,39 +644,7 @@ export function SettingsForm({
       {/* ── MY PROFILE ── */}
       {currentUser && (
         <TabsContent value="profile">
-          <SettingsCard
-            title="My profile"
-            description="Your personal avatar shown across the workspace. Only you can change this."
-          >
-            <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
-              <ImageUploader
-                currentUrl={profileAvatarUrl}
-                onUploadComplete={url => {
-                  setProfileAvatarUrl(url || null)
-                  // Persist immediately — no separate Save button needed for avatar
-                  profileSave.save(() => updateUserAvatar(url))
-                }}
-                folder="avatars"
-                size={96}
-                fallback={
-                  <span className="text-2xl font-bold text-muted-foreground select-none">
-                    {currentUser.name ? currentUser.name[0].toUpperCase() : '?'}
-                  </span>
-                }
-              />
-              <div className="text-sm text-muted-foreground space-y-1 pt-1">
-                <p className="font-medium text-foreground">{currentUser.name || '—'}</p>
-                <p>Click or drop an image to update your avatar.</p>
-                <p className="text-xs">JPEG, PNG, or WebP · max 2 MB</p>
-                {profileSave.state === 'saved' && (
-                  <p className="text-xs text-emerald-600 font-medium">Avatar saved ✓</p>
-                )}
-                {profileSave.state === 'error' && (
-                  <p className="text-xs text-destructive">Failed to save — try again.</p>
-                )}
-              </div>
-            </div>
-          </SettingsCard>
+          <MyProfileCard user={{ name: currentUser.name, avatarUrl: currentUser.avatarUrl, themePreference: currentUser.themePreference ?? 'LIGHT' }} />
         </TabsContent>
       )}
     </Tabs>

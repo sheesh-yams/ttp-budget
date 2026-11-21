@@ -158,8 +158,8 @@ export function AssignTeamMemberModal({ projectId, roles, currentRows, onAssigne
                   {held.length > 0 && (
                     <span style={{
                       fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
-                      background: hasThisOne ? 'hsl(var(--muted))' : '#fef3c7',
-                      color: hasThisOne ? 'hsl(var(--muted-foreground))' : '#92400e',
+                      background: hasThisOne ? 'hsl(var(--muted))' : 'var(--tone-amber-bg)',
+                      color: hasThisOne ? 'hsl(var(--muted-foreground))' : 'var(--tone-amber-strong)',
                     }}>
                       {hasThisOne ? 'Already in this role' : `On project: ${held.map(r => r.roleName).join(', ')}`}
                     </span>

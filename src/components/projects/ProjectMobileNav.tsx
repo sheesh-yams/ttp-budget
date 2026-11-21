@@ -95,7 +95,7 @@ export function ProjectMobileNav({ projectId, tabs, can }: {
     <>
       <nav
         className="md:hidden fixed inset-x-0 bottom-0 z-40 border-t bg-white/95 backdrop-blur"
-        style={{ borderColor: '#E8E0F0', paddingBottom: 'env(safe-area-inset-bottom)' }}
+        style={{ borderColor: 'var(--color-border)', paddingBottom: 'env(safe-area-inset-bottom)' }}
         aria-label="Project"
       >
         <div className="grid items-end px-1.5 pt-1.5 pb-1" style={{ gridTemplateColumns: `repeat(${slots.length}, minmax(0, 1fr))` }}>

@@ -68,6 +68,21 @@ function darken(hex: string, amount: number): string {
   }
 }
 
+/** Mix two hex colors: 0 = a, 1 = b. */
+function mix(a: string, b: string, t: number): string {
+  try {
+    const [r1, g1, b1] = hexToRgb(a)
+    const [r2, g2, b2] = hexToRgb(b)
+    const m = (x: number, y: number) => Math.round(x + (y - x) * t)
+    return `#${[m(r1, r2), m(g1, g2), m(b1, b2)].map(v => v.toString(16).padStart(2, '0')).join('')}`
+  } catch {
+    return a
+  }
+}
+
+/** Dark-mode canvas the brand tints are mixed into (globals.css .dark). */
+const DARK_CANVAS = '#0F0B16'
+
 /**
  * Build the <style> tag content that overrides brand CSS variables
  * for the entire authenticated app shell.
@@ -121,6 +136,20 @@ export function buildBrandStyles(primaryColor: string, accentColor: string): str
   --color-mint:         ${accentColor};
   --color-mint-hover:   ${accentHover};
   --color-mint-dark:    ${accentDark};
+}
+
+/* Dark mode: the brand on a dark canvas — a brighter primary for buttons,
+   a light version for text/links, and tints mixed into the dark surface. */
+.dark {
+  --primary:            ${hexToShadcnHsl(lighten(primaryColor, 0.22))};
+  --ring:               ${hexToShadcnHsl(lighten(primaryColor, 0.40))};
+  --secondary:          ${hexToShadcnHsl(mix(primaryColor, DARK_CANVAS, 0.80))};
+  --secondary-foreground: ${hexToShadcnHsl(lighten(primaryColor, 0.75))};
+  --border:             262 24% 17.6%;
+  --input:              262 24% 17.6%;
+  --primary-text:       ${lighten(primaryColor, 0.55)};
+  --brand-primary-light:${mix(primaryColor, DARK_CANVAS, 0.82)};
+  --color-violet-tint:  ${mix(primaryColor, DARK_CANVAS, 0.82)};
 }
 `.trim()
 }

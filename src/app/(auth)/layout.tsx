@@ -9,6 +9,8 @@ import { Sidebar } from '@/components/layout/Sidebar'
 import { TopBar } from '@/components/layout/TopBar'
 import { MobileTopBar, MobileTabBar } from '@/components/layout/MobileNav'
 import { buildBrandStyles } from '@/lib/brand'
+import { normalizeTheme, themeScript } from '@/lib/theme'
+import { ThemeController } from '@/components/theme/ThemeController'
 
 // viewport-fit=cover so the phone shell can pad for the notch / home
 // indicator with env(safe-area-inset-*). Scoped to the signed-in app.
@@ -48,6 +50,7 @@ export default async function AuthLayout({
   // Fetch the active workspace for branding (may differ from user.workspace
   // when the user has switched to a non-home workspace).
   const [workspace, access] = await Promise.all([getActiveWorkspace(), getAccess()])
+  const themePref = normalizeTheme((user as unknown as { themePreference?: string }).themePreference)
   const brandStyles = buildBrandStyles(
     workspace.primaryColor || '#5D00A4',
     workspace.accentColor  || '#04FFCC',
@@ -67,6 +70,12 @@ export default async function AuthLayout({
 
   return (
     <>
+      {/* Dark mode: set <html class="dark"> from the person's preference
+          before anything paints (src/lib/theme.ts). */}
+      <script dangerouslySetInnerHTML={{ __html: themeScript(themePref) }} />
+      {/* …and from React, for client-side arrivals (an inline script added by a
+          client navigation never runs) and to drop it on leaving the app. */}
+      <ThemeController preference={themePref} />
       {/* Inject workspace brand colors as CSS variable overrides */}
       <style dangerouslySetInnerHTML={{ __html: brandStyles }} />
       {/* dvh: the visible height on phones, where 100vh runs under the browser bar. */}

@@ -27,13 +27,13 @@ export function TopBar({ canCreateProject = true }: { canCreateProject?: boolean
   return (
     // Desktop only — phones get MobileTopBar.
     <header className="hidden md:flex h-[52px] flex-shrink-0 items-center justify-between border-b px-6"
-      style={{ borderColor: '#E8E0F0', background: '#F7F4FA' }}
+      style={{ borderColor: 'var(--color-border)', background: 'var(--color-canvas)' }}
     >
       {/* Left: greeting on dashboard, page breadcrumb elsewhere */}
       {isDashboard ? (
-        <p className="text-[13px] font-medium" style={{ color: '#2C2C2A' }}>
+        <p className="text-[13px] font-medium" style={{ color: 'var(--color-body)' }}>
           {greeting(firstName)}
-          <span className="ml-2 font-normal" style={{ color: '#888780' }}>
+          <span className="ml-2 font-normal" style={{ color: 'var(--color-muted)' }}>
             · {monthYear()}
           </span>
         </p>
@@ -46,7 +46,7 @@ export function TopBar({ canCreateProject = true }: { canCreateProject?: boolean
         <button
           type="button"
           className="rounded-md p-1.5 transition-colors hover:bg-black/[0.05]"
-          style={{ color: '#888780' }}
+          style={{ color: 'var(--color-muted)' }}
           aria-label="Search"
         >
           <Search className="h-4 w-4" />

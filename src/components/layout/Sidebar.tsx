@@ -409,10 +409,10 @@ export function UserFooter() {
           {initials}
         </div>
       )}
-      <div className="min-w-0 flex-1">
+      <Link href="/profile" className="min-w-0 flex-1 hover:opacity-90" title="My profile — avatar and appearance">
         <p className="truncate text-[12px] font-medium text-white/85">{name}</p>
         <p className="truncate text-[10px] text-white/35">{email}</p>
-      </div>
+      </Link>
       <button
         onClick={() => signOut(() => router.push('/sign-in'))}
         className="flex-shrink-0 text-white/25 transition-colors hover:text-white/60"

@@ -108,7 +108,7 @@ function ConfirmDialog({
             onClick={onConfirm}
             disabled={isPending}
             className="flex-1 rounded-lg px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50"
-            style={{ background: '#5D00A4' }}
+            style={{ background: 'var(--violet-solid)' }}
           >
             {isPending ? 'Restoring…' : 'Continue'}
           </button>

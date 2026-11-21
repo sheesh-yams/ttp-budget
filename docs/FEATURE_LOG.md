@@ -105,6 +105,45 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-21 — Dark mode (signed-in app, per person)
+
+- **Asked:** a purely aesthetic dark mode, toggled in Settings → My profile. Mockup in `docs/mockups/dark-mode/index.html` (local).
+- **Migration** `20261121000001_user_theme_preference`: `User.themePreference TEXT NOT NULL DEFAULT 'LIGHT'` (LIGHT / DARK / SYSTEM). Run by the user.
+- **Where to change it:**
+  - Settings → My profile, and a new **`/profile`** page that anyone signed in can open (your name in the sidebar links there).
+  - An Appearance picker (Light / Dark / Match my device). It applies instantly and saves with `updateThemePreference`, which only touches your own row.
+- **How it's applied** (`src/lib/theme.ts`):
+  - The auth layout's inline `themeScript` sets `<html class="dark">` before paint (no flash).
+  - `ThemeController` (`installTheme`) re-applies it for client-side arrivals, such as Clerk sign-in, where an inline script added by navigation never runs. It also takes over the device listener for SYSTEM, and removes the class when you leave the app (sign-out).
+  - Root `<html suppressHydrationWarning>`.
+- **Colours:**
+  - **`globals.css`:**
+    - A `.dark` token block (shadcn variables plus brand/semantic tokens).
+    - New inline-style tokens whose light values equal the hex they replaced, including fixed `--violet-*` tokens that don't follow the workspace brand.
+    - About 100 override rules turning stock Tailwind tints, grays and `bg-white` dark.
+  - **`scripts/dark-overrides.ts`:** generates `src/styles/dark-overrides.css` for every arbitrary-hex class in the signed-in app (96 today). `--check` fails on a colour with no dark value.
+  - **`buildBrandStyles`:** a `.dark` block (brighter primary, a lightened brand text colour, dark tints). Light mode is unchanged.
+- **Always light:** public pages (`ForceLight` in the public layout, restoring your theme on leaving), PDFs, emails, and in-app client previews wrapped in `.light-scope`:
+  - the invoice preview page
+  - the invoice email preview
+  - the proposal overview's client preview
+  - template previews
+  - the deal memo document
+- **Light mode:** kept exact. The proposal status dropdown and the Rolodex call-sheet pill keep their original colours, via arbitrary-hex classes with dark values.
+- **Dev:** `/dev/theme` shows the shared UI in both themes side by side (dev only; 404 and not public in production).
+- **CLAUDE.md:** a dark-mode rule (use tokens; regenerate overrides for hex classes; `.light-scope` for previews).
+- **Verified:**
+  - jest (636; `theme.test.ts` incl. `installTheme` with a fake browser), tsc, lint, `dark-overrides --check`
+  - next build up to the known Resend error
+  - swatch screenshots in both themes; the theme script toggled the page in a real browser
+  - **pitfall-reviewer**, all fixed:
+    - no theme after a client-side sign-in
+    - the proposal overview preview went dark
+    - the picker was disabled for view-only settings and unreachable without Settings
+    - sign-out left the page dark
+    - two light-mode colour shifts (status selects; brand-driven accents)
+- **Needs a signed-in pass:** walk every page in Dark. Any missed colour is a small fix (token, or a generator mapping).
+
 ### 2026-11-11 — Call sheets: hide a client contact's phone and/or email from the crew
 
 - **Asked:** a way to keep the client's phone number and/or email off the call sheet the rest of the crew sees.

@@ -88,6 +88,15 @@ Stack: Next.js 15 App Router · Prisma 5 + Postgres (Neon) · Clerk (orgs = work
   anything non-destructive.
 - No toast system: success feedback is inline (checkmark + text for ~1.5s).
 - Tailwind + shadcn primitives in `src/components/ui`; `cn()` uses tailwind-merge.
+- **Dark mode** (signed-in app only, per person: `User.themePreference`, applied
+  by `themeScript` in the auth layout). Use tokens — `bg-card`, `bg-background`,
+  `text-foreground`, `text-muted-foreground`, `border-border`, or
+  `var(--color-body|muted|border|canvas)`, `var(--primary-text)`,
+  `var(--surface-card)`, `var(--tone-*)` in inline styles. A hard-coded
+  `[#hex]` class needs a dark value: `npx tsx scripts/dark-overrides.ts`
+  (`--check` fails if one is missing). Client-facing views (public pages,
+  PDFs, emails, in-app "how the client sees it" previews) stay light — wrap
+  in-app previews in `.light-scope`. Swatches: `/dev/theme` (dev only).
 
 ## Verify before every push
 

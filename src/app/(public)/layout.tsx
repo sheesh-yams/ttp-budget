@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { ForceLight } from '@/components/theme/ForceLight'
 
 // Applied to all public routes: /p/[token], /i/[token], /cs/[token]
 export const metadata: Metadata = {
@@ -11,6 +12,7 @@ export const metadata: Metadata = {
   referrer: 'no-referrer',
 }
 
+// Client-facing pages are always light, whatever the producer's theme.
 export default function PublicLayout({ children }: { children: React.ReactNode }) {
-  return <>{children}</>
+  return <><ForceLight />{children}</>
 }

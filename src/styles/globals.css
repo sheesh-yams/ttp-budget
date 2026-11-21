@@ -47,12 +47,171 @@
     --color-muted:        #888780;
     --color-body:         #2C2C2A;
 
+    /* ── Semantic surfaces (light; dark values in .dark) ───────── */
+    --surface-sunken:     #F3EEF8;           /* table heads, money strips */
+    --row-hover:          #FAF7FC;
+    --primary-text:       #5D00A4;           /* violet text & links */
+    --sidebar-edge:       transparent;
+    --scroll-thumb:       #E8E0F0;
+    --scroll-thumb-hover: #C99AEC;
+
+    /* ── Inline-style colours (light value = the exact hex it replaced) ── */
+    --ink:                #0A0612;           /* strongest text */
+    --text-soft:          #6B6B6B;
+    --text-faint:         #BBBBBB;
+    --surface-card:       #FFFFFF;
+    --canvas-warm:        #FAFAF8;
+    --tone-green:         #15803D;
+    --tone-green-2:       #059669;
+    --tone-red:           #B91C1C;
+    --tone-red-2:         #DC2626;
+    --tone-red-3:         #EF4444;
+    --tone-amber:         #B45309;
+    --tone-violet:        #7C3AED;
+    --tone-amber-bg:      #FEF3C7;
+    --tone-amber-strong:  #92400E;
+    --violet-solid:       #5D00A4;
+    --violet-tint:        #F5EDFA;
+    --violet-tint-2:      #F0EBF7;
+    --violet-text-2:      #8B4FC3;
+
     /* ── Proposal cover gradient ─────────────────────────────── */
     --gradient-cover:
       radial-gradient(ellipse 80% 65% at 78% 22%, #7B1FBF 0%, rgba(123,31,191,0.65) 38%, rgba(123,31,191,0) 72%),
       radial-gradient(ellipse 55% 55% at 18% 72%, #3A006F 0%, rgba(58,0,111,0.55) 42%, rgba(58,0,111,0) 75%),
       radial-gradient(ellipse 65% 50% at 50% 48%, #5D00A4 0%, rgba(93,0,164,0.30) 48%, rgba(93,0,164,0) 82%),
       #080010;
+  }
+
+  /* ── Dark mode (signed-in app only; <html class="dark"> set by the auth
+     layout from User.themePreference). Client-facing pages never get it. ── */
+  .dark {
+    color-scheme: dark;
+    --background:            262 33% 6.5%;    /* #0F0B16 */
+    --foreground:            262 24% 91.2%;    /* #E7E3EE */
+    --card:                  263 27% 9.6%;    /* #17121F */
+    --card-foreground:       262 24% 91.2%;    /* #E7E3EE */
+    --popover:               261 26% 12.7%;    /* #1E1829 */
+    --popover-foreground:    262 24% 91.2%;    /* #E7E3EE */
+    --primary:               270 63% 53.9%;    /* #8A3FD4 */
+    --primary-foreground:    0 0% 100.0%;    /* #FFFFFF */
+    --secondary:             265 29% 14.9%;    /* #241B31 */
+    --secondary-foreground:  274 71% 86.7%;    /* #E0C5F5 */
+    --muted:                 262 27% 11.8%;    /* #1C1626 */
+    --muted-foreground:      262 10% 61.4%;    /* #9A93A6 */
+    --accent:                168 100% 50.8%;    /* #04FFCC */
+    --accent-foreground:     168 100% 12.0%;    /* #003D31 */
+    --destructive:           358 75% 59.0%;    /* #E5484D */
+    --destructive-foreground: 0 0% 100.0%;    /* #FFFFFF */
+    --border:                262 24% 17.6%;    /* #2A2238 */
+    --input:                 262 24% 17.6%;    /* #2A2238 */
+    --ring:                  272 66% 64.7%;    /* #A96AE0 */
+
+    --color-violet-tint:  #241B31;
+    --color-canvas:       #0F0B16;
+    --color-border:       #2A2238;
+    --color-muted:        #9A93A6;
+    --color-body:         #E7E3EE;
+
+    --surface-sunken:     #130F1A;
+    --row-hover:          #1C1626;
+    --primary-text:       #C99AEC;
+    --sidebar-edge:       #1C1626;
+    --scroll-thumb:       #2A2238;
+    --scroll-thumb-hover: #4A3C5E;
+
+    --ink:                #FFFFFF;
+    --text-soft:          #B7B1C2;
+    --text-faint:         #6B6477;
+    --surface-card:       #17121F;
+    --canvas-warm:        #130F1A;
+    --tone-green:         #6EE7B7;
+    --tone-green-2:       #34D399;
+    --tone-red:           #FCA5A5;
+    --tone-red-2:         #F87171;
+    --tone-red-3:         #F87171;
+    --tone-amber:         #FCD34D;
+    --tone-violet:        #C99AEC;
+    --tone-amber-bg:      rgba(245, 158, 11, .14);
+    --tone-amber-strong:  #FCD34D;
+    --violet-solid:       #8A3FD4;
+    --violet-tint:        #241B31;
+    --violet-tint-2:      #241B31;
+    --violet-text-2:      #C99AEC;
+  }
+
+  /* Client-facing previews inside the app ("how your client will see it")
+     stay light: re-declare the light tokens for the subtree. */
+  .light-scope {
+    color-scheme: light;
+    /* Inherited text colour was computed in the dark parent — reset it. */
+    color: hsl(30 5% 17%);
+    /* ── shadcn/ui HSL tokens (mapped to brand) ────────────── */
+    --background:         270 50% 98%;       /* #F7F4FA canvas */
+    --foreground:         30 5% 17%;         /* #2C2C2A body text */
+    --card:               0 0% 100%;
+    --card-foreground:    30 5% 17%;
+    --popover:            0 0% 100%;
+    --popover-foreground: 30 5% 17%;
+    --primary:            275 100% 32%;      /* #5D00A4 violet */
+    --primary-foreground: 0 0% 100%;
+    --secondary:          270 50% 95%;       /* #F5EDFA violet tint */
+    --secondary-foreground: 275 100% 15%;   /* #2A0048 */
+    --muted:              270 25% 96%;
+    --muted-foreground:   30 3% 53%;         /* #888780 */
+    --accent:             165 100% 51%;      /* #04FFCC mint */
+    --accent-foreground:  165 100% 12%;      /* #003D31 */
+    --destructive:        0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border:             270 32% 88%;       /* #E8E0F0 */
+    --input:              270 32% 88%;
+    --ring:               275 100% 32%;
+    --radius:             0.625rem;          /* 10px cards, 6px btns, 8px inputs */
+
+    /* ── Direct brand tokens (for inline styles & proposals) ── */
+    --color-violet:       #5D00A4;
+    --color-violet-mid:   #7B1FBF;
+    --color-violet-hover: #9D4ED9;
+    --color-violet-tint:  #F5EDFA;
+    --color-violet-dark:  #2A0048;
+    --color-mint:         #04FFCC;
+    --color-mint-hover:   #00D9A8;
+    --color-mint-dark:    #003D31;
+    --color-ink:          #0A0612;
+    --color-ink-soft:     #1A1025;
+    --color-canvas:       #F7F4FA;
+    --color-border:       #E8E0F0;
+    --color-muted:        #888780;
+    --color-body:         #2C2C2A;
+
+    /* ── Semantic surfaces (light; dark values in .dark) ───────── */
+    --surface-sunken:     #F3EEF8;           /* table heads, money strips */
+    --row-hover:          #FAF7FC;
+    --primary-text:       #5D00A4;           /* violet text & links */
+    --sidebar-edge:       transparent;
+    --scroll-thumb:       #E8E0F0;
+    --scroll-thumb-hover: #C99AEC;
+    --surface-sunken:     #F3EEF8;
+    --row-hover:          #FAF7FC;
+    --primary-text:       #5D00A4;
+    --ink:                #0A0612;
+    --text-soft:          #6B6B6B;
+    --text-faint:         #BBBBBB;
+    --surface-card:       #FFFFFF;
+    --canvas-warm:        #FAFAF8;
+    --tone-green:         #15803D;
+    --tone-green-2:       #059669;
+    --tone-red:           #B91C1C;
+    --tone-red-2:         #DC2626;
+    --tone-red-3:         #EF4444;
+    --tone-amber:         #B45309;
+    --tone-violet:        #7C3AED;
+    --tone-amber-bg:      #FEF3C7;
+    --tone-amber-strong:  #92400E;
+    --violet-solid:       #5D00A4;
+    --violet-tint:        #F5EDFA;
+    --violet-tint-2:      #F0EBF7;
+    --violet-text-2:      #8B4FC3;
   }
 }
 
@@ -91,8 +250,8 @@
   /* Thin scrollbar */
   .budget-scroll::-webkit-scrollbar        { width: 6px; height: 6px; }
   .budget-scroll::-webkit-scrollbar-track  { background: transparent; }
-  .budget-scroll::-webkit-scrollbar-thumb  { background: #E8E0F0; border-radius: 3px; }
-  .budget-scroll::-webkit-scrollbar-thumb:hover { background: #C99AEC; }
+  .budget-scroll::-webkit-scrollbar-thumb  { background: var(--scroll-thumb); border-radius: 3px; }
+  .budget-scroll::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); }
 }
 
 @keyframes mint-flash {
@@ -116,3 +275,115 @@
   }
   .btn-mint:hover { background-color: var(--color-mint-hover); }
 }
+
+/* ── Dark mode: stock Tailwind tints ─────────────────────────────────────────
+   The one deliberate exception to "use tokens": ~230 status chips/callouts use
+   Tailwind's light tints (bg-emerald-100 text-emerald-700 …). In dark mode
+   they become translucent tints with light text, and bg-white becomes the card
+   surface — never inside a client-facing .light-scope. New code should use
+   tokens (bg-card, text-muted-foreground, border-border …); see
+   scripts/audit-colors.ts. Kept outside @layer so Tailwind never purges it;
+   .dark + one class out-specifies the plain utility either way. */
+  .dark .bg-white:not(.light-scope, .light-scope *), .dark .hover\:bg-white:hover:not(.light-scope, .light-scope *) { background-color: hsl(var(--card)); }
+  .dark .bg-red-50:not(.light-scope, .light-scope *), .dark .hover\:bg-red-50:hover:not(.light-scope, .light-scope *) { background-color: rgba(239, 68, 68, .10); }
+  .dark .bg-red-100:not(.light-scope, .light-scope *), .dark .hover\:bg-red-100:hover:not(.light-scope, .light-scope *) { background-color: rgba(239, 68, 68, .15); }
+  .dark .bg-red-200:not(.light-scope, .light-scope *) { background-color: rgba(239, 68, 68, .22); }
+  .dark .text-red-500:not(.light-scope, .light-scope *) { color: #F87171; }
+  .dark .text-red-600:not(.light-scope, .light-scope *), .dark .text-red-700:not(.light-scope, .light-scope *), .dark .text-red-800:not(.light-scope, .light-scope *), .dark .text-red-900:not(.light-scope, .light-scope *) { color: #FCA5A5; }
+  .dark .border-red-100:not(.light-scope, .light-scope *), .dark .border-red-200:not(.light-scope, .light-scope *), .dark .border-red-300:not(.light-scope, .light-scope *) { border-color: rgba(239, 68, 68, .30); }
+  .dark .bg-orange-50:not(.light-scope, .light-scope *), .dark .hover\:bg-orange-50:hover:not(.light-scope, .light-scope *) { background-color: rgba(249, 115, 22, .10); }
+  .dark .bg-orange-100:not(.light-scope, .light-scope *), .dark .hover\:bg-orange-100:hover:not(.light-scope, .light-scope *) { background-color: rgba(249, 115, 22, .15); }
+  .dark .bg-orange-200:not(.light-scope, .light-scope *) { background-color: rgba(249, 115, 22, .22); }
+  .dark .text-orange-500:not(.light-scope, .light-scope *) { color: #FB923C; }
+  .dark .text-orange-600:not(.light-scope, .light-scope *), .dark .text-orange-700:not(.light-scope, .light-scope *), .dark .text-orange-800:not(.light-scope, .light-scope *), .dark .text-orange-900:not(.light-scope, .light-scope *) { color: #FDBA74; }
+  .dark .border-orange-100:not(.light-scope, .light-scope *), .dark .border-orange-200:not(.light-scope, .light-scope *), .dark .border-orange-300:not(.light-scope, .light-scope *) { border-color: rgba(249, 115, 22, .30); }
+  .dark .bg-amber-50:not(.light-scope, .light-scope *), .dark .hover\:bg-amber-50:hover:not(.light-scope, .light-scope *) { background-color: rgba(245, 158, 11, .10); }
+  .dark .bg-amber-100:not(.light-scope, .light-scope *), .dark .hover\:bg-amber-100:hover:not(.light-scope, .light-scope *) { background-color: rgba(245, 158, 11, .15); }
+  .dark .bg-amber-200:not(.light-scope, .light-scope *) { background-color: rgba(245, 158, 11, .22); }
+  .dark .text-amber-500:not(.light-scope, .light-scope *) { color: #FBBF24; }
+  .dark .text-amber-600:not(.light-scope, .light-scope *), .dark .text-amber-700:not(.light-scope, .light-scope *), .dark .text-amber-800:not(.light-scope, .light-scope *), .dark .text-amber-900:not(.light-scope, .light-scope *) { color: #FCD34D; }
+  .dark .border-amber-100:not(.light-scope, .light-scope *), .dark .border-amber-200:not(.light-scope, .light-scope *), .dark .border-amber-300:not(.light-scope, .light-scope *) { border-color: rgba(245, 158, 11, .30); }
+  .dark .bg-yellow-50:not(.light-scope, .light-scope *), .dark .hover\:bg-yellow-50:hover:not(.light-scope, .light-scope *) { background-color: rgba(234, 179, 8, .10); }
+  .dark .bg-yellow-100:not(.light-scope, .light-scope *), .dark .hover\:bg-yellow-100:hover:not(.light-scope, .light-scope *) { background-color: rgba(234, 179, 8, .15); }
+  .dark .bg-yellow-200:not(.light-scope, .light-scope *) { background-color: rgba(234, 179, 8, .22); }
+  .dark .text-yellow-500:not(.light-scope, .light-scope *) { color: #FACC15; }
+  .dark .text-yellow-600:not(.light-scope, .light-scope *), .dark .text-yellow-700:not(.light-scope, .light-scope *), .dark .text-yellow-800:not(.light-scope, .light-scope *), .dark .text-yellow-900:not(.light-scope, .light-scope *) { color: #FDE047; }
+  .dark .border-yellow-100:not(.light-scope, .light-scope *), .dark .border-yellow-200:not(.light-scope, .light-scope *), .dark .border-yellow-300:not(.light-scope, .light-scope *) { border-color: rgba(234, 179, 8, .30); }
+  .dark .bg-green-50:not(.light-scope, .light-scope *), .dark .hover\:bg-green-50:hover:not(.light-scope, .light-scope *) { background-color: rgba(34, 197, 94, .10); }
+  .dark .bg-green-100:not(.light-scope, .light-scope *), .dark .hover\:bg-green-100:hover:not(.light-scope, .light-scope *) { background-color: rgba(34, 197, 94, .15); }
+  .dark .bg-green-200:not(.light-scope, .light-scope *) { background-color: rgba(34, 197, 94, .22); }
+  .dark .text-green-500:not(.light-scope, .light-scope *) { color: #4ADE80; }
+  .dark .text-green-600:not(.light-scope, .light-scope *), .dark .text-green-700:not(.light-scope, .light-scope *), .dark .text-green-800:not(.light-scope, .light-scope *), .dark .text-green-900:not(.light-scope, .light-scope *) { color: #86EFAC; }
+  .dark .border-green-100:not(.light-scope, .light-scope *), .dark .border-green-200:not(.light-scope, .light-scope *), .dark .border-green-300:not(.light-scope, .light-scope *) { border-color: rgba(34, 197, 94, .30); }
+  .dark .bg-emerald-50:not(.light-scope, .light-scope *), .dark .hover\:bg-emerald-50:hover:not(.light-scope, .light-scope *) { background-color: rgba(16, 185, 129, .10); }
+  .dark .bg-emerald-100:not(.light-scope, .light-scope *), .dark .hover\:bg-emerald-100:hover:not(.light-scope, .light-scope *) { background-color: rgba(16, 185, 129, .15); }
+  .dark .bg-emerald-200:not(.light-scope, .light-scope *) { background-color: rgba(16, 185, 129, .22); }
+  .dark .text-emerald-500:not(.light-scope, .light-scope *) { color: #34D399; }
+  .dark .text-emerald-600:not(.light-scope, .light-scope *), .dark .text-emerald-700:not(.light-scope, .light-scope *), .dark .text-emerald-800:not(.light-scope, .light-scope *), .dark .text-emerald-900:not(.light-scope, .light-scope *) { color: #6EE7B7; }
+  .dark .border-emerald-100:not(.light-scope, .light-scope *), .dark .border-emerald-200:not(.light-scope, .light-scope *), .dark .border-emerald-300:not(.light-scope, .light-scope *) { border-color: rgba(16, 185, 129, .30); }
+  .dark .bg-teal-50:not(.light-scope, .light-scope *), .dark .hover\:bg-teal-50:hover:not(.light-scope, .light-scope *) { background-color: rgba(20, 184, 166, .10); }
+  .dark .bg-teal-100:not(.light-scope, .light-scope *), .dark .hover\:bg-teal-100:hover:not(.light-scope, .light-scope *) { background-color: rgba(20, 184, 166, .15); }
+  .dark .bg-teal-200:not(.light-scope, .light-scope *) { background-color: rgba(20, 184, 166, .22); }
+  .dark .text-teal-500:not(.light-scope, .light-scope *) { color: #2DD4BF; }
+  .dark .text-teal-600:not(.light-scope, .light-scope *), .dark .text-teal-700:not(.light-scope, .light-scope *), .dark .text-teal-800:not(.light-scope, .light-scope *), .dark .text-teal-900:not(.light-scope, .light-scope *) { color: #5EEAD4; }
+  .dark .border-teal-100:not(.light-scope, .light-scope *), .dark .border-teal-200:not(.light-scope, .light-scope *), .dark .border-teal-300:not(.light-scope, .light-scope *) { border-color: rgba(20, 184, 166, .30); }
+  .dark .bg-sky-50:not(.light-scope, .light-scope *), .dark .hover\:bg-sky-50:hover:not(.light-scope, .light-scope *) { background-color: rgba(14, 165, 233, .10); }
+  .dark .bg-sky-100:not(.light-scope, .light-scope *), .dark .hover\:bg-sky-100:hover:not(.light-scope, .light-scope *) { background-color: rgba(14, 165, 233, .15); }
+  .dark .bg-sky-200:not(.light-scope, .light-scope *) { background-color: rgba(14, 165, 233, .22); }
+  .dark .text-sky-500:not(.light-scope, .light-scope *) { color: #38BDF8; }
+  .dark .text-sky-600:not(.light-scope, .light-scope *), .dark .text-sky-700:not(.light-scope, .light-scope *), .dark .text-sky-800:not(.light-scope, .light-scope *), .dark .text-sky-900:not(.light-scope, .light-scope *) { color: #7DD3FC; }
+  .dark .border-sky-100:not(.light-scope, .light-scope *), .dark .border-sky-200:not(.light-scope, .light-scope *), .dark .border-sky-300:not(.light-scope, .light-scope *) { border-color: rgba(14, 165, 233, .30); }
+  .dark .bg-blue-50:not(.light-scope, .light-scope *), .dark .hover\:bg-blue-50:hover:not(.light-scope, .light-scope *) { background-color: rgba(59, 130, 246, .10); }
+  .dark .bg-blue-100:not(.light-scope, .light-scope *), .dark .hover\:bg-blue-100:hover:not(.light-scope, .light-scope *) { background-color: rgba(59, 130, 246, .15); }
+  .dark .bg-blue-200:not(.light-scope, .light-scope *) { background-color: rgba(59, 130, 246, .22); }
+  .dark .text-blue-500:not(.light-scope, .light-scope *) { color: #60A5FA; }
+  .dark .text-blue-600:not(.light-scope, .light-scope *), .dark .text-blue-700:not(.light-scope, .light-scope *), .dark .text-blue-800:not(.light-scope, .light-scope *), .dark .text-blue-900:not(.light-scope, .light-scope *) { color: #93C5FD; }
+  .dark .border-blue-100:not(.light-scope, .light-scope *), .dark .border-blue-200:not(.light-scope, .light-scope *), .dark .border-blue-300:not(.light-scope, .light-scope *) { border-color: rgba(59, 130, 246, .30); }
+  .dark .bg-rose-50:not(.light-scope, .light-scope *), .dark .hover\:bg-rose-50:hover:not(.light-scope, .light-scope *) { background-color: rgba(244, 63, 94, .10); }
+  .dark .bg-rose-100:not(.light-scope, .light-scope *), .dark .hover\:bg-rose-100:hover:not(.light-scope, .light-scope *) { background-color: rgba(244, 63, 94, .15); }
+  .dark .bg-rose-200:not(.light-scope, .light-scope *) { background-color: rgba(244, 63, 94, .22); }
+  .dark .text-rose-500:not(.light-scope, .light-scope *) { color: #FB7185; }
+  .dark .text-rose-600:not(.light-scope, .light-scope *), .dark .text-rose-700:not(.light-scope, .light-scope *), .dark .text-rose-800:not(.light-scope, .light-scope *), .dark .text-rose-900:not(.light-scope, .light-scope *) { color: #FDA4AF; }
+  .dark .border-rose-100:not(.light-scope, .light-scope *), .dark .border-rose-200:not(.light-scope, .light-scope *), .dark .border-rose-300:not(.light-scope, .light-scope *) { border-color: rgba(244, 63, 94, .30); }
+  .dark .bg-pink-50:not(.light-scope, .light-scope *), .dark .hover\:bg-pink-50:hover:not(.light-scope, .light-scope *) { background-color: rgba(236, 72, 153, .10); }
+  .dark .bg-pink-100:not(.light-scope, .light-scope *), .dark .hover\:bg-pink-100:hover:not(.light-scope, .light-scope *) { background-color: rgba(236, 72, 153, .15); }
+  .dark .bg-pink-200:not(.light-scope, .light-scope *) { background-color: rgba(236, 72, 153, .22); }
+  .dark .text-pink-500:not(.light-scope, .light-scope *) { color: #F472B6; }
+  .dark .text-pink-600:not(.light-scope, .light-scope *), .dark .text-pink-700:not(.light-scope, .light-scope *), .dark .text-pink-800:not(.light-scope, .light-scope *), .dark .text-pink-900:not(.light-scope, .light-scope *) { color: #F9A8D4; }
+  .dark .border-pink-100:not(.light-scope, .light-scope *), .dark .border-pink-200:not(.light-scope, .light-scope *), .dark .border-pink-300:not(.light-scope, .light-scope *) { border-color: rgba(236, 72, 153, .30); }
+  .dark .bg-violet-50:not(.light-scope, .light-scope *), .dark .hover\:bg-violet-50:hover:not(.light-scope, .light-scope *) { background-color: rgba(169, 106, 224, .10); }
+  .dark .bg-violet-100:not(.light-scope, .light-scope *), .dark .hover\:bg-violet-100:hover:not(.light-scope, .light-scope *) { background-color: rgba(169, 106, 224, .15); }
+  .dark .bg-violet-200:not(.light-scope, .light-scope *) { background-color: rgba(169, 106, 224, .22); }
+  .dark .text-violet-500:not(.light-scope, .light-scope *) { color: #C99AEC; }
+  .dark .text-violet-600:not(.light-scope, .light-scope *), .dark .text-violet-700:not(.light-scope, .light-scope *), .dark .text-violet-800:not(.light-scope, .light-scope *), .dark .text-violet-900:not(.light-scope, .light-scope *) { color: #D3B4F2; }
+  .dark .border-violet-100:not(.light-scope, .light-scope *), .dark .border-violet-200:not(.light-scope, .light-scope *), .dark .border-violet-300:not(.light-scope, .light-scope *) { border-color: rgba(169, 106, 224, .30); }
+  .dark .bg-gray-50:not(.light-scope, .light-scope *), .dark .bg-gray-100:not(.light-scope, .light-scope *), .dark .hover\:bg-gray-50:hover:not(.light-scope, .light-scope *), .dark .hover\:bg-gray-100:hover:not(.light-scope, .light-scope *) { background-color: rgba(255, 255, 255, .06); }
+  .dark .bg-gray-200:not(.light-scope, .light-scope *), .dark .bg-gray-300:not(.light-scope, .light-scope *) { background-color: rgba(255, 255, 255, .12); }
+  .dark .text-gray-400:not(.light-scope, .light-scope *) { color: #6B6477; }
+  .dark .text-gray-500:not(.light-scope, .light-scope *), .dark .text-gray-600:not(.light-scope, .light-scope *) { color: hsl(var(--muted-foreground)); }
+  .dark .text-gray-700:not(.light-scope, .light-scope *), .dark .text-gray-800:not(.light-scope, .light-scope *), .dark .text-gray-900:not(.light-scope, .light-scope *) { color: hsl(var(--foreground)); }
+  .dark .border-gray-100:not(.light-scope, .light-scope *), .dark .border-gray-200:not(.light-scope, .light-scope *), .dark .border-gray-300:not(.light-scope, .light-scope *) { border-color: hsl(var(--border)); }
+  .dark .bg-zinc-50:not(.light-scope, .light-scope *), .dark .bg-zinc-100:not(.light-scope, .light-scope *), .dark .hover\:bg-zinc-50:hover:not(.light-scope, .light-scope *), .dark .hover\:bg-zinc-100:hover:not(.light-scope, .light-scope *) { background-color: rgba(255, 255, 255, .06); }
+  .dark .bg-zinc-200:not(.light-scope, .light-scope *), .dark .bg-zinc-300:not(.light-scope, .light-scope *) { background-color: rgba(255, 255, 255, .12); }
+  .dark .text-zinc-400:not(.light-scope, .light-scope *) { color: #6B6477; }
+  .dark .text-zinc-500:not(.light-scope, .light-scope *), .dark .text-zinc-600:not(.light-scope, .light-scope *) { color: hsl(var(--muted-foreground)); }
+  .dark .text-zinc-700:not(.light-scope, .light-scope *), .dark .text-zinc-800:not(.light-scope, .light-scope *), .dark .text-zinc-900:not(.light-scope, .light-scope *) { color: hsl(var(--foreground)); }
+  .dark .border-zinc-100:not(.light-scope, .light-scope *), .dark .border-zinc-200:not(.light-scope, .light-scope *), .dark .border-zinc-300:not(.light-scope, .light-scope *) { border-color: hsl(var(--border)); }
+  .dark .bg-slate-50:not(.light-scope, .light-scope *), .dark .bg-slate-100:not(.light-scope, .light-scope *), .dark .hover\:bg-slate-50:hover:not(.light-scope, .light-scope *), .dark .hover\:bg-slate-100:hover:not(.light-scope, .light-scope *) { background-color: rgba(255, 255, 255, .06); }
+  .dark .bg-slate-200:not(.light-scope, .light-scope *), .dark .bg-slate-300:not(.light-scope, .light-scope *) { background-color: rgba(255, 255, 255, .12); }
+  .dark .text-slate-400:not(.light-scope, .light-scope *) { color: #6B6477; }
+  .dark .text-slate-500:not(.light-scope, .light-scope *), .dark .text-slate-600:not(.light-scope, .light-scope *) { color: hsl(var(--muted-foreground)); }
+  .dark .text-slate-700:not(.light-scope, .light-scope *), .dark .text-slate-800:not(.light-scope, .light-scope *), .dark .text-slate-900:not(.light-scope, .light-scope *) { color: hsl(var(--foreground)); }
+  .dark .border-slate-100:not(.light-scope, .light-scope *), .dark .border-slate-200:not(.light-scope, .light-scope *), .dark .border-slate-300:not(.light-scope, .light-scope *) { border-color: hsl(var(--border)); }
+  .dark .bg-neutral-50:not(.light-scope, .light-scope *), .dark .bg-neutral-100:not(.light-scope, .light-scope *), .dark .hover\:bg-neutral-50:hover:not(.light-scope, .light-scope *), .dark .hover\:bg-neutral-100:hover:not(.light-scope, .light-scope *) { background-color: rgba(255, 255, 255, .06); }
+  .dark .bg-neutral-200:not(.light-scope, .light-scope *), .dark .bg-neutral-300:not(.light-scope, .light-scope *) { background-color: rgba(255, 255, 255, .12); }
+  .dark .text-neutral-400:not(.light-scope, .light-scope *) { color: #6B6477; }
+  .dark .text-neutral-500:not(.light-scope, .light-scope *), .dark .text-neutral-600:not(.light-scope, .light-scope *) { color: hsl(var(--muted-foreground)); }
+  .dark .text-neutral-700:not(.light-scope, .light-scope *), .dark .text-neutral-800:not(.light-scope, .light-scope *), .dark .text-neutral-900:not(.light-scope, .light-scope *) { color: hsl(var(--foreground)); }
+  .dark .border-neutral-100:not(.light-scope, .light-scope *), .dark .border-neutral-200:not(.light-scope, .light-scope *), .dark .border-neutral-300:not(.light-scope, .light-scope *) { border-color: hsl(var(--border)); }
+  .dark .bg-stone-50:not(.light-scope, .light-scope *), .dark .bg-stone-100:not(.light-scope, .light-scope *), .dark .hover\:bg-stone-50:hover:not(.light-scope, .light-scope *), .dark .hover\:bg-stone-100:hover:not(.light-scope, .light-scope *) { background-color: rgba(255, 255, 255, .06); }
+  .dark .bg-stone-200:not(.light-scope, .light-scope *), .dark .bg-stone-300:not(.light-scope, .light-scope *) { background-color: rgba(255, 255, 255, .12); }
+  .dark .text-stone-400:not(.light-scope, .light-scope *) { color: #6B6477; }
+  .dark .text-stone-500:not(.light-scope, .light-scope *), .dark .text-stone-600:not(.light-scope, .light-scope *) { color: hsl(var(--muted-foreground)); }
+  .dark .text-stone-700:not(.light-scope, .light-scope *), .dark .text-stone-800:not(.light-scope, .light-scope *), .dark .text-stone-900:not(.light-scope, .light-scope *) { color: hsl(var(--foreground)); }
+  .dark .border-stone-100:not(.light-scope, .light-scope *), .dark .border-stone-200:not(.light-scope, .light-scope *), .dark .border-stone-300:not(.light-scope, .light-scope *) { border-color: hsl(var(--border)); }

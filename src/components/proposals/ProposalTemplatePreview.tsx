@@ -56,7 +56,8 @@ export function ProposalTemplatePreview({ branding }: { branding: ProposalBrandi
   const { workspaceName, logoUrl, brandColor, fontFamily } = branding
 
   return (
-    <div className="mx-auto max-w-3xl">
+    // How the client sees a proposal from this template — always light.
+    <div className="light-scope mx-auto max-w-3xl">
       {/* Browser-chrome framing to read as a polished client-facing doc. */}
       <div className="overflow-hidden rounded-2xl border border-border bg-white shadow-xl">
 

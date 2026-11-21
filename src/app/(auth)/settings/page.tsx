@@ -66,7 +66,7 @@ export default async function SettingsPage() {
       <fieldset disabled={!canEdit} className="contents">
         <SettingsForm
           workspace={settings}
-          currentUser={{ id: user.id, name: user.name ?? '', avatarUrl: user.avatarUrl ?? null }}
+          currentUser={{ id: user.id, name: user.name ?? '', avatarUrl: user.avatarUrl ?? null, themePreference: (user as unknown as { themePreference?: string }).themePreference ?? 'LIGHT' }}
         />
       </fieldset>
 

@@ -144,7 +144,7 @@ function PreviewTable({ rows }: { rows: ImportPayload }) {
           {' · '}{groups.size} account{groups.size !== 1 ? 's' : ''}
         </span>
         <span /><span /><span />
-        <span className="text-right font-bold tabular-nums text-[13px]" style={{ color: '#5D00A4' }}>
+        <span className="text-right font-bold tabular-nums text-[13px]" style={{ color: 'var(--primary-text)' }}>
           {formatMoney(grandTotal)}
         </span>
       </div>
@@ -426,7 +426,7 @@ export function BulkImportModal({ open, onOpenChange, target, onImported }: Prop
           {step === 'preview' && (
             <>
               <Button variant="outline" onClick={reset}>Change file</Button>
-              <Button onClick={handleImport} style={{ background: '#5D00A4' }} className="text-white hover:opacity-90">
+              <Button onClick={handleImport} style={{ background: 'var(--violet-solid)' }} className="text-white hover:opacity-90">
                 Import {rows!.length} line item{rows!.length !== 1 ? 's' : ''}
               </Button>
             </>

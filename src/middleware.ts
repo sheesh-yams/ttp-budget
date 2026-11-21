@@ -32,6 +32,9 @@ const isPublicRoute = createRouteMatcher([
   '/api/deal-memos/(.*)/sign',   // public vendor sign-off — self-authenticates via deal memo publicToken
   '/api/stripe/connect/callback', // OAuth redirect from Stripe — authenticated via HMAC-signed cookie
   '/api/csp-report',              // browser-posted CSP violation reports (no session)
+  // Dev-only design pages (e.g. /dev/theme swatches). Never public in production —
+  // the pages also 404 there.
+  ...(process.env.NODE_ENV !== 'production' ? ['/dev/(.*)'] : []),
 ])
 
 // ── Mobile UA detection ───────────────────────────────────────────────────────

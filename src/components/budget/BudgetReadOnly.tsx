@@ -11,14 +11,16 @@ import type { PaymentMilestone } from '@/types'
 // CSS vars are set on the parent (workspace layout or proposal root). Fallbacks
 // match the SlateSuite defaults for unconfigured workspaces.
 
-const V       = 'var(--brand-v, #5D00A4)'
-const V_TINT  = 'var(--brand-v-tint, #F5EDFA)'
+// In the app the fallbacks are theme tokens (light values identical; dark
+// values for dark mode). Client-facing pages set --brand-v themselves.
+const V       = 'var(--brand-v, var(--primary-text))'
+const V_TINT  = 'var(--brand-v-tint, var(--violet-tint))'
 const MINT    = 'var(--brand-mint, #04FFCC)'
-const INK     = '#0A0612'
-const BODY    = '#2C2C2A'
-const BORDER  = '#E8E0F0'
-const MUTED   = '#888780'
-const CANVAS  = '#FAFAF8'
+const INK     = '#0A0612'   // the total bar stays ink in both themes
+const BODY    = 'var(--color-body)'
+const BORDER  = 'var(--color-border)'
+const MUTED   = 'var(--color-muted)'
+const CANVAS  = 'var(--canvas-warm)'
 
 // ─── Shared types ──────────────────────────────────────────────────────────────
 
@@ -156,7 +158,7 @@ export function BudgetReadOnly({
           onClick={() => toggle(account.id)}
           style={{
             display: 'flex', alignItems: 'center', width: '100%',
-            padding: '15px 20px', background: '#fff', border: 'none',
+            padding: '15px 20px', background: 'var(--surface-card)', border: 'none',
             borderBottom: (!isOpen || isLast) ? `0.5px solid ${BORDER}` : 'none',
             cursor: 'pointer', textAlign: 'left', gap: 10,
           }}
@@ -232,8 +234,8 @@ export function BudgetReadOnly({
       {/* Section highlight animation */}
       <style>{`
         @keyframes section-highlight-fade {
-          0%   { background: var(--brand-v-tint, #F5EDFA); border-left-color: var(--brand-v, #5D00A4); }
-          80%  { background: var(--brand-v-tint, #F5EDFA); border-left-color: var(--brand-v, #5D00A4); }
+          0%   { background: var(--brand-v-tint, var(--violet-tint)); border-left-color: var(--brand-v, var(--primary-text)); }
+          80%  { background: var(--brand-v-tint, var(--violet-tint)); border-left-color: var(--brand-v, var(--primary-text)); }
           100% { background: transparent; border-left-color: transparent; }
         }
         .section-highlight {
@@ -299,12 +301,12 @@ export function BudgetReadOnly({
       {/* Totals rows */}
       {!hideMoney && <>
       <div style={{ borderLeft: `0.5px solid ${BORDER}`, borderRight: `0.5px solid ${BORDER}` }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '13px 20px', background: '#fff', borderBottom: `0.5px solid ${BORDER}` }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '13px 20px', background: 'var(--surface-card)', borderBottom: `0.5px solid ${BORDER}` }}>
           <span style={{ fontSize: 13, color: MUTED }}>Subtotal</span>
           <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', color: BODY }}>{formatMoney(productionCents)}</span>
         </div>
         {agencyFeeCents > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '13px 20px', background: '#fff', borderBottom: `0.5px solid ${BORDER}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '13px 20px', background: 'var(--surface-card)', borderBottom: `0.5px solid ${BORDER}` }}>
             <span style={{ fontSize: 13, color: MUTED }}>
               Agency Fee{' '}
               <span style={{ fontSize: 11, color: MUTED }}>({Math.round(budgetMarkupPct * 100)}%)</span>
@@ -313,15 +315,15 @@ export function BudgetReadOnly({
           </div>
         )}
         {discountCents > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '13px 20px', background: '#fff', borderBottom: `0.5px solid ${BORDER}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '13px 20px', background: 'var(--surface-card)', borderBottom: `0.5px solid ${BORDER}` }}>
             <span style={{ fontSize: 13, color: MUTED }}>{discountLabel}</span>
-            <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', color: '#dc2626' }}>
+            <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', color: 'var(--tone-red-2)' }}>
               -{formatMoney(discountCents)}
             </span>
           </div>
         )}
         {taxCents > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '13px 20px', background: '#fff', borderBottom: `0.5px solid ${BORDER}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '13px 20px', background: 'var(--surface-card)', borderBottom: `0.5px solid ${BORDER}` }}>
             <span style={{ fontSize: 13, color: MUTED }}>
               Tax{' '}
               <span style={{ fontSize: 11, color: MUTED }}>({Math.round(budgetTaxPct * 100)}%)</span>
@@ -346,7 +348,7 @@ export function BudgetReadOnly({
   const paymentBlock = showPaymentSchedule && milestones.length > 0 && !hideMoney ? (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 20, marginTop: variant === 'overview' ? 32 : 0 }}>
       {milestones.map((m, i) => (
-        <div key={m.id} style={{ background: '#fff', border: `0.5px solid ${BORDER}`, borderRadius: 10, padding: '28px 28px 32px' }}>
+        <div key={m.id} style={{ background: 'var(--surface-card)', border: `0.5px solid ${BORDER}`, borderRadius: 10, padding: '28px 28px 32px' }}>
           <p style={{ color: V, fontSize: 11, fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase', margin: '0 0 14px' }}>
             Payment {String(i + 1).padStart(2, '0')}
           </p>

@@ -1,5 +1,6 @@
 'use server'
 
+import { THEME_PREFERENCES, normalizeTheme, type ThemePreference } from '@/lib/theme'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { db } from '@/lib/db'
@@ -569,6 +570,20 @@ export async function updateProductionSettings(
  * DB record. Passing an empty string clears the custom avatar, falling back to
  * the Clerk imageUrl on next login.
  */
+/** The signed-in person's own appearance (Light / Dark / Match my device). Theirs only. */
+export async function updateThemePreference(preference: string): Promise<ActionResult<{ preference: ThemePreference }>> {
+  try {
+    const user = await getCurrentUser()
+    if (!(THEME_PREFERENCES as readonly string[]).includes(preference)) return { success: false, error: 'Unknown appearance.' }
+    const value = normalizeTheme(preference)
+    await db.user.update({ where: { id: user.id }, data: { themePreference: value } })
+    revalidatePath('/', 'layout')
+    return { success: true, data: { preference: value } }
+  } catch {
+    return { success: false, error: 'Failed to save your appearance.' }
+  }
+}
+
 export async function updateUserAvatar(
   avatarUrl: string,
 ): Promise<ActionResult<{ avatarUrl: string | null }>> {
