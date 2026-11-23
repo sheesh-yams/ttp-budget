@@ -105,6 +105,16 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-23 — Dark mode fix: white project sidebar
+
+- **Reported:** the project sidebar (All projects / Sales / Pre-prod / Delivery) stayed white in dark mode.
+- **Cause:** its background was an inline `hsl(270 40% 97%)` in `projects/[id]/layout.tsx`. The dark-mode audit only looked for hex colours.
+- **Fix:**
+  - The sidebar now uses a new `--surface-rail` token (the same light colour; `#130F1A` in dark).
+  - Faint black dividers and hover fills (`border-black/8`, `hover:bg-black/6`, …) flip to white in dark mode.
+- **Guard:** `scripts/dark-overrides.ts --check` now also flags literal colours in inline styles (hex, `hsl()`, `rgb()`), allowing neutral scrims, white text, mint, sidebar ink and client-facing files. The invoice email preview moved to `EmailPreview.tsx` (client-facing, exempt).
+- **Verified:** jest, tsc, lint, `--check` clean, next build up to the known Resend error.
+
 ### 2026-11-21 — Dark mode (signed-in app, per person)
 
 - **Asked:** a purely aesthetic dark mode, toggled in Settings → My profile. Mockup in `docs/mockups/dark-mode/index.html` (local).

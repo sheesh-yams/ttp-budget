@@ -61,6 +61,7 @@
     --text-faint:         #BBBBBB;
     --surface-card:       #FFFFFF;
     --canvas-warm:        #FAFAF8;
+    --surface-rail:       hsl(270 40% 97%);  /* project sub-nav */
     --tone-green:         #15803D;
     --tone-green-2:       #059669;
     --tone-red:           #B91C1C;
@@ -125,6 +126,7 @@
     --text-faint:         #6B6477;
     --surface-card:       #17121F;
     --canvas-warm:        #130F1A;
+    --surface-rail:       #130F1A;
     --tone-green:         #6EE7B7;
     --tone-green-2:       #34D399;
     --tone-red:           #FCA5A5;
@@ -199,6 +201,7 @@
     --text-faint:         #BBBBBB;
     --surface-card:       #FFFFFF;
     --canvas-warm:        #FAFAF8;
+    --surface-rail:       hsl(270 40% 97%);  /* project sub-nav */
     --tone-green:         #15803D;
     --tone-green-2:       #059669;
     --tone-red:           #B91C1C;
@@ -387,3 +390,10 @@
   .dark .text-stone-500:not(.light-scope, .light-scope *), .dark .text-stone-600:not(.light-scope, .light-scope *) { color: hsl(var(--muted-foreground)); }
   .dark .text-stone-700:not(.light-scope, .light-scope *), .dark .text-stone-800:not(.light-scope, .light-scope *), .dark .text-stone-900:not(.light-scope, .light-scope *) { color: hsl(var(--foreground)); }
   .dark .border-stone-100:not(.light-scope, .light-scope *), .dark .border-stone-200:not(.light-scope, .light-scope *), .dark .border-stone-300:not(.light-scope, .light-scope *) { border-color: hsl(var(--border)); }
+
+/* Faint black dividers/hover fills vanish on a dark surface — flip to white. */
+.dark .border-black\/8:not(.light-scope, .light-scope *)  { border-color: rgba(255, 255, 255, .08); }
+.dark .border-black\/10:not(.light-scope, .light-scope *) { border-color: rgba(255, 255, 255, .10); }
+.dark .bg-black\/10:not(.light-scope, .light-scope *)     { background-color: rgba(255, 255, 255, .08); }
+.dark .hover\:bg-black\/6:hover:not(.light-scope, .light-scope *)  { background-color: rgba(255, 255, 255, .06); }
+.dark .hover\:bg-black\/10:hover:not(.light-scope, .light-scope *) { background-color: rgba(255, 255, 255, .08); }

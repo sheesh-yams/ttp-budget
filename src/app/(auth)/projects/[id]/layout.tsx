@@ -69,7 +69,7 @@ export default async function ProjectLayout({
       {/* Desktop only — phones get ProjectMobileHeader + ProjectMobileNav. */}
       <aside
         className="hidden md:block w-44 shrink-0 border-r border-foreground/8 sticky top-0 self-start h-[calc(100vh-52px)] overflow-y-auto"
-        style={{ background: 'hsl(270 40% 97%)' }}
+        style={{ background: 'var(--surface-rail)' }}
       >
         <ProjectSubNav
           projectId={project.id}
