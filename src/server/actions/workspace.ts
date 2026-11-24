@@ -1,6 +1,7 @@
 'use server'
 
 import { THEME_PREFERENCES, normalizeTheme, type ThemePreference } from '@/lib/theme'
+import { primaryEmailOf, syncUserEmail, type EmailSyncResult } from '@/lib/account-email'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { db } from '@/lib/db'
@@ -570,6 +571,25 @@ export async function updateProductionSettings(
  * DB record. Passing an empty string clears the custom avatar, falling back to
  * the Clerk imageUrl on next login.
  */
+/**
+ * After someone changes their primary email in Clerk's account window: copy it
+ * onto their SlateSuite account. Reads the address from Clerk server-side —
+ * never from the browser. (The Clerk user.updated webhook does the same.)
+ */
+export async function syncMyAccountEmail(): Promise<ActionResult<{ result: EmailSyncResult }>> {
+  try {
+    const { userId } = await auth()
+    if (!userId) return { success: false, error: 'Not signed in.' }
+    const clerkUser = await (await clerkClient()).users.getUser(userId)
+    const result = await syncUserEmail(userId, primaryEmailOf(clerkUser as unknown as Parameters<typeof primaryEmailOf>[0]))
+    if (result === 'updated') revalidatePath('/', 'layout')
+    return { success: true, data: { result } }
+  } catch (err) {
+    console.error('[syncMyAccountEmail]', err)
+    return { success: false, error: 'Failed to sync your email.' }
+  }
+}
+
 /** The signed-in person's own appearance (Light / Dark / Match my device). Theirs only. */
 export async function updateThemePreference(preference: string): Promise<ActionResult<{ preference: ThemePreference }>> {
   try {

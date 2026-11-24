@@ -81,7 +81,7 @@ export default async function AuthLayout({
       {/* dvh: the visible height on phones, where 100vh runs under the browser bar. */}
       <div className="flex h-[100dvh] overflow-hidden" style={{ background: 'var(--color-canvas, #F7F4FA)' }}>
         {/* Desktop (md+): sidebar + top bar. Phones: MobileTopBar + MobileTabBar. */}
-        <Sidebar workspaceName={workspace.name} logoUrl={workspace.logoUrl ?? null} areas={areas} />
+        <Sidebar workspaceName={workspace.name} logoUrl={workspace.logoUrl ?? null} areas={areas} accountEmail={user.email} />
         <div className="flex flex-1 flex-col overflow-hidden min-w-0">
           <TopBar canCreateProject={canCreateProject} />
           <MobileTopBar workspaceName={workspace.name} logoUrl={workspace.logoUrl ?? null} />

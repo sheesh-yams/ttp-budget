@@ -12,6 +12,7 @@ export default async function ProfilePage() {
       <MyProfileCard user={{
         name: user.name ?? '',
         avatarUrl: user.avatarUrl ?? null,
+        email: user.email,
         themePreference: (user as unknown as { themePreference?: string }).themePreference ?? 'LIGHT',
       }} />
     </div>

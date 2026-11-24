@@ -279,6 +279,7 @@ interface CurrentUser {
   name:      string
   avatarUrl: string | null
   themePreference?: string
+  email?: string
 }
 
 export function SettingsForm({
@@ -644,7 +645,7 @@ export function SettingsForm({
       {/* ── MY PROFILE ── */}
       {currentUser && (
         <TabsContent value="profile">
-          <MyProfileCard user={{ name: currentUser.name, avatarUrl: currentUser.avatarUrl, themePreference: currentUser.themePreference ?? 'LIGHT' }} />
+          <MyProfileCard user={{ name: currentUser.name, avatarUrl: currentUser.avatarUrl, themePreference: currentUser.themePreference ?? 'LIGHT', email: currentUser.email }} />
         </TabsContent>
       )}
     </Tabs>

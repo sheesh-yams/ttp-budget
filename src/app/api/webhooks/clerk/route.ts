@@ -5,6 +5,7 @@ import { WebhookEvent, clerkClient } from '@clerk/nextjs/server'
 import { db } from '@/lib/db'
 import { seedWorkspaceFromGlobals } from '@/lib/workspace-seeder'
 import { ensureWorkspaceMembership, setWorkspaceMembership } from '@/lib/roles'
+import { primaryEmailOf, syncUserEmail } from '@/lib/account-email'
 
 export async function POST(req: NextRequest) {
   const WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET
@@ -42,8 +43,8 @@ export async function POST(req: NextRequest) {
   // org. The org makes them addressable via organizationMembership events (so
   // they can invite teammates) and is the source of truth for auth().orgId.
   if (evt.type === 'user.created') {
-    const { id, email_addresses, first_name, last_name, image_url } = evt.data
-    const email = email_addresses[0]?.email_address
+    const { id, first_name, last_name, image_url } = evt.data
+    const email = primaryEmailOf(evt.data)
 
     if (!email) {
       return NextResponse.json({ error: 'No email' }, { status: 400 })
@@ -106,6 +107,25 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       console.error('user.created webhook error:', err)
       return NextResponse.json({ error: 'Failed to create workspace' }, { status: 500 })
+    }
+  }
+
+  // ── user.updated ────────────────────────────────────────────────────────────
+  // Someone changed their primary email (Account window) or name in Clerk.
+  // Keep User.email in step; the photo isn't touched (an uploaded avatar wins).
+  if (evt.type === 'user.updated') {
+    try {
+      // Webhooks can arrive out of order (a retried older event after a newer
+      // one), so read the user as Clerk has them now rather than trusting the
+      // event's snapshot.
+      const current = await (await clerkClient()).users.getUser(evt.data.id)
+      const result = await syncUserEmail(evt.data.id, primaryEmailOf(current as unknown as Parameters<typeof primaryEmailOf>[0]))
+      const name = [current.firstName, current.lastName].filter(Boolean).join(' ').trim()
+      if (name) await db.user.updateMany({ where: { clerkId: evt.data.id }, data: { name } })
+      if (result === 'conflict') return NextResponse.json({ received: true, emailSynced: false })
+    } catch (err) {
+      console.error('user.updated webhook error:', err)
+      return NextResponse.json({ error: 'Failed to sync user' }, { status: 500 })
     }
   }
 

@@ -8,9 +8,10 @@ import {
   LayoutDashboard, Users, FolderOpen, FileText,
   Receipt, List, LayoutGrid, Settings, BookOpen,
   ChevronDown, Check, Plus, LogOut, UsersRound, BookUser,
+  UserCog,
 } from 'lucide-react'
 import { useEffect, useRef, useState, useTransition } from 'react'
-import { createWorkspace } from '@/server/actions/workspace'
+import { createWorkspace, syncMyAccountEmail } from '@/server/actions/workspace'
 
 // Inline spinner — no dependency needed
 function Spinner({ className, style }: { className?: string; style?: React.CSSProperties }) {
@@ -80,7 +81,8 @@ export function visibleNavGroups(areas: SidebarAccess) {
     .filter(g => g.items.length > 0)
 }
 
-export function Sidebar({ workspaceName, logoUrl, areas }: {
+export function Sidebar({ workspaceName, logoUrl, areas, accountEmail }: {
+  accountEmail?: string
   workspaceName: string
   logoUrl?: string | null
   areas: SidebarAccess
@@ -138,7 +140,7 @@ export function Sidebar({ workspaceName, logoUrl, areas }: {
 
       {/* ── User footer ── */}
       <div className="border-t border-white/[0.08]">
-        <UserFooter />
+        <UserFooter accountEmail={accountEmail} />
       </div>
     </aside>
   )
@@ -382,10 +384,32 @@ function CreateWorkspaceDialog({
 // UserFooter
 // =============================================================================
 
-export function UserFooter() {
+export function UserFooter({ accountEmail }: {
+  /** SlateSuite's stored email (User.email) — synced when Clerk's primary differs. */
+  accountEmail?: string
+} = {}) {
   const { user } = useUser()
-  const { signOut } = useClerk()
+  const { signOut, openUserProfile } = useClerk()
   const router = useRouter()
+  const clerkPrimary = user?.primaryEmailAddress?.emailAddress?.toLowerCase() ?? null
+  const syncedFor = useRef<string | null>(null)
+
+  // Changed their email in the Account window → copy it to SlateSuite now
+  // (the webhook does too; this makes it immediate). Once per new address.
+  useEffect(() => {
+    if (!accountEmail || !clerkPrimary || clerkPrimary === accountEmail.toLowerCase()) return
+    if (syncedFor.current === clerkPrimary) return
+    syncedFor.current = clerkPrimary
+    // A conflict (address held by another account) won't fix itself on reload —
+    // don't re-ask the server every page load; My profile shows the warning.
+    const key = `ss-email-sync:${clerkPrimary}`
+    try { if (sessionStorage.getItem(key) === 'conflict') return } catch { /* storage blocked */ }
+    syncMyAccountEmail().then(res => {
+      if (!res.success) return
+      if (res.data.result === 'updated') router.refresh()
+      if (res.data.result === 'conflict') { try { sessionStorage.setItem(key, 'conflict') } catch { /* ignore */ } }
+    }).catch(() => {})
+  }, [accountEmail, clerkPrimary, router])
 
   const name      = user?.fullName ?? user?.firstName ?? 'You'
   const email     = user?.primaryEmailAddress?.emailAddress ?? ''
@@ -413,6 +437,14 @@ export function UserFooter() {
         <p className="truncate text-[12px] font-medium text-white/85">{name}</p>
         <p className="truncate text-[10px] text-white/35">{email}</p>
       </Link>
+      <button
+        onClick={() => openUserProfile()}
+        className="flex-shrink-0 text-white/25 transition-colors hover:text-white/60"
+        title="Account — login email, password, sign-in methods"
+        aria-label="Account settings"
+      >
+        <UserCog className="h-3.5 w-3.5" />
+      </button>
       <button
         onClick={() => signOut(() => router.push('/sign-in'))}
         className="flex-shrink-0 text-white/25 transition-colors hover:text-white/60"

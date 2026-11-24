@@ -27,7 +27,7 @@ export const getCurrentUser = cache(async () => {
     const clerkUser = await currentUser()
     if (!clerkUser) redirect('/sign-in')
 
-    const email = clerkUser.emailAddresses[0]?.emailAddress
+    const email = clerkUser.primaryEmailAddress?.emailAddress ?? clerkUser.emailAddresses[0]?.emailAddress
     if (!email) redirect('/sign-in?error=no-email')
 
     const displayName = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ') || null

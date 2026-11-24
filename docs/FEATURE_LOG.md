@@ -105,6 +105,26 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-24 — Change your login email
+
+- **Asked:** switch the login email from personal to work, and let anyone do the same.
+- **Clerk owns the email** (verification by code). SlateSuite now gives a way in and keeps its copy (`User.email`, used for copies of your sends and the team pages) in step:
+  - **Way in:** an **Account** button next to Sign out in the sidebar, plus a **Login email** row on My profile with "Change login email…". Both open Clerk's account window.
+  - **Sync** (`src/lib/account-email.ts` `syncUserEmail`; unique-safe, case-insensitive conflict check):
+    - The Clerk webhook's new `user.updated` re-reads the user from Clerk (webhooks can arrive out of order), then syncs the primary email and name (not the photo).
+    - `syncMyAccountEmail` runs from the sidebar when Clerk's primary differs from the stored copy. It reads Clerk server-side, never the browser.
+  - **Conflict** (the address is held by another account): nothing changes, and My profile shows a warning. The sidebar stops re-asking for that session.
+  - **Sign-up and the lazy-create fallback** now use the **primary** address, not the first one.
+- **Checked:** no SlateSuite account uses an `ashish@thethirdplacecreative.co` address. Invitations match Clerk's verified emails, not `User.email`, so a change can't take over an invite.
+- **Verified:**
+  - jest (639; `primaryEmailOf`), tsc, lint
+  - next build up to the known Resend error
+  - a live-DB script (unchanged / updated lowercased / conflict leaves data unchanged / no-user / no-email)
+  - **pitfall-reviewer:** no takeover or tenancy issue. Both low findings fixed (out-of-order webhooks; a silent conflict).
+- **User to do:**
+  - In Clerk dashboard → Webhooks, add `user.updated` to the endpoint's events. The sidebar sync covers it meanwhile.
+  - Make sure users may add email addresses (the default).
+
 ### 2026-11-23 — Dark mode fix: white project sidebar
 
 - **Reported:** the project sidebar (All projects / Sales / Pre-prod / Delivery) stayed white in dark mode.
