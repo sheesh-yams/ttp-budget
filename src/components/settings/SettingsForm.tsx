@@ -248,30 +248,37 @@ function TextArea({
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 
-function SaveButton({ state, onClick }: { state: SaveState; onClick: () => void }) {
+function SaveButton({ state, error, onClick }: { state: SaveState; error?: string | null; onClick: () => void }) {
   return (
-    <Button onClick={onClick} disabled={state === 'saving'} size="sm">
-      {state === 'saving' ? 'Saving…' : state === 'saved' ? 'Saved ✓' : state === 'error' ? 'Error — retry' : 'Save changes'}
-    </Button>
+    <div className="flex flex-wrap items-center gap-3">
+      <Button onClick={onClick} disabled={state === 'saving'} size="sm">
+        {state === 'saving' ? 'Saving…' : state === 'saved' ? 'Saved ✓' : state === 'error' ? 'Error — retry' : 'Save changes'}
+      </Button>
+      {/* Stays until the next save, so the reason can be read. */}
+      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+    </div>
   )
 }
 
 function useSave() {
   const [state, setState] = useState<SaveState>('idle')
+  const [error, setError] = useState<string | null>(null)
 
   async function save(fn: () => Promise<{ success: boolean; error?: string }>) {
     setState('saving')
-    const result = await fn()
+    setError(null)
+    const result = await fn().catch(() => ({ success: false, error: 'Couldn’t reach the server — try again.' }))
     if (result.success) {
       setState('saved')
       setTimeout(() => setState('idle'), 2000)
     } else {
+      setError((result as { success: false; error?: string }).error || 'Couldn’t save — try again.')
       setState('error')
       setTimeout(() => setState('idle'), 3000)
     }
   }
 
-  return { state, save }
+  return { state, error, save }
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -442,7 +449,7 @@ export function SettingsForm({
               </div>
             </div>
           </div>
-          <SaveButton state={companySave.state} onClick={saveCompany} />
+          <SaveButton state={companySave.state} error={companySave.error} onClick={saveCompany} />
         </SettingsCard>
       </TabsContent>
 
@@ -519,7 +526,7 @@ export function SettingsForm({
               </div>
             </div>
           </div>
-          <SaveButton state={brandingSave.state} onClick={saveBranding} />
+          <SaveButton state={brandingSave.state} error={brandingSave.error} onClick={saveBranding} />
         </SettingsCard>
       </TabsContent>
 
@@ -550,7 +557,7 @@ export function SettingsForm({
                 </div>
               </Field>
             </div>
-            <SaveButton state={invoiceSave.state} onClick={saveInvoice} />
+            <SaveButton state={invoiceSave.state} error={invoiceSave.error} onClick={saveInvoice} />
           </SettingsCard>
 
           <SettingsCard title="Payment instructions" description="Shown on the public invoice page and PDF under 'How to Pay'.">
@@ -578,7 +585,7 @@ export function SettingsForm({
                 <TextArea value={checkAddr} onChange={setCheckAddr} rows={3} placeholder={"123 Main St\nLos Angeles, CA 90001"} />
               </Field>
             </div>
-            <SaveButton state={invoiceSave.state} onClick={saveInvoice} />
+            <SaveButton state={invoiceSave.state} error={invoiceSave.error} onClick={saveInvoice} />
           </SettingsCard>
 
           <SettingsCard title="Default invoice terms" description="Boilerplate terms shown at the bottom of every invoice. Can be edited per invoice.">
@@ -588,7 +595,7 @@ export function SettingsForm({
               rows={8}
               placeholder="Payment is due within 30 days of invoice date. Late payments are subject to a 1.5% monthly interest charge…"
             />
-            <SaveButton state={invoiceSave.state} onClick={saveInvoice} />
+            <SaveButton state={invoiceSave.state} error={invoiceSave.error} onClick={saveInvoice} />
           </SettingsCard>
         </div>
       </TabsContent>
@@ -608,7 +615,7 @@ export function SettingsForm({
               />
               <span className="text-sm text-muted-foreground">days after creation</span>
             </div>
-            <SaveButton state={proposalSave.state} onClick={saveProposal} />
+            <SaveButton state={proposalSave.state} error={proposalSave.error} onClick={saveProposal} />
           </SettingsCard>
 
           <SettingsCard title="Default proposal terms" description="Pre-filled in every new proposal. Editable per proposal.">
@@ -618,7 +625,7 @@ export function SettingsForm({
               rows={10}
               placeholder="This proposal is valid for 30 days from the date of issue. All work is subject to a signed agreement…"
             />
-            <SaveButton state={proposalSave.state} onClick={saveProposal} />
+            <SaveButton state={proposalSave.state} error={proposalSave.error} onClick={saveProposal} />
           </SettingsCard>
         </div>
       </TabsContent>
@@ -654,7 +661,7 @@ export function SettingsForm({
               ))}
             </div>
           </Field>
-          <SaveButton state={productionSave.state} onClick={saveProduction} />
+          <SaveButton state={productionSave.state} error={productionSave.error} onClick={saveProduction} />
         </SettingsCard>
       </TabsContent>
 
