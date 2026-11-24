@@ -482,7 +482,14 @@ export function EditInvoiceModal({
                     {error}
                   </div>
                 )}
-                <div className="flex gap-3 justify-end">
+                <div className="flex gap-3 justify-end items-center">
+                  {/* Saved version, as the client will see it (drafts too). */}
+                  <a
+                    href={`/invoices/preview/${invoiceId}`} target="_blank" rel="noopener noreferrer"
+                    className="mr-auto text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                  >
+                    Preview as client ↗
+                  </a>
                   <Button variant="outline" onClick={() => setOpen(false)} disabled={isPending}>
                     Cancel
                   </Button>

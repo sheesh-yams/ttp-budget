@@ -60,9 +60,6 @@ Bugs and gaps noticed but deliberately left out of scope. Pick these up in a
 - **Restored proposals skipped team reconciliation.** Daadi v2, Chopstx v2 and
   PMH were set back to APPROVED directly (fe6d9e2 backfill). Re-marking Won from
   the Status dropdown runs it if wanted.
-- **Draft invoices can't be previewed.** `/i/[token]` 404s for DRAFT, so there's
-  no way to see the client view before sending. The proposal overview's
-  in-app `ProposalPublicView isDraft` preview is the pattern to copy.
 - **Local `next build` never completes.** Resend is constructed at module load
   and throws without `RESEND_API_KEY`, so page-data collection fails locally.
   Lazy-initialising the client would make build a full verification step.
@@ -104,6 +101,18 @@ Run each through `/feature`. Check the overlap first:
 ---
 
 ## Shipped
+
+### 2026-11-24 — Draft invoice preview: outside the app shell, easier to reach
+
+- **Asked:** preview a draft invoice as the client will see it.
+- **Found:** the eye-icon Preview drawer (`PreviewPanel` → `/invoices/preview/[id]`) has worked for drafts since June. The old follow-up ("drafts can't be previewed") was about the public `/i/` link and is now retired. But the preview page lived in the `(auth)` group, so the drawer showed the app's sidebar and top bar around the invoice.
+- **Fix:**
+  - The preview page moved to a new `(preview)` route group. Same URL, still signed-in only: middleware plus the page's Invoices VIEW check.
+  - It now renders exactly like the client's link (no shell, always light).
+- **Easier to find:**
+  - "Preview as client ↗" in the Edit invoice window.
+  - A link in the Send window's Preview tab, next to the email preview.
+- **Verified:** tsc, jest, lint, next build (the route compiles at `/(preview)/invoices/preview/[id]`), up to the known Resend error. The preview itself needs a signed-in pass.
 
 ### 2026-11-24 — Change your login email
 

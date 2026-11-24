@@ -101,7 +101,7 @@ export default async function InvoicePreviewPage({ params }: Props) {
       </div>
 
       {/* Offset content below the banner */}
-      {/* "How your client will see it" — always light. */}
+      {/* "How your client will see it" — outside the app shell, always light. */}
       <ForceLight />
       <div className="light-scope" style={{ paddingTop: 44 }}>
         <InvoicePublicView invoice={invoice} paymentEnabled={false} />

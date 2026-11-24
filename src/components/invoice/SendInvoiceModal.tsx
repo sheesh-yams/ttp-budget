@@ -280,6 +280,12 @@ export function SendInvoiceModal({ invoiceId, trigger, onSent }: SendInvoiceModa
               {/* Preview tab */}
               {tab === 'preview' && (
                 <div className="flex-1 overflow-y-auto bg-muted/30">
+                  <p className="px-6 pt-4 text-xs text-muted-foreground">
+                    The email below links to the invoice.{' '}
+                    <a href={`/invoices/preview/${invoiceId}`} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-foreground">
+                      Preview the invoice as your client will see it ↗
+                    </a>
+                  </p>
                   <EmailPreview data={data} subject={subject} message={message} />
                 </div>
               )}
