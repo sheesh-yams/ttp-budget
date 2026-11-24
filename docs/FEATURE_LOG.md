@@ -122,7 +122,7 @@ Run each through `/feature`. Check the overlap first:
   - **"Signed … on" dates** (public and sign banners, the PDF signature block) are in the zone, so they match "Accepted".
 - **Migration:** `20261124000001_workspace_time_zone` (additive column with a default).
 - **Verified:**
-  - jest (646; DST edges; 11 pm Eastern on the date is still valid, 12:01 am the next day is expired; Pacific), tsc, lint, dark-overrides, audit:scoping
+  - jest (647; DST edges; 11 pm Eastern on the date is still valid, 12:01 am the next day is expired; Pacific), tsc, lint, dark-overrides, audit:scoping
   - next build up to the known Resend error
   - all 418 IANA zones on every DST-change day 2020–2027: a day that repeats its last hour ends at the later 23:59 (Santiago); a day whose 23:00 jumps to midnight ends just before it (Greenland)
   - **pitfall-reviewer:** nothing lets a proposal be signed late or blocks it early. All 5 low/medium findings fixed (the signature-block date, the banners, the attention rule, the list countdown, the repeated hour).
