@@ -1,4 +1,4 @@
-import { isProposalExpired, isProposalLinkExpired, proposalTermLabel, canReopenProposal, defaultReopenDate, reopenedLinkExpiry, reopenedStatus, earliestReopenDate } from '@/lib/proposal-expiry'
+import { daysUntilValidThrough, isProposalExpired, isProposalLinkExpired, proposalTermLabel, canReopenProposal, defaultReopenDate, reopenedLinkExpiry, reopenedStatus, earliestReopenDate } from '@/lib/proposal-expiry'
 
 const now = new Date('2026-10-19T12:00:00Z')
 const past = '2026-09-30T00:00:00Z', future = '2026-11-30T00:00:00Z'
@@ -18,8 +18,8 @@ describe('proposal expiry', () => {
   })
 
   it('defaults the new date to today + the workspace validity days', () => {
-    expect(defaultReopenDate(30, new Date(2026, 9, 19))).toBe('2026-11-18')
-    expect(defaultReopenDate(0, new Date(2026, 9, 19))).toBe('2026-10-20')
+    expect(defaultReopenDate(30, new Date('2026-10-19T16:00:00Z'))).toBe('2026-11-18')
+    expect(defaultReopenDate(0, new Date('2026-10-19T16:00:00Z'))).toBe('2026-10-20')
   })
 
   it('keeps the link working past the new date', () => {
@@ -36,11 +36,34 @@ describe('proposal expiry', () => {
     expect(reopenedStatus({ status: 'VIEWED', firstViewedAt: past })).toBe('VIEWED')
   })
 
-  it('earliest date is tomorrow in UTC (dates are stored as UTC midnight)', () => {
+  it('earliest date is tomorrow in the studio time zone', () => {
     expect(earliestReopenDate(new Date('2026-10-19T12:00:00Z'))).toBe('2026-10-20')
-    // 9pm Oct 19 in New York is already Oct 20 in UTC — Oct 20 would expire at once.
-    expect(earliestReopenDate(new Date('2026-10-20T01:00:00Z'))).toBe('2026-10-21')
-    expect(defaultReopenDate(0, new Date('2026-10-20T01:00:00Z')) >= '2026-10-21').toBe(true)
+    // 9pm Oct 19 in New York is Oct 20 in UTC — but still Oct 19 for the studio.
+    expect(earliestReopenDate(new Date('2026-10-20T01:00:00Z'))).toBe('2026-10-20')
+    expect(defaultReopenDate(0, new Date('2026-10-20T01:00:00Z'))).toBe('2026-10-20')
+    // A Los Angeles studio at 11pm Oct 19 (06:00Z Oct 20) is still on Oct 19.
+    expect(earliestReopenDate(new Date('2026-10-20T06:00:00Z'), 'America/Los_Angeles')).toBe('2026-10-20')
+    expect(earliestReopenDate(new Date('2026-10-20T06:00:00Z'), 'America/New_York')).toBe('2026-10-21')
+  })
+
+  it('counts days left in calendar days in the studio zone', () => {
+    // Valid through Nov 25; 9pm Nov 24 Eastern (02:00Z Nov 25) → 1 day left, not "today".
+    expect(daysUntilValidThrough('2026-11-25T00:00:00Z', new Date('2026-11-25T02:00:00Z'))).toBe(1)
+    expect(daysUntilValidThrough('2026-11-25T00:00:00Z', new Date('2026-11-25T15:00:00Z'))).toBe(0)
+    expect(daysUntilValidThrough('2026-11-25T00:00:00Z', new Date('2026-11-26T15:00:00Z'))).toBe(-1)
+  })
+
+  it('a valid-through date lasts to the end of that day in the studio zone', () => {
+    const p = { status: 'VIEWED', expiresAt: '2026-12-01T00:00:00Z' }   // "valid through Dec 1"
+    // 7pm Nov 30 Eastern — the old cut-off — is still valid.
+    expect(isProposalExpired(p, new Date('2026-12-01T00:00:00Z'))).toBe(false)
+    // 11pm Dec 1 Eastern (04:00Z Dec 2) — still valid.
+    expect(isProposalExpired(p, new Date('2026-12-02T04:00:00Z'))).toBe(false)
+    // 12:01am Dec 2 Eastern (05:01Z) — expired.
+    expect(isProposalExpired(p, new Date('2026-12-02T05:01:00Z'))).toBe(true)
+    // Pacific studio: 11:30pm Dec 1 Pacific (07:30Z Dec 2) still valid.
+    expect(isProposalExpired(p, new Date('2026-12-02T07:30:00Z'), 'America/Los_Angeles')).toBe(false)
+    expect(isProposalExpired(p, new Date('2026-12-02T08:01:00Z'), 'America/Los_Angeles')).toBe(true)
   })
 })
 
@@ -54,10 +77,15 @@ describe('won proposals lock instead of expiring', () => {
   })
   it('the valid-through slot shows the acceptance once won', () => {
     expect(proposalTermLabel({ status: 'APPROVED', expiresAt: past, approvedAt: '2026-09-01T10:00:00Z' }))
-      .toEqual({ label: 'Accepted', date: '2026-09-01T10:00:00.000Z', text: null })
+      .toEqual({ label: 'Accepted', date: '2026-09-01T10:00:00.000Z', text: null, value: 'September 1, 2026' })
     expect(proposalTermLabel({ status: 'APPROVED', expiresAt: past, approvedAt: null }))
-      .toEqual({ label: 'Status', date: null, text: 'Accepted' })
-    expect(proposalTermLabel({ status: 'VIEWED', expiresAt: past })).toEqual({ label: 'Valid Through', date: '2026-09-30T00:00:00.000Z', text: null })
+      .toEqual({ label: 'Status', date: null, text: 'Accepted', value: 'Accepted' })
+    expect(proposalTermLabel({ status: 'VIEWED', expiresAt: past })).toEqual({ label: 'Valid Through', date: '2026-09-30T00:00:00.000Z', text: null, value: 'September 30, 2026' })
+  })
+  it('a 9pm Eastern signature is dated that day, not the next', () => {
+    const t = proposalTermLabel({ status: 'APPROVED', expiresAt: past, approvedAt: '2026-11-25T02:00:00Z' })
+    expect(t?.value).toBe('November 24, 2026')
+    expect(proposalTermLabel({ status: 'APPROVED', expiresAt: past, approvedAt: '2026-11-25T02:00:00Z' }, 'Europe/London')?.value).toBe('November 25, 2026')
     expect(proposalTermLabel({ status: 'SENT', expiresAt: null })).toBeNull()
   })
 })

@@ -50,6 +50,7 @@ export default async function ProjectsPage() {
 
   const sdb = await getScopedDb()
   const now = new Date()
+  const wsZone = await db.workspace.findUnique({ where: { id: workspaceId }, select: { timeZone: true } })
   const todayKey = now.toISOString().slice(0, 10)
 
   const [projects, clients, templates, primaryPhases, editableIds, teamEditableIds] = await Promise.all([
@@ -83,7 +84,7 @@ export default async function ProjectsPage() {
       // Real figure even for margin-blind roles: only the paid-in-full yes/no
       // comes out of it; amounts stay out of `detail` when showMoney is off.
       expectedCents: expected,
-    }, now, { showMoney: canSeeFin })
+    }, now, { showMoney: canSeeFin, timeZone: wsZone?.timeZone })
     const phase = effectivePhase(p.status, p.phase)
     const seen = new Set<string>()
     return {

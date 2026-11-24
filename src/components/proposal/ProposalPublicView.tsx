@@ -13,6 +13,7 @@ import type { SerialAccount, SerialBudgetSection } from '@/components/budget/Bud
 import { renderSmartText } from '@/lib/smart-text'
 import { resolveMergeTags, type MergeTagContext } from '@/lib/merge-tags'
 import { proposalTermLabel } from '@/lib/proposal-expiry'
+import { formatDateInZone } from '@/lib/time-zone'
 
 // ─── Brand tokens ─────────────────────────────────────────────────────────────
 // V / V_TINT / MINT / MINT_DK resolve to per-workspace CSS variables set on the
@@ -91,6 +92,8 @@ interface SerialProposal {
     logoDarkUrl: string | null
     primaryColor: string | null
     accentColor: string | null
+    /** The studio's time zone — dates the acceptance. */
+    timeZone?: string | null
   }
 }
 
@@ -274,8 +277,8 @@ export function ProposalPublicView({
   const [justSignedAt, setJustSignedAt] = useState<string | null>(null)
   const term      = proposalTermLabel(justSignedAt
     ? { status: 'APPROVED', expiresAt: proposal.expiresAt, approvedAt: justSignedAt }
-    : proposal)
-  const termValue = term ? (term.date ? fmt(term.date) : term.text) : null
+    : proposal, proposal.workspace.timeZone ?? undefined)
+  const termValue = term?.value ?? null
 
   async function handleApprove() {
     const name = sigName.trim()
@@ -616,7 +619,7 @@ export function ProposalPublicView({
               <p style={{ fontSize: 22, fontWeight: 700, color: BODY, margin: '0 0 10px' }}>Proposal Approved</p>
               <p style={{ fontSize: 14, color: MUTED, margin: '0 0 20px', lineHeight: 1.6 }}>
                 Signed by <strong style={{ color: BODY }}>{proposal.signatureName}</strong>
-                {proposal.approvedAt && <> on {fmt(proposal.approvedAt)}</>}
+                {proposal.approvedAt && <> on {formatDateInZone(proposal.approvedAt, proposal.workspace.timeZone ?? '')}</>}
               </p>
               <a
                 href={`/api/pdf/proposal/${proposal.publicToken}`}
@@ -643,7 +646,7 @@ export function ProposalPublicView({
               <p style={{ fontSize: 14, color: MUTED, margin: 0, lineHeight: 1.6 }}>
                 Signed by <strong style={{ color: BODY }}>{proposal.signatureName || sigName}</strong>
                 {proposal.approvedAt && (
-                  <> on {fmt(proposal.approvedAt)}</>
+                  <> on {formatDateInZone(proposal.approvedAt, proposal.workspace.timeZone ?? '')}</>
                 )}
               </p>
             </div>

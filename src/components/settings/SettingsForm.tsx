@@ -19,6 +19,7 @@ import {
   updateUserAvatar,
 } from '@/server/actions/workspace'
 import type { TimeFormat } from '@/lib/time-format'
+import { TIME_ZONE_OPTIONS, normalizeTimeZone } from '@/lib/time-zone'
 import { ImageUploader } from '@/components/ui/ImageUploader'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -51,6 +52,7 @@ export interface WorkspaceSettings {
   proposalExpiryDays:      number
   invoiceExpiryDays:       number
   callTimeFormat:          TimeFormat
+  timeZone:                string
 }
 
 // ─── Logo upload component ────────────────────────────────────────────────────
@@ -302,6 +304,7 @@ export function SettingsForm({
   const [region, setRegion]           = useState(str(workspace.region))
   const [postal, setPostal]           = useState(str(workspace.postalCode))
   const [country, setCountry]         = useState(str(workspace.country))
+  const [timeZone, setTimeZone]       = useState(normalizeTimeZone(workspace.timeZone))
   const companySave = useSave()
 
   // ── Branding ───────────────────────────────────────────────────────────────
@@ -341,6 +344,7 @@ export function SettingsForm({
       addressLine1: addr1 || null, addressLine2: addr2 || null,
       city: city || null, region: region || null,
       postalCode: postal || null, country: country || null,
+      timeZone,
     }))
   }
 
@@ -410,6 +414,18 @@ export function SettingsForm({
 
             <Field label="Website">
               <Input value={website} onChange={e => setWebsite(e.target.value)} placeholder="https://yourcompany.com" className="mt-1" />
+            </Field>
+
+            <Field label="Time zone" hint="Proposals stay valid through 11:59 pm on their date here, and signed dates show in this zone.">
+              <select
+                value={timeZone}
+                onChange={e => setTimeZone(e.target.value)}
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
+              >
+                {(TIME_ZONE_OPTIONS.some(o => o.value === timeZone) ? TIME_ZONE_OPTIONS : [{ value: timeZone, label: timeZone }, ...TIME_ZONE_OPTIONS]).map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
             </Field>
 
             <div className="pt-1">

@@ -163,7 +163,7 @@ export default async function ProjectDetailPage({
   db.workspace.findUnique({
     where: { id: workspaceId },
     select: {
-      proposalExpiryDays: true, invoiceExpiryDays: true,
+      proposalExpiryDays: true, invoiceExpiryDays: true, timeZone: true,
       name: true, legalName: true, contactEmail: true, website: true, invoiceNumberPrefix: true,
       logoUrl: true, logoDarkUrl: true, primaryColor: true, accentColor: true,
     },
@@ -461,6 +461,7 @@ export default async function ProjectDetailPage({
           budgetId={budget?.id ?? null}
           totalCents={clientTotalCents}
           proposalExpiryDays={workspaceDefaults?.proposalExpiryDays ?? 30}
+          timeZone={workspaceDefaults?.timeZone}
           // Pre-fills the proposal's To. Only for people who can send a
           // proposal (same as the invoice send window and Reopen dialog) —
           // view-only roles without Clients access never get the address.

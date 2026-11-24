@@ -644,14 +644,16 @@ export async function getProposalReopenInfo(proposalId: string): Promise<ActionR
       select: { status: true, expiresAt: true, lastViewedAt: true, projectId: true, recipientEmails: true, toEmail: true },
     })
     if (!p) return { success: false, error: 'Proposal not found' }
-    if (!canReopenProposal(p)) return { success: false, error: 'Only an expired proposal can be reopened.' }
-    const ws = await sdb.workspace.findFirst({ where: { id: gate.workspaceId }, select: { proposalExpiryDays: true } })
+    const ws = await sdb.workspace.findFirst({ where: { id: gate.workspaceId }, select: { proposalExpiryDays: true, timeZone: true } })
+    const tz = ws?.timeZone
+    if (!canReopenProposal(p, new Date(), tz)) return { success: false, error: 'Only an expired proposal can be reopened.' }
     const ctx = await resolveProposalEmailContext(sdb, p.projectId)
     const sendTo = proposalTo(p.toEmail, ctx.clientEmail)
     return { success: true, data: {
       expiredOn: p.expiresAt?.toISOString() ?? null,
       lastViewedAt: p.lastViewedAt?.toISOString() ?? null,
-      defaultExpiresAt: defaultReopenDate(ws?.proposalExpiryDays ?? 30),
+      defaultExpiresAt: defaultReopenDate(ws?.proposalExpiryDays ?? 30, new Date(), tz),
+      minExpiresAt: earliestReopenDate(new Date(), tz),
       to: sendTo,
       cc: sendTo ? buildCcList(sendTo, (p as unknown as { recipientEmails?: string[] }).recipientEmails, user.email) : [],
     } }
@@ -677,20 +679,22 @@ export async function reopenProposal(
     if (typeof input?.expiresAt !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(input.expiresAt)) {
       return { success: false, error: 'Pick a valid-through date.' }
     }
-    // Stored as UTC midnight, like every send; the approve route refuses once
-    // it's < now — so the new date has to still be in the future.
+    // Stored as UTC midnight, like every send; it's valid to the end of that
+    // day in the studio's zone — the new date has to be tomorrow or later there.
     const validThrough = new Date(input.expiresAt)
-    if (isNaN(validThrough.getTime()) || input.expiresAt < earliestReopenDate()) {
+    const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
+    const ws = await sdb.workspace.findFirst({ where: { id: gate.workspaceId }, select: { timeZone: true } })
+    const tz = ws?.timeZone
+    if (isNaN(validThrough.getTime()) || input.expiresAt < earliestReopenDate(new Date(), tz)) {
       return { success: false, error: 'Pick a later date — the proposal would already be expired on that one.' }
     }
 
-    const [sdb, user] = await Promise.all([getScopedDb(), getCurrentUser()])
     const p = await sdb.proposal.findFirst({
       where:  { id: proposalId },
       select: { status: true, expiresAt: true, publicTokenExpiresAt: true, firstViewedAt: true, projectId: true, title: true, publicToken: true, recipientEmails: true, toEmail: true },
     })
     if (!p) return { success: false, error: 'Proposal not found' }
-    if (!canReopenProposal(p)) return { success: false, error: 'Only an expired proposal can be reopened.' }
+    if (!canReopenProposal(p, new Date(), tz)) return { success: false, error: 'Only an expired proposal can be reopened.' }
 
     // Fail fast before changing anything if the email can't go anywhere.
     const emailCtx = input.notify ? await resolveProposalEmailContext(sdb, p.projectId) : null

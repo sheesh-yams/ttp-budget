@@ -102,6 +102,33 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-24 — Studio time zone: proposals valid through the end of their date
+
+- **Asked:** a studio time zone, Eastern by default.
+- **Found:** "Valid through Dec 1" is stored as UTC midnight of Dec 1. That is 7 pm Eastern on **Nov 30**, so it expired the evening before.
+  - An "Accepted" date was a UTC calendar day: a 9 pm signature read as the next day.
+  - The project's proposals table showed the valid-through date one day early in US browsers.
+- **Change:**
+  - `Workspace.timeZone` (IANA, default `America/New_York`), set in **Settings → Company** (a list of common zones).
+  - `src/lib/time-zone.ts`:
+    - `endOfDayInZone` (DST-safe, Intl only).
+    - `proposalDeadline`: 11:59:59.999 pm on the stored date in the studio zone.
+    - `formatDateInZone` and `formatCalendarDate`.
+  - **Expiry:** `isProposalExpired`, `canReopenProposal` and the new `isPastValidThrough` take the zone (default Eastern). They're used by the approve route (the signing gate), the public and sign pages, the project proposals table and the proposals board (`DealProposal.timeZone` via `loadDeals`).
+  - **Reopen:** the earliest and default dates are tomorrow / today + N in the zone. The server sends the minimum (`ProposalReopenInfo.minExpiresAt`).
+  - **Dates on documents:** `proposalTermLabel(p, tz)` returns a ready `value`. "Accepted" is shown in the zone. Valid-through is always its own calendar day (public page, sign page, PDF, emails, merge tags, project table).
+  - Stored data is unchanged; no proposal's stored date moved.
+  - **Countdowns** ("Expires today / in N days" on the board and list, the Projects "Proposal expires…" attention rule): calendar days in the zone via `daysUntilValidThrough`. The final valid day now reads "today" instead of dropping out.
+  - **"Signed … on" dates** (public and sign banners, the PDF signature block) are in the zone, so they match "Accepted".
+- **Migration:** `20261124000001_workspace_time_zone` (additive column with a default).
+- **Verified:**
+  - jest (646; DST edges; 11 pm Eastern on the date is still valid, 12:01 am the next day is expired; Pacific), tsc, lint, dark-overrides, audit:scoping
+  - next build up to the known Resend error
+  - all 418 IANA zones on every DST-change day 2020–2027: a day that repeats its last hour ends at the later 23:59 (Santiago); a day whose 23:00 jumps to midnight ends just before it (Greenland)
+  - **pitfall-reviewer:** nothing lets a proposal be signed late or blocks it early. All 5 low/medium findings fixed (the signature-block date, the banners, the attention rule, the list countdown, the repeated hour).
+  - a read-only live check: every workspace is on Eastern, none of the 28 open proposals changes status today, deal rows carry the zone
+- **Not changed:** in-app activity times (sent/viewed) still show in each viewer's browser zone, and invoice due dates are unchanged.
+
 ### 2026-11-24 — Draft invoice preview: outside the app shell, easier to reach
 
 - **Asked:** preview a draft invoice as the client will see it.

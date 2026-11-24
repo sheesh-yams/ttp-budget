@@ -9,6 +9,7 @@ import { parseLocalDate } from '@/lib/time-format'
 import { deliverableBadges } from '@/lib/deliverable-display'
 import type { ProposalContent, PaymentMilestone, ScopeItem } from '@/types'
 import { proposalTermLabel } from '@/lib/proposal-expiry'
+import { formatDateInZone } from '@/lib/time-zone'
 
 // ─── Brand colours ────────────────────────────────────────────────────────────
 const V    = '#5D00A4'
@@ -54,6 +55,8 @@ interface ProposalData {
     name: string; legalName: string | null;
     contactEmail: string | null; website: string | null;
     invoiceNumberPrefix: string;
+    /** The studio's time zone — dates the acceptance. */
+    timeZone?: string | null;
   };
 }
 
@@ -313,8 +316,8 @@ export function ProposalPDF({
   const proposalNum  = `${prefix}-${new Date(proposal.createdAt).getFullYear()}-${String(proposal.version).padStart(3, '0')}`
   const shootType    = SHOOT_LABELS[proposal.project.shootType] ?? proposal.project.shootType
   // Won: when it was accepted — a won proposal is locked, not expiring.
-  const term      = proposalTermLabel({ status: proposal.status ?? '', expiresAt: proposal.expiresAt, approvedAt: proposal.approvedAt })
-  const termValue = term ? (term.date ? fmtDate(term.date) : term.text) : null
+  const term      = proposalTermLabel({ status: proposal.status ?? '', expiresAt: proposal.expiresAt, approvedAt: proposal.approvedAt }, proposal.workspace.timeZone ?? undefined)
+  const termValue = term?.value ?? null
 
   const shootDates = proposal.project.shootStartDate
     ? (() => {
@@ -691,7 +694,7 @@ export function ProposalPDF({
             <View style={s.sigLine} />
             <Text style={s.sigMeta}>
               Signed electronically by {signature.name} on{' '}
-              {new Date(signature.dateISO).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+              {formatDateInZone(signature.dateISO, proposal.workspace.timeZone ?? '')}
             </Text>
             {/* Actually-approved total — matters for a multi-option proposal
                 signed on a non-primary tab, where the frozen top-level total

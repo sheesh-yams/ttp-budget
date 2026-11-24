@@ -7,6 +7,7 @@
 
 import { formatMoney } from '@/lib/money'
 import { isPaidInFull } from '@/lib/project-phase'
+import { daysUntilValidThrough } from '@/lib/proposal-expiry'
 
 export type StepTone = 'red' | 'amber' | 'violet' | 'green' | 'grey'
 
@@ -51,7 +52,7 @@ export function needsAttention(step: NextStep): boolean {
   return step.tone === 'red' || step.tone === 'amber'
 }
 
-export function nextStep(f: NextStepFacts, now: Date, opts: { showMoney: boolean }): NextStep {
+export function nextStep(f: NextStepFacts, now: Date, opts: { showMoney: boolean; timeZone?: string }): NextStep {
   if (f.status === 'ARCHIVED') return { tone: 'grey', label: 'Archived' }
   const t = now.getTime()
   const todayKey = now.toISOString().slice(0, 10)
@@ -81,12 +82,14 @@ export function nextStep(f: NextStepFacts, now: Date, opts: { showMoney: boolean
   if (!won) {
     const pending = f.proposals.filter(p => PENDING_PROPOSAL.includes(p.status))
     // 3. A pending proposal expiring within 2 days.
+    // Counted in calendar days in the studio's zone — valid through the end of its date.
+    const left = (p: { expiresAt: string | null }) => (p.expiresAt ? daysUntilValidThrough(p.expiresAt, now, opts.timeZone) : -1)
     const expiring = pending
-      .filter(p => p.expiresAt && Date.parse(p.expiresAt) >= t && Date.parse(p.expiresAt) <= t + 2 * DAY)
+      .filter(p => left(p) >= 0 && left(p) <= 2)
       .sort((a, b) => Date.parse(a.expiresAt!) - Date.parse(b.expiresAt!))[0]
     if (expiring) {
-      const days = Math.max(1, Math.ceil((Date.parse(expiring.expiresAt!) - t) / DAY))
-      return { tone: 'amber', label: `Proposal expires in ${plural(days, 'day')}`, detail: expiring.viewCount ? `Viewed ${expiring.viewCount}×` : 'Not opened yet' }
+      const days = left(expiring)
+      return { tone: 'amber', label: days === 0 ? 'Proposal expires today' : `Proposal expires in ${plural(days, 'day')}`, detail: expiring.viewCount ? `Viewed ${expiring.viewCount}×` : 'Not opened yet' }
     }
     // 4. Viewed more than 5 days ago, no answer.
     const stale = pending

@@ -3,6 +3,7 @@ import { format } from 'date-fns'
 import { db } from '@/lib/db'
 import { formatMoney } from '@/lib/money'
 import { readSnapshot } from '@/lib/client-people'
+import { formatCalendarDate } from '@/lib/time-zone'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 const FROM = process.env.RESEND_FROM_EMAIL ?? 'proposals@thethirdplace.co'
@@ -200,7 +201,7 @@ export async function sendProposalEmail(payload: ProposalSentPayload): Promise<{
                 </td>
               </tr>
             </table>
-            ${expiresAt ? `<p style="margin:20px 0 0;font-size:12px;color:#aaa">This proposal is valid through ${format(expiresAt, 'MMMM d, yyyy')}.</p>` : ''}
+            ${expiresAt ? `<p style="margin:20px 0 0;font-size:12px;color:#aaa">This proposal is valid through ${formatCalendarDate(expiresAt)}.</p>` : ''}
             <p style="margin:8px 0 0;font-size:12px;color:#aaa">
               Or copy this link: <a href="${proposalUrl}" style="color:${primary};word-break:break-all">${proposalUrl}</a>
             </p>

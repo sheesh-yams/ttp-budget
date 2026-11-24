@@ -3,6 +3,7 @@ import { renderToBuffer } from '@react-pdf/renderer'
 import { db } from '@/lib/db'
 import { ProposalPDF } from '@/components/proposal/ProposalPDF'
 import { attnNames } from '@/lib/client-people'
+import { formatCalendarDate } from '@/lib/time-zone'
 import { calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 import { resolveMergeTagsPlain, type MergeTagContext } from '@/lib/merge-tags'
 import React from 'react'
@@ -25,6 +26,7 @@ export async function GET(
           name: true, legalName: true,
           contactEmail: true, website: true,
           invoiceNumberPrefix: true,
+          timeZone: true,
         },
       },
     },
@@ -162,7 +164,7 @@ export async function GET(
           ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(totalCents / 100)
           : undefined,
         validThrough: proposal.expiresAt
-          ? proposal.expiresAt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+          ? formatCalendarDate(proposal.expiresAt)
           : undefined,
       },
     }
@@ -220,6 +222,7 @@ export async function GET(
         contactEmail:        proposal.workspace.contactEmail,
         website:             proposal.workspace.website,
         invoiceNumberPrefix: proposal.workspace.invoiceNumberPrefix,
+        timeZone:            proposal.workspace.timeZone,
       },
     }
 

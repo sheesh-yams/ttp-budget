@@ -10,6 +10,7 @@ import type { ActionResult } from '@/types'
 import type { ScopeItem, ProposalContent } from '@/types'
 import type { AttachSource, ContractBlockCategory } from '@prisma/client'
 import type { MergeTagContext } from '@/lib/merge-tags'
+import { formatCalendarDate } from '@/lib/time-zone'
 
 // ─── Public types ──────────────────────────────────────────────────────────────
 
@@ -159,7 +160,7 @@ export async function getMergeTagContext(
       ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(snap.totalCents / 100)
       : undefined
     const validThrough = proposal.expiresAt
-      ? new Date(proposal.expiresAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+      ? formatCalendarDate(proposal.expiresAt)
       : undefined
 
     return {

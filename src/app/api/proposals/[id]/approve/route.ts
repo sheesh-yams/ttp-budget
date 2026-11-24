@@ -11,6 +11,8 @@ import { renderSmartText } from '@/lib/smart-text'
 import { resolveMergeTags, resolveMergeTagsPlain, type MergeTagContext } from '@/lib/merge-tags'
 import { scopedDbFor } from '@/lib/db-scoped'
 import { applyProposalWonEffects } from '@/lib/proposal-won'
+import { isPastValidThrough } from '@/lib/proposal-expiry'
+import { formatCalendarDate } from '@/lib/time-zone'
 
 const schema = z.object({
   signatureName: z.string().min(2).max(120),
@@ -50,7 +52,7 @@ export async function POST(
     where: { id, publicToken: proposalToken },
     include: {
       project: { include: { client: true } },
-      workspace: { select: { contactEmail: true, name: true, legalName: true } },
+      workspace: { select: { contactEmail: true, name: true, legalName: true, timeZone: true } },
     },
   })
 
@@ -98,7 +100,8 @@ export async function POST(
   if (tokenExpiry && tokenExpiry < now) {
     return NextResponse.json({ error: 'This proposal link has expired' }, { status: 410 })
   }
-  if (proposal.expiresAt && proposal.expiresAt < now) {
+  // Valid through the END of that day in the studio's time zone.
+  if (proposal.expiresAt && isPastValidThrough(proposal.expiresAt, now, proposal.workspace.timeZone)) {
     return NextResponse.json({ error: 'This proposal is no longer valid — please request an updated proposal' }, { status: 410 })
   }
 
@@ -149,7 +152,7 @@ export async function POST(
         ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(snapTotal / 100)
         : undefined,
       validThrough: proposal.expiresAt
-        ? proposal.expiresAt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+        ? formatCalendarDate(proposal.expiresAt)
         : undefined,
     },
   }

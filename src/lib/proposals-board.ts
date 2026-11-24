@@ -3,7 +3,7 @@
 // follow-ups, badges, tabs, activity bands, board columns and the stats.
 // Plain module (no server imports) — used by the page, the client and jest.
 
-import { isProposalExpired } from '@/lib/proposal-expiry'
+import { daysUntilValidThrough, isProposalExpired } from '@/lib/proposal-expiry'
 
 export type DealStage = 'ns' | 'out' | 'won' | 'lost'
 export type Tone = 'grey' | 'amber' | 'violet' | 'green' | 'blue'
@@ -29,6 +29,8 @@ export interface DealProposal {
    *  updatedAt — opening the client link bumps that. Null when unknown. */
   decidedAt:     string | null
   signatureName: string | null
+  /** The studio's time zone — valid through the end of `expiresAt` there. */
+  timeZone?:     string
 }
 
 export interface DealRow {
@@ -75,7 +77,7 @@ const days = (from: string, to: Date) => Math.floor((to.getTime() - new Date(fro
 /** Stored status, with an open proposal past its expiry reading as EXPIRED; 'NONE' without one. */
 export function effectiveStatus(r: DealRow, now: Date): string {
   if (!r.proposal) return 'NONE'
-  return isProposalExpired(r.proposal, now) ? 'EXPIRED' : r.proposal.status
+  return isProposalExpired(r.proposal, now, r.proposal.timeZone) ? 'EXPIRED' : r.proposal.status
 }
 
 export function stage(r: DealRow, now: Date): DealStage {
@@ -94,7 +96,7 @@ export function followUp(r: DealRow, now: Date): FollowUp | null {
   const p = r.proposal
   if (p.status === 'CHANGES_NEEDED') return { short: 'Changes asked', long: 'Client asked for changes' }
   if (p.expiresAt) {
-    const left = Math.ceil((new Date(p.expiresAt).getTime() - now.getTime()) / DAY)
+    const left = daysUntilValidThrough(p.expiresAt, now, p.timeZone)
     if (left <= 2) return left <= 0 ? { short: 'Expires today', long: 'Expires today' } : { short: `Expires ${left}d`, long: `Expires in ${left} ${left === 1 ? 'day' : 'days'}` }
   }
   if (p.viewCount > 0 && p.lastViewedAt) {

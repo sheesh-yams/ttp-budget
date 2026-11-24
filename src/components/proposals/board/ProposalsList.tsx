@@ -3,6 +3,7 @@
 // /proposals list: one table with column dividers, grouped into grey band rows
 // by last activity (approved mockup v4). Phones get stacked rows instead.
 
+import { daysUntilValidThrough } from '@/lib/proposal-expiry'
 import Link from 'next/link'
 import { Fragment } from 'react'
 import { useRouter } from 'next/navigation'
@@ -35,7 +36,7 @@ function ViewsCell({ row }: { row: DealRow }) {
 function ExpiresCell({ row, now }: { row: DealRow; now: Date }) {
   const p = row.proposal
   if (!p?.expiresAt || stage(row, now) !== 'out') return <span className={SL.mut}>—</span>
-  const left = Math.ceil((new Date(p.expiresAt).getTime() - now.getTime()) / DAY)
+  const left = daysUntilValidThrough(p.expiresAt, now, p.timeZone)
   return (
     <div className={`whitespace-nowrap ${left <= 14 ? 'text-[#B45309]' : ''}`}>
       {shortDate(p.expiresAt)}

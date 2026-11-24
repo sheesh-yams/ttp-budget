@@ -1,5 +1,6 @@
 'use server'
 
+import { isValidTimeZone } from '@/lib/time-zone'
 import { THEME_PREFERENCES, normalizeTheme, type ThemePreference } from '@/lib/theme'
 import { primaryEmailOf, syncUserEmail, type EmailSyncResult } from '@/lib/account-email'
 import { revalidatePath } from 'next/cache'
@@ -32,6 +33,8 @@ const companySchema = z.object({
   region:       z.string().max(100).optional().nullable(),
   postalCode:   z.string().max(20).optional().nullable(),
   country:      z.string().max(10).optional().nullable(),
+  /** IANA zone — when proposals' valid-through dates end, and how dates show. */
+  timeZone:     z.string().max(64).refine(isValidTimeZone, 'Unknown time zone').optional(),
 })
 
 const brandingSchema = z.object({
@@ -95,6 +98,7 @@ export async function updateCompanySettings(
         region:       data.region || null,
         postalCode:   data.postalCode || null,
         country:      data.country || null,
+        ...(data.timeZone ? { timeZone: data.timeZone } : {}),
       },
     })
     revalidatePath('/settings')

@@ -68,6 +68,9 @@ model Workspace {
   invoiceExpiryDays  Int @default(30)
 
   // Production preferences
+  // The studio's IANA time zone: when a proposal's "valid through" day ends,
+  // and which day "Accepted" shows.
+  timeZone          String   @default("America/New_York")
   callTimeFormat    String   @default("12H")  // "12H" → "7:00 AM" | "24H" → "07:00"
 
   // Deal memo defaults (Settings → Contracts): work-day/OT settings, zone

@@ -46,6 +46,7 @@ export default async function ProposalSignPage({ params, searchParams }: Props) 
           website: true, invoiceNumberPrefix: true,
           logoUrl: true, logoDarkUrl: true,
           primaryColor: true, accentColor: true,
+          timeZone: true,
         },
       },
     },
@@ -190,6 +191,7 @@ export default async function ProposalSignPage({ params, searchParams }: Props) 
       logoDarkUrl:         proposal.workspace.logoDarkUrl,
       primaryColor:        proposal.workspace.primaryColor,
       accentColor:         proposal.workspace.accentColor,
+      timeZone:            proposal.workspace.timeZone,
     },
     totalCents,
   }
@@ -199,7 +201,7 @@ export default async function ProposalSignPage({ params, searchParams }: Props) 
       proposal={serialisedProposal}
       contractSections={contractSections}
       optionPhaseId={optionPhaseId}
-      isExpired={isProposalExpired(proposal)}
+      isExpired={isProposalExpired(proposal, new Date(), proposal.workspace.timeZone)}
     />
   )
 }

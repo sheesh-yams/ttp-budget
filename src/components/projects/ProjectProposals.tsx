@@ -5,7 +5,8 @@ import { useEffect, useRef, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Plus, ExternalLink, Eye, Clock, Send, FileText, Pencil, Receipt, CheckCircle, Trash2, TrendingDown, ChevronDown, RotateCcw, Lock } from 'lucide-react'
 import { ReopenProposalDialog } from '@/components/proposals/ReopenProposalDialog'
-import { canReopenProposal } from '@/lib/proposal-expiry'
+import { canReopenProposal, isPastValidThrough } from '@/lib/proposal-expiry'
+import { formatCalendarDate } from '@/lib/time-zone'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ProposalModal, type ProposalModalMode } from './ProposalModal'
@@ -51,6 +52,8 @@ interface Props {
   allowInvoice?: boolean
   /** Contract permission, for the Contract tab in the proposal editor. */
   contractAccess?: 'NONE' | 'VIEW' | 'EDIT'
+  /** The studio's time zone — a proposal is valid to the end of its date there. */
+  timeZone?: string
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; select: string; icon: React.ReactNode }> = {
@@ -90,7 +93,7 @@ function extractFromContent(content: unknown): {
   }
 }
 
-export function ProjectProposals({ proposals, projectId, projectName, clientId, budgetId, totalCents, clientEmail = null, defaultCc = [], people = [], proposalExpiryDays = 30, invoiceExpiryDays = 30, allowEdit = true, allowInvoice = true, contractAccess = 'EDIT' }: Props) {
+export function ProjectProposals({ proposals, projectId, projectName, clientId, budgetId, totalCents, clientEmail = null, defaultCc = [], people = [], proposalExpiryDays = 30, invoiceExpiryDays = 30, allowEdit = true, allowInvoice = true, contractAccess = 'EDIT', timeZone }: Props) {
   const router = useRouter()
 
   // Proposal modal state
@@ -257,7 +260,7 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
               {proposals.map(p => {
                 const effectiveStatus = statusOverrides[p.id] ?? p.status
                 const cfg = STATUS_CONFIG[effectiveStatus] ?? STATUS_CONFIG.DRAFT
-                const isExpiredEff    = !!p.expiresAt && new Date(p.expiresAt) < new Date() && !['APPROVED', 'LOST'].includes(effectiveStatus)
+                const isExpiredEff    = !!p.expiresAt && isPastValidThrough(p.expiresAt, new Date(), timeZone) && !['APPROVED', 'LOST'].includes(effectiveStatus)
                 const canEdit     = effectiveStatus === 'DRAFT' && allowEdit
                 const canInvoice  = ['SENT', 'VIEWED', 'APPROVED'].includes(effectiveStatus) && !!budgetId && allowInvoice
                 const canDelete   = allowEdit
@@ -305,7 +308,7 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
                           <Lock className="h-3 w-3" /> Locked
                         </span>
                       ) : p.expiresAt
-                        ? new Date(p.expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                        ? formatCalendarDate(p.expiresAt, { month: 'short', day: 'numeric', year: 'numeric' })
                         : '—'}
                     </td>
                     <td className="hidden md:table-cell px-3 py-2.5 text-muted-foreground">
@@ -325,7 +328,7 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
                           </button>
                         )}
                         {/* Reopen (expired) */}
-                        {allowEdit && canReopenProposal({ status: effectiveStatus, expiresAt: p.expiresAt }) && (
+                        {allowEdit && canReopenProposal({ status: effectiveStatus, expiresAt: p.expiresAt }, new Date(), timeZone) && (
                           <button
                             type="button"
                             onClick={() => { setReopenNote(null); setReopenTarget(p) }}

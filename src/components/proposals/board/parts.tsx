@@ -91,7 +91,7 @@ export function EyeIcon() {
 export function DealMenu({ row, actions, size = 30 }: { row: DealRow; actions: DealActions; size?: number }) {
   const p = row.proposal
   const st = stage(row, actions.now)
-  const reopenable = !!p && canReopenProposal(p, actions.now)
+  const reopenable = !!p && canReopenProposal(p, actions.now, p.timeZone)
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>

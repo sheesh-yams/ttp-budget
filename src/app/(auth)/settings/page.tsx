@@ -51,6 +51,7 @@ export default async function SettingsPage() {
       proposalExpiryDays:      true,
       invoiceExpiryDays:       true,
       callTimeFormat:          true,
+      timeZone:                true,
     },
   })
 

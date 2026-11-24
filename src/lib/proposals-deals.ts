@@ -49,6 +49,8 @@ export async function loadDeals(db: PrismaClient, workspaceId: string, opts: {
     },
   })
   const projectIds = projects.map(p => p.id)
+  const ws = await db.workspace.findFirst({ where: { id: workspaceId }, select: { timeZone: true } })
+  const timeZone = ws?.timeZone ?? undefined
   const picked = new Map(projects.map(p => [p.id, pickProposal(p.proposals)]))
 
   // Live budget totals: the value of drafts and not-started leads, and whether
@@ -106,6 +108,7 @@ export async function loadDeals(db: PrismaClient, workspaceId: string, opts: {
         approvedAt: iso(r.approvedAt), declinedAt: iso(r.declinedAt), updatedAt: r.updatedAt.toISOString(),
         decidedAt: iso(decided.get(r.id) ?? null),
         signatureName: r.signatureName,
+        timeZone,
       } : null,
       hasBudget:  live > 0,
       valueCents: showMoney ? value : null,

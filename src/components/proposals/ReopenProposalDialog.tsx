@@ -48,9 +48,9 @@ export function ReopenProposalDialog({ open, proposalId, proposalTitle, onClose,
     }).catch(() => setLoadError('Couldn’t load the proposal'))
   }, [open, proposalId])
 
-  // Valid-through is stored as UTC midnight of the date, so late in a US day
-  // "tomorrow" may already be too soon — the picker's min says so.
-  const minYmd = earliestReopenDate()
+  // Tomorrow in the studio's time zone (from the server); the local guess only
+  // until it loads.
+  const minYmd = info?.minExpiresAt ?? earliestReopenDate()
   const dateOk = /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= minYmd
 
   function submit() {

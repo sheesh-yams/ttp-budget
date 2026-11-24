@@ -67,6 +67,7 @@ export default async function PublicProposalPage({ params }: Props) {
           primaryColor: true,
           accentColor: true,
           invoiceNumberPrefix: true,
+          timeZone: true,
         },
       },
     },
@@ -320,7 +321,7 @@ export default async function PublicProposalPage({ params }: Props) {
       contractEnabled={effectiveContractEnabled}
       contractSections={effectiveContractEnabled ? [] : contractSections}
       proposalOptions={proposalOptions && proposalOptions.length > 1 ? proposalOptions : undefined}
-      isExpired={!isDraft && isProposalExpired(proposal)}
+      isExpired={!isDraft && isProposalExpired(proposal, new Date(), proposal.workspace.timeZone)}
     />
   )
 }

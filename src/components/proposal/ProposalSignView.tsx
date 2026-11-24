@@ -9,6 +9,7 @@ import { parseLocalDate } from '@/lib/time-format'
 import { renderSmartText } from '@/lib/smart-text'
 import { resolveMergeTags, type MergeTagContext } from '@/lib/merge-tags'
 import { proposalTermLabel } from '@/lib/proposal-expiry'
+import { formatDateInZone } from '@/lib/time-zone'
 
 const V       = 'var(--brand-v, #5D00A4)'
 const V_TINT  = 'var(--brand-v-tint, #F5EDFA)'
@@ -57,6 +58,8 @@ interface SerialProposal {
     logoDarkUrl:         string | null
     primaryColor:        string | null
     accentColor:         string | null
+    /** The studio's time zone — dates the acceptance. */
+    timeZone?:           string | null
   }
 }
 
@@ -114,8 +117,8 @@ export function ProposalSignView({ proposal, contractSections, optionPhaseId, is
   // Follows an inline signature at once (before any reload).
   const term      = proposalTermLabel(sigState === 'done'
     ? { status: 'APPROVED', expiresAt: proposal.expiresAt, approvedAt: signedAt }
-    : proposal)
-  const termValue = term ? (term.date ? fmt(term.date) : term.text) : null
+    : proposal, proposal.workspace.timeZone ?? undefined)
+  const termValue = term?.value ?? null
 
   async function handleApprove() {
     if (!agreed) { setSigError('Please check the box confirming you agree to the terms above.'); return }
@@ -251,7 +254,7 @@ export function ProposalSignView({ proposal, contractSections, optionPhaseId, is
               <p style={{ fontSize: 22, fontWeight: 700, color: BODY, margin: '0 0 10px' }}>Contract Signed</p>
               <p style={{ fontSize: 14, color: MUTED, margin: '0 0 20px', lineHeight: 1.6 }}>
                 Signed by <strong style={{ color: BODY }}>{proposal.signatureName || sigName}</strong>
-                {signedAt && <> on {fmt(signedAt)}</>}
+                {signedAt && <> on {formatDateInZone(signedAt, workspace.timeZone ?? '')}</>}
               </p>
               <a
                 href={`/api/pdf/proposal/${proposal.publicToken}`}
