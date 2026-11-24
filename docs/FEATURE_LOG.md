@@ -102,6 +102,13 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-24 — Settings → Company wouldn't save
+
+- **Cause:** an empty leftover workspace (`cmq89lp7f0000gfgg6mevwd5u`, created 2026-06-10; no Clerk org, members or data) was also named "The Third Place". `updateCompanySettings` refuses a name another workspace uses, so every Company save failed. The UI showed only "Error — retry".
+- **Data (owner-approved):** renamed the leftover to "The Third Place (unused, June 2026)" in a guarded transaction that re-checked it was empty, with an `AuditEvent` `workspace.renamed`.
+- **Code (a386ff8):** every settings Save button now shows the server's error message until the next save.
+- **Follow-up:** decide whether workspace names really need to be globally unique (two studios could share a name); maybe delete the unused leftover.
+
 ### 2026-11-24 — Studio time zone: proposals valid through the end of their date
 
 - **Asked:** a studio time zone, Eastern by default.
