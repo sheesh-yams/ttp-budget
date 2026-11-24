@@ -98,3 +98,15 @@ describe('team & roles page guards', () => {
     expect(src).toMatch(/await requireTeamViewer\(\)/)
   })
 })
+
+// In-app client previews (src/app/(preview)) live outside the app shell, but
+// they're still signed-in pages showing money: each must check its permission.
+describe('preview page guards', () => {
+  const PREVIEW_DIR = path.join(process.cwd(), 'src/app/(preview)')
+  const all = pages(PREVIEW_DIR)
+  it('finds the preview pages', () => { expect(all.length).toBeGreaterThanOrEqual(1) })
+  it.each(all)('%s checks a money permission', rel => {
+    const src = fs.readFileSync(path.join(PREVIEW_DIR, rel), 'utf8')
+    expect(src).toMatch(/requireMoneyPermission\(\{ \w+Id: id \}, '(invoices|proposals)', 'VIEW'\)/)
+  })
+})
