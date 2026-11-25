@@ -42,7 +42,7 @@ export default async function ClientsPage() {
       // Money comes from every invoice, archived projects included — that
       // money is real (same call as the Dashboard).
       invoices: {
-        select: { status: true, totalCents: true, amountPaidCents: true, dueDate: true, paidAt: true, updatedAt: true, projectId: true, isScopeAddition: true },
+        select: { status: true, totalCents: true, amountPaidCents: true, dueDate: true, paidAt: true, updatedAt: true, projectId: true, isScopeAddition: true, lineItems: true, discountCents: true },
       },
     },
   })

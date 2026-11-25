@@ -14,6 +14,7 @@ export interface BillingInvoice {
   status:           string
   totalCents:       number
   isScopeAddition?: boolean
+  lineItems?:       unknown
 }
 
 export interface BillingProject {

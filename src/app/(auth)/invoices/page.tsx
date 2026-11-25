@@ -1,3 +1,4 @@
+import { internalInvoiceLines } from '@/lib/invoice-lines'
 import Link from 'next/link'
 import { requireWorkspaceArea } from '@/lib/project-access'
 import { projectsWithArea } from '@/lib/money-access'
@@ -159,6 +160,8 @@ export default async function InvoicesPage({ searchParams }: { searchParams: Pro
           paidAt:    inv.paidAt?.toISOString() ?? null,
           taxPct:    Number(inv.taxPct ?? 0),
           notes:     inv.notes ?? null,
+          // Costs behind extras stay on the project pages (margin-gated there).
+          lineItems: internalInvoiceLines(inv.lineItems, false),
         }))} editableProjectIds={editable} />
       )}
     </div>

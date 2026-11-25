@@ -7,6 +7,7 @@
  *   2. All existing invoices for this project.
  */
 
+import { internalInvoiceLines } from '@/lib/invoice-lines'
 import { invoiceDueDays } from '@/lib/client-recipients'
 import { notFound } from 'next/navigation'
 import { requireProjectAccess, requireProjectArea } from '@/lib/project-access'
@@ -154,7 +155,7 @@ export default async function InvoicesSubPage({ params }: Props) {
     issueDate: inv.issueDate.toISOString(),
     sentAt:    inv.sentAt?.toISOString() ?? null,
     archivedAt: inv.archivedAt?.toISOString() ?? null,
-    lineItems: inv.lineItems,
+    lineItems: internalInvoiceLines(inv.lineItems, projectAccess.can('budget.margin')),
     taxPct:    Number(inv.taxPct ?? 0),
     notes:     inv.notes ?? null,
   }))

@@ -1,3 +1,4 @@
+import { clientInvoiceLines } from '@/lib/invoice-lines'
 import { NextRequest, NextResponse } from 'next/server'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { db } from '@/lib/db'
@@ -71,7 +72,7 @@ export async function GET(
       dueDate:        invoice.dueDate.toISOString(),
       paymentTerms:   (invoice as unknown as { paymentTerms: string | null }).paymentTerms,
       poNumber:       invoice.poNumber,
-      lineItems:      invoice.lineItems as unknown as InvoiceLineItem[],
+      lineItems:      clientInvoiceLines(invoice.lineItems),
       subtotalCents:  invoice.subtotalCents,
       taxPct:         Number(invoice.taxPct),
       taxCents:       invoice.taxCents,

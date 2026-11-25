@@ -7,6 +7,14 @@ import { z } from 'zod'
 import { calcInvoiceTotals, calendarDateToStored } from '@/lib/invoice-totals'
 import { generatePublicToken } from '@/lib/secure-token'
 
+/** Where a line came from (actuals) — validated and re-costed server-side by resolveActualLines. */
+export const invoiceLineSourceFields = {
+  extra:          z.boolean().optional(),
+  actualEntryId:  z.string().max(64).optional(),
+  actualPart:     z.literal('overage').optional(),
+  costCents:      z.number().int().optional(),
+}
+
 export const invoiceLineItemSchema = z.object({
   id:             z.string(),
   description:    z.string(),
@@ -15,6 +23,7 @@ export const invoiceLineItemSchema = z.object({
   rateCents:      z.number().int(),
   lineTotalCents: z.number().int(),
   notes:          z.string().optional(),
+  ...invoiceLineSourceFields,
 })
 export type InvoiceLineItemInput = z.infer<typeof invoiceLineItemSchema>
 

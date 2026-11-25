@@ -6,6 +6,7 @@ import { db } from '@/lib/db'
 import { getCurrentUser, getWorkspaceId } from '@/lib/auth'
 import { getAccess } from '@/lib/access'
 import { calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
+import { addedScopeCents } from '@/lib/project-value'
 
 export const metadata = { title: 'Dashboard' }
 
@@ -90,11 +91,11 @@ export default async function DashboardPage() {
       },
     }),
 
-    // ── Added scope billed on top of each project's budget (invoice-first) ──
-    isCollaborator ? Promise.resolve([]) : db.invoice.groupBy({
-      by:    ['projectId'],
-      where: { workspaceId, isScopeAddition: true, status: { not: 'VOID' }, project: { archivedAt: null } },
-      _sum:  { totalCents: true },
+    // ── Billed on top of each project's budget: added-scope invoices, and
+    //    extra lines (e.g. from Actuals) on any invoice ──
+    isCollaborator ? Promise.resolve([]) : db.invoice.findMany({
+      where:  { workspaceId, status: { not: 'VOID' }, project: { archivedAt: null } },
+      select: { projectId: true, status: true, totalCents: true, discountCents: true, isScopeAddition: true, lineItems: true },
     }),
 
     // "Proposals sent": every open proposal (the queue above is only the latest 5).
@@ -126,8 +127,9 @@ export default async function DashboardPage() {
     budgetTotalByProject.set(projectId, grandTotalCents)
   }
   // Project value = budget + added scope (src/lib/project-value.ts).
-  for (const row of scopeByProject) {
-    budgetTotalByProject.set(row.projectId, (budgetTotalByProject.get(row.projectId) ?? 0) + (row._sum.totalCents ?? 0))
+  for (const inv of scopeByProject) {
+    const add = addedScopeCents([inv])
+    if (add) budgetTotalByProject.set(inv.projectId, (budgetTotalByProject.get(inv.projectId) ?? 0) + add)
   }
 
   // Sort by most recent activity across the project + all related models

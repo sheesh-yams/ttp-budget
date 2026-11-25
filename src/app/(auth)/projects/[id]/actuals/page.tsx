@@ -6,6 +6,7 @@ import { db } from '@/lib/db'
 import { getWorkspaceId } from '@/lib/auth'
 import { getActualSheet, syncActualSheetEntries } from '@/server/actions/actuals'
 import { ActualsEditor } from '@/components/projects/ActualsEditor'
+import { billedExtrasCents, invoicedOnByEntry } from '@/lib/invoice-lines'
 import { stripAccount } from '@/lib/budget-visibility'
 import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 
@@ -101,6 +102,7 @@ export default async function ActualsPage({
   // after the sheet was created (they wouldn't have ActualEntry rows yet and
   // would show as un-editable "—" without this step).
   let sheet = budget ? await getActualSheet(budget.id) : null
+  const projectInvoices = await db.invoice.findMany({ where: { projectId: id, workspaceId }, select: { number: true, status: true, totalCents: true, discountCents: true, isScopeAddition: true, lineItems: true } })
   if (sheet && phase) {
     const synced = await syncActualSheetEntries(
       sheet.id,
@@ -138,6 +140,11 @@ export default async function ActualsPage({
         // reach people who can see Budget margin.
         sheet={sheet && !showMargin ? { ...sheet, revenueOverrideCents: null } : sheet}
         budgetTotalCents={showMargin ? budgetTotalCents : 0}
+        // What's been billed from these actuals: badges for everyone who can
+        // see actuals; the billed amount only with Budget margin.
+        // Invoice numbers are Invoices data — only for people who can see invoices.
+        invoicedOn={projectAccess.can('invoices') ? invoicedOnByEntry(projectInvoices) : {}}
+        billedExtrasCents={showMargin ? billedExtrasCents(projectInvoices) : 0}
         canEdit={projectAccess.can('actuals', 'EDIT')}
         showMargin={showMargin}
       />

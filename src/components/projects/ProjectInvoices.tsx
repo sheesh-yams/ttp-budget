@@ -225,6 +225,7 @@ export function ProjectInvoices({ invoices, projectId, allowEdit = true }: Props
                       {/* Edit line items */}
                       {canEdit && (
                         <EditInvoiceModal
+                          projectId={projectId}
                           invoiceId={inv.id}
                           invoiceNumber={inv.number}
                           existingItems={(inv.lineItems as InvoiceLineItem[]) ?? []}

@@ -1,3 +1,4 @@
+import { billedExtrasCents, internalInvoiceLines } from '@/lib/invoice-lines'
 import { notFound } from 'next/navigation'
 import { requireProjectAccess } from '@/lib/project-access'
 import Link from 'next/link'
@@ -272,7 +273,8 @@ export default async function ProjectDetailPage({
 
     if (sheet) {
       // Revenue basis for profit/margin: honour manual override, else use gross budget total
-      const revenueBasis = sheet.revenueOverrideCents ?? grossTotalCents
+      // (plus extras billed on top from actuals — same as the Actuals page)
+      const revenueBasis = (sheet.revenueOverrideCents ?? grossTotalCents) + billedExtrasCents(project.invoices)
       const spentCents   = sheet.entries.reduce((s, e) => s + e.actualCents, 0)
       const profitCents  = revenueBasis - spentCents
       const marginPct    = revenueBasis > 0 ? (profitCents / revenueBasis) * 100 : 0
@@ -462,6 +464,7 @@ export default async function ProjectDetailPage({
           totalCents={clientTotalCents}
           proposalExpiryDays={workspaceDefaults?.proposalExpiryDays ?? 30}
           timeZone={workspaceDefaults?.timeZone}
+          priorInvoices={project.invoices.map(i => ({ number: i.number, status: i.status, totalCents: i.totalCents, isScopeAddition: i.isScopeAddition, discountCents: i.discountCents, lineItems: internalInvoiceLines(i.lineItems, false) }))}
           // Pre-fills the proposal's To. Only for people who can send a
           // proposal (same as the invoice send window and Reopen dialog) —
           // view-only roles without Clients access never get the address.
@@ -480,7 +483,7 @@ export default async function ProjectDetailPage({
 
       {can.invoices && <section className="mb-8">
         <ProjectInvoices
-          invoices={project.invoices as never}
+          invoices={project.invoices.map(i => ({ ...i, lineItems: internalInvoiceLines(i.lineItems, can.margin) })) as never}
           projectId={project.id}
           allowEdit={can.invoicesEdit}
         />

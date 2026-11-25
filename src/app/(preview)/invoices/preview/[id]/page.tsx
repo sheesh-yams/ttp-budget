@@ -8,6 +8,7 @@
  * paymentEnabled is always false here — this is a preview, not a payment page.
  */
 
+import { clientInvoiceLines } from '@/lib/invoice-lines'
 import { notFound } from 'next/navigation'
 import { requireMoneyPermission } from '@/lib/money-access'
 import { db } from '@/lib/db'
@@ -104,7 +105,7 @@ export default async function InvoicePreviewPage({ params }: Props) {
       {/* "How your client will see it" — outside the app shell, always light. */}
       <ForceLight />
       <div className="light-scope" style={{ paddingTop: 44 }}>
-        <InvoicePublicView invoice={invoice} paymentEnabled={false} />
+        <InvoicePublicView invoice={{ ...invoice, lineItems: clientInvoiceLines(invoice.lineItems) as unknown as typeof invoice.lineItems }} paymentEnabled={false} />
       </div>
     </>
   )

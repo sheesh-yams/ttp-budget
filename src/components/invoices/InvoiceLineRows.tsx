@@ -17,6 +17,15 @@ const UNIT_LABELS: Record<Unit, string> = {
   DAY: 'Day', WEEK: 'Week', EACH: 'Each', MILE: 'Mile',
 }
 
+/** Where a row came from — an extra billed from Actuals. The server re-costs it on save. */
+export interface RowSource {
+  extra:          true
+  actualEntryId?: string
+  actualPart?:    'overage'
+  /** Only present for people who can see the budget margin. */
+  costCents?:     number
+}
+
 export interface Row {
   id:          string
   description: string
@@ -24,6 +33,30 @@ export interface Row {
   unit:        Unit
   rate:        string   // display dollars
   notes:       string
+  source?:     RowSource
+}
+
+export function sourceOf(li: InvoiceLineItem): RowSource | undefined {
+  if (!li.extra && !li.actualEntryId) return undefined
+  return {
+    extra: true,
+    ...(li.actualEntryId ? { actualEntryId: li.actualEntryId } : {}),
+    ...(li.actualPart ? { actualPart: li.actualPart } : {}),
+    ...(li.costCents != null ? { costCents: li.costCents } : {}),
+  }
+}
+
+/** A row billing one item from Actuals at `chargeCents` (no agency fee — billed as is). */
+export function actualRow(item: { entryId: string; part: 'overage' | null; description: string; costCents: number }, chargeCents: number, showCost: boolean): Row {
+  return {
+    id:          crypto.randomUUID(),
+    description: item.part === 'overage' ? `${item.description} (over budget)` : item.description,
+    quantity:    '1',
+    unit:        'FLAT',
+    rate:        (chargeCents / 100).toFixed(2),
+    notes:       '',
+    source:      { extra: true, actualEntryId: item.entryId, ...(item.part ? { actualPart: item.part } : {}), ...(showCost ? { costCents: item.costCents } : {}) },
+  }
 }
 
 export function rowToCents(row: Row): number {
@@ -40,6 +73,7 @@ export function liToRow(li: InvoiceLineItem): Row {
     unit:        li.unit as Unit,
     rate:        (li.rateCents / 100).toFixed(2),
     notes:       (li as unknown as { notes?: string }).notes ?? '',
+    source:      sourceOf(li),
   }
 }
 
@@ -58,7 +92,27 @@ export function rowToLineItem(row: Row): InvoiceLineItem {
     rateCents,
     lineTotalCents: Math.round(qty * rateCents),
     ...(row.notes ? { notes: row.notes } : {}),
+    ...(row.source ?? {}),
   } as InvoiceLineItem
+}
+
+/** Appends rows, dropping an untouched blank row (a fresh editor starts with one). */
+export function withAddedRows(prev: Row[], add: Row[]): Row[] {
+  const kept = prev.filter(r => r.description.trim() || (parseFloat(r.rate) || 0) > 0)
+  return [...kept, ...add]
+}
+
+/** "From actuals · cost $800 · +$200 margin" — internal, for the editors. */
+export function SourceTag({ source, chargeCents }: { source: RowSource; chargeCents: number }) {
+  const cost = source.costCents
+  return (
+    <p className="mt-0.5 text-[11px] text-muted-foreground">
+      <span className="font-medium text-primary">{source.actualEntryId ? 'From actuals' : 'Extra'}</span>
+      {source.actualPart === 'overage' && ' · over-budget part'}
+      {cost != null && <> · cost {formatMoney(cost)} · <span className={chargeCents - cost < 0 ? 'text-red-600' : ''}>{chargeCents - cost >= 0 ? '+' : '−'}{formatMoney(Math.abs(chargeCents - cost))} margin</span></>}
+      {' · billed on top of the budget, no agency fee'}
+    </p>
+  )
 }
 
 /**
@@ -140,11 +194,14 @@ export function InvoiceLineRowsEditor({ rows, onChange, autoFocusFirst }: {
               type="button"
               onClick={() => onChange(rows.filter((_, i) => i !== idx))}
               disabled={rows.length === 1}
+              title="Remove line"
               className="flex items-center justify-center rounded p-0.5 text-muted-foreground hover:text-red-500 hover:bg-red-50 disabled:opacity-25 disabled:cursor-not-allowed"
             >
               <Trash2 className="h-3 w-3" />
             </button>
           </div>
+
+          {row.source && <SourceTag source={row.source} chargeCents={rowToCents(row)} />}
 
           {/* Per-item notes */}
           <input

@@ -19,6 +19,8 @@ import { generateInvoiceNumber } from '@/lib/invoice-numbering'
 import { defaultBillToSnapshot } from '@/lib/client-people-load'
 import { logAuditEvent } from '@/lib/audit'
 import { generatePublicToken } from '@/lib/secure-token'
+import { resolveActualLines } from '@/lib/invoice-lines'
+import type { InvoiceLineItem } from '@/types'
 import { buildInvoiceCreateData, invoiceLineItemSchema, resolveInvoiceDates } from '@/lib/invoice-create'
 import { budgetTaxFraction, canCreateProjectFromInvoice, normalizeInvoiceLines, INVOICE_FIRST_MILESTONE } from '@/lib/invoice-first'
 import { PHASE_TREE_INCLUDE, BUDGET_SNAPSHOT_SELECT, buildBudgetSnapshot, buildProposalContent, type SnapshotPhase } from '@/lib/proposal-snapshot'
@@ -72,7 +74,9 @@ export async function createInvoiceFirst(
     if ('error' in dates) return { success: false, error: dates.error }
 
     return data.mode === 'new'
-      ? await createWithNewProject(data as NewInput, lines.lines, dates)
+      // A brand-new project has no actuals, and its budget is built from
+      // these lines — nothing here is "extra".
+      ? await createWithNewProject(data as NewInput, lines.lines.map(({ extra: _e, actualEntryId: _a, actualPart: _p, costCents: _c, ...l }) => { void _e; void _a; void _p; void _c; return l }), dates)
       : await createOnExistingProject(data as ExistingInput, lines.lines, dates)
   } catch (err) {
     if (err instanceof NotFound) return { success: false, error: 'Not found' }
@@ -237,6 +241,11 @@ async function createOnExistingProject(
     },
   })
   if (!project) return { success: false, error: 'Not found' }
+
+  // Lines from actuals: costed from the database, never the browser.
+  const resolved = await resolveActualLines(sdb, project.id, lines as InvoiceLineItem[], { canUseActuals: !!gate.project?.can('actuals', 'VIEW') })
+  if ('error' in resolved) return { success: false, error: resolved.error }
+  lines = resolved.lines as Lines
 
   // Billed on top of a won project's agreed total → added scope, unless the
   // user says it's part of the agreed total (a reissue).

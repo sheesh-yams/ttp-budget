@@ -15,7 +15,9 @@ import { logAuditEvent } from '@/lib/audit'
 import { normalizeRecipientEmails, buildCcList } from '@/lib/email'
 import { calcInvoiceTotals, calendarDateToStored } from '@/lib/invoice-totals'
 import { formatMoney } from '@/lib/money'
-import { buildInvoiceCreateData, deriveInvoicePaymentTerms, invoiceLineItemSchema, resolveInvoiceDates } from '@/lib/invoice-create'
+import { groupInvoiceableActuals, resolveActualLines, type InvoiceableActualsResult } from '@/lib/invoice-lines'
+import type { InvoiceLineItem } from '@/types'
+import { buildInvoiceCreateData, deriveInvoicePaymentTerms, invoiceLineItemSchema, invoiceLineSourceFields, resolveInvoiceDates } from '@/lib/invoice-create'
 import { deleteNeedsTypedConfirm, matchesInvoiceNumber, paymentInProgress } from '@/lib/invoice-delete'
 
 const createSchema = z.object({
@@ -53,6 +55,10 @@ export async function createInvoice(
     ])
     const data = createSchema.parse(input)
 
+    // Lines from actuals: costed from the database, never the browser.
+    const resolved = await resolveActualLines(scopedDb, data.projectId, data.lineItems as InvoiceLineItem[], { canUseActuals: !!gate.project?.can('actuals', 'VIEW') })
+    if ('error' in resolved) return { success: false, error: resolved.error }
+
     const dates = resolveInvoiceDates(data.issueDate, data.dueDate)
     if ('error' in dates) return { success: false, error: dates.error }
 
@@ -77,7 +83,7 @@ export async function createInvoice(
         title:         data.title,
         issueDate:     dates.issueDate,
         dueDate:       dates.dueDate,
-        lineItems:     data.lineItems,
+        lineItems:     resolved.lines,
         taxPct:        data.taxPct,
         discountCents: data.discountCents,
         notes:         data.notes,
@@ -666,6 +672,7 @@ const lineItemSchema = z.object({
   rateCents:      z.number().int(),
   lineTotalCents: z.number().int(),
   notes:          z.string().optional(),
+  ...invoiceLineSourceFields,
 })
 
 export async function updateInvoiceLineItems(
@@ -685,13 +692,17 @@ export async function updateInvoiceLineItems(
 
     const invoice = await scopedDb.invoice.findFirst({
       where: { id: invoiceId },
-      select: { status: true, projectId: true, workspaceId: true, issueDate: true, dueDate: true, discountCents: true, amountPaidCents: true },
+      select: { status: true, projectId: true, workspaceId: true, issueDate: true, dueDate: true, discountCents: true, amountPaidCents: true, lineItems: true },
     })
     if (!invoice) return { success: false, error: 'Invoice not found' }
     if ((invoice.status as string) === 'PAID') return { success: false, error: 'Cannot edit a paid invoice' }
     if ((invoice.status as string) === 'VOID') return { success: false, error: 'Cannot edit a voided invoice' }
 
-    const validated = z.array(lineItemSchema).parse(lineItems)
+    const parsedLines = z.array(lineItemSchema).parse(lineItems)
+    // Lines from actuals: costed from the database, never the browser.
+    const resolved = await resolveActualLines(scopedDb, invoice.projectId, parsedLines as InvoiceLineItem[], { canUseActuals: !!gate.project?.can('actuals', 'VIEW'), stored: invoice.lineItems })
+    if ('error' in resolved) return { success: false, error: resolved.error }
+    const validated = resolved.lines
     // Same math as create. The discount used to be dropped here (total was
     // subtotal + tax on the pre-discount subtotal) — keep the stored one
     // unless a new one is sent.
@@ -754,4 +765,45 @@ export async function updateOverdueInvoices(): Promise<void> {
     where: { status: { in: ['SENT', 'VIEWED'] }, dueDate: { lt: new Date() } },
     data: { status: 'OVERDUE' },
   })
+}
+
+// ─── Add from actuals ─────────────────────────────────────────────────────────
+
+/**
+ * A project's actuals for the invoice editor's "Add from actuals" picker:
+ * unplanned first, then overages, then items already in the budget — each
+ * with the invoices it's already on. Needs Invoices EDIT and Actuals VIEW.
+ */
+export async function getInvoiceableActuals(projectId: string): Promise<ActionResult<InvoiceableActualsResult>> {
+  try {
+    const gate = await requireMoneyPermission({ projectId }, 'invoices', 'EDIT', [{ area: 'actuals', level: 'VIEW' }])
+    if (!gate.ok) return gate.error
+    const sdb = await getScopedDb()
+    const pid = gate.projectId as string
+    const [sheets, lines, invoices] = await Promise.all([
+      sdb.actualSheet.findMany({
+        where:  { projectId: pid },
+        select: { entries: { orderBy: { order: 'asc' }, select: { id: true, description: true, actualCents: true, isAdHoc: true, lineItemId: true, dealMemoSourced: true } } },
+      }),
+      // Every line of the project's budgets — names for the look-alike hint,
+      // amounts for overages.
+      sdb.lineItem.findMany({
+        where:  { account: { phase: { budget: { projectId: pid } } } },
+        select: { id: true, description: true, quantity: true, rateCents: true, markupPct: true },
+      }),
+      sdb.invoice.findMany({
+        where:  { projectId: pid },
+        select: { number: true, status: true, totalCents: true, discountCents: true, isScopeAddition: true, lineItems: true },
+      }),
+    ])
+    const items = groupInvoiceableActuals({
+      entries:     sheets.flatMap(s => s.entries),
+      budgetLines: lines.map(l => ({ id: l.id, description: l.description, quantity: Number(l.quantity), rateCents: l.rateCents, markupPct: l.markupPct == null ? null : Number(l.markupPct) })),
+      invoices,
+    })
+    return { success: true, data: { items, showMargin: !!gate.project?.can('budget.margin') } }
+  } catch (err) {
+    console.error('[getInvoiceableActuals]', err)
+    return { success: false, error: 'Couldn’t load the actuals' }
+  }
 }

@@ -102,6 +102,48 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-25 — Invoices: bill extras from Actuals + "Remaining balance"
+
+- **Asked:** bill the rest of a budget plus unplanned items (Salute: a paid $3,945 deposit, a sent $2,500 photo deposit, backdrops, couriers and a prop overage already logged in Actuals). Pick items from actuals by hand at your own price (cost $800 → charge $1,000, keep the margin), without adding the agency fee.
+- **Remaining balance** (New invoice window):
+  - agreed budget − every non-void invoice's budget part (`src/lib/invoice-balance.ts`)
+  - **User rule:** outstanding and draft invoices count as billed. Void one to fold it into the final invoice.
+  - Excludes extras and added-scope invoices. Kind FINAL, one line, no fee.
+  - Salute: $6,770, or $9,270 if TTP-2026-030 is voided.
+- **Add from actuals** (New invoice, invoice-first on an existing project, Edit invoice):
+  - **Picker** `AddFromActualsDialog` ← `getInvoiceableActuals` (Invoices EDIT + Actuals VIEW). Groups:
+    - **Unplanned.** It warns on budget look-alikes (name prefix, or the line's first two words, e.g. "(West Third Films)" ~ "West Third Photography"). Deal-memo crew is never pre-ticked.
+    - **Over budget:** the overage only.
+    - **Already in the budget:** warned "bills twice".
+  - **Badges:** every item shows the invoices it's already on (void ignored).
+  - **Pricing:** charge = cost by default; type a price or +%. Cost → charge → margin shows only with Budget margin.
+  - **Storage:** lines keep `extra`, `actualEntryId`, `actualPart`, `costCents` inside `Invoice.lineItems` (no migration).
+  - **Server checks:** `resolveActualLines` (`src/lib/invoice-lines.ts`) re-costs from the DB in `createInvoice`, `updateInvoiceLineItems` and `createInvoiceFirst`; never the browser's number. Already-saved lines keep their stored cost (editing a title needs no Actuals access). Other projects' entries are refused.
+- **Totals:**
+  - `addedScopeCents` adds extras from non-scope invoices, so project value, to-invoice and outstanding include them: projects page, dashboard (replaced its scope-only groupBy), clients and client page.
+  - Actuals **Billed** (and the wrap report) = (override ?? budget) + billed extras ("incl. $X extras"). Profit and margin follow.
+  - Actuals rows show an "Invoiced · TTP-…" badge.
+- **Privacy:**
+  - `/i/[token]`, the invoice PDF and the `(preview)` page get `clientInvoiceLines` (no cost or source). Extras appear under **"Additional items"** when mixed with regular lines.
+  - In the app, `costCents` only reaches viewers with Budget margin (`internalInvoiceLines`); /invoices never gets it.
+- **Not changed:** budgets, proposals, the fee base, milestone amounts. No Salute data touched.
+- **Verified:**
+  - jest (logic + Salute numbers), tsc, lint, dark-overrides
+  - next build up to the known Resend error
+  - a read-only check on Salute's live data: a forged cost is replaced, overage $360.94, a foreign entry refused, no-access rules, balance $6,770, picker grouping
+  - public page leak check on a temporary SENT invoice (removed): no cost or source in the HTML; "Additional items" renders; PDF 200
+- **pitfall-reviewer:** no client leak and no tenancy issue. All 4 lower findings fixed:
+  - An invoice's discount now comes off the budget part first (an itemised full invoice + extras under-counted the extras).
+  - The Actuals "Invoiced" badges only show to people with Invoices access.
+  - The project overview's actuals margin includes billed extras.
+  - The invoices header splits "added scope" from "extras".
+- **Shipped as one commit:** the logic, the picker and the client grouping depend on each other, so the plan's two commits were folded into one.
+- **Manual pass (signed-in):**
+  1. Salute → New invoice → Remaining balance $6,770.
+  2. Add from actuals.
+  3. Preview as client.
+  4. Actuals shows the badges and Billed incl. extras.
+
 ### 2026-11-25 — Budget editor: "% of budget" on line items, accounts and sections (internal)
 
 - **Asked:** while editing, see what share of the budget each line item and section is (e.g. post is 30%, the director is 10%). Internal only.

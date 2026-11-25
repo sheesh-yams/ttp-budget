@@ -6,15 +6,26 @@
 // Milestone % amounts and actuals burn stay on the budget alone: 50% of the
 // agreed budget doesn't include later extras, and actuals compare to costs.
 
+import { extraCents } from '@/lib/invoice-lines'
+
 export interface ScopeInvoiceLike {
   status:          string
   totalCents:      number
   isScopeAddition?: boolean
+  /** Invoice.lineItems — extra lines (billed on top of the budget) add to the value. */
+  lineItems?:      unknown
 }
 
-/** Sum of non-void added-scope invoices. */
+/**
+ * Billed on top of the budget, from non-void invoices: whole added-scope
+ * invoices, plus extra lines (e.g. unplanned costs from Actuals) on any other
+ * invoice. An added-scope invoice's extras are already in its total.
+ */
 export function addedScopeCents(invoices: ScopeInvoiceLike[]): number {
-  return invoices.reduce((s, inv) => s + (inv.isScopeAddition && inv.status !== 'VOID' ? inv.totalCents : 0), 0)
+  return invoices.reduce((s, inv) => {
+    if (inv.status === 'VOID') return s
+    return s + (inv.isScopeAddition ? inv.totalCents : extraCents(inv))
+  }, 0)
 }
 
 /** Budget grand total + added scope. */

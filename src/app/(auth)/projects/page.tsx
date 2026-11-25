@@ -21,7 +21,7 @@ const PROJECT_SELECT = {
     select: { status: true, approvedTotalCents: true, approvedAt: true, lastViewedAt: true, sentAt: true, expiresAt: true, viewCount: true },
   },
   invoices: {
-    select: { number: true, kind: true, status: true, totalCents: true, amountPaidCents: true, dueDate: true, issueDate: true, isScopeAddition: true },
+    select: { number: true, kind: true, status: true, totalCents: true, amountPaidCents: true, dueDate: true, issueDate: true, isScopeAddition: true, lineItems: true, discountCents: true },
   },
   callSheets: { select: { status: true } },
   teamMembers: {

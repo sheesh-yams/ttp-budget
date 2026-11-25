@@ -109,7 +109,7 @@ export async function loadClientPage(db: PrismaClient, workspaceId: string, clie
     select: {
       id: true, number: true, title: true, status: true, totalCents: true, amountPaidCents: true,
       issueDate: true, dueDate: true, sentAt: true, paidAt: true, firstViewedAt: true, publicToken: true,
-      projectId: true, isScopeAddition: true, archivedAt: true,
+      projectId: true, isScopeAddition: true, archivedAt: true, lineItems: true, discountCents: true,
     },
   }) : []
 

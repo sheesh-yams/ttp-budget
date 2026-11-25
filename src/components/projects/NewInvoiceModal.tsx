@@ -11,7 +11,14 @@ import { createInvoice } from '@/server/actions/invoices'
 import { formatMoney } from '@/lib/money'
 import { calcInvoiceTotals, autoInvoiceDiscount, localISODate, addDaysISO } from '@/lib/invoice-totals'
 import type { ProposalContent, PaymentMilestone, InvoiceLineItem } from '@/types'
-import { InvoiceLineRowsEditor, blankRow, liToRow, rowToCents, rowToLineItem, rowsError, type Row } from '@/components/invoices/InvoiceLineRows'
+import { remainingBalance } from '@/lib/invoice-balance'
+import type { InvoiceForLines } from '@/lib/invoice-lines'
+
+const BALANCE_STATUS: Record<string, string> = {
+  DRAFT: 'draft', SENT: 'sent', VIEWED: 'viewed', OVERDUE: 'overdue', PAID: 'paid',
+}
+import { InvoiceLineRowsEditor, blankRow, liToRow, rowToCents, rowToLineItem, rowsError, withAddedRows, type Row } from '@/components/invoices/InvoiceLineRows'
+import { AddFromActualsButton } from '@/components/invoices/AddFromActualsDialog'
 
 // ─── Budget snapshot types ─────────────────────────────────────────────────────
 
@@ -61,11 +68,14 @@ interface Props {
   /** Pre-select a specific milestone by index (0-based). */
   defaultMilestoneIdx?: number
   invoiceExpiryDays?: number
+  /** The project's invoices — for "Remaining balance" (every non-void invoice counts as billed). */
+  priorInvoices?: InvoiceForLines[]
 }
 
 type InvoiceOption =
   | { type: 'milestone'; milestone: PaymentMilestone; amountCents: number; preDiscountAmountCents: number }
   | { type: 'full'; amountCents: number; preDiscountAmountCents: number }
+  | { type: 'balance'; amountCents: number; preDiscountAmountCents: number }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -92,6 +102,7 @@ export function NewInvoiceModal({
   budgetDiscountCents = 0,
   defaultMilestoneIdx,
   invoiceExpiryDays = 30,
+  priorInvoices,
 }: Props) {
   const router = useRouter()
 
@@ -111,6 +122,8 @@ export function NewInvoiceModal({
   const totalCents            = liveTotalCents
   const preDiscountTotalCents = liveTotalCents + budgetDiscountCents
 
+  const balance = remainingBalance({ agreedCents: totalCents, invoices: priorInvoices ?? [] })
+
   // Build options: one per milestone + "Full invoice". amountCents is the net
   // (already-discounted) amount shown to the user; preDiscountAmountCents is
   // the same slice of the pre-discount total, used to build line-item rows.
@@ -121,6 +134,12 @@ export function NewInvoiceModal({
       amountCents:            Math.round(totalCents * m.percentPct),
       preDiscountAmountCents: Math.round(preDiscountTotalCents * m.percentPct),
     })),
+    // What's left of the agreed budget after every non-void invoice (paid,
+    // sent or draft). Void one first to fold it into this one. Already net
+    // of the discount, and never adds the agency fee again.
+    ...(balance.counted.length > 0 && balance.remainingCents > 0
+      ? [{ type: 'balance' as const, amountCents: balance.remainingCents, preDiscountAmountCents: balance.remainingCents }]
+      : []),
     { type: 'full', amountCents: totalCents, preDiscountAmountCents: preDiscountTotalCents },
   ]
 
@@ -188,7 +207,7 @@ export function NewInvoiceModal({
     }
     // Milestone or fallback → single line item at the net amount: e.g. 50% of
     // the approved (post-discount) total. No discount row — it's already in.
-    const label = opt.type === 'milestone' ? opt.milestone.name : projectName
+    const label = opt.type === 'milestone' ? opt.milestone.name : opt.type === 'balance' ? 'Remaining balance' : projectName
     const amountCents = opt.amountCents
     return [{
       id: crypto.randomUUID(),
@@ -224,7 +243,8 @@ export function NewInvoiceModal({
   // Re-init rows when selection changes
   useEffect(() => {
     const opt = options[selectedIdx]
-    if (opt) setRows(buildLineItemsForOption(opt).map(liToRow))
+    // Extras added from actuals stay when the amount option changes.
+    if (opt) setRows(prev => [...buildLineItemsForOption(opt).map(liToRow), ...prev.filter(r => r.source)])
     setDiscountOverride(null)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedIdx])
@@ -282,11 +302,13 @@ export function NewInvoiceModal({
   function getAutoTitle() {
     if (!selected) return `Invoice — ${projectName}`
     if (selected.type === 'full') return `Invoice — ${projectName}`
+    if (selected.type === 'balance') return `Remaining balance — ${projectName}`
     return `${selected.milestone.name} — ${projectName}`
   }
 
   function getKind(): 'DEPOSIT' | 'PROGRESS' | 'FINAL' | 'STANDALONE' {
     if (!selected || selected.type === 'full') return 'STANDALONE'
+    if (selected.type === 'balance') return 'FINAL'
     const pct = selected.milestone.percentPct
     if (pct <= 0.35) return 'DEPOSIT'
     if (pct >= 0.80) return 'FINAL'
@@ -357,9 +379,44 @@ export function NewInvoiceModal({
             <Label className="mb-2 block text-sm">What are you invoicing for?</Label>
             <div className="space-y-2">
               {options.map((opt, idx) => {
+                const isSelected = selectedIdx === idx
+                if (opt.type === 'balance') {
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setSelectedIdx(idx)}
+                      className={`w-full rounded-lg border px-4 py-3 text-left text-sm transition-colors ${
+                        isSelected
+                          ? 'border-[#5D00A4] bg-[#F5EDFA] text-[#5D00A4]'
+                          : 'border-border hover:border-[#c9a8f0] hover:bg-muted/30 text-foreground'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="font-medium">Remaining balance</span>
+                          <span className={`ml-2 text-xs ${isSelected ? 'text-[#8B4FC3]' : 'text-muted-foreground'}`}>
+                            {formatMoney(balance.agreedCents)} − {formatMoney(balance.invoicedCents)} invoiced
+                          </span>
+                        </div>
+                        <span className="font-semibold tabular-nums">{formatMoney(opt.amountCents)}</span>
+                      </div>
+                      {isSelected && (
+                        <ul className="mt-2 space-y-0.5 text-xs text-[#8B4FC3]">
+                          {balance.counted.map((c, i) => (
+                            <li key={i} className="flex justify-between gap-4">
+                              <span>{c.number || 'Invoice'} · {BALANCE_STATUS[c.status] ?? c.status.toLowerCase()}</span>
+                              <span className="tabular-nums">{formatMoney(c.billedCents)}</span>
+                            </li>
+                          ))}
+                          <li className="pt-1 text-[11px] opacity-80">Outstanding and draft invoices count as billed — void one to fold it in here.</li>
+                        </ul>
+                      )}
+                    </button>
+                  )
+                }
                 const label = opt.type === 'full' ? 'Full invoice' : opt.milestone.name
                 const pct   = opt.type === 'milestone' ? `${Math.round(opt.milestone.percentPct * 100)}%` : '100%'
-                const isSelected = selectedIdx === idx
 
                 return (
                   <button
@@ -401,13 +458,16 @@ export function NewInvoiceModal({
                   {showLineItems ? '▲' : '▼'}
                 </span>
               </button>
-              <button
-                type="button"
-                onClick={addRow}
-                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-              >
-                <Plus className="h-3 w-3" /> Add item
-              </button>
+              <div className="flex items-center gap-3">
+                <AddFromActualsButton projectId={projectId} existing={rows} onAdd={add => { setRows(prev => withAddedRows(prev, add)); setShowLineItems(true) }} />
+                <button
+                  type="button"
+                  onClick={addRow}
+                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                >
+                  <Plus className="h-3 w-3" /> Add item
+                </button>
+              </div>
             </div>
 
             {showLineItems && <InvoiceLineRowsEditor rows={rows} onChange={setRows} />}

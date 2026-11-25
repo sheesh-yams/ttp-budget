@@ -1,3 +1,4 @@
+import { clientInvoiceLines } from '@/lib/invoice-lines'
 import { notFound } from 'next/navigation'
 import { db } from '@/lib/db'
 import { InvoicePublicView } from '@/components/invoice/InvoicePublicView'
@@ -97,5 +98,6 @@ export default async function PublicInvoicePage({ params }: Props) {
     (provider === 'HELCIM' && paymentConfig?.helcimEnabled === true) ||
     (provider === 'STRIPE' && paymentConfig?.stripeChargesEnabled === true)
 
-  return <InvoicePublicView invoice={invoice} paymentEnabled={paymentEnabled} />
+  // Only what the client may see of each line (no costs or actuals links).
+  return <InvoicePublicView invoice={{ ...invoice, lineItems: clientInvoiceLines(invoice.lineItems) as unknown as typeof invoice.lineItems }} paymentEnabled={paymentEnabled} />
 }

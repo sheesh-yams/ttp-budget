@@ -205,6 +205,11 @@ export function ProjectInvoicesPage({
     KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind)
   )
 
+  // What the value adds on top of the budget: whole added-scope invoices,
+  // and extras (e.g. from actuals) on ordinary invoices.
+  const scopeCents  = invoices.reduce((s, i) => s + (i.isScopeAddition && i.status !== 'VOID' ? i.totalCents : 0), 0)
+  const extrasCents = Math.max(0, valueCents - budgetTotalCents - scopeCents)
+
   return (
     <div className="space-y-8">
       {/* ── Header ─────────────────────────────────────────────────────── */}
@@ -216,7 +221,10 @@ export function ProjectInvoicesPage({
               {formatMoney(totalInvoiced)} invoiced
               {totalPaid > 0 && ` · ${formatMoney(totalPaid)} paid`}
               {' '}of {formatMoney(valueCents)} total
-              {valueCents !== budgetTotalCents && ` (incl. ${formatMoney(valueCents - budgetTotalCents)} added scope)`}
+              {(scopeCents > 0 || extrasCents > 0) && ` (incl. ${[
+                scopeCents > 0 ? `${formatMoney(scopeCents)} added scope` : '',
+                extrasCents > 0 ? `${formatMoney(extrasCents)} extras` : '',
+              ].filter(Boolean).join(' + ')})`}
             </p>
           )}
         </div>
@@ -433,6 +441,7 @@ export function ProjectInvoicesPage({
 
                           {canEdit && (
                             <EditInvoiceModal
+                              projectId={project.id}
                               invoiceId={inv.id}
                               invoiceNumber={inv.number}
                               existingItems={(inv.lineItems as InvoiceLineItem[]) ?? []}
@@ -541,6 +550,7 @@ export function ProjectInvoicesPage({
           liveTotalCents={budgetTotalCents}
           budgetDiscountCents={budgetDiscountCents}
           defaultMilestoneIdx={newInvMilestoneIdx}
+          priorInvoices={invoices}
           invoiceExpiryDays={invoiceExpiryDays}
         />
       )}

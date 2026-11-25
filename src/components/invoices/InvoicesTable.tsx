@@ -209,6 +209,7 @@ export function InvoicesTable({ invoices, editableProjectIds = null }: {
                       {/* Edit line items */}
                       {canEdit && (
                         <EditInvoiceModal
+                          projectId={inv.project.id}
                           invoiceId={inv.id}
                           invoiceNumber={inv.number}
                           existingItems={(inv.lineItems as InvoiceLineItem[] | null) ?? []}

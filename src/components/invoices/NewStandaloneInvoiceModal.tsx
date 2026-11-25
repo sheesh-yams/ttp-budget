@@ -21,7 +21,8 @@ import { formatMoney } from '@/lib/money'
 import { calcInvoiceTotals, localISODate, addDaysISO } from '@/lib/invoice-totals'
 import { createInvoiceFirst } from '@/server/actions/invoice-first'
 import { SendInvoiceModal } from '@/components/invoice/SendInvoiceModal'
-import { InvoiceLineRowsEditor, blankRow, rowToCents, rowToLineItem, rowsError, type Row } from '@/components/invoices/InvoiceLineRows'
+import { InvoiceLineRowsEditor, blankRow, rowToCents, rowToLineItem, rowsError, withAddedRows, type Row } from '@/components/invoices/InvoiceLineRows'
+import { AddFromActualsButton } from '@/components/invoices/AddFromActualsDialog'
 
 export interface InvoiceableProject {
   id:         string
@@ -330,13 +331,19 @@ export function NewStandaloneInvoiceModal({
           <div>
             <div className="flex items-center justify-between mb-2">
               <Label className="text-sm">Line items</Label>
-              <button
-                type="button"
-                onClick={() => setRows(r => [...r, blankRow()])}
-                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-              >
-                <Plus className="h-3 w-3" /> Add item
-              </button>
+              <div className="flex items-center gap-3">
+                {/* Extras from an existing project's actuals (a new project has none). */}
+                {mode === 'existing' && selectedProject && (
+                  <AddFromActualsButton projectId={selectedProject.id} existing={rows} onAdd={add => setRows(r => withAddedRows(r, add))} />
+                )}
+                <button
+                  type="button"
+                  onClick={() => setRows(r => [...r, blankRow()])}
+                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                >
+                  <Plus className="h-3 w-3" /> Add item
+                </button>
+              </div>
             </div>
             <InvoiceLineRowsEditor rows={rows} onChange={setRows} autoFocusFirst={!!lockedProject} />
           </div>

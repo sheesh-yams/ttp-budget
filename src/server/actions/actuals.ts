@@ -9,6 +9,7 @@ import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountCon
 import { lineTotal } from '@/lib/money'
 import type { ActionResult } from '@/types'
 import { applyDealMemosToActualSheet } from '@/lib/deal-memo-actuals'
+import { billedExtrasCents } from '@/lib/invoice-lines'
 
 /** An actual entry only if its sheet is in the caller's workspace. */
 async function entryInActiveWorkspace(entryId: string) {
@@ -658,9 +659,11 @@ export async function getWrapReportData(
       discountConfig,
     )
 
-    // Net of discount — real billed revenue, matches the proposal/invoice/editor total.
-    const billedCents      = (sheet as unknown as { revenueOverrideCents: number | null }).revenueOverrideCents
-                              ?? totals.grandTotalCents
+    // Net of discount — real billed revenue, matches the proposal/invoice/editor
+    // total — plus extras billed on top (e.g. unplanned costs from actuals).
+    const projectInvoices  = await sdb.invoice.findMany({ where: { projectId }, select: { status: true, totalCents: true, discountCents: true, isScopeAddition: true, lineItems: true } })
+    const billedCents      = ((sheet as unknown as { revenueOverrideCents: number | null }).revenueOverrideCents
+                              ?? totals.grandTotalCents) + billedExtrasCents(projectInvoices)
     const totalBudgetCents = totals.grandTotalCents
 
     // ── Aggregate actuals by accountId ────────────────────────────────────────

@@ -178,6 +178,10 @@ export function InvoicePDF({ invoice }: { invoice: InvoicePDFData }) {
   const MINT  = safeHex(invoice.brandAccent || DEFAULT_MINT)
   const s    = makeStyles(V, MINT)
   const lineItems  = invoice.lineItems ?? []
+  // The agreed work first, then extras (e.g. unplanned costs) under their own heading.
+  const orderedLines  = [...lineItems.filter(l => !l.extra), ...lineItems.filter(l => l.extra)]
+  const firstExtraIdx = orderedLines.findIndex(l => l.extra)
+  const mixedExtras   = firstExtraIdx > 0
   const taxPct     = Number(invoice.taxPct)
   const isPaid     = invoice.amountPaidCents >= invoice.totalCents || invoice.status === 'PAID'
   const balanceDue = invoice.totalCents - invoice.amountPaidCents
@@ -293,14 +297,22 @@ export function InvoicePDF({ invoice }: { invoice: InvoicePDFData }) {
                 <Text style={[s.thText, s.colRate]}>Rate</Text>
                 <Text style={[s.thText, s.colTotal]}>Total</Text>
               </View>
-              {lineItems.map((item, idx) => (
-                <View key={item.id ?? idx} style={[s.tableRow, idx === lineItems.length - 1 ? s.tableLast : {}]}>
-                  <Text style={[s.rowNum, s.colNum]}>{String(idx + 1).padStart(2, '0')}</Text>
-                  <Text style={[s.tdDesc, s.colDesc]}>{item.description}</Text>
-                  <Text style={[s.tdMut, s.colQty]}>{item.quantity}</Text>
-                  <Text style={[s.tdMut, s.colUnit]}>{String(item.unit)}</Text>
-                  <Text style={[s.tdMut, s.colRate]}>{formatMoney(item.rateCents)}</Text>
-                  <Text style={[s.tdAmt, s.colTotal]}>{formatMoney(item.lineTotalCents)}</Text>
+              {orderedLines.map((item, idx) => (
+                <View key={item.id ?? idx}>
+                  {/* Extras billed on top of the agreed work get their own heading. */}
+                  {mixedExtras && idx === firstExtraIdx && (
+                    <View style={s.tableHead}>
+                      <Text style={s.thText}>Additional items</Text>
+                    </View>
+                  )}
+                  <View style={[s.tableRow, idx === orderedLines.length - 1 ? s.tableLast : {}]}>
+                    <Text style={[s.rowNum, s.colNum]}>{String(idx + 1).padStart(2, '0')}</Text>
+                    <Text style={[s.tdDesc, s.colDesc]}>{item.description}</Text>
+                    <Text style={[s.tdMut, s.colQty]}>{item.quantity}</Text>
+                    <Text style={[s.tdMut, s.colUnit]}>{String(item.unit)}</Text>
+                    <Text style={[s.tdMut, s.colRate]}>{formatMoney(item.rateCents)}</Text>
+                    <Text style={[s.tdAmt, s.colTotal]}>{formatMoney(item.lineTotalCents)}</Text>
+                  </View>
                 </View>
               ))}
             </View>

@@ -7,6 +7,7 @@ import { Plus, ExternalLink, Eye, Clock, Send, FileText, Pencil, Receipt, CheckC
 import { ReopenProposalDialog } from '@/components/proposals/ReopenProposalDialog'
 import { canReopenProposal, isPastValidThrough } from '@/lib/proposal-expiry'
 import { formatCalendarDate } from '@/lib/time-zone'
+import type { InvoiceForLines } from '@/lib/invoice-lines'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ProposalModal, type ProposalModalMode } from './ProposalModal'
@@ -54,6 +55,8 @@ interface Props {
   contractAccess?: 'NONE' | 'VIEW' | 'EDIT'
   /** The studio's time zone — a proposal is valid to the end of its date there. */
   timeZone?: string
+  /** The project's invoices — for the New invoice window's "Remaining balance". */
+  priorInvoices?: InvoiceForLines[]
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; select: string; icon: React.ReactNode }> = {
@@ -93,7 +96,7 @@ function extractFromContent(content: unknown): {
   }
 }
 
-export function ProjectProposals({ proposals, projectId, projectName, clientId, budgetId, totalCents, clientEmail = null, defaultCc = [], people = [], proposalExpiryDays = 30, invoiceExpiryDays = 30, allowEdit = true, allowInvoice = true, contractAccess = 'EDIT', timeZone }: Props) {
+export function ProjectProposals({ proposals, projectId, projectName, clientId, budgetId, totalCents, clientEmail = null, defaultCc = [], people = [], proposalExpiryDays = 30, invoiceExpiryDays = 30, allowEdit = true, allowInvoice = true, contractAccess = 'EDIT', timeZone, priorInvoices }: Props) {
   const router = useRouter()
 
   // Proposal modal state
@@ -439,6 +442,7 @@ export function ProjectProposals({ proposals, projectId, projectName, clientId, 
           }}
           liveTotalCents={totalCents}
           invoiceExpiryDays={invoiceExpiryDays}
+          priorInvoices={priorInvoices}
         />
       )}
 

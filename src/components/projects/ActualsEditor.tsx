@@ -29,7 +29,14 @@ interface Props {
   canEdit:         boolean
   /** Budget margin VIEW — billed, profit, margin % and the wrap report. */
   showMargin:      boolean
+  /** Entry id → invoices it's billed on ("TTP-2026-031 · sent"). */
+  invoicedOn?:     Record<string, string[]>
+  /** Extras billed from actuals on non-void invoices (margin viewers only). */
+  billedExtrasCents?: number
 }
+
+// Which invoices each entry is billed on — read by the rows.
+const InvoicedOnContext = createContext<Record<string, string[]>>({})
 
 // Rows are nested a few components deep; they read edit rights from here.
 const ActualsEditable = createContext(true)
@@ -64,7 +71,7 @@ function VariancePill({ budgeted, actual }: { budgeted: number; actual: number }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents, canEdit, showMargin }: Props) {
+export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents, canEdit, showMargin, invoicedOn = {}, billedExtrasCents = 0 }: Props) {
   const router   = useRouter()
   const [creating, startCreate] = useTransition()
 
@@ -150,7 +157,8 @@ export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents,
   // ── Summary calculations ──────────────────────────────────────────────────
 
   const totalSpentCents = Object.values(actuals).reduce((sum, v) => sum + v, 0)
-  const billedCents     = sheet.revenueOverrideCents ?? budgetTotalCents
+  // Plus extras billed on top of the budget from these actuals.
+  const billedCents     = (sheet.revenueOverrideCents ?? budgetTotalCents) + billedExtrasCents
   const profitCents     = billedCents - totalSpentCents
   const marginPct       = billedCents > 0 ? (profitCents / billedCents) * 100 : 0
   // Line costs only (no markup) — what someone without margin access sees.
@@ -233,6 +241,7 @@ export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents,
 
   return (
     <ActualsEditable.Provider value={canEdit}>
+    <InvoicedOnContext.Provider value={invoicedOn}>
     <div className="space-y-6">
 
       {/* ── Entry detail sidebar ───────────────────────────────────────────── */}
@@ -264,7 +273,7 @@ export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents,
         </div>
       ) : (
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <SummaryCard label="Billed" value={formatMoney(billedCents)} sub="client agreed to pay" />
+        <SummaryCard label="Billed" value={formatMoney(billedCents)} sub={billedExtrasCents > 0 ? `incl. ${formatMoney(billedExtrasCents)} extras` : 'client agreed to pay'} />
         <SummaryCard label="Spent" value={formatMoney(totalSpentCents)} sub="actual cost to date" />
         <SummaryCard
           label="Profit"
@@ -343,6 +352,7 @@ export function ActualsEditor({ project, budget, phase, sheet, budgetTotalCents,
         </div>
       )}
     </div>
+    </InvoicedOnContext.Provider>
     </ActualsEditable.Provider>
   )
 }
@@ -632,6 +642,8 @@ function LineRow({
   const [focused, setFocused] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const canEdit = useContext(ActualsEditable)
+  const invoicedMap = useContext(InvoicedOnContext)
+  const billedOn = entryId ? invoicedMap[entryId] : undefined
 
   return (
     <div className="grid grid-cols-[1fr_auto] items-center gap-2 px-4 py-2 hover:bg-muted/20 sm:grid-cols-[1fr_120px_140px_110px]">
@@ -658,6 +670,14 @@ function LineRow({
             </span>
           )}
           <span className="truncate text-sm text-foreground">{description}</span>
+          {billedOn && billedOn.length > 0 && (
+            <span
+              className="shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700"
+              title={`Billed to the client on ${billedOn.join(', ')}`}
+            >
+              Invoiced · {billedOn[0].split(' · ')[0]}{billedOn.length > 1 ? ` +${billedOn.length - 1}` : ''}
+            </span>
+          )}
         </div>
         {isAdHoc && entryDate && (
           <span className="text-[11px] text-muted-foreground pl-0.5">

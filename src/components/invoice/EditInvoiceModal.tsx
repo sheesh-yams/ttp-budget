@@ -33,6 +33,8 @@ import { getInvoiceBillTo, setInvoiceBillTo, updateInvoiceLineItems } from '@/se
 import { ClientPersonSelect } from '@/components/clients/ClientPersonPicker'
 import type { ClientPerson } from '@/lib/client-people'
 import type { InvoiceLineItem } from '@/types'
+import { SourceTag, sourceOf, withAddedRows, type Row as SharedRow, type RowSource } from '@/components/invoices/InvoiceLineRows'
+import { AddFromActualsButton } from '@/components/invoices/AddFromActualsDialog'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -61,6 +63,8 @@ interface EditInvoiceModalProps {
   currentDiscountCents?: number
   trigger:        (open: () => void) => React.ReactNode
   onSaved?:       () => void
+  /** Shows "Add from actuals" (needs Actuals access — the server checks). */
+  projectId?:     string
 }
 
 // Editable row type (rate/qty as strings so inputs don't fight)
@@ -71,6 +75,8 @@ interface Row {
   unit:        Unit
   rate:        string   // display dollars, e.g. "1250.00"
   notes:       string
+  /** An extra billed from Actuals — kept on save (the server re-costs it). */
+  source?:     RowSource
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -89,6 +95,7 @@ function toRow(li: InvoiceLineItem): Row {
     unit:        li.unit as Unit,
     rate:        (li.rateCents / 100).toFixed(2),
     notes:       li.notes ?? '',
+    source:      sourceOf(li),
   }
 }
 
@@ -114,6 +121,7 @@ function toLineItem(row: Row): InvoiceLineItem {
     rateCents,
     lineTotalCents: Math.round(qty * rateCents),
     notes:          row.notes || undefined,
+    ...(row.source ?? {}),
   }
 }
 
@@ -131,6 +139,7 @@ export function EditInvoiceModal({
   currentDiscountCents = 0,
   trigger,
   onSaved,
+  projectId,
 }: EditInvoiceModalProps) {
   const [open, setOpen]       = useState(false)
   const [isPending, start]    = useTransition()
@@ -305,13 +314,18 @@ export function EditInvoiceModal({
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <Label>Line Items</Label>
-                    <button
-                      type="button"
-                      onClick={addRow}
-                      className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                    >
-                      <Plus className="h-3 w-3" /> Add item
-                    </button>
+                    <div className="flex items-center gap-3">
+                      {projectId && (
+                        <AddFromActualsButton projectId={projectId} existing={rows as SharedRow[]} onAdd={add => setRows(prev => withAddedRows(prev as SharedRow[], add) as Row[])} />
+                      )}
+                      <button
+                        type="button"
+                        onClick={addRow}
+                        className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                      >
+                        <Plus className="h-3 w-3" /> Add item
+                      </button>
+                    </div>
                   </div>
 
                   {/* Header row */}
@@ -396,6 +410,12 @@ export function EditInvoiceModal({
                     <div className="mt-3 space-y-2">
                       {rows.map((row, idx) => (
                         <div key={`notes-${row.id}`} className="pl-1">
+                          {row.source && (
+                            <div className="mb-0.5 flex gap-2 text-[11px]">
+                              <span className="font-medium text-foreground/80 truncate">{row.description || 'Item'}:</span>
+                              <SourceTag source={row.source} chargeCents={rowTotal(row)} />
+                            </div>
+                          )}
                           <input
                             type="text"
                             value={row.notes}

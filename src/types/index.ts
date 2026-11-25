@@ -192,6 +192,14 @@ export interface InvoiceLineItem {
   rateCents: number
   lineTotalCents: number
   notes?: string
+  /** Billed on top of the agreed budget (e.g. an unplanned cost from actuals). */
+  extra?: boolean
+  /** The ActualEntry this line bills — internal, never sent to the client. */
+  actualEntryId?: string
+  /** 'overage': only the part over its budget line was billed. */
+  actualPart?: 'overage'
+  /** What it cost you (from the actual, set server-side) — internal. */
+  costCents?: number
 }
 
 // ─── Rate card autocomplete ───────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 'use client'
 
+import { Fragment } from 'react'
 import { formatMoney } from '@/lib/money'
 import { readSnapshot } from '@/lib/client-people'
 import { lighten, darken, safeHex } from '@/lib/color'
@@ -65,6 +66,10 @@ export function InvoicePublicView({
   paymentEnabled?: boolean
 }) {
   const lineItems = (invoice.lineItems as unknown as InvoiceLineItem[]) ?? []
+  // The agreed work first, then extras (e.g. unplanned costs) under their own heading.
+  const orderedLines  = [...lineItems.filter(l => !l.extra), ...lineItems.filter(l => l.extra)]
+  const firstExtraIdx = orderedLines.findIndex(l => l.extra)
+  const mixedExtras   = firstExtraIdx > 0
   const workspace = invoice.workspace
   const client    = invoice.client
   const project   = invoice.project
@@ -318,8 +323,17 @@ export function InvoicePublicView({
                   </tr>
                 </thead>
                 <tbody>
-                  {lineItems.map((item, idx) => (
-                    <tr key={item.id ?? idx} style={{ borderBottom: `0.5px solid ${BORDER}`, background: '#fff' }}>
+                  {orderedLines.map((item, idx) => (
+                    <Fragment key={item.id ?? idx}>
+                    {/* Extras billed on top of the agreed work get their own heading. */}
+                    {mixedExtras && idx === firstExtraIdx && (
+                      <tr style={{ background: CANVAS, borderBottom: `0.5px solid ${BORDER}` }}>
+                        <td colSpan={5} style={{ padding: '10px 20px', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED }}>
+                          Additional items
+                        </td>
+                      </tr>
+                    )}
+                    <tr style={{ borderBottom: `0.5px solid ${BORDER}`, background: '#fff' }}>
                       <td style={{ padding: '13px 20px', fontSize: 14, color: BODY }}>
                         {item.description}
                         {item.notes && (
@@ -339,6 +353,7 @@ export function InvoicePublicView({
                         {formatMoney(item.lineTotalCents)}
                       </td>
                     </tr>
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
