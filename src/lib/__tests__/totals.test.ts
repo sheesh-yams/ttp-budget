@@ -1,4 +1,4 @@
-import { calcBudgetTotals, type AccountInput } from '@/lib/totals'
+import { calcBudgetTotals, formatShare, type AccountInput } from '@/lib/totals'
 
 // $1,000 subtotal via a single line item (qty 1 × $1,000).
 const accounts: AccountInput[] = [
@@ -73,5 +73,26 @@ describe('calcBudgetTotals — order of operations', () => {
     // preTax = 100,000; afterDiscount = 70,000; tax = 7,000
     expect(t.taxCents).toBe(7_000)
     expect(t.grandTotalCents).toBe(77_000)
+  })
+})
+
+describe('formatShare (internal % of budget)', () => {
+  it('shows a part of the line-item subtotal', () => {
+    expect(formatShare(30_000_00, 100_000_00)).toBe('30%')
+    expect(formatShare(4_550_00, 100_000_00)).toBe('4.6%')
+    expect(formatShare(5_000_00, 100_000_00)).toBe('5%')
+    expect(formatShare(100_000_00, 100_000_00)).toBe('100%')
+    expect(formatShare(33_333, 100_000)).toBe('33%')
+    expect(formatShare(50, 100_000_00)).toBe('<0.1%')
+    expect(formatShare(0, 100_000_00)).toBe('0%')
+  })
+  it('a credit line reads negative; nothing to compare against → null', () => {
+    expect(formatShare(-2_000_00, 100_000_00)).toBe('-2%')
+    expect(formatShare(-50, 100_000_00)).toBe('-<0.1%')
+    expect(formatShare(-4_550, 100_000)).toBe('-4.6%')
+    expect(formatShare(4_550, 100_000)).toBe('4.6%')
+    expect(formatShare(99_960, 100_000)).toBe('>99%')
+    expect(formatShare(100, 0)).toBeNull()
+    expect(formatShare(100, -5)).toBeNull()
   })
 })

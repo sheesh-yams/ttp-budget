@@ -18,7 +18,8 @@ import { applyPendingOps, findRow, replaceRowId, rollbackRow, rowFromInput, type
 import { InsertPackageModal } from './InsertPackageModal'
 import { BudgetSourcePickerModal } from './BudgetSourcePickerModal'
 import { BudgetSummaryBar } from './BudgetSummaryBar'
-import { BudgetVisibilityContext, useBudgetVisibility } from './budget-visibility-context'
+import { cn } from '@/lib/utils'
+import { BudgetVisibilityContext, useBudgetVisibility, BudgetShareContext, useBudgetShareBase } from './budget-visibility-context'
 import { BulkImportModal } from '@/components/budget/BulkImportModal'
 import {
   deleteLineItem, addAccount, upsertLineItem, deleteAccount,
@@ -31,7 +32,7 @@ import {
   reorderBudgetSections, moveAccountToSection, dismissSectionsNudge,
 } from '@/server/actions/sections'
 import { formatMoney, lineTotal, centsToRate, rateToCents, parseQtyFormula, fmtUnit } from '@/lib/money'
-import { sumAccount, calcBudgetTotals, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
+import { sumAccount, calcBudgetTotals, formatShare, type AccountInput, type BudgetDiscountConfig } from '@/lib/totals'
 import type { BudgetWithPhases, AccountWithItems, SectionSummary } from '@/types'
 import { useRouter } from 'next/navigation'
 import type { RateUnit } from '@prisma/client'
@@ -1169,6 +1170,8 @@ function PhaseView({
       )}
 
       <div className="overflow-x-auto rounded-xl border">
+        {/* Internal "% of budget" hints divide by this version's line items. */}
+        <BudgetShareContext.Provider value={showCosts ? phaseDiscountTotals.subtotalCents : 0}>
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-muted/50 text-xs font-medium text-muted-foreground">
@@ -1187,7 +1190,7 @@ function PhaseView({
               <th className="px-3 py-2.5 text-right w-14" title="Headcount — how many people of this role">Qty</th>
               <th className="px-3 py-2.5 text-right w-32" title="Billing unit — days, weeks, or flat">Unit</th>
               <th className="px-3 py-2.5 text-right w-28">{showCosts ? 'Rate' : ''}</th>
-              <th className="px-3 py-2.5 text-right w-28">{showCosts ? 'Total' : ''}</th>
+              <th className={`px-3 py-2.5 text-right ${showCosts ? 'w-40' : 'w-28'}`} title={showCosts ? 'Share of this version’s line items (before fee, discount and tax) — only shown here, never to clients' : undefined}>{showCosts ? 'Total' : ''}</th>
               <th className="w-16" />
             </tr>
           </thead>
@@ -1198,10 +1201,12 @@ function PhaseView({
             {/* ── Multi-section mode: render section dividers + grouped accounts ── */}
             {multiSection && localSections.map((section, sectionIdx) => {
               const sectionAccounts = accountsBySection[section.id] ?? []
+              const sectionCents = sectionAccounts.reduce((sum, acc) => sum + sumAccount(acc as unknown as AccountInput), 0)
               return (
                 <SectionRows
                   key={section.id}
                   section={section}
+                  totalCents={showCosts ? sectionCents : null}
                   sectionIdx={sectionIdx}
                   totalSections={localSections.length}
                   isRenaming={renamingSection === section.id}
@@ -1246,6 +1251,7 @@ function PhaseView({
             )}
           </tbody>
         </table>
+        </BudgetShareContext.Provider>
       </div>
 
       {/* ── Inline add-account form ──────────────────────────────────────────── */}
@@ -1376,14 +1382,34 @@ function PhaseView({
 
 // ─── Section rows (divider + accounts wrapper) ────────────────────────────────
 
+/**
+ * A small "% of budget" next to a total — internal only (the budget editor;
+ * never proposals, PDFs or client pages). Hidden when costs are hidden.
+ */
+function ShareHint({ cents, className }: { cents: number; className?: string }) {
+  const base = useBudgetShareBase()
+  const share = formatShare(cents, base)
+  if (!share) return null
+  return (
+    <span
+      className={cn('mr-2 text-[11px] font-normal tabular text-muted-foreground', className)}
+      title="Share of this version’s line items (before fee, discount and tax)"
+    >
+      {share}
+    </span>
+  )
+}
+
 function SectionRows({
-  section, sectionIdx, totalSections,
+  section, sectionIdx, totalSections, totalCents,
   isRenaming, renameVal, onRenameValChange,
   onRenameStart, onRenameCommit, onRenameCancel,
   onMoveUp, onMoveDown, onDelete, onDropAccount,
   readOnly, children,
 }: {
   section:             SectionSummary
+  /** The section's line items, when costs are visible (null = hidden). */
+  totalCents:          number | null
   sectionIdx:          number
   totalSections:       number
   isRenaming:          boolean
@@ -1451,7 +1477,15 @@ function SectionRows({
             )}
           </div>
         </td>
-        <td colSpan={4} />
+        <td colSpan={3} />
+        <td className="px-3 py-2.5 text-right whitespace-nowrap">
+          {totalCents != null && (
+            <>
+              <ShareHint cents={totalCents} className="text-white/60" />
+              <span className="tabular text-sm font-semibold text-white/90">{formatMoney(totalCents)}</span>
+            </>
+          )}
+        </td>
         <td className="px-2 py-2.5">
           {!readOnly && !isRenaming && (
             <div className="relative flex items-center justify-end gap-0.5" ref={menuRef}>
@@ -1960,8 +1994,8 @@ function AccountRows({
 
         <td /><td /><td />
 
-        <td className="px-3 py-2 text-right tabular font-semibold">
-          {showCosts && formatMoney(totalCents)}
+        <td className="px-3 py-2 text-right tabular font-semibold whitespace-nowrap">
+          {showCosts && <><ShareHint cents={totalCents} />{formatMoney(totalCents)}</>}
         </td>
 
         {/* Add item + Delete section */}
@@ -2106,8 +2140,11 @@ function AccountRows({
             </td>
 
             {/* Total */}
-            <td className="px-3 py-1.5 text-right tabular font-medium">
-              {showCosts && formatMoney(lineTotal(Number(item.quantity), item.rateCents, Number(item.markupPct) || null))}
+            <td className="px-3 py-1.5 text-right tabular font-medium whitespace-nowrap">
+              {showCosts && (() => {
+                const cents = lineTotal(Number(item.quantity), item.rateCents, Number(item.markupPct) || null)
+                return <><ShareHint cents={cents} />{formatMoney(cents)}</>
+              })()}
             </td>
 
             {/* Actions */}

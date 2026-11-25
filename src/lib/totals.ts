@@ -110,3 +110,25 @@ export function evalQuantity(
     return quantity
   }
 }
+
+/**
+ * A part's share of the budget, for the internal "% of budget" hints in the
+ * budget editor (never client-facing). `wholeCents` is the version's
+ * line-item subtotal (before fee, discount and tax), so the parts add up to
+ * 100%. One decimal under 10%, whole numbers above; null when there's
+ * nothing to compare against.
+ */
+export function formatShare(partCents: number, wholeCents: number): string | null {
+  if (!(wholeCents > 0) || !Number.isFinite(partCents)) return null
+  if (partCents === 0) return '0%'
+  // Rounded on the size, then signed — a credit reads like the same-size charge.
+  const sign = partCents < 0 ? '-' : ''
+  const abs = (Math.abs(partCents) / wholeCents) * 100
+  let body: string
+  if (abs < 0.1) body = '<0.1'
+  else if (abs < 10) body = (Math.round(abs * 10) / 10).toFixed(1).replace(/\.0$/, '')
+  // Only the whole budget is "100%"; 99.6% of it reads ">99%".
+  else if (abs < 100 && Math.round(abs) === 100) body = '>99'
+  else body = String(Math.round(abs))
+  return `${sign}${body}%`
+}

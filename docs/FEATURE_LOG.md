@@ -102,6 +102,22 @@ Run each through `/feature`. Check the overlap first:
 
 ## Shipped
 
+### 2026-11-25 — Budget editor: "% of budget" on line items, accounts and sections (internal)
+
+- **Asked:** while editing, see what share of the budget each line item and section is (e.g. post is 30%, the director is 10%). Internal only.
+- **Built:**
+  - A small grey percentage left of each total in the budget editor: line items, accounts, and the multi-section divider rows. Those rows now also show the section's dollar total.
+  - The base is the version's line-item subtotal (`calcBudgetTotals().subtotalCents`, before fee, discount and tax), so parts add up to 100%. Each phase/version uses its own subtotal.
+  - `formatShare` (`src/lib/totals.ts`, tested): one decimal under 10%; "<0.1%"; ">99%" for a part that isn't the whole; credits are signed the same way as charges.
+  - `BudgetShareContext` (`budget-visibility-context.tsx`) is 0 when costs are hidden, so there are no hints for those roles.
+- **Internal only:** `BudgetEditor` is used only by the signed-in budget page. Proposals, PDFs, public pages and in-app client previews are untouched. Margin-blind viewers get net data (`stripBudgetForAccess`), so their percentages reveal no markup.
+- **Verified:**
+  - tsc, jest 649, lint, dark-overrides
+  - next build up to the known Resend error
+  - a read-only check on Summer Edit: Production 48%, Post 16%, Director 7.1%; accounts add up to 100.00%
+  - **pitfall-reviewer:** no leaks. Two low findings fixed (negative/edge rounding; the empty wider column for cost-hidden viewers).
+- **Decision to revisit if asked:** % of the client price (grand total) instead of the line-item subtotal.
+
 ### 2026-11-24 — Settings → Company wouldn't save
 
 - **Cause:** an empty leftover workspace (`cmq89lp7f0000gfgg6mevwd5u`, created 2026-06-10; no Clerk org, members or data) was also named "The Third Place". `updateCompanySettings` refuses a name another workspace uses, so every Company save failed. The UI showed only "Error — retry".

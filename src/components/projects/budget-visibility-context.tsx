@@ -20,3 +20,13 @@ export const BudgetVisibilityContext = createContext({
 export function useBudgetVisibility() {
   return useContext(BudgetVisibilityContext)
 }
+
+/**
+ * The version's line-item subtotal (before fee, discount and tax) — what the
+ * editor's internal "% of budget" hints divide by. 0 = no hints.
+ */
+export const BudgetShareContext = createContext(0)
+
+export function useBudgetShareBase() {
+  return useContext(BudgetShareContext)
+}
